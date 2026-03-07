@@ -1,0 +1,62 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Launch Program (CodeLLDB): With Save",
+            "program": "${workspaceFolder}/dosierskanilo",
+            "args": [
+                "--path=./",
+                "-r",
+                "--json=.filescanner.json",
+                "-v",
+                // "-s",
+                "-y",
+                "-m", // "--rescan-mediasig",
+                "-c",
+                // "-o",
+                "-a",
+                "-z",
+                "-w","-f",
+                "-t0"
+            ],
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Launch Program (CodeLLDB): No Save",
+            "program": "${workspaceFolder}/filescanner",
+            "args": [
+                "--path=./",
+                "-r",
+                "--json=.filescanner.json",
+                "-v",
+                // "-s",
+                "-y",
+                "-m", // "--rescan-mediasig",
+                "-c",
+                // "-o",
+                "-a",
+                "-z",
+                //"-w","-f",
+                "-t0"
+            ],
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Launch Testbench (CodeLLDB)",
+            "program": "${workspaceFolder}/dosierskanilo-test-application",
+            "args": [
+                "--",
+                "-v",
+                // "-i", "class FileArchive7z"
+            ],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
