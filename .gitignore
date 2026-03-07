@@ -1,0 +1,17 @@
+.dub
+docs.json
+__dummy.html
+docs/
+./dosierskanilo
+./dosierskanilo.so
+./dosierskanilo.dylib
+./dosierskanilo.dll
+./dosierskanilo.a
+./dosierskanilo.lib
+./dosierskanilo-test-*
+*.exe
+*.o
+*.obj
+*.lst
+*~
+files

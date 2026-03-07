@@ -1,0 +1,123 @@
+{
+    "dataArray": [
+        {
+            "checkSums": {
+                "md5sum_b64": "CJDSa\/B3y0CdbYM+kidLhg==",
+                "sha1sum_b64": "K8ByyTS7PbXAvLXGiMJ9LnR+UF4=",
+                "xxh64sum_b64": "KiyG+pLPliI="
+            },
+            "fileName": ".\/Ala (2009).mkv",
+            "fileSize": 417386425,
+            "mediaInfoSig": {
+                "audioStreams": [
+                    {
+                        "channels": 6,
+                        "duration": "1 h 16 min",
+                        "format": "AAC",
+                        "language": "?"
+                    }
+                ],
+                "videoStreams": [
+                    {
+                        "duration": "1 h 16 min",
+                        "format": "HEVC",
+                        "frameRate": 25.0,
+                        "height": 552,
+                        "language": "un",
+                        "width": 720
+                    }
+                ]
+            },
+            "timeLastModified": "2021-09-03T23:43:38"
+        },
+        {
+            "checkSums": {
+                "md5sum_b64": "9qn6E\/UC8BNYnr02XBdz9w==",
+                "sha1sum_b64": "sy9qC0G3pDgGT0XQd7718p6uOaU=",
+                "xxh64sum_b64": "J2QgCE7ZzCQ="
+            },
+            "fileName": ".\/Pizza (1955).mkv",
+            "fileSize": 3378416309,
+            "mediaInfoSig": {
+                "audioStreams": [
+                    {
+                        "channels": 2,
+                        "duration": "1 h 46 min",
+                        "format": "AAC",
+                        "language": "?"
+                    },
+                    {
+                        "channels": 6,
+                        "duration": "1 h 46 min",
+                        "format": "AAC",
+                        "index": 1,
+                        "language": "?"
+                    }
+                ],
+                "textStreams": [
+                    {
+                        "format": "en",
+                        "frameRate": 0.0,
+                        "language": "ASS"
+                    }
+                ],
+                "videoStreams": [
+                    {
+                        "duration": "1 h 46 min",
+                        "format": "HEVC",
+                        "frameRate": 23.9759998321533203,
+                        "height": 1080,
+                        "language": "un",
+                        "width": 1920
+                    }
+                ]
+            },
+            "timeLastModified": "2021-06-24T20:41:53"
+        },
+        {
+            "checkSums": {
+                "md5sum_b64": "SIpHDEWqcV6eXeUATwbaeA==",
+                "sha1sum_b64": "icA2jA3l9A5QOnKqHS7fjJUIHqU=",
+                "xxh64sum_b64": "GMxZQvvuYRI="
+            },
+            "fileName": ".\/Voll schwanger (2009).mkv",
+            "fileSize": 1912278601,
+            "mediaInfoSig": {
+                "audioStreams": [
+                    {
+                        "channels": 6,
+                        "duration": "1 h 28 min",
+                        "format": "AAC",
+                        "language": "?"
+                    },
+                    {
+                        "channels": 6,
+                        "duration": "1 h 28 min",
+                        "format": "AAC",
+                        "index": 1,
+                        "language": "?"
+                    }
+                ],
+                "textStreams": [
+                    {
+                        "format": "de",
+                        "frameRate": 0.0,
+                        "language": "ASS"
+                    }
+                ],
+                "videoStreams": [
+                    {
+                        "duration": "1 h 28 min",
+                        "format": "HEVC",
+                        "frameRate": 23.9759998321533203,
+                        "height": 1040,
+                        "language": "un",
+                        "width": 1918
+                    }
+                ]
+            },
+            "timeLastModified": "2021-08-24T18:02:59"
+        }
+    ],
+    "dataVersion": 2
+}

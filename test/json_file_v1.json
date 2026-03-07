@@ -1,0 +1,45 @@
+{
+    "dataArray": [
+        {
+            "fileName": ".\/Ala (2009).mkv",
+            "fileSize": 417386425,
+            "md5sum_b64": "CJDSa\/B3y0CdbYM+kidLhg==",
+            "mediaInfo": [
+                "<video:0, 720 x 552 @ 25.000, 0kbps, 1 h 16 min, HEVC>",
+                "<audio:0, 6 ch., 1 h 16 min, 0kbps ?, AAC>"
+            ],
+            "sha1sum_b64": "K8ByyTS7PbXAvLXGiMJ9LnR+UF4=",
+            "timeLastModified": "2021-09-03T23:43:38",
+            "xxh64sum_b64": "KiyG+pLPliI="
+        },
+        {
+            "fileName": ".\/Voll schwanger (2009).mkv",
+            "fileSize": 1912278601,
+            "md5sum_b64": "SIpHDEWqcV6eXeUATwbaeA==",
+            "mediaInfo": [
+                "<video:0, 1918 x 1040 @ 23.976, 0kbps, 1 h 28 min, HEVC>",
+                "<audio:0, 6 ch., 1 h 28 min, 0kbps ?, AAC>",
+                "<audio:1, 6 ch., 1 h 28 min, 0kbps ?, AAC>",
+                "<text:0, de, ?, ?, 0kbps, ASS>"
+            ],
+            "sha1sum_b64": "icA2jA3l9A5QOnKqHS7fjJUIHqU=",
+            "timeLastModified": "2021-08-24T18:02:59",
+            "xxh64sum_b64": "GMxZQvvuYRI="
+        },
+        {
+            "fileName": ".\/Pizza (1955).mkv",
+            "fileSize": 3378416309,
+            "md5sum_b64": "9qn6E\/UC8BNYnr02XBdz9w==",
+            "mediaInfo": [
+                "<video:0, 1920 x 1080 @ 23.976, 0kbps, 1 h 46 min, HEVC>",
+                "<audio:0, 2 ch., 1 h 46 min, 0kbps ?, AAC>",
+                "<audio:1, 6 ch., 1 h 46 min, 0kbps ?, AAC>",
+                "<text:0, en, ?, ?, 0kbps, ASS>"
+            ],
+            "sha1sum_b64": "sy9qC0G3pDgGT0XQd7718p6uOaU=",
+            "timeLastModified": "2021-06-24T20:41:53",
+            "xxh64sum_b64": "J2QgCE7ZzCQ="
+        }
+    ],
+    "dataVersion": 1
+}

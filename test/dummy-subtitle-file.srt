@@ -1,0 +1,2476 @@
+1
+00:00:52,618 --> 00:00:53,987
+Command (Jet): Hunter, do you copy?
+
+2
+00:00:53,987 --> 00:00:56,722
+Hunter: I'm here, Command, prepping to land on the planet.
+
+3
+00:00:57,122 --> 00:00:59,324
+Command: Good. Remain on comms till you're needed.
+
+4
+00:00:59,325 --> 00:01:02,395
+Hunter: Okay. I'll be here. Landing now.
+
+5
+00:01:09,968 --> 00:01:12,004
+Mono: Hunter, where the fuck are we?
+
+6
+00:01:12,171 --> 00:01:15,974
+Hunter: Oooo. Language, Mono. We're somewhere out in Backspace.
+
+7
+00:01:15,974 --> 00:01:18,710
+Mono: What the fuck are we doing out in BackSpace?
+
+8
+00:01:19,245 --> 00:01:20,525
+Hunter: We're looking for a pod.
+
+9
+00:01:21,381 --> 00:01:23,715
+Hunter: Go scan for dangerous life forms.
+
+10
+00:01:24,817 --> 00:01:25,817
+Mono: Scanning
+
+11
+00:01:32,659 --> 00:01:35,061
+Mono: I really doubt there's anyone out here.
+
+12
+00:01:36,763 --> 00:01:37,763
+Mono: Scanning
+
+13
+00:01:40,266 --> 00:01:41,835
+Mono: Still scanning.
+
+14
+00:02:02,855 --> 00:02:04,256
+Mono: Still scanning.
+
+15
+00:02:07,025 --> 00:02:08,594
+Mono: Nothing detected.
+
+16
+00:02:18,138 --> 00:02:23,109
+Hunter: Hey, Command, I found the pod, but there's no sign of the crew.
+
+17
+00:02:23,643 --> 00:02:25,411
+Command: Alright. Stay put.
+
+18
+00:02:25,411 --> 00:02:26,445
+Command: Don't move.
+
+19
+00:02:29,314 --> 00:02:34,120
+Falcon 5: I see you, looking for the blackhole, are we?
+
+20
+00:02:37,389 --> 00:02:38,733
+Hunter: You want me to go look for them?
+
+21
+00:02:38,758 --> 00:02:42,395
+Command: Just. Please. For once. Do as you're told.
+
+22
+00:02:42,762 --> 00:02:43,762
+Mono: Scanning.
+
+23
+00:02:45,264 --> 00:02:47,566
+Mono: Still nothing detected.
+
+24
+00:02:52,171 --> 00:02:54,640
+Hunter: "Do as you're told..."
+
+25
+00:02:54,841 --> 00:02:56,576
+Command: We're still on comms.
+
+26
+00:02:56,575 --> 00:02:58,144
+Command: Everyone can hear you.
+
+27
+00:02:58,144 --> 00:03:01,681
+Hunter: Right. Listen, Jet, if this is about last night...
+
+28
+00:03:01,681 --> 00:03:05,418
+Command: Just. Please. We're sending another crew to your location now.
+
+29
+00:03:10,956 --> 00:03:12,658
+Mono: I've found another ship.
+
+30
+00:03:13,926 --> 00:03:15,662
+Mono: It appears to be a Falcon.
+
+31
+00:03:15,662 --> 00:03:19,699
+Hunter: Well, as long as its not a Falcon 5 we're good.
+
+32
+00:03:19,699 --> 00:03:21,968
+Mono: It's a Falcon 5. We're fucked.
+
+33
+00:03:21,967 --> 00:03:23,769
+Command: Glad to hear somebody is.
+
+34
+00:03:23,770 --> 00:03:25,290
+Hunter: Whoa... Wait... Wait... Wait... Wait...
+
+35
+00:03:27,606 --> 00:03:30,210
+[Gunshots]
+
+36
+00:03:30,210 --> 00:03:32,778
+Hunter: It's a Falcon 5! It's a Falcon 5!
+
+37
+00:03:36,049 --> 00:03:37,049
+Hunter: Shit!
+
+38
+00:03:54,467 --> 00:04:00,873
+Hunter: Shit! (Breathing heavily) I'm outta shape, I'm outta shape.
+
+39
+00:04:00,872 --> 00:04:02,574
+Let's stop for a second.
+
+40
+00:04:07,413 --> 00:04:08,748
+Mono: What do we do now?
+
+41
+00:04:09,414 --> 00:04:11,216
+Hunter: Definitely not staying put!
+
+42
+00:04:11,683 --> 00:04:13,186
+Let's go find that black hole.
+
+43
+00:04:48,588 --> 00:04:51,057
+Hunter: I think we found the first crew.
+
+44
+00:05:05,237 --> 00:05:06,271
+[Gunshot]
+
+45
+00:05:10,076 --> 00:05:11,277
+Mono: Hunter
+
+46
+00:05:12,411 --> 00:05:13,211
+Mono: Hunter
+
+47
+00:05:13,211 --> 00:05:15,714
+Hunter: Stop shooting at me! [Gunshots]
+
+48
+00:05:17,216 --> 00:05:20,286
+Hunter: Wuhoo-oooo. Mono? You alright?
+
+49
+00:05:25,490 --> 00:05:27,726
+Hunter: Mono? You okay bud?
+
+50
+00:05:27,726 --> 00:05:29,628
+Mono: Hunter, where are you?
+
+51
+00:05:29,629 --> 00:05:30,730
+Hunter: You okay, buddy?
+
+52
+00:05:30,730 --> 00:05:32,799
+Mono: I can't feel my legs.
+
+53
+00:05:32,798 --> 00:05:35,100
+Mono: I really wanted to see the blackhole.
+
+54
+00:05:35,100 --> 00:05:36,903
+Hunter: Hey! You'll be fine.
+
+55
+00:05:36,903 --> 00:05:38,471
+We'll just reboot you and... -
+
+56
+00:05:38,471 --> 00:05:40,572
+Mono: Everything's going dark.
+
+57
+00:05:42,442 --> 00:05:43,442
+Hunter: Come on...
+
+58
+00:06:03,262 --> 00:06:05,298
+Hunter: I have eyes on the blackhole.
+
+59
+00:06:05,298 --> 00:06:07,699
+Command: Don't go in. Just stay put.
+
+60
+00:06:07,699 --> 00:06:09,468
+We'll send a team to check it out.
+
+61
+00:06:09,468 --> 00:06:12,504
+Hunter: You! You just want me to wait?
+
+62
+00:06:12,971 --> 00:06:14,106
+Come on!
+
+63
+00:06:17,709 --> 00:06:19,378
+Command: Do. As. You're. Told.
+
+64
+00:06:19,778 --> 00:06:21,279
+Stay put.
+
+65
+00:06:21,613 --> 00:06:22,781
+Hunter: (laughing to himself)
+
+66
+00:06:23,014 --> 00:06:23,649
+Hunter: No.
+
+67
+00:06:23,815 --> 00:06:25,384
+Command: What do you mean no?
+
+68
+00:06:27,019 --> 00:06:28,454
+Hunter: Adventure awaits.
+
+69
+00:07:31,884 --> 00:07:33,953
+- Mayday! Mayday!
+
+70
+00:07:33,952 --> 00:07:37,823
+This is Lieutenant Kaya Torres of the DSB Intrepid.
+
+71
+00:07:37,824 --> 00:07:41,561
+(inaudible panicked yelling)
+
+72
+00:08:11,923 --> 00:08:15,293
+Mayday. This is Kaya Torres.
+
+73
+00:08:16,528 --> 00:08:18,764
+I'm a sole survivor of the DSB Intrepid.
+
+74
+00:08:20,132 --> 00:08:21,300
+Everyone else has gone.
+
+75
+00:08:35,248 --> 00:08:40,186
+I don't know how I'm getting out of this one mama.
+
+76
+00:08:40,186 --> 00:08:42,687
+Mayday. Mayday. This is Kaya Torres.
+
+77
+00:08:42,687 --> 00:08:43,889
+Please respond.
+
+78
+00:08:47,360 --> 00:08:49,762
+Mayday. Mayday. This is Lieutenant Kaya Torres.
+
+79
+00:08:49,761 --> 00:08:51,463
+Please respond.
+
+80
+00:08:51,464 --> 00:08:53,966
+Cosmic beings, space pirates.
+
+81
+00:08:53,966 --> 00:08:56,001
+Come on, throw me a bone here.
+
+82
+00:08:56,001 --> 00:08:59,104
+This is Lieutenant Kaya Torres, please respond.
+
+83
+00:08:59,105 --> 00:08:59,938
+- [Voice On The Radio] Hello?
+
+84
+00:08:59,938 --> 00:09:00,772
+- Yes.
+
+85
+00:09:00,773 --> 00:09:01,606
+- Hello? - Yes,
+
+86
+00:09:01,606 --> 00:09:02,440
+- Can you hear?
+
+87
+00:09:02,441 --> 00:09:04,043
+- Yes! Yes!
+
+88
+00:09:04,043 --> 00:09:07,013
+Why's the fucking signal so-fucking gravity.
+
+89
+00:09:16,154 --> 00:09:17,155
+Survey says,
+
+90
+00:09:18,658 --> 00:09:21,427
+3543% increase.
+
+91
+00:09:22,595 --> 00:09:23,863
+Yeah. That should work.
+
+92
+00:09:33,038 --> 00:09:34,173
+Hello stranger.
+
+93
+00:09:35,575 --> 00:09:38,177
+My name is Kaya Torres.
+
+94
+00:09:38,177 --> 00:09:39,912
+I'm marooned on my life pod.
+
+95
+00:09:41,746 --> 00:09:43,214
+I have a busted ship
+
+96
+00:09:43,215 --> 00:09:46,085
+and I am circling a black hole against my will.
+
+97
+00:09:46,085 --> 00:09:47,086
+Please send help.
+
+98
+00:10:07,005 --> 00:10:08,006
+- Kaya Torres
+
+99
+00:10:08,941 --> 00:10:11,310
+Oh, a real actual person
+
+100
+00:10:11,309 --> 00:10:14,012
+wish I could say I'm sending a rescue crew but...
+
+101
+00:10:14,013 --> 00:10:15,681
+I'm in the same situation you are,
+
+102
+00:10:16,849 --> 00:10:19,085
+not circling black hole though.
+
+103
+00:10:19,085 --> 00:10:20,820
+Did you take a wrong turn?
+
+104
+00:10:20,820 --> 00:10:22,321
+Navigation didn't have the latest,
+
+105
+00:10:22,321 --> 00:10:25,423
+here's a black hole you shouldn't fly here update?
+
+106
+00:10:25,423 --> 00:10:26,424
+- Funny.
+
+107
+00:10:27,927 --> 00:10:29,528
+- Honestly I'm surprised you reached me at all,
+
+108
+00:10:29,528 --> 00:10:30,830
+the atmosphere here.
+
+109
+00:10:30,830 --> 00:10:33,399
+Oh, did I mention I'm on a planet?
+
+110
+00:10:34,332 --> 00:10:35,800
+I'm a cartographer.
+
+111
+00:10:35,801 --> 00:10:38,371
+I make maps for a living I did until I crashed on a rock
+
+112
+00:10:38,370 --> 00:10:40,939
+so massive it wouldn't let me back out.
+
+113
+00:10:40,940 --> 00:10:42,274
+Gravity,
+
+114
+00:10:42,274 --> 00:10:43,274
+always fun.
+
+115
+00:10:44,476 --> 00:10:46,312
+I've been trying to initiate a proper call link
+
+116
+00:10:46,312 --> 00:10:47,846
+between your gravity problems and mine
+
+117
+00:10:47,846 --> 00:10:50,949
+we have a serious time displacement going on,
+
+118
+00:10:50,950 --> 00:10:52,652
+Kaya Torres from the doomed Intrepid
+
+119
+00:10:52,652 --> 00:10:54,920
+If you want an interstellar pen pal,
+
+120
+00:10:54,919 --> 00:10:57,088
+feel free to drop me a line.
+
+121
+00:10:57,089 --> 00:10:58,724
+No one should be alone out there.
+
+122
+00:11:03,361 --> 00:11:04,697
+- So what do I call you?
+
+123
+00:11:06,065 --> 00:11:07,066
+Map boy?
+
+124
+00:11:09,168 --> 00:11:11,736
+I've been busy fighting physics.
+
+125
+00:11:13,038 --> 00:11:15,908
+This pod has just enough juice to keep me from,
+
+126
+00:11:15,908 --> 00:11:17,375
+getting swallowed up.
+
+127
+00:11:20,111 --> 00:11:21,546
+But if I modify the power flow
+
+128
+00:11:21,547 --> 00:11:24,550
+I think I can punch my way out of the well,
+
+129
+00:11:26,619 --> 00:11:27,820
+that's the idea anyway.
+
+130
+00:11:31,123 --> 00:11:32,958
+You don't realize how quiet space can be
+
+131
+00:11:32,957 --> 00:11:34,360
+until you're drifting in it.
+
+132
+00:11:36,162 --> 00:11:38,129
+I thought I'd be okay but fuck
+
+133
+00:11:39,831 --> 00:11:41,766
+I could really use a pen pal right now.
+
+134
+00:11:52,278 --> 00:11:53,345
+- You're still there.
+
+135
+00:11:54,513 --> 00:11:56,615
+I wasn't expecting to hear from you again.
+
+136
+00:11:56,615 --> 00:11:58,850
+Hammer. My name is Hammer
+
+137
+00:11:58,850 --> 00:12:00,452
+- Hammer?
+
+138
+00:12:00,452 --> 00:12:03,855
+- Yes. That's my real actual name.
+
+139
+00:12:05,291 --> 00:12:08,060
+I think my father wanted me to be a blacksmith or a lawman.
+
+140
+00:12:08,961 --> 00:12:10,462
+Definitely not a cartographer.
+
+141
+00:12:12,230 --> 00:12:13,732
+You hear that?
+
+142
+00:12:13,732 --> 00:12:15,700
+It's a massive sand storm going on outside my cave
+
+143
+00:12:16,601 --> 00:12:18,471
+planet has them constantly.
+
+144
+00:12:18,471 --> 00:12:20,605
+You'd die if you stood in the middle of one,
+
+145
+00:12:22,073 --> 00:12:24,676
+they scare me. Every time.
+
+146
+00:12:26,678 --> 00:12:29,280
+is fuck a curse word?
+
+147
+00:12:30,582 --> 00:12:31,583
+Fuck.
+
+148
+00:12:35,153 --> 00:12:36,322
+A little click at end.
+
+149
+00:12:36,322 --> 00:12:37,322
+Lovely.
+
+150
+00:12:40,860 --> 00:12:43,962
+- How have you never heard the glory which is the F word?
+
+151
+00:12:43,962 --> 00:12:45,563
+It's fucking timeless.
+
+152
+00:12:46,398 --> 00:12:47,867
+Also why cartography?
+
+153
+00:12:47,866 --> 00:12:50,702
+Was it to get back to your parents for naming you Hammer?
+
+154
+00:12:51,971 --> 00:12:53,371
+- I wanted to explore.
+
+155
+00:12:53,371 --> 00:12:55,306
+find places no one had ever seen be remembered
+
+156
+00:12:55,307 --> 00:12:56,642
+for something when I'm gone.
+
+157
+00:12:57,809 --> 00:12:59,043
+Wow. That sounds really egotistical
+
+158
+00:12:59,043 --> 00:13:00,612
+when you say it out loud, doesn't it?
+
+159
+00:13:02,748 --> 00:13:03,749
+What do you do Kaya?
+
+160
+00:13:04,884 --> 00:13:06,384
+What's your passion?
+
+161
+00:13:06,384 --> 00:13:07,418
+I'm an engineer.
+
+162
+00:13:09,721 --> 00:13:11,122
+I tinker. I,
+
+163
+00:13:12,258 --> 00:13:13,259
+fix things.
+
+164
+00:13:16,729 --> 00:13:17,863
+When you're a mechanic,
+
+165
+00:13:19,164 --> 00:13:20,865
+you're constantly solving puzzles.
+
+166
+00:13:23,903 --> 00:13:26,004
+Space has the best puzzles.
+
+167
+00:13:28,606 --> 00:13:30,241
+- I've cooked this local abomination
+
+168
+00:13:30,241 --> 00:13:32,310
+of a vegetable 46 different ways.
+
+169
+00:13:33,345 --> 00:13:35,247
+Crispy, steamed,
+
+170
+00:13:35,246 --> 00:13:37,817
+fried, it doesn't matter. It's always disgusting.
+
+171
+00:13:40,485 --> 00:13:41,953
+At least you don't have to suffer through
+
+172
+00:13:41,953 --> 00:13:45,024
+pre-process rations and nutritional pills every day.
+
+173
+00:13:46,125 --> 00:13:47,692
+I'm eating a fucking mystery meat.
+
+174
+00:13:50,428 --> 00:13:51,629
+God, I miss meat.
+
+175
+00:13:54,066 --> 00:13:56,201
+Here's a list of foods I wish I was eating,
+
+176
+00:13:58,070 --> 00:13:59,605
+a block of cheddar cheese,
+
+177
+00:14:01,874 --> 00:14:02,875
+and avocado,
+
+178
+00:14:05,277 --> 00:14:06,545
+actually just an avocado.
+
+179
+00:14:11,049 --> 00:14:12,250
+- Nah they're long gone.
+
+180
+00:14:13,118 --> 00:14:14,119
+Yours?
+
+181
+00:14:18,524 --> 00:14:19,892
+- Used to be me and my mom.
+
+182
+00:14:21,259 --> 00:14:23,062
+She was a master mechanic,
+
+183
+00:14:24,062 --> 00:14:25,931
+lover of puzzles,
+
+184
+00:14:25,931 --> 00:14:27,199
+all around firecracker.
+
+185
+00:14:28,267 --> 00:14:29,668
+Taught me everything I know.
+
+186
+00:14:32,370 --> 00:14:34,240
+a few years ago she got methyl rash.
+
+187
+00:14:36,575 --> 00:14:37,710
+You're prone to it when you work in
+
+188
+00:14:37,710 --> 00:14:39,311
+the belly of a ship long enough.
+
+189
+00:14:44,549 --> 00:14:46,851
+Then the lining in your lungs breaks down and,
+
+190
+00:14:51,990 --> 00:14:54,025
+it's shitty how frail we are.
+
+191
+00:15:00,466 --> 00:15:02,067
+What's your biggest fear Hammer?
+
+192
+00:15:03,369 --> 00:15:04,870
+you can trust me I won't tell.
+
+193
+00:15:10,208 --> 00:15:11,209
+- To be forgotten.
+
+194
+00:15:13,711 --> 00:15:14,712
+What's yours?
+
+195
+00:15:18,650 --> 00:15:19,651
+- To die alone.
+
+196
+00:15:40,438 --> 00:15:42,006
+No!
+
+197
+00:15:42,006 --> 00:15:43,508
+No no no no no no.
+
+198
+00:15:46,378 --> 00:15:47,379
+Ahh!
+
+199
+00:16:02,327 --> 00:16:05,163
+It put me even closer than before.
+
+200
+00:16:08,701 --> 00:16:11,403
+Trying to conserve resources as much as I can.
+
+201
+00:16:13,304 --> 00:16:14,305
+I'm losing ground.
+
+202
+00:16:15,506 --> 00:16:16,507
+Bit by bit.
+
+203
+00:16:19,577 --> 00:16:20,946
+Maybe I should stop trying.
+
+204
+00:16:22,815 --> 00:16:23,816
+One final adventure.
+
+205
+00:16:29,053 --> 00:16:30,688
+There are worse ways to go right?
+
+206
+00:16:35,461 --> 00:16:36,595
+I'm so scared Hammer.
+
+207
+00:16:42,835 --> 00:16:43,836
+- Hey,
+
+208
+00:16:44,903 --> 00:16:46,071
+don't give up.
+
+209
+00:16:48,006 --> 00:16:49,774
+I'm not going anywhere.
+
+210
+00:16:50,842 --> 00:16:52,443
+I'll keep my line open okay?
+
+211
+00:16:55,313 --> 00:16:56,615
+One of us needs to escape.
+
+212
+00:17:02,587 --> 00:17:03,588
+- Hey,
+
+213
+00:17:04,423 --> 00:17:05,790
+can I get a picture of you?
+
+214
+00:17:08,493 --> 00:17:10,228
+I want to put a face to this voice.
+
+215
+00:17:56,875 --> 00:17:58,544
+- Words don't do you justice Kaya.
+
+216
+00:18:05,784 --> 00:18:07,052
+- Guess what I'm drinking?
+
+217
+00:18:12,723 --> 00:18:13,724
+Vodka.
+
+218
+00:18:16,327 --> 00:18:17,930
+It's supposed to be for cleaning.
+
+219
+00:18:19,198 --> 00:18:20,566
+I have a confession.
+
+220
+00:18:23,769 --> 00:18:27,239
+I have been thinking about you.
+
+221
+00:18:27,239 --> 00:18:31,076
+And I kind of wish
+
+222
+00:18:31,076 --> 00:18:33,979
+I was on that planet right now.
+
+223
+00:18:39,585 --> 00:18:41,987
+I don't know what vodka is, but I like the mood
+
+224
+00:18:41,987 --> 00:18:43,188
+it's putting you in.
+
+225
+00:18:43,188 --> 00:18:45,424
+Wait, wait, wait, wait, wait, hold on. Wait.
+
+226
+00:18:46,424 --> 00:18:48,192
+You don't know what vodka is?
+
+227
+00:18:48,192 --> 00:18:49,193
+How?
+
+228
+00:18:50,528 --> 00:18:52,830
+I'm beginning to wonder if you're real at all.
+
+229
+00:18:53,664 --> 00:18:54,665
+Explain sir,
+
+230
+00:18:55,968 --> 00:18:58,170
+- is my sheltered upbringing showing? Figures.
+
+231
+00:18:58,170 --> 00:19:00,439
+This is what I get for being raised on Tremamine.
+
+232
+00:19:00,439 --> 00:19:01,974
+- Tremamine
+
+233
+00:19:01,973 --> 00:19:03,575
+- I suppose you're going to tell me I wouldn't be fit for,
+
+234
+00:19:03,575 --> 00:19:05,009
+- Tremamine
+
+235
+00:19:05,009 --> 00:19:06,010
+- coupling either?
+
+236
+00:19:07,378 --> 00:19:10,081
+Let it be known, I am fully knowledgeable in,
+
+237
+00:19:11,083 --> 00:19:12,084
+such things,
+
+238
+00:19:12,851 --> 00:19:13,852
+if you were here.
+
+239
+00:19:16,721 --> 00:19:19,357
+- Timeout, I've never heard of Tremamine,
+
+240
+00:19:19,357 --> 00:19:21,326
+is it near Titan?
+
+241
+00:19:21,326 --> 00:19:22,361
+Jupiter?
+
+242
+00:19:24,596 --> 00:19:26,265
+Is it one of those weird Jupiter moons?
+
+243
+00:19:26,265 --> 00:19:27,299
+No one talks about?
+
+244
+00:19:28,599 --> 00:19:29,600
+- Jupiter?
+
+245
+00:19:30,669 --> 00:19:31,670
+Titan?
+
+246
+00:19:32,904 --> 00:19:35,874
+Kaya, I've memorized every colonized system.
+
+247
+00:19:37,041 --> 00:19:38,476
+I've never heard of those planets.
+
+248
+00:19:39,611 --> 00:19:40,646
+How is that possible?
+
+249
+00:19:45,851 --> 00:19:46,985
+- No fucking way.
+
+250
+00:19:49,922 --> 00:19:52,324
+- Hammer I'm sending you an energy signature.
+
+251
+00:19:52,324 --> 00:19:54,526
+Do a scan on your end tell me what you find.
+
+252
+00:19:55,594 --> 00:19:57,895
+- Fuck. I found it,
+
+253
+00:19:57,895 --> 00:20:00,264
+but the signal's reversed.
+
+254
+00:20:01,833 --> 00:20:03,535
+What does that mean?
+
+255
+00:20:03,535 --> 00:20:04,836
+- It's the little stuff.
+
+256
+00:20:06,104 --> 00:20:08,874
+It's the different curse words.
+
+257
+00:20:08,874 --> 00:20:10,909
+It's the different planets.
+
+258
+00:20:10,909 --> 00:20:12,477
+The alcohol,
+
+259
+00:20:12,477 --> 00:20:15,514
+your messages come in at the same delay every time.
+
+260
+00:20:15,513 --> 00:20:16,814
+What if you heard my broadcast
+
+261
+00:20:16,815 --> 00:20:18,383
+because it's not a black hole at all?
+
+262
+00:20:18,383 --> 00:20:19,484
+I mean shit What if it-
+
+263
+00:20:19,483 --> 00:20:21,452
+What if it's a wormhole?
+
+264
+00:20:21,452 --> 00:20:25,590
+But not to another spot in the galaxy, it's um,
+
+265
+00:20:25,590 --> 00:20:26,724
+to another universe, Hammer.
+
+266
+00:20:26,724 --> 00:20:28,392
+You're in an alternate universe.
+
+267
+00:20:29,595 --> 00:20:31,063
+And I think I can get to you.
+
+268
+00:20:32,431 --> 00:20:34,600
+Slow down, remember gravity.
+
+269
+00:20:34,599 --> 00:20:36,534
+Even if what you're orbiting isn't a black hole,
+
+270
+00:20:36,535 --> 00:20:38,570
+you can be crushed just by crossing over.
+
+271
+00:20:38,569 --> 00:20:41,973
+I can't fix my bucket of a ship without your help Kaya.
+
+272
+00:20:41,973 --> 00:20:44,742
+Don't plow into the unknown on a hunch.
+
+273
+00:20:44,742 --> 00:20:46,043
+Don't leave me.
+
+274
+00:20:48,279 --> 00:20:49,748
+- There's nothing left the other way.
+
+275
+00:20:49,748 --> 00:20:51,250
+Not anymore.
+
+276
+00:20:51,250 --> 00:20:54,219
+If I burn full throttle, I can make it to your planet.
+
+277
+00:20:54,219 --> 00:20:56,054
+Someone's got to save your sorry ass.
+
+278
+00:20:57,722 --> 00:20:59,691
+We're going to escape together.
+
+279
+00:20:59,691 --> 00:21:01,727
+That's how we solve this puzzle.
+
+280
+00:21:01,727 --> 00:21:03,461
+Hang on hammer. I'll see you soon.
+
+281
+00:21:27,385 --> 00:21:31,056
+(multiple voices screaming)
+
+282
+00:21:42,401 --> 00:21:44,169
+- No one should be alone out there.
+
+283
+00:22:53,171 --> 00:22:54,172
+Hello Kaya.
+
+284
+00:22:56,842 --> 00:22:58,410
+If you're watching this,
+
+285
+00:22:58,410 --> 00:22:59,878
+it means you finally made it.
+
+286
+00:23:01,413 --> 00:23:02,413
+I'm glad you did.
+
+287
+00:23:03,914 --> 00:23:05,649
+You're probably confused right now.
+
+288
+00:23:08,720 --> 00:23:10,255
+If you want to know the answer,
+
+289
+00:23:13,357 --> 00:23:14,358
+its gravity.
+
+290
+00:23:16,127 --> 00:23:17,294
+Your favorite subject.
+
+291
+00:23:18,396 --> 00:23:20,030
+You traveled through the wormhole,
+
+292
+00:23:22,233 --> 00:23:24,769
+time on your end has slowed down,
+
+293
+00:23:26,872 --> 00:23:28,539
+what you experienced in days.
+
+294
+00:23:33,811 --> 00:23:37,415
+In the meantime, I tried my best.
+
+295
+00:23:39,483 --> 00:23:40,484
+I did.
+
+296
+00:23:42,887 --> 00:23:44,622
+There's a storm coming in and,
+
+297
+00:23:49,326 --> 00:23:51,829
+I think I wanna go for a walk.
+
+298
+00:23:55,000 --> 00:23:56,535
+There's worse ways to go huh?
+
+299
+00:24:00,704 --> 00:24:02,406
+I waited as long as I could Kaya.
+
+300
+00:24:05,410 --> 00:24:06,411
+I'm so tired.
+
+301
+00:24:09,146 --> 00:24:11,549
+I left some recordings for you on this terminal.
+
+302
+00:24:14,719 --> 00:24:16,587
+At least one a day. Every day.
+
+303
+00:24:18,923 --> 00:24:23,561
+And hopefully it'll keep you from being so lonely.
+
+304
+00:24:25,130 --> 00:24:26,364
+If you fix my ship,
+
+305
+00:24:27,365 --> 00:24:28,967
+and you get off this rock,
+
+306
+00:24:30,535 --> 00:24:31,636
+don't forget about me.
+
+307
+00:24:34,506 --> 00:24:35,774
+I never forgot about you.
+
+308
+00:25:05,069 --> 00:25:06,504
+- Hello, new universe.
+
+309
+00:25:12,243 --> 00:25:14,211
+My name is Kaya Torres.
+
+310
+00:25:15,779 --> 00:25:18,148
+I'm trapped on a planet in the middle of fucking nowhere.
+
+311
+00:25:18,148 --> 00:25:19,316
+I have two busted ships,
+
+312
+00:25:19,317 --> 00:25:21,853
+and my odds of escaping are terrible.
+
+313
+00:25:23,922 --> 00:25:25,423
+But I'm alive.
+
+314
+00:25:25,423 --> 00:25:28,259
+So if you need someone to talk to drop me a line.
+
+315
+00:25:35,634 --> 00:25:37,301
+No one should be alone out there.
+
+316
+00:27:05,700 --> 00:27:09,938
+[MUSIC PLAYING]
+
+317
+00:27:19,580 --> 00:27:20,580
+Mavis?
+
+318
+00:27:21,347 --> 00:27:22,649
+Hello, Kainoa.
+
+319
+00:27:22,650 --> 00:27:24,653
+I'm not getting a reading from your transport.
+
+320
+00:27:24,952 --> 00:27:25,820
+No shit.
+
+321
+00:27:25,820 --> 00:27:26,821
+It's totaled.
+
+322
+00:27:27,056 --> 00:27:27,690
+That's strange.
+
+323
+00:27:27,690 --> 00:27:29,292
+We just did maintenance on it.
+
+324
+00:27:29,291 --> 00:27:30,426
+I'll run diagnostics.
+
+325
+00:27:30,961 --> 00:27:32,062
+How's comms really doing?
+
+326
+00:27:32,695 --> 00:27:33,363
+Still down.
+
+327
+00:27:33,364 --> 00:27:34,531
+I'm afraid we're on our own.
+
+328
+00:27:35,365 --> 00:27:36,634
+Give me my distance from home.
+
+329
+00:27:37,403 --> 00:27:40,173
+Base 5 is 9.76 kilometers southwest
+
+330
+00:27:40,173 --> 00:27:41,208
+of your current position.
+
+331
+00:27:42,041 --> 00:27:43,042
+OK, plot a route for me.
+
+332
+00:27:43,911 --> 00:27:46,080
+Gravitational waves are currently in sector 10
+
+333
+00:27:46,079 --> 00:27:48,549
+and moving northwest at three kilometers per hour.
+
+334
+00:27:48,549 --> 00:27:49,684
+You should be in the clear.
+
+335
+00:27:50,086 --> 00:27:50,586
+Good.
+
+336
+00:27:50,586 --> 00:27:51,887
+Keep me updated.
+
+337
+00:27:51,887 --> 00:27:54,858
+And Mavis, prepare a fresh O2 canister for me, yeah?
+
+338
+00:27:55,358 --> 00:27:56,460
+Copy that.
+
+339
+00:27:56,460 --> 00:27:58,096
+You need to move now.
+
+340
+00:27:58,096 --> 00:28:00,365
+You have just enough to get back to base.
+
+341
+00:28:00,365 --> 00:28:01,867
+Tonight is the night.
+
+342
+00:28:18,055 --> 00:28:19,157
+Uncle, what are you doing?
+
+343
+00:28:21,192 --> 00:28:22,192
+What are you doing?
+
+344
+00:28:22,528 --> 00:28:25,932
+Mom told me to find you.
+
+345
+00:28:25,932 --> 00:28:27,201
+Is that where you're going?
+
+346
+00:28:29,670 --> 00:28:31,473
+You see those two stars right there?
+
+347
+00:28:32,406 --> 00:28:33,407
+Those two?
+
+348
+00:28:33,643 --> 00:28:36,144
+Yeah.
+
+349
+00:28:36,144 --> 00:28:41,952
+But take your thumb like that, and line it up with the stars.
+
+350
+00:28:41,952 --> 00:28:45,156
+And that spot right above your hand--
+
+351
+00:28:45,156 --> 00:28:46,291
+that's where Uncle's going.
+
+352
+00:28:48,295 --> 00:28:50,664
+I don't see anything.
+
+353
+00:28:50,664 --> 00:28:51,664
+What's that star?
+
+354
+00:28:52,866 --> 00:28:54,869
+Oh, that one?
+
+355
+00:28:54,869 --> 00:28:57,406
+Maybe you'll go there someday.
+
+356
+00:28:57,406 --> 00:29:00,076
+Come on.
+
+357
+00:29:00,076 --> 00:29:01,478
+How's [INAUDIBLE] tonight?
+
+358
+00:29:02,145 --> 00:29:03,080
+The same.
+
+359
+00:29:03,080 --> 00:29:05,216
+He's a bit happier since Dad showed up.
+
+360
+00:29:05,951 --> 00:29:07,720
+Of course, he is.
+
+361
+00:29:07,720 --> 00:29:11,525
+[CHATTER AND LAUGHING]
+
+362
+00:29:14,362 --> 00:29:15,362
+Keala.
+
+363
+00:29:15,762 --> 00:29:16,263
+Yes.
+
+364
+00:29:16,565 --> 00:29:17,232
+Do we have beer?
+
+365
+00:29:17,398 --> 00:29:18,166
+Yeah, I know.
+
+366
+00:29:18,299 --> 00:29:19,299
+Oh, hi.
+
+367
+00:29:20,237 --> 00:29:21,271
+Good luck out there, OK?
+
+368
+00:29:21,270 --> 00:29:22,571
+We're really going to miss you.
+
+369
+00:29:23,374 --> 00:29:24,374
+Thanks.
+
+370
+00:29:24,976 --> 00:29:26,210
+Take care of yourself, OK?
+
+371
+00:29:26,444 --> 00:29:27,444
+OK.
+
+372
+00:29:29,413 --> 00:29:30,717
+We're really going to miss you.
+
+373
+00:29:31,250 --> 00:29:32,818
+Sure.
+
+374
+00:29:32,818 --> 00:29:34,421
+She hasn't let up since grade school.
+
+375
+00:29:34,654 --> 00:29:37,024
+Yeah, there's nothing she wants to be under that rainbow.
+
+376
+00:29:43,799 --> 00:29:46,370
+He hasn't been the same since Mom passed.
+
+377
+00:29:46,371 --> 00:29:47,371
+He needed you here.
+
+378
+00:29:48,105 --> 00:29:49,173
+We've been over this.
+
+379
+00:29:49,173 --> 00:29:50,843
+It wasn't possible.
+
+380
+00:29:50,843 --> 00:29:52,510
+Honestly, it wasn't my decision to make.
+
+381
+00:29:58,586 --> 00:30:00,288
+Hey, enough excuses.
+
+382
+00:30:00,288 --> 00:30:01,288
+Fix it.
+
+383
+00:30:06,497 --> 00:30:10,035
+Just a reminder-- the last downed peg is near the base.
+
+384
+00:30:10,035 --> 00:30:13,239
+Atlas Major sets in less than six hours.
+
+385
+00:30:13,239 --> 00:30:14,740
+We need the system up before then.
+
+386
+00:30:15,240 --> 00:30:15,840
+I know.
+
+387
+00:30:15,840 --> 00:30:16,342
+I know.
+
+388
+00:30:16,343 --> 00:30:17,510
+Or we miss our window.
+
+389
+00:30:18,244 --> 00:30:18,978
+Oh, that's right.
+
+390
+00:30:18,979 --> 00:30:19,747
+I forgot.
+
+391
+00:30:19,747 --> 00:30:21,449
+You know everything.
+
+392
+00:30:21,449 --> 00:30:22,817
+Not liking that tone.
+
+393
+00:30:23,685 --> 00:30:26,087
+Your internal settings need to be turned down.
+
+394
+00:30:27,089 --> 00:30:28,891
+Hm, sounds like a personal issue.
+
+395
+00:30:29,527 --> 00:30:30,561
+[SNICKERS]
+
+396
+00:30:31,061 --> 00:30:33,664
+By the way, I tried to review the transport maintenance logs,
+
+397
+00:30:33,664 --> 00:30:34,499
+but I'm blocked out.
+
+398
+00:30:34,499 --> 00:30:35,499
+It's scrambled.
+
+399
+00:30:35,967 --> 00:30:37,836
+That doesn't make any sense.
+
+400
+00:30:37,836 --> 00:30:39,305
+First the pegs.
+
+401
+00:30:39,305 --> 00:30:40,306
+Now this?
+
+402
+00:30:40,606 --> 00:30:41,741
+Something's not adding up.
+
+403
+00:30:41,741 --> 00:30:42,741
+I'll keep trying.
+
+404
+00:30:43,411 --> 00:30:45,246
+Look, let's just get through tonight.
+
+405
+00:30:45,246 --> 00:30:46,247
+How much further?
+
+406
+00:30:46,548 --> 00:30:47,650
+You're close.
+
+407
+00:30:47,650 --> 00:30:49,317
+You'll have a visual of home base
+
+408
+00:30:49,317 --> 00:30:51,153
+and the pit just over this hill.
+
+409
+00:30:53,090 --> 00:30:55,058
+That's what we're calling it?
+
+410
+00:30:55,058 --> 00:30:55,559
+[CHATTER]
+
+411
+00:30:55,727 --> 00:30:56,595
+Excuse me, everybody.
+
+412
+00:30:56,595 --> 00:30:59,097
+Can we gather around really quick?
+
+413
+00:30:59,097 --> 00:31:02,970
+Um, we're just going to-- no, no, no, no.
+
+414
+00:31:02,970 --> 00:31:04,538
+Where do you think you're going?
+
+415
+00:31:04,538 --> 00:31:07,976
+We're going to toast Kainoa before he leaves this.
+
+416
+00:31:07,976 --> 00:31:12,181
+Kainoa, ever since we were kids, I always
+
+417
+00:31:12,181 --> 00:31:14,684
+knew you were destined to do great things.
+
+418
+00:31:14,684 --> 00:31:17,388
+And we are incredibly proud to be proud of you.
+
+419
+00:31:19,959 --> 00:31:24,663
+Mom would be proud, and I'm trying not to think
+
+420
+00:31:24,663 --> 00:31:27,134
+of this as a going away party.
+
+421
+00:31:27,134 --> 00:31:30,939
+15 years is a long time for someone to be gone,
+
+422
+00:31:30,939 --> 00:31:32,074
+but you've worked so hard.
+
+423
+00:31:37,181 --> 00:31:45,182
+To your journey out there and your safe return home.
+
+424
+00:31:45,625 --> 00:31:46,960
+I love you, baby brother.
+
+425
+00:31:47,961 --> 00:31:48,961
+I love you.
+
+426
+00:31:48,996 --> 00:31:49,697
+To Kainoa.
+
+427
+00:31:49,696 --> 00:31:50,696
+(ALL) To Kainoa.
+
+428
+00:31:53,536 --> 00:31:55,638
+Dad?
+
+429
+00:31:55,637 --> 00:31:57,072
+Maybe you want to say a few words.
+
+430
+00:32:07,886 --> 00:32:10,790
+Warning-- rogue gravitational wave detected.
+
+431
+00:32:10,790 --> 00:32:14,028
+Brace yourself.
+
+432
+00:32:14,028 --> 00:32:17,834
+[THUMPING]
+
+433
+00:32:19,403 --> 00:32:24,174
+I would like to say a few words.
+
+434
+00:32:24,174 --> 00:32:26,377
+Hey.
+
+435
+00:32:26,377 --> 00:32:29,316
+When I became a member of this family,
+
+436
+00:32:29,316 --> 00:32:34,087
+I'd been so stoked to say that my brother is an astronaut.
+
+437
+00:32:34,087 --> 00:32:35,990
+And [INAUDIBLE].
+
+438
+00:32:35,990 --> 00:32:39,461
+[GRUNTS AND ROCKS CRUMBLING]
+
+439
+00:32:39,461 --> 00:32:43,901
+[MUFFLED VOICE]
+
+440
+00:32:44,401 --> 00:32:49,342
+[BEEPING]
+
+441
+00:32:53,980 --> 00:32:54,714
+Was that OK?
+
+442
+00:32:54,714 --> 00:32:55,750
+[INAUDIBLE]
+
+443
+00:32:55,750 --> 00:32:57,050
+I didn't know what else to say.
+
+444
+00:32:57,050 --> 00:32:57,985
+No, that was good.
+
+445
+00:32:57,986 --> 00:32:59,021
+Thank you so much.
+
+446
+00:32:59,020 --> 00:33:00,021
+Can you go check on Dad?
+
+447
+00:33:00,021 --> 00:33:02,258
+I'll check on Kainoa.
+
+448
+00:33:02,258 --> 00:33:03,259
+[BEEPING]
+
+449
+00:33:03,326 --> 00:33:05,261
+Your O2 levels are dropping fast.
+
+450
+00:33:05,261 --> 00:33:06,998
+There's a leak in your intake hose.
+
+451
+00:33:06,998 --> 00:33:09,134
+You need to patch it immediately.
+
+452
+00:33:09,134 --> 00:33:11,970
+You know where the emergency sealant is.
+
+453
+00:33:11,970 --> 00:33:13,472
+Hello?
+
+454
+00:33:13,472 --> 00:33:14,472
+Come in.
+
+455
+00:33:14,840 --> 00:33:15,875
+Copy.
+
+456
+00:33:15,875 --> 00:33:18,645
+I'm here.
+
+457
+00:33:18,645 --> 00:33:20,581
+Do I have enough to make it back?
+
+458
+00:33:21,082 --> 00:33:22,718
+Your CO2 levels are critical.
+
+459
+00:33:23,451 --> 00:33:25,655
+But I can still make it back.
+
+460
+00:33:25,655 --> 00:33:26,757
+There's enough time.
+
+461
+00:33:26,757 --> 00:33:28,191
+There has to be something I can do.
+
+462
+00:33:29,426 --> 00:33:31,695
+I'm so sorry, Kainoa.
+
+463
+00:33:34,465 --> 00:33:37,503
+[SCREAMS]
+
+464
+00:33:38,003 --> 00:33:44,879
+Kainoa, he's not entirely wrong, you know.
+
+465
+00:33:48,017 --> 00:33:52,022
+What if something happens while you're out there?
+
+466
+00:33:52,021 --> 00:33:53,657
+What if he's gone before you come back?
+
+467
+00:33:53,791 --> 00:33:54,725
+Why would he care?
+
+468
+00:33:54,726 --> 00:33:55,861
+Huh?
+
+469
+00:33:55,861 --> 00:33:56,362
+Why?
+
+470
+00:33:56,862 --> 00:33:59,266
+[INTERPOSING VOICES]
+
+471
+00:33:59,732 --> 00:34:00,732
+It's stupid.
+
+472
+00:34:06,008 --> 00:34:07,009
+You weren't here.
+
+473
+00:34:12,349 --> 00:34:15,251
+I was.
+
+474
+00:34:15,251 --> 00:34:19,625
+While you were at training, I watched cancer take Mom.
+
+475
+00:34:19,626 --> 00:34:23,097
+And when Dad fell apart, everything [INAUDIBLE] me.
+
+476
+00:34:27,001 --> 00:34:31,407
+You need to make this right.
+
+477
+00:34:31,407 --> 00:34:34,945
+Tonight is your last chance.
+
+478
+00:34:34,945 --> 00:34:37,448
+And you are going to regret this if you don't.
+
+479
+00:34:40,918 --> 00:34:41,918
+Kainoa.
+
+480
+00:35:23,375 --> 00:35:25,545
+Kainoa, you're too far out.
+
+481
+00:35:26,746 --> 00:35:27,980
+OK.
+
+482
+00:35:27,980 --> 00:35:28,981
+OK.
+
+483
+00:35:33,353 --> 00:35:35,323
+I'm going to finish this.
+
+484
+00:35:46,704 --> 00:35:47,773
+What did Grandma do?
+
+485
+00:35:49,309 --> 00:35:50,477
+She was a geologist.
+
+486
+00:35:52,545 --> 00:35:53,947
+Isn't that what Uncle Kainoa does?
+
+487
+00:35:55,751 --> 00:35:58,186
+Yes.
+
+488
+00:35:58,186 --> 00:36:01,490
+Geologists help us to learn more about the Earth--
+
+489
+00:36:01,490 --> 00:36:05,597
+what it's made of, how it's formed.
+
+490
+00:36:05,597 --> 00:36:09,068
+He wanted to be one, just like your grandmother.
+
+491
+00:36:10,702 --> 00:36:12,172
+Is that why he's flying up there?
+
+492
+00:36:20,114 --> 00:36:22,384
+Why are you so mad at him?
+
+493
+00:36:22,385 --> 00:36:24,120
+Didn't Grandma want him to go?
+
+494
+00:36:26,023 --> 00:36:27,658
+Jada?
+
+495
+00:36:27,657 --> 00:36:28,659
+Hey, Mom wants you.
+
+496
+00:36:50,554 --> 00:36:52,957
+I'm not trying to abandon the family.
+
+497
+00:37:00,800 --> 00:37:03,438
+There's nothing that's going to keep me from going, Dad.
+
+498
+00:37:06,541 --> 00:37:09,947
+But no matter what, I'm still your son.
+
+499
+00:37:09,947 --> 00:37:12,817
+I'm sorry that I wasn't here when Mom died.
+
+500
+00:37:19,259 --> 00:37:20,460
+I wasn't here to say goodbye.
+
+501
+00:37:25,733 --> 00:37:28,704
+I just wanted you to know that before I leave.
+
+502
+00:37:38,516 --> 00:37:39,516
+Kainoa.
+
+503
+00:37:47,695 --> 00:37:49,999
+I never wanted you to be anyone but yourself.
+
+504
+00:37:52,802 --> 00:37:58,744
+I just lost your mother.
+
+505
+00:38:02,215 --> 00:38:05,318
+I'm not ready to lose my son, too.
+
+506
+00:38:09,757 --> 00:38:10,757
+Dad?
+
+507
+00:38:25,144 --> 00:38:26,913
+We have a successful chain reaction
+
+508
+00:38:26,913 --> 00:38:31,018
+within the peg matrix and topographical and subterranean
+
+509
+00:38:31,018 --> 00:38:32,920
+data coming in clear.
+
+510
+00:38:32,920 --> 00:38:37,225
+Connection with Atlas Major established.
+
+511
+00:38:37,226 --> 00:38:38,227
+You did it.
+
+512
+00:38:39,295 --> 00:38:43,167
+Initiate corporate correspondence transmission.
+
+513
+00:38:43,168 --> 00:38:48,141
+Kainoa Kalewa, chief geoengineer of base 5.
+
+514
+00:38:48,141 --> 00:38:51,945
+I'm stranded near Sector 1 with a depleted oxygen canister
+
+515
+00:38:51,945 --> 00:38:53,648
+and suit breach.
+
+516
+00:38:53,648 --> 00:38:56,352
+I am unable to make it back to base 5
+
+517
+00:38:56,351 --> 00:38:59,288
+after transport malfunction.
+
+518
+00:38:59,289 --> 00:39:03,594
+Unable to determine cause due to data corruption.
+
+519
+00:39:03,594 --> 00:39:04,862
+Requesting internal review.
+
+520
+00:39:04,862 --> 00:39:05,862
+Over.
+
+521
+00:39:06,797 --> 00:39:09,534
+I still don't know what caused the energy pack to blow.
+
+522
+00:39:09,534 --> 00:39:12,239
+Everything in the data logs is blocking me out.
+
+523
+00:39:12,239 --> 00:39:13,239
+Shall I keep trying?
+
+524
+00:39:13,639 --> 00:39:14,875
+No, Mavis.
+
+525
+00:39:14,876 --> 00:39:16,378
+Just file it with corporate.
+
+526
+00:39:18,047 --> 00:39:20,682
+You know, if I had a physical body,
+
+527
+00:39:20,682 --> 00:39:23,420
+I'd come out there and carry you back to base myself.
+
+528
+00:39:25,356 --> 00:39:26,958
+Thanks, Mavis.
+
+529
+00:39:26,958 --> 00:39:28,260
+I appreciate that.
+
+530
+00:39:31,297 --> 00:39:32,297
+Mavis?
+
+531
+00:39:32,798 --> 00:39:33,798
+Hm?
+
+532
+00:39:34,233 --> 00:39:37,404
+Could you record one last transmission for me?
+
+533
+00:39:37,405 --> 00:39:38,406
+Personal.
+
+534
+00:39:39,541 --> 00:39:42,077
+It would be an honor.
+
+535
+00:39:42,077 --> 00:39:44,079
+Initiating correspondence.
+
+536
+00:39:47,117 --> 00:39:48,253
+I am Kainoa Kalewa.
+
+537
+00:39:52,391 --> 00:39:56,730
+My sister is Keala Morris.
+
+538
+00:39:56,730 --> 00:40:02,704
+Her husband, my brother-in-law, is Jacob Morris.
+
+539
+00:40:02,704 --> 00:40:06,242
+My niece is Jada Morris.
+
+540
+00:40:09,646 --> 00:40:16,456
+My mother is Jada Kalewa.
+
+541
+00:40:16,456 --> 00:40:21,930
+And my dad is David Kalewa.
+
+542
+00:40:27,670 --> 00:40:29,572
+Tell them I said I love them.
+
+543
+00:40:34,413 --> 00:40:36,815
+Tell them I said goodbye.
+
+544
+00:40:42,088 --> 00:40:43,389
+We did it, Dad.
+
+545
+00:40:49,565 --> 00:40:50,565
+Over.
+
+546
+00:40:53,070 --> 00:40:55,974
+MAVIS: Relaying transmission now.
+
+547
+00:41:15,932 --> 00:41:18,170
+Transmission received.
+
+548
+00:42:01,518 --> 00:42:09,518
+♪
+
+549
+00:42:14,197 --> 00:42:19,936
+[MUSIC SWELLS]
+
+550
+00:42:22,539 --> 00:42:30,539
+♪
+
+551
+00:43:20,630 --> 00:43:23,701
+[ALARM]
+
+552
+00:44:14,418 --> 00:44:20,657
+[ENGINE STARTS UP]
+
+553
+00:44:35,838 --> 00:44:41,177
+[THUNDER]
+
+554
+00:44:41,545 --> 00:44:47,351
+[ALARM]
+
+555
+00:44:54,724 --> 00:45:02,724
+[THUNDER]
+
+556
+00:45:42,606 --> 00:45:50,606
+♪
+
+557
+00:47:01,784 --> 00:47:02,786
+[EYES TURN ON]
+
+558
+00:47:10,260 --> 00:47:18,260
+♪
+
+559
+00:47:23,673 --> 00:47:25,842
+THIS PLACE IS MINE.
+
+560
+00:47:30,146 --> 00:47:32,014
+WELCOME TO EDEN.
+
+561
+00:47:32,014 --> 00:47:33,416
+[FOOT STEPS. GEAR STOLEN]
+
+562
+00:48:13,155 --> 00:48:15,592
+[GATE RATTLES]
+
+563
+00:48:54,097 --> 00:48:56,500
+♪
+
+564
+00:49:00,003 --> 00:49:03,307
+YOUR JOURNEY TO THE CREATOR BEGINS HERE...
+
+565
+00:49:03,539 --> 00:49:07,043
+I WILL GUIDE YOU TO THE NEXT LEVEL, BEYOND HUMAN.
+
+566
+00:49:07,244 --> 00:49:11,481
+ONLY I CAN HELP YOU RID YOURSELVES OF YOUR PRIMITIVE BODIES...
+
+567
+00:49:11,481 --> 00:49:16,219
+AND LET YOU TRANSCEND TO YOUR CHOSEN STATE... [SCAVENGER] HEY!
+
+568
+00:49:16,353 --> 00:49:17,721
+WHERE'S MY SHIT?! [MAN ON MONITOR] BESIDE YOUR CREATOR...
+
+569
+00:49:17,721 --> 00:49:20,190
+ALL OF YOU WHO ARE CHOSEN...
+
+570
+00:49:20,489 --> 00:49:23,793
+HAVE BEEN SPECIALLY PICKED BY THE CREATOR.
+
+571
+00:49:24,061 --> 00:49:25,495
+HERE AT EDEN...
+
+572
+00:49:25,963 --> 00:49:27,798
+WE TAKE THE ENERGY YOU HAVE HERE,
+
+573
+00:49:28,364 --> 00:49:31,701
+WE CHANNEL IT, AND WE TRANSCEND...
+
+574
+00:49:32,235 --> 00:49:33,995
+TO THE OTHER EDEN. [GLITCH] TO THE OTHER EDEN.
+
+575
+00:49:34,838 --> 00:49:37,007
+AND THIS EDEN...
+
+576
+00:49:37,239 --> 00:49:39,175
+IS YOUR JOURNEY FORWARD.
+
+577
+00:49:39,175 --> 00:49:46,282
+[SLOW CLAPPING]
+
+578
+00:49:49,518 --> 00:49:51,721
+[SLOW CLAPPING CONTINUES]
+
+579
+00:49:53,090 --> 00:49:54,758
+[WEAPON CHARGE]
+
+580
+00:50:08,572 --> 00:50:10,407
+SO GOOD OF YOU TO JOIN US.
+
+581
+00:50:11,240 --> 00:50:12,242
+WHO ARE YOU?
+
+582
+00:50:13,210 --> 00:50:15,545
+I AM THE GATEKEEPER OF THE CREATOR.
+
+583
+00:50:16,445 --> 00:50:17,547
+AND YOU?
+
+584
+00:50:17,748 --> 00:50:18,748
+IT DOESN'T MATTER.
+
+585
+00:50:19,583 --> 00:50:21,751
+HMM.
+
+586
+00:50:21,751 --> 00:50:23,286
+HOW DISAPPOINTING.
+
+587
+00:50:23,686 --> 00:50:27,523
+JUST GIVE ME MY GEAR, AND I'LL GET OUTTA HERE.
+
+588
+00:50:27,891 --> 00:50:33,864
+YOUR PATH LED YOU TO ME. I AM THE ONLY ONE WHO CAN SHOW YOU TO YOUR PLACE...
+
+589
+00:50:34,130 --> 00:50:35,865
+AS THE CHOSEN ONE.
+
+590
+00:50:36,298 --> 00:50:40,137
+TO ASCEND TO A HIGHER LEVEL, BEYOND HUMAN.
+
+591
+00:50:40,971 --> 00:50:41,972
+NOW...
+
+592
+00:50:42,706 --> 00:50:45,942
+AS IT WAS WITH ALL THE OTHER CHOSEN ONES...
+
+593
+00:50:45,942 --> 00:50:48,277
+I WILL NEED YOUR MORTAL SOUL.
+
+594
+00:50:48,612 --> 00:50:50,146
+YOU'RE INSANE.
+
+595
+00:50:50,280 --> 00:50:51,280
+YOU...
+
+596
+00:50:52,148 --> 00:50:53,150
+DESPICABLE...
+
+597
+00:50:53,817 --> 00:50:55,117
+PRIMITIVE...
+
+598
+00:50:56,052 --> 00:50:57,153
+DEGENERATE!
+
+599
+00:51:15,304 --> 00:51:18,074
+AND WHO ARE YOU?
+
+600
+00:51:18,074 --> 00:51:19,341
+A THIEF?
+
+601
+00:51:19,608 --> 00:51:20,911
+A SCAVENGER?
+
+602
+00:51:22,012 --> 00:51:24,481
+A RAT WHO EATS HIS OWN FECES?
+
+603
+00:51:25,916 --> 00:51:28,318
+YOU ARE A HUMAN FAILURE...
+
+604
+00:51:28,985 --> 00:51:32,789
+AND THE CREATOR, IS DISGUSTED WITH YOU.
+
+605
+00:51:33,489 --> 00:51:35,758
+YOU'RE OUT OF YOUR MIND...
+
+606
+00:51:36,760 --> 00:51:39,528
+YOUR CREATOR DOESN'T EXIST.
+
+607
+00:51:43,432 --> 00:51:45,268
+[CHUCKLES]
+
+608
+00:51:45,969 --> 00:51:47,938
+WE'LL SEE.
+
+609
+00:51:50,106 --> 00:51:51,108
+[GUNSHOT]
+
+610
+00:51:53,710 --> 00:51:54,510
+[ELECTRIC CHARGE]
+
+611
+00:51:54,510 --> 00:51:55,510
+[GUNSHOT]
+
+612
+00:51:58,981 --> 00:52:06,981
+♪
+
+613
+00:52:15,164 --> 00:52:18,501
+[MUSIC SWELLS]
+
+614
+00:52:20,503 --> 00:52:22,139
+IT'S YOURS NOW.
+
+615
+00:53:10,253 --> 00:53:11,855
+DESPICABLE...
+
+616
+00:53:12,021 --> 00:53:13,590
+PRIMITIVE...
+
+617
+00:53:13,956 --> 00:53:15,891
+DEGENERATE!
+
+618
+00:53:17,226 --> 00:53:19,728
+YOUR JOURNEY TO THE CREATOR...
+
+619
+00:53:20,096 --> 00:53:21,431
+BEGINS HERE.
+

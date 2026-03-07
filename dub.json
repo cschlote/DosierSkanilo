@@ -1,0 +1,30 @@
+{
+	"targetType": "executable",
+	"name": "dosierskanilo",
+	"description": "DosierSkanilo is a blob-centric media and archive file scanner that computes checksums, extracts metadata, and stores JSON results for duplicate detection.",
+	"authors": [
+		"Carsten Schlote"
+	],
+	"copyright": "Created 2018, Carsten Schlote",
+	"license": "CC-BY-NC-SA 4.0",
+	"-ddoxFilterArgs": [
+		"--only-documented"
+	],
+	"dependencies": {
+		"silly": "~>1.2.0-dev.2",
+		"mediainfo-d": "~>0.0.7",
+		"jsonizer": "~>0.7.7",
+		"xxhash3": "~>0.0.5"
+	},
+	"systemDependencies": "Install library on debian/ubuntu: apt install -y libmediainfo0v5 libmediainfo-dev",
+	"versions": [
+		"useJSONStorage"
+	],
+	"dflags": [
+		"-J."
+	],
+	"mainSourceFile": "source/appmain.d",
+	"sourcePaths": [
+		"source"
+	]
+}
