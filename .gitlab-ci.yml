@@ -1,0 +1,93 @@
+# Use Alpine as CI base image and install required dependencies via script.
+variables:
+  # We can pass ENV vars to the pipeline
+  VA_TEST: "abc"
+
+default:
+  image: "alpine:3.20"
+  before_script:
+    - command -v image-info.sh && image-info.sh || true
+
+stages:
+  - lint
+  - build
+  - test
+  - deploy
+
+#-- Do linting on the supplied sources --------------------------------------
+
+lint:
+  tags:
+    - gitlabdocker
+  stage: lint
+  before_script:
+    - sh ./scripts/install-dependencies.sh lint
+  script:
+    - ./scripts/lint.sh
+  cache:
+    key: "DUB-CACHE"
+    untracked: true
+    paths:
+      - .dub/
+
+#-- Build the application ---------------------------------------------------
+
+build:
+  tags:
+    - gitlabdocker
+  stage: build
+  before_script:
+    - sh ./scripts/install-dependencies.sh build
+  script:
+    - ldc2 --version
+    - dub --version
+    - ./scripts/build.sh
+  cache:
+    key: "DUB-CACHE"
+    untracked: true
+    paths:
+      - .dub/
+
+#-- Test the application ----------------------------------------------------
+
+test:
+  tags:
+    - gitlabdocker
+  stage: test
+  before_script:
+    - sh ./scripts/install-dependencies.sh build
+    - sh ./scripts/install-dependencies.sh runtime
+  script:
+    - ./scripts/test.sh
+  cache:
+    key: "DUB-CACHE"
+    untracked: true
+    paths:
+      - .dub/
+
+#-- Deploy the application --------------------------------------------------
+
+deploy_staging:
+  tags:
+    - gitlabdocker
+  stage: deploy
+  script:
+    - ./scripts/deploy.sh
+  environment:
+    name: staging
+    url: https://packages.vahanus.net
+  only:
+    - master
+
+deploy_prod:
+  tags:
+    - gitlabdocker
+  stage: deploy
+  script:
+    - echo "Deploy to production server"
+  environment:
+    name: production
+    url: https://packages.vahanus.net
+  when: manual
+  only:
+    - master
