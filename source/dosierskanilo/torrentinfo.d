@@ -44,7 +44,7 @@ class TorrentFileEntry
     }
 }
 
-/** Class representing extracted torrent metadata.
+/** Extracted torrent metadata.
  */
 class TorrentInfo
 {
@@ -408,7 +408,7 @@ class BencodeParser
     }
 }
 
-/** Bencode Encoder (for info dictionary hashing) */
+/** Encode a bencode node (used for info-dictionary hashing). */
 void bencode(ref Appender!(ubyte[]) out_, BNode node)
 {
     node.value.match!(
@@ -442,7 +442,7 @@ void bencode(ref Appender!(ubyte[]) out_, BNode node)
     );
 }
 
-/** Convert a byte array to lowercase hexadecimal string */
+/** Convert bytes to a lowercase hexadecimal string. */
 string toHex(const ubyte[] data)
 {
     string result;

@@ -1,4 +1,4 @@
-/** CommandLine related functions
+/** Command-line parsing and progress output helpers.
  *
  * Authors: Carsten Schlote, schlote@vahanus.net
  * Copyright: Carsten Schlote, Released under CC-BY-NC-SA 4.0 license, 2018
@@ -59,13 +59,13 @@ struct ArgsArray
 /** This is the global args array */
 ArgsArray argsArray;
 
-/** This function parses the commandline arguments
+/** Parse command-line arguments into an ArgsArray instance.
  *
  * Params:
- *   args = commandline arguments
- *   argsarray = struct to hold parsed arguments
+ *   args = raw command-line arguments
+ *   argsarray = destination struct for parsed values
  * Returns:
- *   true, if parsing was successful
+ *   true, if parsing and validation were successful
  */
 bool parseCommandLineArgs(string[] args, ArgsArray* argsarray = &argsArray)
 {
@@ -280,12 +280,13 @@ unittest
     assert(type4 == "|aaaa|...g|hhhh", type4.to!string);
 }
 
-/** Pad white spaces to the left of the string
+/** Pad whitespace to the left side of a string.
  *
  * Params:
- *   s = string to padd
- *   padlen = pad to max size.
+ *   s = input string
+ *   padlen = target length after left-padding
  * Returns:
+ *   padded string, or the original string if it is already longer than `padlen`
  */
 dstring padLeft(dstring s, size_t padlen)
 {
@@ -316,17 +317,19 @@ unittest
 
 }
 
-/** This is a encapsulated function pointer in struct */
+/** Wrapper around a progress callback function pointer. */
 struct ProgressCallBack
 {
     void function(size_t i, size_t m) fp;
 }
 
-/** This function creates a spinning dash and a value between 0 and 1
+/** Create a spinner character plus normalized progress text.
  *
  * Params:
  *   i = current value
  *   m = maximum value
+ * Returns:
+ *   progress string in the form `<spinner> <ratio>`
  */
 string makeProgressString(size_t i, size_t m)
 {
@@ -351,7 +354,7 @@ unittest
     assert(s3.startsWith("| 1.000000"), s3);
 }
 
-/** This function prints a spinning dash and a value between 0 and 1
+/** Update progress output for a sub-task callback.
  *
  * Params:
  *   i = current value
@@ -370,7 +373,7 @@ size_t lastIdx;
 size_t lastTotalFiles;
 string lastFile;
 
-/** Print some progress on a single line
+/** Print scan progress on a single console line.
  *
  * Params:
  *   idx = current position

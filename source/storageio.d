@@ -1,4 +1,4 @@
-/** Storage file read helpers.
+/** JSON storage read helpers.
  *
  * Authors: Carsten Schlote, schlote@vahanus.net
  * Copyright: Carsten Schlote, Released under CC-BY-NC-SA 4.0 license, 2018
@@ -15,7 +15,7 @@ import std.uuid;
 import dosierskanilo.namedbinaryblob;
 import logging;
 
-/** Read data in storage file.
+/** Read scanner data from a JSON storage file.
  *
  * Params:
  *   jsonFile = JSON storage file path.

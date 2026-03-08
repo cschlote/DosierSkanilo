@@ -1,10 +1,10 @@
-/** This is a multimedia file scanner
+/** Main application module for directory scanning and metadata extraction.
  *
  * The purpose of this module is to scan a directory (or a tree) and to calculate
- * hashes on the contents. Also, the file is checked to be a media file and
- * media signature is created.
+ * hashes on file contents. Optionally it detects media metadata, archive
+ * contents, and torrent metadata.
  *
- * The information can be saved to a JSON file. On future program executions
+ * The information can be saved to a JSON file. On future runs
  * this information can be read again. New paths are added to existing entries.
  *
  * Note:

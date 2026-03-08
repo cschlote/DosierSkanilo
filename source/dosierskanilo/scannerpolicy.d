@@ -1,3 +1,4 @@
+/** Scanner policy helpers for deciding which jobs should be queued. */
 module dosierskanilo.scannerpolicy;
 
 import dosierskanilo.namedbinaryblob;

@@ -540,10 +540,10 @@ class NamedBinaryBlob
 	/** constructor with parameters for entry with several file entries
 	 *
 	 * Params:
-	 *   names = absolute filename
+	 *   names = absolute filenames
 	 *   size = file size
 	 *   modificationTime = time of last modification
-	 *   sums = CHecksums
+	 *   sums = checksums
 	 *   mt = media info or null
 	 */
 	this(string[] names, size_t size, SysTime modificationTime, CheckSums sums, MediaInfoSig mt = null)
@@ -617,9 +617,9 @@ class NamedBinaryBlob
 
 	/* ------------------------------------------------------------------- */
 
-	/** Get the first filename of sorted list of all filenames
+	/** Get the first modification timestamp from sorted file entries.
 	 *
-	 * Returns: get the first filename of sorted list, or "" for emptry set.
+	 * Returns: first file modification time, or "" for an empty set.
 	 */
 	string getFirstFileModDate() pure
 	{
@@ -629,9 +629,9 @@ class NamedBinaryBlob
 		return rs;
 	}
 
-	/** Get the first filename of sorted list of all filenames
+	/** Get the first filename from sorted file entries.
 	 *
-	 * Returns: get the first filename of sorted list, or "" for emptry set.
+	 * Returns: first filename, or "" for an empty set.
 	 */
 	string getFirstFileName() pure
 	{
@@ -643,9 +643,9 @@ class NamedBinaryBlob
 
 	/* ------------------------------------------------------------------- */
 
-	/** Get the first filename of sorted list of all filenames
+	/** Get all file entries that still exist on disk.
 	 *
-	 * Returns: get the first filename of sorted list, or "" for emptry set.
+	 * Returns: existing `FileSpec` entries, or an empty array if none exist.
 	 */
 	FileSpec[] getExistingFiles()
 	{
@@ -661,9 +661,9 @@ class NamedBinaryBlob
 		return rs;
 	}
 
-	/** Get the first filename of sorted list of all filenames
+	/** Get the first existing filename from sorted file entries.
 	 *
-	 * Returns: get the first filename of sorted list, or "" for emptry set.
+	 * Returns: first existing filename, or "" for an empty set.
 	 */
 	string getFirstExistingFileName()
 	{
@@ -707,6 +707,7 @@ class NamedBinaryBlob
 	 *   filename = filename to add
 	 *   timeLastModified = modification time
 	 * Returns:
+	 *   newly created FileSpec
 	 */
 	FileSpec addFileSpec(string filename, string timeLastModified) @safe
 	{

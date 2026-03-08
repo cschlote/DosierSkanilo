@@ -1,4 +1,4 @@
-/** Create a signature with the linux file utility
+/** File type signature helper using the Linux `file` utility.
  *
  * Authors: Carsten Schlote, schlote@vahanus.net
  * Copyright: Carsten Schlote, Released under CC-BY-NC-SA 4.0 license, 2018
@@ -9,12 +9,12 @@ module dosierskanilo.fileutilsig;
 import logging;
 import std.algorithm.searching;
 
-/** Get output from file utility
+/** Query the file type string for a file path.
  *
  * Params:
- *   filename = file to test
+ *   filename = file to inspect
  * Returns:
- *   Output or null, when undetermined data.
+ *   file type string, or null when the type cannot be determined.
  */
 string getFileType(const string filename)
 {

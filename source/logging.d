@@ -1,7 +1,8 @@
-/** Simple logging wrapper
+/** Simple logging wrapper.
  *
- * This module contains code to log to stdout. Some versions output unconditionally, others
- * output only, if the 'verbose' flag was set on commandline. All outputs is flushed.
+ * This module writes log output to stdout. Some functions always log; others
+ * only log when the command-line verbose flag is enabled. Output is flushed
+ * after each call.
  *
  * Authors: Carsten Schlote, schlote@vahanus.net
  * Copyright: Carsten Schlote, Released under CC-BY-NC-SA 4.0 license, 2018

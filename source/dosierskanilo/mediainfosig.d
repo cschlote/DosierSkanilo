@@ -1,4 +1,4 @@
-/** Create a mediasignature with libmediainfo
+/** Media signature extraction using libmediainfo.
  * Authors: Carsten Schlote, schlote@vahanus.net
  * Copyright: Carsten Schlote, Released under CC-BY-NC-SA 4.0 license, 2018
  * License: CC-NC-BY 4.0
@@ -609,11 +609,12 @@ immutable string[] knownMediaFileExtensions = [
 	".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff"
 ];
 
-/** Check, if a file ends with a know media file extension
+/** Check whether a filename ends with a known media file extension.
  *
  * Params:
- *   filename =
+ *   filename = file path to inspect
  * Returns:
+ *   true if the extension is known to be media-related
  */
 bool hasMediaFileExtension(string filename) pure @safe
 {
@@ -625,20 +626,15 @@ bool hasMediaFileExtension(string filename) pure @safe
 	return !fnd.empty;
 }
 
-/** Create a mediatype signature for a file
+/** Create a media signature for a file.
  *
- *  Use the mediainfo library to extract media info from a given file. All info
- * is transcoded into some kind of human and machine readable format and collected
- * as a string of arrays.
+ *  Uses the MediaInfo library to extract image/video/audio/text stream metadata.
  *
- * Param:
- *   filename - existing file to analyze.
+ * Params:
+ *   filename = existing file to analyze
  * Returns:
- *    An reference to a dynamic array of strings describing the media object, OR
- *   null in case of some exeception in MediaInfo class methods.
- *    In case of some non-media file the tag nonMediaFileTag is returned. This
- *   can be used to destinguish between a not yet scanned file and a file being a
- *   non-media file.
+ *   MediaInfoSig object on success, or null when the file is missing,
+ *   not recognized as media by extension, or MediaInfo parsing fails.
  */
 MediaInfoSig getMediaTypeSignature(const string filename)
 {

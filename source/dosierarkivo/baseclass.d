@@ -1,4 +1,4 @@
-/** A tool to extract files from archives.
+/** Archive abstraction and extraction helpers.
  *
  * This code might be useful for other projects. Instead of replicating code we either
  * use an existing library or we put the code here and make it available to other projects. This module
@@ -33,12 +33,12 @@ enum TAR_SUFFIX = ".tar";
 enum RAR_SUFFIX = ".rar";
 enum _7Z_SUFFIX = ".7z";
 
-/** Factory to produce an FileArchiver object of correct type or null, when not supported or file not found.
+/** Factory that creates a FileArchive object for a supported archive type.
  *
  * Params:
- *   filename = Name of Archiv.
+ *   filename = archive file path
  * Returns:
- *   null or a FileArchive baseclass
+ *   FileArchive instance, or null if the file is missing or unsupported.
  */
 FileArchive fileArchive(string filename)
 {
@@ -76,7 +76,7 @@ unittest
 
 /* -------------------------------------------------------------------- */
 
-/** TopLevel representation of an FileArchive
+/** Top-level representation of an archive file.
  *
  * The idea is to have a baseclass with the common interface and then have implementations
  * for the different archive types. The baseclass can be used in the rest of the code and

@@ -1,4 +1,4 @@
-/** Calculate digests and suport code
+/** Digest calculation helpers.
  * Authors: Carsten Schlote, schlote@vahanus.net
  * Copyright: Carsten Schlote, Released under CC-BY-NC-SA 4.0 license, 2018
  * License: CC-NC-BY 4.0
@@ -17,16 +17,16 @@ import xxhash3;
 // FIXME: Move this to more general place.
 import commandline : ProgressCallBack;
 
-/** Calculate the MD5 and SHA1 checksum
+/** Calculate MD5, SHA1, and XXH64 digests for a file.
  *
  * Just read the binary data *once* per file and feed it to all checksummers.
  *
  * Params:
- *  gotCtrlC = pointer to bool. Set to true, when control-c was hit
- *  fileName = name of file to checksum, file must exist!
- *  md5sum = a md5sum as binary array
- *  sha1sum = a sha1 as binary array
- *  xxh64sum = a XXH64 checksum
+ *  gotCtrlC = pointer to stop flag set when Ctrl-C was received
+ *  fileName = file path to checksum (must exist)
+ *  md5sum = destination MD5 digest as binary array (optional)
+ *  sha1sum = destination SHA1 digest as binary array (optional)
+ *  xxh64sum = destination XXH64 digest as binary array (optional)
  *  progressCallBack = optional progress callback
  */
 void calculatesDigests(
