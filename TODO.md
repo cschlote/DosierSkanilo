@@ -4,13 +4,16 @@ Project review date: 2026-03-08
 
 ## P0 - Critical
 
-- [ ] Fix shell command injection risks in archive handling
+- [x] Fix shell command injection risks in archive handling
   - Impact: Archive paths and entry names are interpolated into shell command strings and executed via `executeShell`, which is unsafe with crafted filenames.
   - Code pointers: `source/dosierarkivo/baseclass.d:212`, `source/dosierarkivo/baseclass.d:236`, `source/dosierarkivo/baseclass.d:357`, `source/dosierarkivo/baseclass.d:430`.
   - Required change:
     - Replace `executeShell("...")` command construction with argument-array process execution (`execute`/`spawnProcess` with `string[] args`).
     - Avoid `cd ... && ...`; use process working-directory options instead.
     - Add tests using spaces, quotes, and shell metacharacters in archive filenames and entry names.
+  - Status:
+    - Completed in `source/dosierarkivo/baseclass.d` by switching archive adapters to argument-array execution.
+    - Added unittest `archive extraction with special filenames` covering quoted/metacharacter filenames.
 
 ## P1 - High
 
@@ -77,5 +80,5 @@ Project review date: 2026-03-08
 
 ## Validation snapshot
 
-- `dub test -b unittest-cov -- -v`: passed (`38 passed, 0 failed`).
+- `dub test -b unittest-cov -- -v`: passed (`39 passed, 0 failed`).
 - `dub build --compiler=ldc2`: passed.

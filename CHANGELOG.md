@@ -7,6 +7,16 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
+## Release 26.3.0
+
+- Hardened archive command execution in `source/dosierarkivo/baseclass.d`:
+	- replaced shell-string based `executeShell(...)` calls for `zip`, `tar`, `rar`, and `7z` operations with argument-array process execution (`execute([...])`)
+	- removed shell command composition patterns that were sensitive to quoting/metacharacters in archive or entry names
+	- replaced pipeline-based `7z` listing (`grep`/`awk`) with in-process parsing of `7z -ba` output
+- Added regression coverage for special filenames in archive paths and entries:
+	- new unittest `archive extraction with special filenames` in `source/dosierarkivo/baseclass.d`
+	- validates spaces, quotes, and shell metacharacters survive list/extract operations for `zip` and `tar`
+
 ## Release 26.2.0
 
 - Added GitHub Actions CI workflow (`.github/workflows/main.yml`) equivalent to GitLab CI stages:

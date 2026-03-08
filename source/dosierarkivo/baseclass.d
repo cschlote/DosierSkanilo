@@ -13,6 +13,7 @@ import std.file;
 import std.path;
 import std.process;
 import std.range;
+import std.regex;
 import std.stdio;
 import core.sys.posix.libgen;
 import dosierskanilo.namedbinaryblob;
@@ -209,7 +210,7 @@ class FileArchiveZip : FileArchive
 
     override string[] getEntries()
     {
-        auto rc = executeShell("unzip -l %s".format(this.fileName));
+        auto rc = execute(["unzip", "-l", this.fileName]);
         assert(rc.status == 0, rc.output);
         // writeln(rc.output);
         auto res = rc.output.split("\n").filter!(a => !a.empty).array;
@@ -233,9 +234,7 @@ class FileArchiveZip : FileArchive
     override bool extractEntry(string filename, string destDir)
     {
         auto zipPath = buildPath(getcwd, this.fileName);
-        auto cmd = "cd %s && unzip \"%s\" \"%s\"".format(destDir, zipPath, filename);
-        // writeln(cmd);
-        auto rc = executeShell(cmd);
+        auto rc = execute(["unzip", "-d", destDir, zipPath, filename]);
         assert(rc.status == 0, rc.output);
         return true;
     }
@@ -285,7 +284,7 @@ class FileArchiveTar : FileArchive
 
     override string[] getEntries()
     {
-        auto rc = executeShell("tar -tf \"%s\"".format(this.fileName));
+        auto rc = execute(["tar", "-tf", this.fileName]);
         // write(rc.output);
         assert(rc.status == 0, rc.output);
         return rc.output.split("\n").filter!(a => !a.empty).array;
@@ -294,9 +293,7 @@ class FileArchiveTar : FileArchive
     override bool extractEntry(string filename, string destDir)
     {
         auto tarPath = buildPath(getcwd, this.fileName);
-        auto cmd = "tar -xf \"%s\" -C\"%s\" \"%s\"".format(tarPath, destDir, filename);
-        // writeln(cmd);
-        auto rc = executeShell(cmd);
+        auto rc = execute(["tar", "-xf", tarPath, "-C", destDir, filename]);
         assert(rc.status == 0, rc.output);
         return true;
     }
@@ -345,7 +342,7 @@ class FileArchiveRar : FileArchive
 
     override string[] getEntries()
     {
-        auto rc = executeShell("unrar lb \"%s\"".format(this.fileName));
+        auto rc = execute(["unrar", "lb", this.fileName]);
         assert(rc.status == 0, rc.output);
         auto res = rc.output.split("\n").filter!(a => !a.empty).array;
         return res;
@@ -354,9 +351,7 @@ class FileArchiveRar : FileArchive
     override bool extractEntry(string filename, string destDir)
     {
         auto tarPath = buildPath(getcwd, this.fileName);
-        auto cmd = "cd %s && unrar x -pX \"%s\" \"%s\"".format(destDir, tarPath, filename);
-        // writeln(cmd);
-        auto rc = executeShell(cmd);
+        auto rc = execute(["unrar", "x", "-pX", tarPath, filename, destDir]);
         // write(rc.output);
         assert(rc.status == 0, rc.output);
         return true;
@@ -410,29 +405,40 @@ class FileArchive7z : FileArchive
 
     override string[] getEntries()
     {
-        auto cmd0 = "7z l -p -ba \"%s\"".format(this.fileName);
-        auto rc0 = executeShell(cmd0);
+        auto rc0 = execute(["7z", "l", "-p", "-ba", this.fileName]);
         if (rc0.status == 2)
         {
             write(rc0.output);
             return null; // Archive is password protected, we cannot get the list of entries.
         }
 
-        auto cmd = "7z l -ba \"%s\" | grep -v ' D....' | awk '{print $NF}'".format(
-            this.fileName);
-        auto rc = executeShell(cmd);
-        // write(rc.output);
-
+        auto rc = execute(["7z", "l", "-ba", this.fileName]);
         assert(rc.status == 0, rc.output);
-        return rc.output.split("\n").filter!(a => !a.empty).array;
+
+        string[] entries;
+        auto lines = rc.output.splitLines;
+        foreach (line; lines)
+        {
+            auto m = matchFirst(line,
+                `^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})\s+(\S+)\s+(\d+)\s+(\d*)\s+(.+)$`);
+            if (m.empty)
+                continue;
+
+            auto attrs = m.captures[3];
+            if (attrs.length > 0 && attrs[0] == 'D')
+                continue;
+
+            auto entryName = m.captures[6].strip;
+            if (!entryName.empty)
+                entries ~= entryName;
+        }
+        return entries;
     }
 
     override bool extractEntry(string filename, string destDir)
     {
         auto tarPath = buildPath(getcwd, this.fileName);
-        auto cmd = "cd %s && 7z x \"%s\" \"%s\"".format(destDir, tarPath, filename);
-        // writeln(cmd);
-        auto rc = executeShell(cmd);
+        auto rc = execute(["7z", "x", tarPath, filename, "-o" ~ destDir]);
         // write(rc.output);
         assert(rc.status == 0, rc.output);
         return true;
@@ -470,4 +476,50 @@ unittest
 
     // auto list = obj.getEntries();
     testAbstractImpl(obj);
+}
+
+@("archive extraction with special filenames")
+unittest
+{
+    auto tmpRoot = buildPath(tempDir, "dosierskanilo-archive-safe-" ~ thisProcessID.to!string);
+    if (tmpRoot.exists)
+        rmdirRecurse(tmpRoot);
+    mkdirRecurse(tmpRoot);
+    scope (exit)
+        if (tmpRoot.exists)
+            rmdirRecurse(tmpRoot);
+
+    auto specialEntryName = "special 'quoted' ;$ file.txt";
+    auto specialSourceFile = buildPath(tmpRoot, specialEntryName);
+    std.file.write(specialSourceFile, "archive safety regression test\n");
+
+    auto zipArchiveName = "special ;$ 'archive'.zip";
+    auto zipArchivePath = buildPath(tmpRoot, zipArchiveName);
+    auto zipCreate = execute(["zip", "-q", "-j", zipArchivePath, specialSourceFile]);
+    assert(zipCreate.status == 0, zipCreate.output);
+
+    auto zipObj = fileArchive(zipArchivePath);
+    assert(zipObj !is null);
+    auto zipEntries = zipObj.getEntries();
+    assert(zipEntries.countUntil(specialEntryName) >= 0, zipEntries.to!string);
+
+    auto zipExtractDir = buildPath(tmpRoot, "extract zip ;$ dir");
+    mkdirRecurse(zipExtractDir);
+    assert(zipObj.extractEntry(specialEntryName, zipExtractDir));
+    assert(buildPath(zipExtractDir, specialEntryName).exists);
+
+    auto tarArchiveName = "special ;$ 'archive'.tar";
+    auto tarArchivePath = buildPath(tmpRoot, tarArchiveName);
+    auto tarCreate = execute(["tar", "-cf", tarArchivePath, "-C", tmpRoot, specialEntryName]);
+    assert(tarCreate.status == 0, tarCreate.output);
+
+    auto tarObj = fileArchive(tarArchivePath);
+    assert(tarObj !is null);
+    auto tarEntries = tarObj.getEntries();
+    assert(tarEntries.countUntil(specialEntryName) >= 0, tarEntries.to!string);
+
+    auto tarExtractDir = buildPath(tmpRoot, "extract tar ;$ dir");
+    mkdirRecurse(tarExtractDir);
+    assert(tarObj.extractEntry(specialEntryName, tarExtractDir));
+    assert(buildPath(tarExtractDir, specialEntryName).exists);
 }
