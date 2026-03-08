@@ -42,7 +42,7 @@
         {
             "label": "test-host",
             "type": "shell",
-            "command": "dub test -b unittest-cov -- -v",
+            "command": "dub test --compiler=ldc2 -b unittest-cov -- -v",
             "group": {
                 "kind": "build",
                 "isDefault": false

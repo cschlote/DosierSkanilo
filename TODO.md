@@ -84,22 +84,29 @@ Project review date: 2026-03-08
 
 ## P3 - Low
 
-- [ ] Clean up outdated comments/typos and naming consistency
+- [x] Clean up outdated comments/typos and naming consistency
   - Impact: Minor maintainability friction (typos and stale comments) across docs and code.
   - Examples:
     - `source/appmain.d:10` (`ToDo` section stale)
     - `source/commandline.d` spelling (`Recursivly`, `darabase`, etc.)
   - Required change:
     - Sweep comments/help text for clarity and consistency.
+  - Status:
+    - Cleaned stale/typo-prone comments and user-facing log/help text in `source/appmain.d` and `source/commandline.d`.
+    - Renamed `argRecusive` to `argRecursive` and updated all call sites for consistent naming.
 
-- [ ] Consolidate build/test compiler strategy
+- [x] Consolidate build/test compiler strategy
   - Impact: Local task defaults use `ldc2` for build while tests in scripts may use default compiler (`dub test`), causing drift between CI/local behaviors.
   - Code pointers: `scripts/test.sh:9`, workspace task `test-host`.
   - Required change:
     - Standardize test compiler selection (`--compiler=ldc2` or explicit matrix).
     - Document expected compiler support in `README.md`.
+  - Status:
+    - Standardized helper scripts to default to `ldc2` via `DUB_COMPILER` (`scripts/build.sh`, `scripts/test.sh`).
+    - Updated workspace test task to use `dub test --compiler=ldc2 -b unittest-cov -- -v`.
+    - Documented compiler strategy and override mechanism in `README.md`.
 
 ## Validation snapshot
 
-- `dub test -b unittest-cov -- -v`: passed (`39 passed, 0 failed`).
+- `dub test --compiler=ldc2 -b unittest-cov -- -v`: passed (`45 passed, 0 failed`).
 - `dub build --compiler=ldc2`: passed.

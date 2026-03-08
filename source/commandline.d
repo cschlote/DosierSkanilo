@@ -39,7 +39,7 @@ struct ArgsArray
 {
     /* Commandline args - shared with all out threads */
     string argScanPath; /// Path to directory to scan
-    bool argRecusive; /// Scan recursivly
+    bool argRecursive; /// Scan recursively
     bool argScanFiles; /// Scan for new files
     string argJSONFile; /// PathName of JSON file to write
     bool argDoFileTypes; /// Use the 'file' utility to scan filetypes
@@ -76,19 +76,19 @@ bool parseCommandLineArgs(string[] args, ArgsArray* argsarray = &argsArray)
     auto helpInformation = getopt(args, /* std.getopt.config.required, */
         "path|p", "Path to scan for files", &argsarray.argScanPath,
         "json|j", "Name of JSON file to read from and store results to", &argsarray.argJSONFile,
-        "recursive|r", "Recursivly scan directories", &argsarray.argRecusive,
+        "recursive|r", "Recursively scan directories", &argsarray.argRecursive,
         "scan|s", "Scan for new files.", &argsarray.argScanFiles,
-        "checksum|c", "Calculate the checkums", &argsarray.argDoChecksums,
+        "checksum|c", "Calculate the checksums", &argsarray.argDoChecksums,
         "filetypes|y", "Query file type with 'file' utility", &argsarray.argDoFileTypes,
         "mediasig|m", "Calculate the media signature", &argsarray.argDoMediaSig,
         "rescan-mediasig", "Rescan all files for media signature", &argsarray.argRescanMediaSig,
         "scanArchives|z", "Get the contents of archives", &argsarray.argScanArchives,
         "scanTorrents|o", "Get the contents of torrent files", &argsarray.argScanTorrents,
-        "analyse|a", "Analyse darabase", &argsarray.argRunAnalysis,
+        "analyse|a", "Analyze database", &argsarray.argRunAnalysis,
         "dropMissing|d", "Drop missing files from database", &argsarray.argDropMissing,
         "writeJSON|w", "Write the modified JSON data.", &argsarray.argWriteJSON,
         "threads|t", "Number of worker threads", &argsarray.argNumberOfThreads,
-        "force|f", "Force overwritting JSON file", &argsarray.argForceOverwrite,
+        "force|f", "Force overwriting JSON file", &argsarray.argForceOverwrite,
         "pickhidden|h", "Pick hidden files and directories too", &argsarray.argPickHidden,
         "verbose|v", "Be verbose", &argsarray.argVerboseOutputs);
 
@@ -202,7 +202,7 @@ unittest
     assert(res == true, "Parsing failed");
     assert(args.argScanPath == testdir, args.argScanPath);
     assert(args.argJSONFile == jsonfile, args.argJSONFile);
-    assert(args.argRecusive == true, args.argRecusive.to!string);
+    assert(args.argRecursive == true, args.argRecursive.to!string);
     assert(args.argScanFiles == true, args.argScanFiles.to!string);
     assert(args.argDoChecksums == true, args.argDoChecksums.to!string);
     assert(args.argDoFileTypes == true, args.argDoFileTypes.to!string);

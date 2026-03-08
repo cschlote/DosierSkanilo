@@ -5,10 +5,7 @@
  * media signature is created.
  *
  * The information can be saved to a JSON file. On future program executions
- * this information can be read again. New paths are added to the existing entrie.
- *
- * ToDo:
- *   Add some options to checkfiles
+ * this information can be read again. New paths are added to existing entries.
  *
  * Note:
  *   XML file support was removed. It resulted in much larger files, was very slow
@@ -105,7 +102,7 @@ int main(string[] args)
  *
  * Checksumming files can take some time. The handler allows to catch
  * a Control-C event and signal threads to exit.
- * Data can then be written to disk instead of immediately braking the
+ * Data can then be written to disk instead of immediately breaking the
  * program.
  *
  * Param:
@@ -152,7 +149,7 @@ bool executeFileScannerOperation()
 		return false;
 	}
 
-	/* Sscan directory - here we just collect the filenames. Any new name is added
+	/* Scan directory - here we just collect the filenames. Any new name is added
 	   as a new node to the array of object blobs.
 	 */
 	if (argsArray.argScanFiles)
@@ -178,7 +175,7 @@ bool executeFileScannerOperation()
 	}
 	catch (Exception e)
 	{
-		logLine("Something has happend, while scanning and an exceptions was thrown.");
+		logLine("Something happened while scanning and an exception was thrown.");
 		auto emergencySaveName = buildPath(thisExePath.dirName, ".crash_save.json");
 		logFLine("Serialize Array of Objects to temporary file: %s", emergencySaveName);
 		serializeDataClassArrayFile(emergencySaveName, dynObjectArray);
@@ -186,7 +183,7 @@ bool executeFileScannerOperation()
 		logLine("File: ", e.file);
 		logLine("Line: ", e.line);
 		logLine("Stacktrace:\n", e.toString);
-		logLine("The programm will now stop.");
+		logLine("The program will now stop.");
 		return false;
 	}
 
@@ -229,7 +226,7 @@ bool readStorageFile()
  *  create a container object and add it to the dynamic Array.
  *
  *  Param:
- *   scanPath - Path to directry for the scan
+ *   scanPath - Path to directory for the scan
  *   pickHidden - if true, hidden files and directories are also scanned
  *
  *  Returns true, if all Files were scanned, otherwise false is returned.
@@ -253,7 +250,7 @@ bool scanDirTree(string scanPath, bool pickHidden = false)
 
 	// We get a lazy range of DirEntrys here, no length known up-front.
 	auto foundDirEntries =
-		dirEntries(scanPath, argsArray.argRecusive ? SpanMode.depth : SpanMode.shallow);
+		dirEntries(scanPath, argsArray.argRecursive ? SpanMode.depth : SpanMode.shallow);
 
 	foreach (DirEntry dirEntry; foundDirEntries)
 	{
@@ -492,7 +489,7 @@ bool runScannerJobs()
 
 			logLine("Waiting for checksum threads to terminate.");
 			myTaskPool.finish(true);
-			/* Important: Stop worker threads. Otherwise the programm will hang on exit. */
+			/* Important: Stop worker threads. Otherwise the program will hang on exit. */
 			myTaskPool.stop();
 		}
 
@@ -685,7 +682,7 @@ private bool writeStorageFile()
 		auto nowString = Clock.currTime.toISOExtString();
 		newname = basename ~ "-" ~ nowString ~ jsonFileExtension;
 		rename(argsArray.argJSONFile, newname);
-		logFLine("Backuped existing file '%s' to '%s'.", argsArray.argJSONFile, newname);
+		logFLine("Backed up existing file '%s' to '%s'.", argsArray.argJSONFile, newname);
 	}
 	logLine("Serialize Array of Objects");
 	try

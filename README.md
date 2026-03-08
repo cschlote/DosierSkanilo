@@ -32,8 +32,14 @@ dub build --compiler=ldc2
 Run tests:
 
 ```bash
-dub test -b unittest-cov -- -v
+dub test --compiler=ldc2 -b unittest-cov -- -v
 ```
+
+Compiler strategy:
+
+- CI and local helper scripts default to `ldc2` for `build`, `test`, and `run`.
+- Override compiler explicitly when needed: `DUB_COMPILER=dmd ./scripts/test.sh`.
+- The project is tested primarily with `ldc2`; other compilers are best-effort.
 
 ## CI and Linting
 
