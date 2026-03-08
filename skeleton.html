@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<title>DosierSkanilo API Docs</title>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<link rel="icon" type="image/svg+xml" href="dosierskanilo-icon.svg" />
+	<link rel="stylesheet" href="style.css" />
+	<script type="text/javascript" src="script.js"></script>
+	<style>
+		:root {
+			--brand-accent: #4c51bf;
+			--brand-accent-soft: #c7d2fe;
+			--brand-bg: #f1f3fa;
+			--brand-bg-highlight: #e4e8ff;
+			--brand-text: #1f2937;
+			--brand-link: #3f45a6;
+			--brand-link-hover: #2f337d;
+			--brand-surface: #f8f9ff;
+			--brand-header-bg: #eef1ffee;
+			--brand-nav-bg: #f1f3ffd9;
+			--brand-input-bg: #fafbff;
+			--brand-panel-bg: #ebefffd9;
+			--brand-footer-bg: #e6ebffcc;
+		}
+
+		body[data-theme="mint"] {
+			--brand-accent: #0f766e;
+			--brand-accent-soft: #99f6e4;
+			--brand-bg: #edf8f6;
+			--brand-bg-highlight: #dcfce7;
+			--brand-link: #0b6a63;
+			--brand-link-hover: #094f4a;
+			--brand-surface: #f3fcf9;
+			--brand-header-bg: #ebf9f4ee;
+			--brand-nav-bg: #eefaf5;
+			--brand-input-bg: #f6fffb;
+			--brand-panel-bg: #eaf8f2d9;
+			--brand-footer-bg: #e6f4efcc;
+		}
+
+		body[data-theme="warm"] {
+			--brand-accent: #b45309;
+			--brand-accent-soft: #fde68a;
+			--brand-bg: #fbf5ec;
+			--brand-bg-highlight: #ffe8d8;
+			--brand-link: #9a4008;
+			--brand-link-hover: #7c2d12;
+			--brand-surface: #fff9f0;
+			--brand-header-bg: #fff2e6ee;
+			--brand-nav-bg: #fff4ead9;
+			--brand-input-bg: #fffbf4;
+			--brand-panel-bg: #fff0e2d9;
+			--brand-footer-bg: #ffe8d6cc;
+		}
+
+		body[data-theme="slate"] {
+			--brand-accent: #4c51bf;
+			--brand-accent-soft: #c7d2fe;
+			--brand-bg: #f1f3fa;
+			--brand-bg-highlight: #e4e8ff;
+			--brand-link: #3f45a6;
+			--brand-link-hover: #2f337d;
+			--brand-surface: #f8f9ff;
+			--brand-header-bg: #eef1ffee;
+			--brand-nav-bg: #f1f3ffd9;
+			--brand-input-bg: #fafbff;
+			--brand-panel-bg: #ebefffd9;
+			--brand-footer-bg: #e6ebffcc;
+		}
+
+		body {
+			font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+			background: radial-gradient(circle at top right, var(--brand-bg-highlight), var(--brand-bg) 46%) !important;
+			color: var(--brand-text) !important;
+		}
+
+		a,
+		a:visited {
+			color: var(--brand-link);
+		}
+
+		a:hover,
+		a:focus {
+			color: var(--brand-link-hover);
+		}
+
+		#page-header {
+			border-bottom: 3px solid var(--brand-accent);
+			background: var(--brand-header-bg);
+			backdrop-filter: blur(6px);
+			position: sticky;
+			top: 0;
+			z-index: 50;
+			color: var(--brand-text);
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			flex-wrap: wrap;
+			gap: 0.9rem 1.2rem;
+			padding: 1rem 1.2rem;
+			min-height: 118px;
+			overflow: visible;
+			box-sizing: border-box;
+		}
+
+		#logotype {
+			display: flex;
+			align-items: center;
+			gap: 0.85rem;
+		}
+
+		#logotype .brand-icon {
+			width: 86px;
+			height: 86px;
+			border-radius: 8px;
+			box-shadow: 0 3px 10px #0f766e33;
+			flex: 0 0 auto;
+		}
+
+		#logotype .brand-text {
+			display: flex;
+			flex-direction: column;
+		}
+
+		#logotype span {
+			font-weight: 700;
+			letter-spacing: 0.02em;
+			color: var(--brand-text);
+		}
+
+		#logotype .subtitle {
+			display: block;
+			font-size: 0.85rem;
+			font-weight: 500;
+			color: #0f766ecc;
+		}
+
+		nav a {
+			color: var(--brand-text) !important;
+			border: 1px solid #cbd5e1;
+			border-radius: 999px;
+			padding: 0.2rem 0.65rem;
+			text-decoration: none;
+			margin-right: 0.35rem;
+			background: var(--brand-nav-bg);
+		}
+
+		#search {
+			margin-left: auto;
+			margin-top: 0.4rem;
+			padding-top: 0.2rem;
+			display: flex;
+			align-items: center;
+			gap: 0.5rem;
+		}
+
+		#search input {
+			height: 2.2rem;
+		}
+
+		nav a:hover {
+			border-color: var(--brand-accent);
+			background: var(--brand-accent-soft);
+		}
+
+		#search input[type="search"] {
+			background: var(--brand-input-bg);
+			color: #0f172a;
+			border-radius: 999px;
+			border: 1px solid #94a3b8;
+		}
+
+		#search input[type="submit"] {
+			border-radius: 999px;
+			border: 0;
+			background: var(--brand-accent);
+			color: #fff;
+			padding: 0.4rem 0.9rem;
+			font-weight: 600;
+		}
+
+		#theme-picker {
+			height: 2.2rem;
+			border: 1px solid #94a3b8;
+			border-radius: 999px;
+			background: var(--brand-input-bg);
+			color: #0f172a;
+			padding: 0 0.7rem;
+		}
+
+		#page-nav {
+			background: var(--brand-panel-bg);
+			color: #0f172a;
+			border-left: 3px solid #d1fae5;
+			padding-left: 0.8rem;
+		}
+
+		#page-nav a,
+		#page-nav a:visited {
+			color: #0f172a;
+		}
+
+		#page-content {
+			background: var(--brand-surface) !important;
+			color: #0f172a;
+			border-radius: 8px;
+			padding: 1rem;
+			box-shadow: 0 1px 2px #0f172a14;
+		}
+
+		#landing-intro {
+			display: none;
+			margin-bottom: 1.1rem;
+			border: 1px solid #cbd5e1;
+			border-radius: 10px;
+			padding: 1rem 1rem 0.8rem;
+			background: #ffffff80;
+		}
+
+		body.index-page #landing-intro {
+			display: block;
+		}
+
+		#landing-intro h2 {
+			margin-top: 0;
+			margin-bottom: 0.55rem;
+			color: var(--brand-link);
+		}
+
+		#landing-intro p {
+			margin-top: 0;
+		}
+
+		#landing-intro .meta-line {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 0.45rem;
+			margin: 0.5rem 0 0.2rem;
+		}
+
+		#landing-intro .chip {
+			display: inline-flex;
+			align-items: center;
+			gap: 0.3rem;
+			padding: 0.2rem 0.6rem;
+			border-radius: 999px;
+			border: 1px solid #cad3eb;
+			background: #f2f5ff;
+			font-size: 0.82rem;
+			color: #2f337d;
+		}
+
+		#landing-intro .chip a,
+		#landing-intro .chip a:visited {
+			color: inherit;
+			text-decoration: none;
+			font-weight: 600;
+		}
+
+		#landing-intro .chip a:hover {
+			text-decoration: underline;
+		}
+
+		#landing-intro .chip .label {
+			font-weight: 700;
+			color: #4b5563;
+		}
+
+		#landing-intro .landing-grid {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(220px, 1fr));
+			gap: 0.8rem;
+			margin-top: 0.8rem;
+		}
+
+		#landing-intro .card {
+			background: #ffffffb0;
+			border: 1px solid #dbe3f4;
+			border-radius: 8px;
+			padding: 0.75rem;
+		}
+
+		#landing-intro .card h3 {
+			margin: 0 0 0.45rem;
+			font-size: 1rem;
+			color: #2f337d;
+		}
+
+		#landing-intro ul {
+			margin: 0;
+			padding-left: 1.1rem;
+		}
+
+		#landing-intro code {
+			background: #e8edff;
+		}
+
+		#page-content code {
+			background: #e2e8f0;
+			color: #0b1324;
+			padding: 0.08rem 0.3rem;
+			border-radius: 0.3rem;
+		}
+
+		#page-content pre {
+			background: #0f172a;
+			color: #e2e8f0;
+			border-radius: 6px;
+			padding: 0.9rem;
+		}
+
+		#page-content h1,
+		#page-content h2,
+		#page-content h3,
+		#page-content h4 {
+			color: #0b3f3c;
+		}
+
+		#page-footer {
+			background: var(--brand-footer-bg);
+			border-top: 1px solid #cbd5e1;
+			color: #475569;
+		}
+
+		@media (max-width: 900px) {
+			#page-header {
+				min-height: 0;
+				padding: 0.8rem;
+			}
+
+			#search {
+				margin-left: 0;
+				margin-top: 0.55rem;
+				width: 100%;
+				flex-wrap: wrap;
+			}
+
+			#logotype .brand-icon {
+				width: 64px;
+				height: 64px;
+			}
+
+			#landing-intro .landing-grid {
+				grid-template-columns: 1fr;
+			}
+		}
+	</style>
+
+	<!-- You should delete this line if you don't want to use
+	     the JS-based search as it exists just to optimize that. -->
+	<link rel="prefetch" href="search-results.html" />
+</head>
+<body>
+	<div id="page-header">
+		<div id="logotype">
+		<img class="brand-icon" src="dosierskanilo-icon.svg" alt="DosierSkanilo icon" />
+		<div class="brand-text">
+		<span>DosierSkanilo API Documentation</span>
+		<span class="subtitle">Blob scanner internals, CLI and module reference</span>
+		</div>
+		<nav>
+			<a href="index.html">Overview</a>
+			<a href="https://github.com/cschlote/DosierSkanilo">GitHub</a>
+			<a href="https://gitlab.vahanus.net/dlang/dosierskanilo">Vahanus</a>
+			<a href="https://dlang.org/">Dlang.org</a>
+		</nav>
+		</div>
+
+		<form id="search" action="search-docs.html">
+			<select id="theme-picker" aria-label="Select color palette">
+				<option value="default">Palette: Slate (Default)</option>
+				<option value="mint">Palette: Mint</option>
+				<option value="warm">Palette: Warm</option>
+			</select>
+			<input placeholder="Find a symbol name..." type="search" name="searchTerm" />
+			<input type="submit" value="Go" />
+		</form>
+	</div>
+	<div id="page-body">
+		<div id="page-content">
+			<section id="landing-intro" aria-label="Project Overview">
+				<h2>Welcome to DosierSkanilo</h2>
+				<p>
+					DosierSkanilo is a blob-centric scanner for media, archives, and torrent
+					metadata. It computes checksums, extracts signatures, and persists
+					results as JSON for duplicate detection and analysis workflows.
+				</p>
+				<div class="meta-line" aria-label="Release and Build Information">
+					<span class="chip"><span class="label">Release</span> <span id="meta-release">26.6.x</span></span>
+					<span class="chip"><span class="label">Tag</span> <a id="meta-tag-link" href="https://github.com/cschlote/DosierSkanilo/releases/tag/v26.6.0">v26.6.0</a></span>
+					<span class="chip"><span class="label">Notes</span> <a id="meta-changelog-link" href="https://github.com/cschlote/DosierSkanilo/blob/main/CHANGELOG.md">CHANGELOG</a></span>
+					<span class="chip"><span class="label">Docs Build</span> <span id="meta-build-date">runtime</span></span>
+					<span class="chip"><span class="label">Compiler</span> <span id="meta-compiler">ldc2 (default)</span></span>
+					<span class="chip"><span class="label">Theme</span> <span id="meta-theme">Slate</span></span>
+				</div>
+				<div class="landing-grid">
+					<div class="card">
+						<h3>Core Capabilities</h3>
+						<ul>
+							<li>Checksum pipeline: MD5, SHA1, XXH64</li>
+							<li>MediaInfo + file utility signatures</li>
+							<li>Archive entry inspection (`zip`, `tar`, `rar`, `7z`)</li>
+							<li>Torrent metadata extraction with magnet/info-hash</li>
+						</ul>
+					</div>
+					<div class="card">
+						<h3>Quick Start</h3>
+						<p>Generate docs:</p>
+						<pre><code>dub run adrdox -- . -o docs -i --skeleton "$PWD/skeleton.html"</code></pre>
+						<p>Build scanner:</p>
+						<pre><code>dub build --compiler=ldc2</code></pre>
+					</div>
+					<div class="card">
+						<h3>Entry Links</h3>
+						<ul>
+							<li><a href="appmain.html">Application workflow (`appmain`)</a></li>
+							<li><a href="commandline.html">CLI parser (`commandline`)</a></li>
+							<li><a href="storageio.html">Storage I/O (`storageio`)</a></li>
+							<li><a href="dosierarkivo.baseclass.html">Archive adapters</a></li>
+						</ul>
+					</div>
+					<div class="card">
+						<h3>Project Context</h3>
+						<ul>
+							<li><a href="https://github.com/cschlote/DosierSkanilo">GitHub repository</a></li>
+							<li><a href="https://gitlab.vahanus.net/dlang/dosierskanilo">Vahanus repository</a></li>
+							<li><a href="https://dlang.org/">D language ecosystem</a></li>
+						</ul>
+					</div>
+				</div>
+			</section>
+		</div>
+		<div id="page-nav">
+		</div>
+	</div>
+	<div id="page-footer">Generated with <a href="https://github.com/adamdruppe/adrdox">adrdox</a> for the DosierSkanilo project.</div>
+	<script>
+		(function () {
+			var picker = document.getElementById("theme-picker");
+			if (window.location.pathname.match(/\/(index\.html)?$/)) {
+				document.body.classList.add("index-page");
+			}
+			var metaDate = document.getElementById("meta-build-date");
+			var metaTheme = document.getElementById("meta-theme");
+			var metaRelease = document.getElementById("meta-release");
+			var metaCompiler = document.getElementById("meta-compiler");
+			var metaTagLink = document.getElementById("meta-tag-link");
+			var metaChangelogLink = document.getElementById("meta-changelog-link");
+
+			if (metaDate) {
+				metaDate.textContent = new Date().toLocaleString();
+			}
+
+			fetch("meta.json", { cache: "no-store" })
+				.then(function (response) {
+					if (!response.ok) throw new Error("meta missing");
+					return response.json();
+				})
+				.then(function (meta) {
+					if (metaRelease && meta.releaseTag) {
+						metaRelease.textContent = meta.releaseTag.replace(/^v/, "");
+					}
+					if (metaCompiler && meta.compiler) {
+						metaCompiler.textContent = meta.compiler;
+					}
+					if (metaDate && meta.buildDateUtc) {
+						metaDate.textContent = new Date(meta.buildDateUtc).toLocaleString();
+					}
+					if (metaTagLink && meta.releaseTag) {
+						metaTagLink.textContent = meta.releaseTag;
+					}
+					if (metaTagLink && meta.releaseUrl) {
+						metaTagLink.href = meta.releaseUrl;
+					}
+					if (metaChangelogLink && meta.changelogUrl) {
+						metaChangelogLink.href = meta.changelogUrl;
+					}
+				})
+				.catch(function () {
+					/* Keep static fallback values from HTML */
+				});
+
+			if (!picker) return;
+
+			var stored = localStorage.getItem("dosierskanilo-doc-theme") || "default";
+			if (stored === "slate") {
+				stored = "default";
+			}
+			picker.value = stored;
+			if (stored !== "default") {
+				document.body.setAttribute("data-theme", stored);
+			}
+			if (metaTheme) {
+				metaTheme.textContent = stored === "default" ? "Slate" : stored;
+			}
+
+			picker.addEventListener("change", function () {
+				var theme = picker.value || "default";
+				if (theme === "default") {
+					document.body.removeAttribute("data-theme");
+				} else {
+					document.body.setAttribute("data-theme", theme);
+				}
+				if (metaTheme) {
+					metaTheme.textContent = theme === "default" ? "Slate" : theme;
+				}
+				localStorage.setItem("dosierskanilo-doc-theme", theme);
+			});
+		})();
+	</script>
+</body>
+</html>
