@@ -910,7 +910,7 @@ version (unittest)
 
 /** Fixup legacy fields in NamedBinaryBlob array for deserialization
  *
- * Param:
+ * Params:
  *   dataArray = Array of NamedBinaryBlob objects to process
  * Returns: Updated array of NamedBinaryBlob objects
  */
@@ -996,7 +996,7 @@ NamedBinaryBlob[] fixupDataClassArrayIn(NamedBinaryBlob[] dataArray)
 
 /** Fixup NamedBinaryBlob array before serialization
  *
- * Param:
+ * Params:
  *   dataArray = Array of NamedBinaryBlob objects to process
  * Returns: Updated array of NamedBinaryBlob objects
  */
@@ -1059,10 +1059,10 @@ unittest
 
 /** Deserialize a JSON file and return NamedBinaryBlob[] array
  *
- * Param:
+ * Params:
  *   serializedData = JSON string with serialized NamedBinaryBlob data
- * Returns
- *   array of NamedBinaryBlob objs.
+ * Returns:
+ *   array of deserialized NamedBinaryBlob objects
  */
 NamedBinaryBlob[] deserializeDataClassJsonString(const string serializedData)
 {
@@ -1135,9 +1135,10 @@ unittest
 
 /** Deserialize a JSON file and return NamedBinaryBlob[] array
  *
- * Param:
+ * Params:
  *   fileName = the name of JSON file to read.
- * Returns
+ * Returns:
+ *   array of deserialized NamedBinaryBlob objects, or empty array when file is missing
  */
 NamedBinaryBlob[] deserializeDataClassJsonFile(string fileName, bool verbose = false)
 {
@@ -1225,7 +1226,7 @@ unittest
 
 /** Calc the Digests, if missing
  *
- * Param:
+ * Params:
  *   obj = NamedBinaryBlob object to update
  *   gotCtrlC = shared bool pointer to check for Ctrl-C interrupt
  *   progressCallBack = callback function to report progress
@@ -1258,13 +1259,14 @@ unittest
 	assert(dco.checkSums.hasDigests);
 }
 
-/** Get mediaInfo tags for file, if missing
+/** Query file type text for a blob, if missing.
  *
- * This code is called for a unique binary blob. So the MediaInfo MUST be
- * identical.
+ * This code is called for a unique binary blob, so using the first existing
+ * file entry is sufficient.
  *
- * Param:
+ * Params:
  *   obj = NamedBinaryBlob object to update
+ *   rescan = force rescan even if file type already exists
  */
 void updateFileType(NamedBinaryBlob obj, bool rescan = false)
 {
@@ -1305,7 +1307,7 @@ unittest
  * This code is called for a unique binary blob. So the MediaInfo MUST be
  * identical.
  *
- * Param:
+ * Params:
  *   obj = NamedBinaryBlob object to update
  */
 void updateMediaInfo(NamedBinaryBlob obj, bool rescan = false)
@@ -1344,7 +1346,7 @@ unittest
  * This code is called for a unique binary blob. So the MediaInfo MUST be
  * identical.
  *
- * Param:
+ * Params:
  *   obj = NamedBinaryBlob object to update
  *   rescan = force rescan even if info exists
  *   gotCtrlC = shared bool pointer to check for Ctrl-C interrupt

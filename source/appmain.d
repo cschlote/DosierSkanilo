@@ -65,12 +65,13 @@ shared bool gotCtrlC; /// Set in handler
 
 /** Main Entry
  *
- * Decode parameters on commandline and call the scanner code.
+ * Decode command-line parameters and run the scanner workflow.
  * When unit testing, do nothing.
  *
- * Param:
- *   args - Commandline arguments
- * Returns a shell return code.
+ * Params:
+ *   args = command-line arguments
+ * Returns:
+ *   shell return code
  */
 int main(string[] args)
 {
@@ -105,8 +106,8 @@ int main(string[] args)
  * Data can then be written to disk instead of immediately breaking the
  * program.
  *
- * Param:
- *  sig - signal number to process
+ * Params:
+ *   sig = signal number to process
  */
 extern (C) nothrow @nogc @system void signalHandler(int sig)
 {

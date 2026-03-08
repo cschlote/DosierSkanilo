@@ -405,7 +405,7 @@ unittest
 
 /** Get MediaInfo library version
  *
- * Returns: Version info string from
+ * Returns: MediaInfo version string reported by the library.
  */
 string getMediaInfoVersion()
 {
