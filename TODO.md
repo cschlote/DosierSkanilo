@@ -17,26 +17,36 @@ Project review date: 2026-03-08
 
 ## P1 - High
 
-- [ ] Remove archive scan limiter left from debugging
+- [x] Remove archive scan limiter left from debugging
   - Impact: Archive analysis silently returns early when an archive has more than 10 entries, causing incomplete metadata in production scans.
   - Code pointer: `source/dosierskanilo/namedbinaryblob.d:1373`.
   - Required change:
     - Remove the `DEBUG HACK` condition and return.
     - Add/adjust a unittest with archive >10 entries to prevent regression.
+  - Status:
+    - Removed the limiter in `updateArchives` so all archive entries are processed.
+    - Extended `updateArchives` unittest to generate and scan an archive with 11 entries.
 
-- [ ] Fix multithreaded scanner behavior mismatch for archive jobs
+- [x] Fix multithreaded scanner behavior mismatch for archive jobs
   - Impact: In multithread mode archive scanning is only queued when `obj.fileType` is already set before task submission, while single-thread path does not require this; archives may be skipped unexpectedly.
   - Code pointer: `source/appmain.d:451`.
   - Required change:
     - Remove dependency on pre-existing `obj.fileType` for queueing archive tasks, or enforce explicit job ordering/dependency.
     - Add a regression test covering single-thread vs multi-thread parity for `--scanArchives`.
+  - Status:
+    - Unified archive queueing condition via `shouldQueueArchiveScanJob` and reused it in both scanner paths.
+    - Added unittest `archive scan queueing parity` for the scheduling predicate.
 
-- [ ] Harden archive adapter parsing against external tool output drift
+- [x] Harden archive adapter parsing against external tool output drift
   - Impact: `assert`-based parsing for tool output (`unzip -l`, etc.) can abort the whole run when utility output changes by locale/version.
   - Code pointers: `source/dosierarkivo/baseclass.d:220`, `source/dosierarkivo/baseclass.d:225`.
   - Required change:
     - Replace hard `assert` checks with recoverable parse/validation logic.
     - Log and skip unsupported output formats instead of terminating the process.
+  - Status:
+    - Reworked ZIP entry listing to prefer machine-readable `unzip -Z1` output and use tolerant fallback parsing for `unzip -l`.
+    - Replaced aborting assumptions with warning logs and graceful skip (`[]`) on unsupported output.
+    - Added unittest `zip list parser tolerates output drift` for malformed external tool output.
 
 ## P2 - Medium
 

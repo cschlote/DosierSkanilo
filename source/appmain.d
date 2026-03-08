@@ -45,6 +45,7 @@ import std.utf;
 import dosierskanilo.namedbinaryblob;
 import dosierskanilo.digests;
 import dosierskanilo.mediainfosig;
+import dosierskanilo.scannerpolicy;
 
 import dosierarkivo.baseclass;
 
@@ -437,7 +438,7 @@ bool runScannerJobs()
 					obj.task_mediasig = task!updateMediaInfo(obj);
 					myTaskPool.put(obj.task_mediasig);
 				}
-				if (argsArray.argScanArchives && obj.fileType)
+				if (shouldQueueArchiveScanJob(argsArray.argScanArchives, obj))
 				{
 					obj.task_archiveScan = task!updateArchives(obj);
 					myTaskPool.put(obj.task_archiveScan);
@@ -531,7 +532,7 @@ bool runScannerJobs()
 				{
 					updateMediaInfo(obj, argsArray.argRescanMediaSig);
 				}
-				if (argsArray.argScanArchives && obj.archiveSpecs is null)
+				if (shouldQueueArchiveScanJob(argsArray.argScanArchives, obj))
 				{
 					ProgressCallBack cb = ProgressCallBack(&progressCallBack);
 

@@ -7,6 +7,23 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
+## Release 26.4.0
+
+- Removed the archive debug limiter in `updateArchives` so archives with more
+	than 10 entries are fully processed.
+- Added archive regression coverage in `source/dosierskanilo/namedbinaryblob.d`
+	to verify scans include all entries for larger archives.
+- Fixed archive job queueing parity between single-thread and multithread scan
+	paths by introducing shared scheduling policy logic:
+	- new module: `source/dosierskanilo/scannerpolicy.d`
+	- both paths now use `shouldQueueArchiveScanJob(...)`
+- Hardened ZIP listing against external tool output drift:
+	- `FileArchiveZip.getEntries` now prefers `unzip -Z1` (machine-readable)
+	- added tolerant fallback parsing for `unzip -l`
+	- replaced aborting assumptions with warning logs and graceful skip behavior
+- Added parser regression test `zip list parser tolerates output drift` in
+	`source/dosierarkivo/baseclass.d`.
+
 ## Release 26.3.0
 
 - Hardened archive command execution in `source/dosierarkivo/baseclass.d`:

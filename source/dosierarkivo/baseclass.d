@@ -203,6 +203,39 @@ version (unittest)
  */
 class FileArchiveZip : FileArchive
 {
+    private string[] parseUnzipLongListOutput(string output) const
+    {
+        string[] entries;
+        bool inEntrySection = false;
+
+        foreach (line; output.splitLines)
+        {
+            auto trimmed = line.strip;
+            if (trimmed.empty)
+                continue;
+
+            if (!inEntrySection)
+            {
+                if (trimmed.startsWith("---------"))
+                    inEntrySection = true;
+                continue;
+            }
+
+            if (trimmed.startsWith("---------"))
+                break; // Summary line after entry block.
+
+            auto m = matchFirst(line, `^\s*\d+\s+\S+\s+\S+\s+(.+?)\s*$`);
+            if (m.empty)
+                continue;
+
+            auto entryName = m.captures[1].strip;
+            if (!entryName.empty)
+                entries ~= entryName;
+        }
+
+        return entries;
+    }
+
     this(string filename)
     {
         super(ArchiveType.zip, filename);
@@ -210,25 +243,34 @@ class FileArchiveZip : FileArchive
 
     override string[] getEntries()
     {
-        auto rc = execute(["unzip", "-l", this.fileName]);
-        assert(rc.status == 0, rc.output);
-        // writeln(rc.output);
-        auto res = rc.output.split("\n").filter!(a => !a.empty).array;
-        // writeln(res);
+        auto rcMachineReadable = execute(["unzip", "-Z1", this.fileName]);
+        if (rcMachineReadable.status == 0)
+        {
+            return rcMachineReadable.output
+                .splitLines
+                .map!(line => line.strip)
+                .filter!(line => !line.empty)
+                .array;
+        }
 
-        enum prefixLen = 3;
-        enum postfixLen = 2;
-        assert(res.length >= (prefixLen + postfixLen)); // 3 Lines at start and 2 lines at end are dropped.
-        auto res2 = res[prefixLen .. $ - postfixLen];
+        stderr.writeln("WARNING: unzip -Z1 failed for '", this.fileName,
+            "'. Falling back to parsing unzip -l output.");
 
-        enum header = "---------  ---------- -----   ----";
-        enum headerLen = header.length;
-        assert(res[2] == header, "Zip output changed?\n" ~ res[2]);
-        enum headerSkipTail = "----".length;
-        enum skipLen = headerLen - headerSkipTail;
-        auto res3 = res2.map!(a => a[skipLen .. $])();
-        // writeln(res3);
-        return res3.array;
+        auto rcLongList = execute(["unzip", "-l", this.fileName]);
+        if (rcLongList.status != 0)
+        {
+            stderr.writeln("WARNING: unzip -l failed for '", this.fileName,
+                "'. Skipping archive entry scan.");
+            return [];
+        }
+
+        auto entries = parseUnzipLongListOutput(rcLongList.output);
+        if (entries.empty)
+        {
+            stderr.writeln("WARNING: Could not parse unzip -l output for '", this.fileName,
+                "'. Skipping archive entry scan.");
+        }
+        return entries;
     }
 
     override bool extractEntry(string filename, string destDir)
@@ -271,6 +313,14 @@ unittest
 
     // auto list = obj.getEntries();
     testAbstractImpl(obj);
+}
+
+@("zip list parser tolerates output drift")
+unittest
+{
+    auto obj = new FileArchiveZip("dummy.zip");
+    auto parsed = obj.parseUnzipLongListOutput("unexpected output\nwithout expected columns\n");
+    assert(parsed.length == 0);
 }
 
 /* -------------------------------------------------------------------- */

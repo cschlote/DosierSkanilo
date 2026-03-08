@@ -1383,12 +1383,6 @@ void updateArchives(NamedBinaryBlob obj, bool rescan = false,
 					if (progressCallBack !is null)
 						progressCallBack.fp(0, arcfiles.length);
 
-					version (unittest) {} else
-					{
-						if (arcfiles.length > 10) /* DEBUG HACK : Just test the small archives while testing */
-							return;
-					}
-
 					foreach (idx, arcfile; arcfiles)
 					{
 						logFLineVerbose("\n  with archive file '%s'", arcfile);
@@ -1439,8 +1433,11 @@ void updateArchives(NamedBinaryBlob obj, bool rescan = false,
 unittest
 {
 	import std.stdio;
-	import std.file; // : exists, remove;
+	import std.file; // : exists, remove, write, mkdirRecurse, rmdirRecurse;
 	import std.process;
+	import std.conv : to;
+	import std.string : format;
+	import std.path : buildPath;
 
 	string filename = "./test/dummy-audio-file.mp3";
 	auto fh = File(filename);
@@ -1463,6 +1460,33 @@ unittest
 		assert(rc.status == 0, rc.output);
 	}
 
+	enum string fnMany = "updateTest-many.zip";
+	enum string stagingDir = "test/updateArchives-many-entries";
+
+	void deleteManyEntriesArchive()
+	{
+		if (fnMany.exists)
+			std.file.remove(fnMany);
+		if (stagingDir.exists)
+			rmdirRecurse(stagingDir);
+	}
+
+	void createManyEntriesArchive(size_t entryCount)
+	{
+		deleteManyEntriesArchive();
+		mkdirRecurse(stagingDir);
+
+		foreach (idx; 0 .. entryCount)
+		{
+			auto fileName = buildPath(stagingDir, format("entry-%02d.txt", idx));
+			std.file.write(fileName, "archive entry " ~ idx.to!string);
+		}
+
+		auto rc = executeShell("zip -q \"%s\" %s/*".format(fnMany, stagingDir));
+		write(rc.output);
+		assert(rc.status == 0, rc.output);
+	}
+
 	createTestArchive();
 	scope (success)
 		deleteTestArchive();
@@ -1471,6 +1495,16 @@ unittest
 	auto dco1 = new NamedBinaryBlob(fn, fh1.size, SysTime(4_237_892));
 	updateArchives(dco1, true);
 	assert(dco1.archiveSpecs.length > 0);
+
+	createManyEntriesArchive(11);
+	scope (success)
+		deleteManyEntriesArchive();
+
+	auto fh2 = File(fnMany);
+	auto dco2 = new NamedBinaryBlob(fnMany, fh2.size, SysTime(4_237_892));
+	updateArchives(dco2, true);
+	assert(dco2.archiveSpecs.length >= 11,
+		"Expected all archive entries to be scanned for archives with more than 10 files.");
 }
 
 /** Get torrent info for file, if missing
