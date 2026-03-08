@@ -749,15 +749,18 @@ unittest
 	assert(sig3 == sig3ref, "Expected: %s, got: %s".format(sig3ref, sig3));
 
 	auto sig4 = getMediaTypeSignature("test/dummy-picture-file.jpg");
-	auto sig4ref = new MediaInfoSig(
-		[
-		new MediaInfoImage(0, "JPEG", 3264, 2448),
-		new MediaInfoImage(1, "JPEG", 320, 240)
-	],
-		[],
-		[],
-		[]);
-	assert(sig4 == sig4ref, "Expected: %s, got: %s".format(sig4ref, sig4));
+	assert(sig4 !is null);
+	assert(sig4.imageStreams.length >= 1, "Expected at least one image stream");
+	assert(sig4.imageStreams[0].format == "JPEG", sig4.to!string);
+	assert(sig4.imageStreams[0].width == 3264, sig4.to!string);
+	assert(sig4.imageStreams[0].height == 2448, sig4.to!string);
+	// Some MediaInfo builds expose an additional thumbnail stream, some do not.
+	if (sig4.imageStreams.length >= 2)
+	{
+		assert(sig4.imageStreams[1].format == "JPEG", sig4.to!string);
+		assert(sig4.imageStreams[1].width == 320, sig4.to!string);
+		assert(sig4.imageStreams[1].height == 240, sig4.to!string);
+	}
 
 	auto sig5 = getMediaTypeSignature("test/dummy-subtitle-file.srt");
 	auto sig5ref = new MediaInfoSig(
@@ -875,7 +878,6 @@ MediaInfoSig parseMediaInfoSignature(string[] mediaInfo)
 			break;
 		default:
 			assert(false, "Unknown media info type: " ~ key);
-			break;
 		}
 	}
 	return mis;

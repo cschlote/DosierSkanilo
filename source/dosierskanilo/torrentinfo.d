@@ -115,9 +115,9 @@ TorrentInfo getTorrentInfo(string filePath)
     enforce("info" in root, "Invalid torrent file: missing 'info' element");
 
     auto infoNode = root["info"];
-    enforce(infoNode.value.has!BDict, "Invalid torrent file '%s': info is not a dictionary"
-            .format(filePath));
-    auto infoDict = infoNode.value.get!BDict;
+        BDict infoDict;
+        enforce(tryGetBDict(infoNode.value, infoDict),
+            "Invalid torrent file '%s': info is not a dictionary".format(filePath));
 
     // Encode info dict for hash
     Appender!(ubyte[]) encodedInfo;
@@ -134,20 +134,33 @@ TorrentInfo getTorrentInfo(string filePath)
 
     // Optional metadata
     if ("announce" in root)
-        ti.announce = root["announce"].value.get!string;
+    {
+        string announce;
+        if (tryGetString(root["announce"].value, announce))
+            ti.announce = announce;
+    }
 
     if ("name" in infoDict)
-        ti.name = infoDict["name"].value.get!string;
+    {
+        string name;
+        if (tryGetString(infoDict["name"].value, name))
+            ti.name = name;
+    }
 
     if ("piece length" in infoDict)
-        ti.pieceLength = infoDict["piece length"].value.get!long;
+    {
+        long pieceLength;
+        if (tryGetLong(infoDict["piece length"].value, pieceLength))
+            ti.pieceLength = cast(ulong) pieceLength;
+    }
 
     if ("pieces" in infoDict)
     {
         enum sizePieceHash = 20; // SHA1
-        auto piecesData = infoDict["pieces"].value.get!string;
-        enforce(piecesData.length % sizePieceHash == 0,
-            "Invalid pieces field length");
+        string piecesData;
+        enforce(tryGetString(infoDict["pieces"].value, piecesData),
+                "Invalid pieces field: expected string");
+        enforce(piecesData.length % sizePieceHash == 0, "Invalid pieces field length");
         ti.piecesCount = cast(ulong) piecesData.length / sizePieceHash;
     }
 
@@ -159,7 +172,10 @@ TorrentInfo getTorrentInfo(string filePath)
         ti.isMultiFile = false;
         auto fe = new TorrentFileEntry();
         fe.path = [ti.name];
-        fe.length = infoDict["length"].value.get!long;
+        long length;
+        enforce(tryGetLong(infoDict["length"].value, length),
+                "Invalid length field: expected integer");
+        fe.length = cast(ulong) length;
         ti.files ~= fe;
         ti.totalSize = fe.length;
     }
@@ -168,14 +184,31 @@ TorrentInfo getTorrentInfo(string filePath)
         // Multi-file
         ti.isMultiFile = true;
         ulong sum;
-        foreach (fileEntry; infoDict["files"].value.get!BList)
+        BList filesList;
+        enforce(tryGetBList(infoDict["files"].value, filesList),
+            "Invalid files field: expected list");
+        foreach (fileEntry; filesList)
         {
-            auto dict = fileEntry.value.get!BDict;
+            BDict dict;
+            enforce(tryGetBDict(fileEntry.value, dict),
+                "Invalid file entry: expected dictionary");
             auto fe = new TorrentFileEntry();
-            fe.length = dict["length"].value.get!long;
+            long length;
+            enforce(tryGetLong(dict["length"].value, length),
+                "Invalid file length: expected integer");
+            fe.length = cast(ulong) length;
 
-            auto pathList = dict["path"].value.get!BList;
-            auto relativePath = pathList.map!(p => p.value.get!string).array;
+            BList pathList;
+            enforce(tryGetBList(dict["path"].value, pathList),
+                "Invalid file path: expected list");
+            string[] relativePath;
+            foreach (p; pathList)
+            {
+            string part;
+            enforce(tryGetString(p.value, part),
+                "Invalid file path component: expected string");
+            relativePath ~= part;
+            }
             fe.path = [ti.name] ~ relativePath;
 
             ti.files ~= fe;
@@ -206,6 +239,78 @@ alias BList = BNode[];
 /// Bencoded dictionary
 alias BDict = BNode[string];
 
+/*
+ * Compatibility note:
+ * We intentionally use explicit extractor helpers instead of the more compact
+ * `value.has!T` / `value.get!T` style on `std.sumtype.SumType`.
+ *
+ * Reason: older toolchains used in CI (e.g. Alpine/LDC 1.33) reject some of
+ * the newer SumType convenience usage patterns.
+ *
+ * If/when CI toolchains are upgraded consistently, this section can be
+ * simplified back to the compact `has/get` form.
+ */
+
+private bool tryGetLong(BValue value, out long result)
+{
+    bool ok = false;
+    value.match!(
+        (long v) {
+        result = v;
+        ok = true;
+    },
+        (string _s) {},
+        (BList _list) {},
+        (BDict _dict) {}
+    );
+    return ok;
+}
+
+private bool tryGetString(BValue value, out string result)
+{
+    bool ok = false;
+    value.match!(
+        (long _l) {},
+        (string v) {
+        result = v;
+        ok = true;
+    },
+        (BList _list) {},
+        (BDict _dict) {}
+    );
+    return ok;
+}
+
+private bool tryGetBList(BValue value, out BList result)
+{
+    bool ok = false;
+    value.match!(
+        (long _l) {},
+        (string _s) {},
+        (BList v) {
+        result = v;
+        ok = true;
+    },
+        (BDict _dict) {}
+    );
+    return ok;
+}
+
+private bool tryGetBDict(BValue value, out BDict result)
+{
+    bool ok = false;
+    value.match!(
+        (long _l) {},
+        (string _s) {},
+        (BList _list) {},
+        (BDict v) {
+        result = v;
+        ok = true;
+    }
+    );
+    return ok;
+}
+
 /* ============================================================
  * Bencode Parser
  * ============================================================
@@ -225,7 +330,9 @@ class BencodeParser
     BDict parseRoot()
     {
         auto node = parseValue();
-        return node.value.get!BDict;
+        BDict root;
+        enforce(tryGetBDict(node.value, root), "Torrent root is not a dictionary");
+        return root;
     }
 
     BNode parseValue()
@@ -290,7 +397,9 @@ class BencodeParser
         BDict dict;
         while (pos < data.length && data[pos] != 'e')
         {
-            auto key = parseValue().value.get!string;
+            string key;
+            enforce(tryGetString(parseValue().value, key),
+                    "Invalid dictionary key: expected string");
             dict[key] = parseValue();
         }
         enforce(pos < data.length, "Unterminated dictionary");
