@@ -42,10 +42,12 @@ build:
     - ldc2 --version
     - dub --version
     - ./scripts/build.sh
+    - tar -C docs -czf docs.tar.gz .
+    - ls -l docs.tar.gz
   artifacts:
     expire_in: 1 week
     paths:
-      - docs/
+      - docs.tar.gz
       - docs.json
   cache:
     key: "DUB-CACHE"
@@ -106,7 +108,7 @@ pages:
   script:
     - rm -rf public
     - mkdir -p public
-    - cp -a docs/. public/
+    - tar -C docs -xzf docs.tar.gz -C public
   artifacts:
     paths:
       - public
