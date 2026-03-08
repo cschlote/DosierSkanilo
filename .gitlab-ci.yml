@@ -109,6 +109,7 @@ pages:
     - rm -rf public
     - mkdir -p public
     - tar -C docs -xzf docs.tar.gz -C public
+    - echo "API documentation published to GitLab Pages at ${CI_PAGES_URL}."
   artifacts:
     paths:
       - public
