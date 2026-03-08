@@ -7,6 +7,16 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
+## Release 26.2.0
+
+- Added GitHub Actions CI workflow (`.github/workflows/main.yml`) equivalent to GitLab CI stages:
+	- `lint`, `build`, `test`, `deploy_staging`, `deploy_prod`
+	- preserves existing CI scripts and stage flow
+- Switched GitHub Actions jobs to Alpine container runtime (`alpine:3.20`) to keep CI behavior aligned with GitLab and avoid distro package drift.
+- Updated GitHub Actions cache paths for containerized execution (`.dub` and `/root/.dub`).
+- Hardened CI test execution by creating the scan input directory on demand in `scripts/test.sh`:
+	- ensures `dub run -- -p ./docs/ ...` works in clean CI checkouts where `docs/` is not tracked
+
 ## Release 26.1.0
 
 - Added GitLab CI pipeline for `lint`, `build`, `test`, `deploy` on Alpine.
