@@ -42,6 +42,27 @@ build:
     - ldc2 --version
     - dub --version
     - ./scripts/build.sh
+  cache:
+    key: "DUB-CACHE"
+    untracked: true
+    paths:
+      - .dub/
+
+build_docs:
+  stage: deploy
+  image: "debian:13-slim"
+  tags:
+    - gitlabdocker
+    - ryzen
+  before_script:
+    - apt-get update
+    - DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates git bash tar zstd
+    - sh ./scripts/install-dependencies.sh build
+  script:
+    - ldc2 --version
+    - dub --version
+    - dub run adrdox -- . ${CI_PROJECT_DIR}/source/dosierskanilo -o docs -i --skeleton ${CI_PROJECT_DIR}/skeleton.html
+    - cp -f ${CI_PROJECT_DIR}/dosierskanilo-icon.svg ${CI_PROJECT_DIR}/docs/dosierskanilo-icon.svg
     - tar -C docs -czf docs.tar.gz .
     - ls -l docs.tar.gz
   artifacts:
@@ -102,12 +123,12 @@ deploy_prod:
 pages:
   stage: deploy
   needs:
-    - job: build
+    - job: build_docs
       artifacts: true
   script:
     - rm -rf public
     - mkdir -p public
-    - tar -C docs -xzf docs.tar.gz -C public
+    - tar -xzf docs.tar.gz -C public
     - echo "API documentation published to GitLab Pages at ${CI_PAGES_URL}."
   artifacts:
     paths:

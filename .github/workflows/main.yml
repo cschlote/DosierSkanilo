@@ -153,13 +153,16 @@ jobs:
     name: Build Pages
     runs-on: ubuntu-24.04
     container:
-      image: alpine:3.20
+      image: debian:13-slim
     needs:
       - test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - name: Install base tools
-        run: apk add --no-cache git bash tar zstd
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            ca-certificates git bash tar zstd
 
       - name: Checkout
         uses: actions/checkout@v4
