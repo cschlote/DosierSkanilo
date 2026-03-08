@@ -7,6 +7,35 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
+## Release 26.5.0
+
+- Fixed storage bootstrap and error semantics by introducing
+	`readStorageJsonFile(...)` in `source/storageio.d` and delegating
+	`readStorageFile()` in `source/appmain.d`:
+	- missing JSON storage file now initializes an empty database explicitly
+	- malformed/incompatible JSON now fails by default and is only tolerated when
+		`--force` is set
+	- added regression coverage for missing-file and malformed-JSON-with-force
+		paths
+- Corrected digest progress accounting in `source/dosierskanilo/digests.d`:
+	- progress now advances by actual processed chunk size (`buffer.length`)
+		instead of fixed buffer size
+	- added unittests for tiny files and non-multiple-of-buffer-size payloads
+		to prevent overshoot regressions
+- Hardened CI feedback and test reporting:
+	- GitLab lint stage is now explicitly required (`allow_failure: false`)
+	- `scripts/test.sh` runs coverage mode (`dub test -b unittest-cov -- -v`)
+	- GitLab test stage now publishes `.lst` coverage artifacts for diagnostics
+- Standardized compiler behavior across local scripts, tasks, and docs:
+	- `scripts/build.sh` and `scripts/test.sh` now default to
+		`DUB_COMPILER=ldc2` and pass compiler explicitly to `dub build/test/run`
+	- VS Code `test-host` task now uses `--compiler=ldc2`
+	- `README.md` now documents compiler defaults and override mechanism
+- Completed low-priority cleanup for naming and wording consistency:
+	- renamed `argRecusive` to `argRecursive` and updated call sites
+	- corrected stale comments and user-facing typo-prone messages in
+		`source/appmain.d` and `source/commandline.d`
+
 ## Release 26.4.0
 
 - Removed the archive debug limiter in `updateArchives` so archives with more
