@@ -1,0 +1,140 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+  workflow_dispatch:
+
+env:
+  VA_TEST: "abc"
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup LDC
+        uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: ldc-latest
+
+      - name: Cache DUB
+        uses: actions/cache@v4
+        with:
+          path: |
+            .dub
+            ~/.dub
+          key: ${{ runner.os }}-dub-${{ hashFiles('dub.json', 'dub.selections.json') }}
+          restore-keys: |
+            ${{ runner.os }}-dub-
+
+      - name: Install lint dependencies
+        run: sh ./scripts/install-dependencies.sh lint
+
+      - name: Run lint
+        run: ./scripts/lint.sh
+
+  build:
+    name: Build
+    runs-on: ubuntu-24.04
+    needs:
+      - lint
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup LDC
+        uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: ldc-latest
+
+      - name: Cache DUB
+        uses: actions/cache@v4
+        with:
+          path: |
+            .dub
+            ~/.dub
+          key: ${{ runner.os }}-dub-${{ hashFiles('dub.json', 'dub.selections.json') }}
+          restore-keys: |
+            ${{ runner.os }}-dub-
+
+      - name: Install build dependencies
+        run: sh ./scripts/install-dependencies.sh build
+
+      - name: Show tool versions
+        run: |
+          ldc2 --version
+          dub --version
+
+      - name: Build project
+        run: ./scripts/build.sh
+
+  test:
+    name: Test
+    runs-on: ubuntu-24.04
+    needs:
+      - build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup LDC
+        uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: ldc-latest
+
+      - name: Cache DUB
+        uses: actions/cache@v4
+        with:
+          path: |
+            .dub
+            ~/.dub
+          key: ${{ runner.os }}-dub-${{ hashFiles('dub.json', 'dub.selections.json') }}
+          restore-keys: |
+            ${{ runner.os }}-dub-
+
+      - name: Install build dependencies
+        run: sh ./scripts/install-dependencies.sh build
+
+      - name: Install runtime dependencies
+        run: sh ./scripts/install-dependencies.sh runtime
+
+      - name: Run tests
+        run: ./scripts/test.sh
+
+  deploy_staging:
+    name: Deploy Staging
+    runs-on: ubuntu-24.04
+    needs:
+      - test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment:
+      name: staging
+      url: https://packages.vahanus.net
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to staging
+        run: ./scripts/deploy.sh
+
+  deploy_prod:
+    name: Deploy Production
+    runs-on: ubuntu-24.04
+    needs:
+      - test
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    environment:
+      name: production
+      url: https://packages.vahanus.net
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to production placeholder
+        run: echo "Deploy to production server"
