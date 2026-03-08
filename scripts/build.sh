@@ -14,7 +14,7 @@ dub build --compiler="${DUB_COMPILER}" ${CI_DUBARGS:=} -v
 
 # Also build API documentation with adrdox
 dub fetch adrdox
-dub run adrdox -- . -o docs -i --skeleton "${ROOT_DIR}/skeleton.html"
+dub run adrdox -- . "${ROOT_DIR}/source/dosierskanilo" -o docs -i --skeleton "${ROOT_DIR}/skeleton.html"
 cp -f "${ROOT_DIR}/dosierskanilo-icon.svg" "${ROOT_DIR}/docs/dosierskanilo-icon.svg"
 
 RELEASE_TAG="$(git -C "${ROOT_DIR}" describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")"

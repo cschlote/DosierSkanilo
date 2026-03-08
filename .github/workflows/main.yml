@@ -180,7 +180,7 @@ jobs:
       - name: Build adrdox docs
         run: |
           dub fetch adrdox
-          dub run adrdox -- . -o docs -i --skeleton "${GITHUB_WORKSPACE}/skeleton.html"
+          dub run adrdox -- . "${GITHUB_WORKSPACE}/source/dosierskanilo" -o docs -i --skeleton "${GITHUB_WORKSPACE}/skeleton.html"
           cp -f ./dosierskanilo-icon.svg ./docs/dosierskanilo-icon.svg
           RELEASE_TAG="$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")"
           RELEASE_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")"
