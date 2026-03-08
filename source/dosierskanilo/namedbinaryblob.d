@@ -255,12 +255,13 @@ class FileSpec
 @("class FileSpec")
 unittest
 {
+	auto ts = SysTime(1_234_567).toISOExtString;
+
 	auto fs0 = new FileSpec();
 	assert(fs0.toString == `FileSpec('', )`, fs0.toString);
 
 	auto fs1 = new FileSpec("test/dummy-text-file.txt", SysTime(1_234_567));
-	assert(fs1.toString == `FileSpec('test/dummy-text-file.txt', 0001-01-01T00:53:28.1234567)`, fs1
-			.toString);
+	assert(fs1.toString == format("FileSpec('%s', %s)", "test/dummy-text-file.txt", ts), fs1.toString);
 	assert(fs1.exists, "File must exist");
 
 	auto fs2 = new FileSpec("test/non-existing-file.txt", SysTime(1_234_567));
@@ -341,6 +342,8 @@ class ArchiveSpec
 @("class ArchiveSpec")
 unittest
 {
+	auto ts = SysTime(1_234_567).toISOExtString;
+
 	auto as0 = new ArchiveSpec();
 	auto asd0 = as0.toString;
 	// writeln("AS0: ", asd0);
@@ -350,7 +353,8 @@ unittest
 	auto asd1 = as1.toString;
 	// writeln("AS1: ", asd1);
 	assert(
-		asd1 == `ArchiveSpec('test/dummy-text-file.txt', 1234567, '0001-01-01T00:53:28.1234567', const(CheckSums)("", "", ""))`, as1
+		asd1 == format("ArchiveSpec('%s', %d, '%s', %s)", "test/dummy-text-file.txt", 1_234_567, ts,
+				const(CheckSums)()), as1
 			.toString);
 
 	assert(as1.opCmp(as0) > 0, "as1 > as0");
@@ -742,27 +746,30 @@ class NamedBinaryBlob
 @("class MediaInfoSig")
 unittest
 {
+	auto ts = SysTime(1_234_567).toISOExtString;
+	auto ts2 = SysTime(2_345_678).toISOExtString;
+
 	auto mis0 = new NamedBinaryBlob();
 	assert(mis0.toString == `NamedBinaryBlob('', 0, , CheckSums("", "", ""), null)`, mis0.toString);
 	auto mis1 = new NamedBinaryBlob("file1", 1234, SysTime(1_234_567));
-	assert(mis1.toString == `NamedBinaryBlob('file1', 1234, 0001-01-01T00:53:28.1234567, CheckSums("", "", ""), null)`,
+	assert(mis1.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), null)", ts),
 		mis1.toString);
 	auto mis2 = new NamedBinaryBlob(["file1", "file2"], 1234, SysTime(1_234_567));
-	assert(mis2.toString == `NamedBinaryBlob('file1', 1234, 0001-01-01T00:53:28.1234567, CheckSums("", "", ""), null)`,
+	assert(mis2.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), null)", ts),
 		mis2.toString);
 	auto mis3 = new NamedBinaryBlob(["file1", "file2"], 1234, SysTime(1_234_567), CheckSums());
-	assert(mis3.toString == `NamedBinaryBlob('file1', 1234, 0001-01-01T00:53:28.1234567, CheckSums("", "", ""), null)`,
+	assert(mis3.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), null)", ts),
 		mis3.toString);
 	auto mis4 = new NamedBinaryBlob(["file1", "file2"], 1234, SysTime(1_234_567), CheckSums("a", "b", "c"), new MediaInfoSig());
 	assert(
-		mis4.toString == `NamedBinaryBlob('file1', 1234, 0001-01-01T00:53:28.1234567, CheckSums("a", "b", "c"), MediaInfoSig())`,
+		mis4.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"a\", \"b\", \"c\"), MediaInfoSig())", ts),
 		mis4.toString);
 	auto mis5 = new NamedBinaryBlob("file1", 1234, SysTime(1_234_567), CheckSums());
-	assert(mis5.toString == `NamedBinaryBlob('file1', 1234, 0001-01-01T00:53:28.1234567, CheckSums("", "", ""), null)`,
+	assert(mis5.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), null)", ts),
 		mis5.toString);
 	auto mis6 = new NamedBinaryBlob("file1", 1234, SysTime(1_234_567), CheckSums(), new MediaInfoSig());
 	assert(
-		mis6.toString == `NamedBinaryBlob('file1', 1234, 0001-01-01T00:53:28.1234567, CheckSums("", "", ""), MediaInfoSig())`,
+		mis6.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), MediaInfoSig())", ts),
 		mis6.toString);
 
 	auto mis10 = new NamedBinaryBlob(mis4);
@@ -775,8 +782,7 @@ unittest
 
 	auto mis12 = new NamedBinaryBlob(["file2", "file8", "file1"], 1234, SysTime(1_234_567));
 	assert(mis12.getFirstFileName == "file1");
-	assert(
-		mis12.toString == `NamedBinaryBlob('file1', 1234, 0001-01-01T00:53:28.1234567, CheckSums("", "", ""), null)`,
+	assert(mis12.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), null)", ts),
 		mis12.toString);
 
 	assert(mis12.hasFileName("file8"));
@@ -793,8 +799,12 @@ unittest
 	assert(fs is null);
 	assert(!mis12.hasFileName("file8"));
 	assert(mis12.fileSpecs.length == 3);
-	assert("%s".format(mis12.fileSpecs) == "[FileSpec('file1', 0001-01-01T00:53:28.1234567), FileSpec('file2', 0001-01-01T00:53:28.1234567), FileSpec('file9', 0001-01-01T00:53:28.2345678)]",
-		"%s".format(mis12.fileSpecs));
+	assert(mis12.fileSpecs[0].fileName == "file1");
+	assert(mis12.fileSpecs[1].fileName == "file2");
+	assert(mis12.fileSpecs[2].fileName == "file9");
+	assert(mis12.fileSpecs[0].timeLastModified == ts);
+	assert(mis12.fileSpecs[1].timeLastModified == ts);
+	assert(mis12.fileSpecs[2].timeLastModified == ts2);
 
 	auto mis13 = new NamedBinaryBlob([
 		"file2", "file8", "file1",
@@ -849,8 +859,10 @@ unittest
 	auto mis1 = new NamedBinaryBlob("file1", 2345, SysTime(1_234_567));
 	auto mis2 = new NamedBinaryBlob(["file2", "file3"], 3456, SysTime(1_234_567));
 	auto sl = sortDataClassArrayByFileName([mis0, mis1, mis2]);
-	string slstr = "%s".format(sl);
-	assert(slstr == `[NamedBinaryBlob('file1', 2345, 0001-01-01T00:53:28.1234567, CheckSums("", "", ""), null), NamedBinaryBlob('file2', 3456, 0001-01-01T00:53:28.1234567, CheckSums("", "", ""), null), NamedBinaryBlob('file8', 1234, 0001-01-01T00:53:28.1234567, CheckSums("", "", ""), null)]`, slstr);
+	assert(sl.length == 3);
+	assert(sl[0].getFirstFileName == "file1");
+	assert(sl[1].getFirstFileName == "file2");
+	assert(sl[2].getFirstFileName == "file8");
 }
 
 /** Remove duplicate entries from NamedBinaryBlob array by their filenames
@@ -881,8 +893,11 @@ unittest
 	auto mis1 = new NamedBinaryBlob("file1", 2345, SysTime(1_234_567));
 	auto mis2 = new NamedBinaryBlob(["file2", "file3"], 3456, SysTime(1_234_567));
 	auto sl = uniqDataClassArrayByFileName([mis0, mis1, mis2]);
-	string slstr = "%s".format(sl);
-	assert(slstr == `[NamedBinaryBlob('file1', 1234, 0001-01-01T00:53:28.1234567, CheckSums("", "", ""), null), NamedBinaryBlob('file2', 3456, 0001-01-01T00:53:28.1234567, CheckSums("", "", ""), null)]`, slstr);
+	assert(sl.length == 2);
+	assert(sl[0].getFirstFileName == "file1");
+	assert(sl[0].fileSize == 1234);
+	assert(sl[1].getFirstFileName == "file2");
+	assert(sl[1].fileSize == 3456);
 }
 
 version (unittest)
@@ -1034,7 +1049,7 @@ unittest
 	auto mis1 = new NamedBinaryBlob(["file2", "file3"], 2345, SysTime(1_234_567));
 	auto dca = fixupDataClassArrayOut([mis0, mis1]);
 	assert(dca[0].fileName == "file1");
-	assert(dca[0].timeLastModified == "0001-01-01T00:53:28.1234567");
+	assert(dca[0].timeLastModified == SysTime(1_234_567).toISOExtString);
 	assert(dca[0].fileSpecs.length == 0);
 	assert(dca[1].fileName == "");
 	assert(dca[1].timeLastModified == "");

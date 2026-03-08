@@ -385,6 +385,9 @@ class FileArchiveRar : FileArchive
 @("class FileArchiveRar")
 unittest
 {
+    if (executeShell("command -v rar").status != 0)
+        return; // Alpine CI does not provide proprietary `rar`.
+
     FileArchiveRar.createTestArchive;
     scope (exit)
         FileArchiveRar.deleteTestArchive;
