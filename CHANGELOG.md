@@ -7,6 +7,29 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
+## Release 26.6.0
+
+- Added end-to-end documentation publishing for both CI providers:
+  - GitLab CI now builds DDOX docs as artifacts (`docs.tar.gz`, `docs.json`) and
+    publishes them via a `pages` job on the default branch
+  - GitHub Actions now includes `build_pages` and `deploy_pages` jobs using
+    `actions/upload-pages-artifact` and `actions/deploy-pages`
+- Improved CI pipeline consistency and diagnostics:
+  - moved GitLab runner tags to the global `default` section for uniform job
+    scheduling
+  - simplified test coverage artifact collection to `source-*.lst`
+- Refactored storage write behavior into shared storage I/O module:
+  - introduced `writeStorageJsonFile(...)` in `source/storageio.d`
+  - `writeStorageFile()` in `source/appmain.d` now delegates to the shared
+    helper while preserving backup/restore-on-failure semantics
+- Completed documentation and maintenance cleanup:
+  - refreshed DDoc comments and wording across scanner, archive, media, digest,
+    torrent, logging, and CLI modules
+  - updated `.gitignore` binary patterns to match generated artifacts directly
+    (without `./` prefix)
+  - normalized Markdown list indentation in `CHANGELOG.md` for lint-friendly
+    formatting
+
 ## Release 26.5.0
 
 - Fixed storage bootstrap and error semantics by introducing
