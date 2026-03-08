@@ -1137,6 +1137,7 @@ unittest
  *
  * Params:
  *   fileName = the name of JSON file to read.
+ *   verbose = enable verbose logging
  * Returns:
  *   array of deserialized NamedBinaryBlob objects, or empty array when file is missing
  */
@@ -1309,6 +1310,7 @@ unittest
  *
  * Params:
  *   obj = NamedBinaryBlob object to update
+ *   rescan = force rescan even if MediaInfo already exists
  */
 void updateMediaInfo(NamedBinaryBlob obj, bool rescan = false)
 {

@@ -90,6 +90,10 @@ unittest
 /** Write scanned data to some storage file
  *
  *  Depending on configuration, the data is serialized to some file.
+ * @param jsonFile = JSON storage file path.
+ * @param dynObjectArray = source object array.
+ * @param jsonFileExtension = file extension for backup files (default: ".json").
+ * @return true on success, false on failure. On failure, the original file is left unchanged if possible.
  */
 bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlob[] dynObjectArray, string jsonFileExtension = ".json")
 {
