@@ -51,6 +51,7 @@ import dosierarkivo.baseclass;
 
 import commandline;
 import logging;
+import storageio;
 
 version (ldc)
 {
@@ -216,18 +217,8 @@ bool executeFileScannerOperation()
  */
 bool readStorageFile()
 {
-	bool rc = false;
-	try
-	{
-		dynObjectArray = deserializeDataClassJsonFile(argsArray.argJSONFile);
-		rc = true;
-	}
-	catch (Exception ex)
-	{
-		logLine("Something wonderful happened. Can't deserialize.");
-		logLine(ex);
-	}
-	return rc;
+	return readStorageJsonFile(argsArray.argJSONFile, argsArray.argForceOverwrite,
+		dynObjectArray);
 }
 
 /** Scan a directory tree and collect data

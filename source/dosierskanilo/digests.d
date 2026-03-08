@@ -7,7 +7,10 @@ module dosierskanilo.digests;
 
 import std.digest.md;
 import std.digest.sha;
+import std.file;
+import std.path;
 import std.stdio;
+import std.uuid;
 
 import xxhash3;
 
@@ -51,9 +54,6 @@ void calculatesDigests(
 	enum buffSize = 16 * 1024 * 1024;
 	foreach (ubyte[] buffer; chunks(fh, buffSize))
 	{
-		if (progressCallBack)
-			progressCallBack.fp(pos, msz);
-
 		if (md5sum !is null)
 			md5.put(buffer);
 		if (sha1sum !is null)
@@ -64,7 +64,9 @@ void calculatesDigests(
 		if (gotCtrlC !is null && *gotCtrlC)
 			return;
 
-		pos += buffSize;
+		pos += buffer.length;
+		if (progressCallBack)
+			progressCallBack.fp(pos, msz);
 	}
 	if (md5sum !is null)
 		*md5sum = md5.finish();
@@ -73,6 +75,70 @@ void calculatesDigests(
 	if (xxh64sum !is null)
 		*xxh64sum = xxh64.finish().dup;
 
+}
+
+@("calculatesDigests progress small file")
+unittest
+{
+	static size_t[] progressSeen;
+	static void trackProgress(size_t i, size_t m)
+	{
+		assert(i <= m, "Progress should never exceed file size");
+		progressSeen ~= i;
+	}
+
+	auto tmpFile = buildPath(tempDir(), "digest-progress-small-" ~ randomUUID().toString() ~ ".bin");
+	scope (exit)
+	{
+		if (exists(tmpFile))
+			remove(tmpFile);
+	}
+
+	std.file.write(tmpFile, cast(ubyte[])[1, 2, 3, 4, 5]);
+	progressSeen.length = 0;
+	ProgressCallBack cb;
+	cb.fp = &trackProgress;
+
+	ubyte[] md5sum;
+	calculatesDigests(null, tmpFile, &md5sum, null, null, &cb);
+
+	assert(progressSeen.length == 1, "Small file should complete in one chunk");
+	assert(progressSeen[$ - 1] == 5, "Final progress should match file size");
+}
+
+@("calculatesDigests progress non multiple of buffer")
+unittest
+{
+	static size_t[] progressSeen;
+	static void trackProgress(size_t i, size_t m)
+	{
+		assert(i <= m, "Progress should never exceed file size");
+		progressSeen ~= i;
+	}
+
+	enum testSize = 16 * 1024 * 1024 + 123;
+	auto tmpFile = buildPath(tempDir(), "digest-progress-large-" ~ randomUUID().toString() ~ ".bin");
+	scope (exit)
+	{
+		if (exists(tmpFile))
+			remove(tmpFile);
+	}
+
+	auto payload = new ubyte[testSize];
+	foreach (i; 0 .. payload.length)
+		payload[i] = cast(ubyte)(i & 0xFF);
+	std.file.write(tmpFile, payload);
+
+	progressSeen.length = 0;
+	ProgressCallBack cb;
+	cb.fp = &trackProgress;
+
+	ubyte[] md5sum;
+	calculatesDigests(null, tmpFile, &md5sum, null, null, &cb);
+
+	assert(progressSeen.length == 2, "Expected two chunks for >16 MiB test file");
+	assert(progressSeen[0] == 16 * 1024 * 1024, "First chunk should equal buffer size");
+	assert(progressSeen[$ - 1] == testSize, "Final progress should match full size");
 }
 
 @("calculatesDigests")

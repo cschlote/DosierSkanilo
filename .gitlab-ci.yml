@@ -20,6 +20,7 @@ lint:
   tags:
     - gitlabdocker
   stage: lint
+  allow_failure: false
   before_script:
     - sh ./scripts/install-dependencies.sh lint
   script:
@@ -59,6 +60,13 @@ test:
     - sh ./scripts/install-dependencies.sh runtime
   script:
     - ./scripts/test.sh
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths:
+      - "*.lst"
+      - "source-*.lst"
+      - "-home*-dub_test_root.lst"
   cache:
     key: "DUB-CACHE"
     untracked: true

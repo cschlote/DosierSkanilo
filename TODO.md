@@ -50,26 +50,37 @@ Project review date: 2026-03-08
 
 ## P2 - Medium
 
-- [ ] Improve digest progress accounting
+- [x] Improve digest progress accounting
   - Impact: Digest progress increments with `buffSize` instead of actual chunk length, so progress can overshoot or become inaccurate for the final chunk.
   - Code pointer: `source/dosierskanilo/digests.d:71`.
   - Required change:
     - Update progress with `buffer.length`.
     - Add unit coverage for small files and non-multiple-of-buffer-size files.
+  - Status:
+    - Updated digest progress updates to use actual processed chunk size (`buffer.length`).
+    - Added unittests for tiny single-chunk files and non-multiple-of-buffer-size (>16 MiB + remainder) files.
 
-- [ ] Add explicit handling for missing JSON storage file on first run
+- [x] Add explicit handling for missing JSON storage file on first run
   - Impact: Startup behavior depends on `deserializeDataClassJsonFile` implementation details; first-run UX/error semantics should be explicit and documented.
   - Code pointer: `source/appmain.d:217`.
   - Required change:
     - If JSON file is absent, initialize empty database intentionally.
     - Keep failure only for malformed/incompatible JSON unless `--force` is provided.
+  - Status:
+    - `readStorageFile` now treats missing JSON as explicit first-run initialization with empty database.
+    - Malformed/incompatible JSON now fails by default and is only tolerated when `--force` is set.
+    - Added unittests for missing-file and malformed-JSON-with-force behavior.
 
-- [ ] Add CI coverage reporting and make linter gating stricter
+- [x] Add CI coverage reporting and make linter gating stricter
   - Impact: Lint stage currently allows failure, reducing early feedback quality.
   - Code pointer: `.gitlab-ci.yml:35`.
   - Required change:
     - Remove `allow_failure: true` for D lint job once baseline is clean.
     - Export unittest coverage artifact from `dub test -b unittest-cov` and publish in CI artifacts/reporting.
+  - Status:
+    - CI test script now runs `dub test -b unittest-cov -- -v`.
+    - GitLab test job now publishes coverage `.lst` artifacts.
+    - Lint job is now explicitly non-optional (`allow_failure: false`).
 
 ## P3 - Low
 
