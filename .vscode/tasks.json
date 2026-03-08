@@ -16,9 +16,9 @@
             ]
         },
         {
-            "label": "build-ddox",
+            "label": "build-docs",
             "type": "shell",
-            "command": "dub build --compiler=ldc2 --build=ddox",
+            "command": "dub run adrdox -- . -o docs -i",
             "group": {
                 "kind": "build",
                 "isDefault": false
@@ -28,9 +28,9 @@
             ]
         },
         {
-            "label": "run-ddox",
+            "label": "run-docs",
             "type": "shell",
-            "command": "dub run --compiler=ldc2 --build=ddox",
+            "command": "dub run adrdox -- . -o docs -i",
             "group": {
                 "kind": "build",
                 "isDefault": false

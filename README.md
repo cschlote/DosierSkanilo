@@ -35,6 +35,12 @@ Run tests:
 dub test --compiler=ldc2 -b unittest-cov -- -v
 ```
 
+Generate API docs:
+
+```bash
+dub run adrdox -- . -o docs -i
+```
+
 Compiler strategy:
 
 - CI and local helper scripts default to `ldc2` for `build`, `test`, and `run`.

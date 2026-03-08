@@ -48,7 +48,6 @@ build:
     expire_in: 1 week
     paths:
       - docs.tar.gz
-      - docs.json
   cache:
     key: "DUB-CACHE"
     untracked: true

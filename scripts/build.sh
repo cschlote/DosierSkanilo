@@ -11,8 +11,8 @@ DUB_COMPILER="${DUB_COMPILER:-ldc2}"
 # shellcheck disable=SC2086
 dub build --compiler="${DUB_COMPILER}" ${CI_DUBARGS:=} -v
 
-# Also build the ddox documentation
-dub fetch ddox
-dub build --compiler="${DUB_COMPILER}" --build=ddox
+# Also build API documentation with adrdox
+dub fetch adrdox
+dub run adrdox -- . -o docs -i
 
 echo "Successfully finished build script."
