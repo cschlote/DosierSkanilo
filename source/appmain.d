@@ -676,30 +676,5 @@ private bool analyseData()
  */
 private bool writeStorageFile()
 {
-	string newname = null;
-	if (argsArray.argJSONFile.exists)
-	{
-		auto basename = argsArray.argJSONFile.baseName(jsonFileExtension);
-		auto nowString = Clock.currTime.toISOExtString();
-		newname = basename ~ "-" ~ nowString ~ jsonFileExtension;
-		rename(argsArray.argJSONFile, newname);
-		logFLine("Backed up existing file '%s' to '%s'.", argsArray.argJSONFile, newname);
-	}
-	logLine("Serialize Array of Objects");
-	try
-	{
-		serializeDataClassArrayFile(argsArray.argJSONFile, dynObjectArray);
-	}
-	catch (Exception ex)
-	{
-		logLine("Something wonderful happened. Can't serialize.");
-		logLine(ex);
-		if (newname !is null)
-		{
-			rename(newname, argsArray.argJSONFile);
-			logFLine("Restored file '%s' to '%s'.", newname, argsArray.argJSONFile);
-		}
-		return false;
-	}
-	return true;
+	return writeStorageJsonFile(argsArray.argJSONFile, dynObjectArray);
 }
