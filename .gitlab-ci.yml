@@ -43,6 +43,11 @@ build:
     - ldc2 --version
     - dub --version
     - ./scripts/build.sh
+  artifacts:
+    expire_in: 1 week
+    paths:
+      - docs/
+      - docs.json
   cache:
     key: "DUB-CACHE"
     untracked: true
@@ -99,3 +104,22 @@ deploy_prod:
   when: manual
   only:
     - master
+
+#-- Publish API docs via GitLab Pages ---------------------------------------
+
+pages:
+  tags:
+    - gitlabdocker
+  stage: deploy
+  needs:
+    - job: build
+      artifacts: true
+  script:
+    - rm -rf public
+    - mkdir -p public
+    - cp -a docs/. public/
+  artifacts:
+    paths:
+      - public
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
