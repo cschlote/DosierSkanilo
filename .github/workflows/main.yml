@@ -14,21 +14,21 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-24.04
+    container:
+      image: alpine:3.20
     steps:
+      - name: Install base tools
+        run: apk add --no-cache git bash tar zstd
+
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup LDC
-        uses: dlang-community/setup-dlang@v2
-        with:
-          compiler: ldc-latest
 
       - name: Cache DUB
         uses: actions/cache@v4
         with:
           path: |
             .dub
-            ~/.dub
+            /root/.dub
           key: ${{ runner.os }}-dub-${{ hashFiles('dub.json', 'dub.selections.json') }}
           restore-keys: |
             ${{ runner.os }}-dub-
@@ -42,23 +42,23 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-24.04
+    container:
+      image: alpine:3.20
     needs:
       - lint
     steps:
+      - name: Install base tools
+        run: apk add --no-cache git bash tar zstd
+
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup LDC
-        uses: dlang-community/setup-dlang@v2
-        with:
-          compiler: ldc-latest
 
       - name: Cache DUB
         uses: actions/cache@v4
         with:
           path: |
             .dub
-            ~/.dub
+            /root/.dub
           key: ${{ runner.os }}-dub-${{ hashFiles('dub.json', 'dub.selections.json') }}
           restore-keys: |
             ${{ runner.os }}-dub-
@@ -77,23 +77,23 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-24.04
+    container:
+      image: alpine:3.20
     needs:
       - build
     steps:
+      - name: Install base tools
+        run: apk add --no-cache git bash tar zstd
+
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup LDC
-        uses: dlang-community/setup-dlang@v2
-        with:
-          compiler: ldc-latest
 
       - name: Cache DUB
         uses: actions/cache@v4
         with:
           path: |
             .dub
-            ~/.dub
+            /root/.dub
           key: ${{ runner.os }}-dub-${{ hashFiles('dub.json', 'dub.selections.json') }}
           restore-keys: |
             ${{ runner.os }}-dub-
@@ -110,6 +110,8 @@ jobs:
   deploy_staging:
     name: Deploy Staging
     runs-on: ubuntu-24.04
+    container:
+      image: alpine:3.20
     needs:
       - test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -117,6 +119,9 @@ jobs:
       name: staging
       url: https://packages.vahanus.net
     steps:
+      - name: Install base tools
+        run: apk add --no-cache git bash
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -126,6 +131,8 @@ jobs:
   deploy_prod:
     name: Deploy Production
     runs-on: ubuntu-24.04
+    container:
+      image: alpine:3.20
     needs:
       - test
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
@@ -133,6 +140,9 @@ jobs:
       name: production
       url: https://packages.vahanus.net
     steps:
+      - name: Install base tools
+        run: apk add --no-cache git bash
+
       - name: Checkout
         uses: actions/checkout@v4
 
