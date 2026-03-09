@@ -107,10 +107,9 @@ Scheduling policy details:
 - Most jobs are queued only when target metadata is missing.
 - Archive scheduling is centralized via
   `dosierskanilo.scannerpolicy.shouldQueueArchiveScanJob(...)`.
-- Media rescan semantics are asymmetric by execution mode:
-  - single-thread mode can force refresh with `--mediasig --rescan-mediasig`
-  - multi-thread mode currently queues media jobs only when no
-    `mediaInfoSig` exists
+- Media rescan semantics are consistent across execution modes:
+  - `--mediasig --rescan-mediasig` forces refresh in single-thread and
+    multi-thread mode
 
 ## 4. Duplicate Detection Strategy
 

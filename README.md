@@ -122,10 +122,8 @@ Operational notes:
 
 - `--json` currently accepts a filename ending in `.json`; passing a path is
   rejected by argument validation.
-- `--rescan-mediasig` only forces a refresh when combined with `--mediasig` in
-  single-thread mode.
-- In multi-thread mode, media jobs are queued only for blobs without existing
-  media signatures.
+- `--rescan-mediasig` forces a media refresh when combined with `--mediasig`
+  (single-thread and multi-thread).
 - `-h` is bound to `--pickhidden`; use `--help` for help output to avoid
   ambiguity.
 

@@ -422,9 +422,11 @@ bool runScannerJobs()
 					obj.task_filetype = task!updateFileType(obj);
 					myTaskPool.put(obj.task_filetype);
 				}
-				if (argsArray.argDoMediaSig && obj.mediaInfoSig is null)
+				if (argsArray.argDoMediaSig && (obj.mediaInfoSig is null ||
+						argsArray.argRescanMediaSig))
 				{
-					obj.task_mediasig = task!updateMediaInfo(obj);
+					obj.task_mediasig = task!updateMediaInfo(obj,
+						argsArray.argRescanMediaSig);
 					myTaskPool.put(obj.task_mediasig);
 				}
 				if (shouldQueueArchiveScanJob(argsArray.argScanArchives, obj))
@@ -516,8 +518,8 @@ bool runScannerJobs()
 				{
 					updateFileType(obj, false);
 				}
-				if (argsArray.argDoMediaSig || (argsArray.argRescanMediaSig &&
-						obj.mediaInfoSig is null))
+				if (argsArray.argDoMediaSig && (obj.mediaInfoSig is null ||
+						argsArray.argRescanMediaSig))
 				{
 					updateMediaInfo(obj, argsArray.argRescanMediaSig);
 				}

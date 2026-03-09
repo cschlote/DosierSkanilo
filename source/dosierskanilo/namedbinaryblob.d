@@ -384,7 +384,7 @@ mixin template payloadHelpers()
 
 	Task!(updateDigests, NamedBinaryBlob, shared(bool)*, ProgressCallBack*)* task_hashme; ///< Pointer to hashing job
 	Task!(updateFileType, NamedBinaryBlob)* task_filetype; /// Query filetype with 'file' utility
-	Task!(updateMediaInfo, NamedBinaryBlob)* task_mediasig; ///< Pointer to mediasig job
+	Task!(updateMediaInfo, NamedBinaryBlob, bool)* task_mediasig; ///< Pointer to mediasig job
 	Task!(updateArchives, NamedBinaryBlob)* task_archiveScan; ///< Pointer to archive scan job
 	Task!(updateTorrentInfo, NamedBinaryBlob)* task_torrentscan; ///< Pointer to torrent scan job
 }
