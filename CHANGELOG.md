@@ -7,6 +7,23 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
+## Release 26.6.2 (planned)
+
+- Stabilized ADRDOX generation in CI for Debian-based environments:
+  - `scripts/build.sh` now selects ADRDOX compiler dynamically and prefers
+    `gdc` when available (fallback to `DUB_COMPILER`), avoiding
+    Debian+`ldc2` parser/segfault failures
+  - kept manual override support via `ADRDOX_COMPILER`
+- Consolidated CI dependency management into `scripts/install-dependencies.sh`:
+  - removed hardcoded apt package installation from GitLab `.build` stage
+  - added required build packages for docs generation (`gdc` on Debian/Ubuntu,
+    `gcc-gdc` on Alpine)
+  - aligned common base build tooling (`ca-certificates`, `git`, `bash`,
+    `tar`, `zstd`) in script-managed package sets
+- Aligned GitHub Actions docs pipeline with GitLab behavior:
+  - `build_pages` now reuses `./scripts/build.sh` instead of a duplicated,
+    manual ADRDOX invocation block
+
 ## Release 26.6.1
 
 - Fixed CI documentation instability caused by `adrdox` parser/segfault failures

@@ -34,66 +34,37 @@ lint:
 
 #-- Build the application ---------------------------------------------------
 
-build:
+.build:
   stage: build
-  before_script:
-    - sh ./scripts/install-dependencies.sh build
-  script:
-    - ldc2 --version
-    - dub --version
-    - ./scripts/build.sh
-  cache:
-    key: "DUB-CACHE"
-    untracked: true
-    paths:
-      - .dub/
-
-build_docs:
-  stage: deploy
-  image: "debian:13-slim"
   tags:
     - gitlabdocker
-    - ryzen
-  before_script:
-    - apt-get update
-    - DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates git bash tar zstd
-    - sh ./scripts/install-dependencies.sh build
-  script:
-    - ldc2 --version
-    - dub --version
-    - dub run adrdox -- . ${CI_PROJECT_DIR}/source/dosierskanilo -o docs -i --skeleton ${CI_PROJECT_DIR}/skeleton.html
-    - cp -f ${CI_PROJECT_DIR}/dosierskanilo-icon.svg ${CI_PROJECT_DIR}/docs/dosierskanilo-icon.svg
-    - tar -C docs -czf docs.tar.gz .
-    - ls -l docs.tar.gz
-  artifacts:
-    expire_in: 1 week
-    paths:
-      - docs.tar.gz
-  cache:
-    key: "DUB-CACHE"
-    untracked: true
-    paths:
-      - .dub/
-
-#-- Test the application ----------------------------------------------------
-
-test:
-  stage: test
   before_script:
     - sh ./scripts/install-dependencies.sh build
     - sh ./scripts/install-dependencies.sh runtime
   script:
+    - ldc2 --version
+    - dub --version
+    - ./scripts/build.sh
+    - tar -C docs -czf docs.tar.gz .
+    - ls -l docs.tar.gz
     - ./scripts/test.sh
+
+build:debian13:
+  image: "debian:13-slim"
+  extends: .build
+
+build:ubuntu24.04:
+  image: "ubuntu:24.04"
+  extends: .build
+
+build:alpine:
+  image: "alpine:3.23"
+  extends: .build
   artifacts:
-    when: always
     expire_in: 1 week
     paths:
+      - docs.tar.gz
       - "source-*.lst"
-  cache:
-    key: "DUB-CACHE"
-    untracked: true
-    paths:
-      - .dub/
 
 #-- Deploy the application --------------------------------------------------
 
@@ -105,7 +76,7 @@ deploy_staging:
     name: staging
     url: https://packages.vahanus.net
   only:
-    - master
+    - main
 
 deploy_prod:
   stage: deploy
@@ -116,14 +87,14 @@ deploy_prod:
     url: https://packages.vahanus.net
   when: manual
   only:
-    - master
+    - main
 
 #-- Publish API docs via GitLab Pages ---------------------------------------
 
 pages:
   stage: deploy
   needs:
-    - job: build_docs
+    - job: build:alpine
       artifacts: true
   script:
     - rm -rf public

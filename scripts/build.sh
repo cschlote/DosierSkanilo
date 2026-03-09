@@ -14,7 +14,20 @@ dub build --compiler="${DUB_COMPILER}" ${CI_DUBARGS:=} -v
 
 # Also build API documentation with adrdox
 dub fetch adrdox
-dub run adrdox -- . "${ROOT_DIR}/source/dosierskanilo" -o docs -i --skeleton "${ROOT_DIR}/skeleton.html"
+# ADRDOX can crash with some compiler/toolchain combos (seen on Debian + ldc2).
+# Prefer gdc for docs generation when available, but keep an override via env.
+ADRDOX_COMPILER="${ADRDOX_COMPILER:-}"
+if [ -z "${ADRDOX_COMPILER}" ]; then
+	if command -v gdc >/dev/null 2>&1; then
+		ADRDOX_COMPILER="gdc"
+	else
+		ADRDOX_COMPILER="${DUB_COMPILER}"
+	fi
+fi
+echo "Generating docs with adrdox compiler: ${ADRDOX_COMPILER}"
+
+# Restricting adrdox input to the D source tree is more stable than scanning repo root.
+dub run adrdox --compiler="${ADRDOX_COMPILER}" -- source/dosierskanilo -o docs -i --skeleton "${ROOT_DIR}/skeleton.html"
 cp -f "${ROOT_DIR}/dosierskanilo-icon.svg" "${ROOT_DIR}/docs/dosierskanilo-icon.svg"
 
 RELEASE_TAG="$(git -C "${ROOT_DIR}" describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")"
