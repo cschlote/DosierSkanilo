@@ -7,7 +7,7 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
-## Release 26.6.1
+## Release 26.6.2 (planned)
 
 - Stabilized ADRDOX generation in CI for Debian-based environments:
   - `scripts/build.sh` now selects ADRDOX compiler dynamically and prefers
@@ -23,6 +23,18 @@ They represent the functional evolution and are intentionally summarized.
 - Aligned GitHub Actions docs pipeline with GitLab behavior:
   - `build_pages` now reuses `./scripts/build.sh` instead of a duplicated,
     manual ADRDOX invocation block
+
+## Release 26.6.1
+
+- Fixed CI documentation instability caused by `adrdox` parser/segfault failures
+  on Alpine-based toolchains:
+  - GitHub Pages `build_pages` job now runs in `debian:13-slim`
+  - GitLab CI now builds docs in a dedicated `build_docs` job on
+    `debian:13-slim`
+- Hardened docs artifact flow in GitLab CI Pages publication:
+  - `pages` now depends on `build_docs` artifacts directly
+  - corrected docs archive extraction command to unpack `docs.tar.gz`
+    into `public/`
 
 ## Release 26.6.0
 
