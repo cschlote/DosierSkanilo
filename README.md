@@ -95,6 +95,40 @@ Run the same stage order locally:
   - `unrar`
   - `7z`
 
+## CLI Reference
+
+Current command-line options (from `source/commandline.d`):
+
+- `-p`, `--path`: path to scan
+- `-j`, `--json`: JSON file name for load/store
+- `-r`, `--recursive`: recurse into subdirectories
+- `-s`, `--scan`: discover files from the scan path
+- `-c`, `--checksum`: calculate digests
+- `-y`, `--filetypes`: detect file type via `file`
+- `-m`, `--mediasig`: extract MediaInfo signatures
+- `--rescan-mediasig`: force MediaInfo refresh (see notes below)
+- `-z`, `--scanArchives`: inspect archive contents
+- `-o`, `--scanTorrents`: inspect torrent metadata
+- `-a`, `--analyse`: run duplicate/missing-file analysis
+- `-d`, `--dropMissing`: remove non-existing files from DB during analysis
+- `-w`, `--writeJSON`: write updated JSON
+- `-t`, `--threads`: worker-thread count (default: `1`)
+- `-f`, `--force`: allow overwrite/force load behavior
+- `-h`, `--pickhidden`: include hidden files/directories in scan
+- `-v`, `--verbose`: verbose output
+- `--help`: print help
+
+Operational notes:
+
+- `--json` currently accepts a filename ending in `.json`; passing a path is
+  rejected by argument validation.
+- `--rescan-mediasig` only forces a refresh when combined with `--mediasig` in
+  single-thread mode.
+- In multi-thread mode, media jobs are queued only for blobs without existing
+  media signatures.
+- `-h` is bound to `--pickhidden`; use `--help` for help output to avoid
+  ambiguity.
+
 ## Typical Usage
 
 Scan recursively, compute checksums, file type, media info, run analysis, and

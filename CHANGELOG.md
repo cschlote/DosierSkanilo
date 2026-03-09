@@ -9,6 +9,14 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Release 26.6.2 (planned)
 
+- Refreshed project documentation to match current runtime behavior:
+  - added complete CLI option reference to `README.md`
+  - documented JSON argument constraints and help/pickhidden short-option
+    ambiguity (`--help` recommended)
+  - clarified current `--rescan-mediasig` behavior differences between
+    single-thread and multi-thread execution in `README.md` and
+    `ARCHITECTURE.md`
+
 - Stabilized ADRDOX generation in CI for Debian-based environments:
   - `scripts/build.sh` now selects ADRDOX compiler dynamically and prefers
     `gdc` when available (fallback to `DUB_COMPILER`), avoiding

@@ -102,6 +102,16 @@ Each blob can queue independent jobs:
 In multi-thread mode, jobs are submitted first and then consumed while progress
 is reported. Ctrl-C is handled to stop long operations safely.
 
+Scheduling policy details:
+
+- Most jobs are queued only when target metadata is missing.
+- Archive scheduling is centralized via
+  `dosierskanilo.scannerpolicy.shouldQueueArchiveScanJob(...)`.
+- Media rescan semantics are asymmetric by execution mode:
+  - single-thread mode can force refresh with `--mediasig --rescan-mediasig`
+  - multi-thread mode currently queues media jobs only when no
+    `mediaInfoSig` exists
+
 ## 4. Duplicate Detection Strategy
 
 Duplicates are identified in `analyseData()`:
