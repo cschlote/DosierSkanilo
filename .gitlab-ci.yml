@@ -69,25 +69,34 @@ build:alpine:
 #-- Deploy the application --------------------------------------------------
 
 deploy_staging:
+  before_script:
+    - sh ./scripts/install-dependencies.sh build
+    - sh ./scripts/install-dependencies.sh runtime
   stage: deploy
   script:
     - ./scripts/deploy.sh
   environment:
     name: staging
     url: https://packages.vahanus.net
-  only:
-    - main
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "testing"'
+      when: always
+    - when: manual
 
 deploy_prod:
+  before_script:
+    - sh ./scripts/install-dependencies.sh build
+    - sh ./scripts/install-dependencies.sh runtime
   stage: deploy
   script:
     - echo "Deploy to production server"
   environment:
     name: production
     url: https://packages.vahanus.net
-  when: manual
-  only:
-    - main
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^(v+)\d+\.\d+\.\d+$/'
+      when: always
+    - when: manual
 
 #-- Publish API docs via GitLab Pages ---------------------------------------
 
