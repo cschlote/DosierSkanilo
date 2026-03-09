@@ -92,7 +92,7 @@ install_hadolint_binary() {
 
 install_alpine() {
     runtime_pkgs="bash libmediainfo mediainfo file unzip zip tar p7zip rsync"
-    build_pkgs="bash ldc dub build-base openssl-dev libmediainfo-dev rsync"
+    build_pkgs="ca-certificates git bash tar zstd ldc gcc-gdc dub build-base openssl-dev libmediainfo-dev rsync"
     lint_pkgs="shellcheck dub ldc build-base ca-certificates wget"
 
     if [ "$MODE" = "build" ]; then
@@ -142,7 +142,7 @@ install_debian_ubuntu() {
     run_as_root apt-get update
 
     runtime_pkgs="bash libmediainfo0v5 libmediainfo-dev file unzip zip tar p7zip-full rsync"
-    build_pkgs="bash ldc dub libssl-dev build-essential rsync"
+    build_pkgs="ca-certificates git bash tar zstd ldc gdc dub libssl-dev build-essential rsync"
     lint_pkgs="shellcheck hadolint dub ldc build-essential"
 
     if [ "$MODE" = "build" ]; then
@@ -165,7 +165,7 @@ install_debian_ubuntu() {
 
 install_manjaro() {
     runtime_pkgs="bash mediainfo file unzip zip tar p7zip rsync"
-    build_pkgs="bash ldc dub openssl base-devel rsync"
+    build_pkgs="ca-certificates git bash tar zstd ldc dub openssl base-devel rsync"
     lint_pkgs="shellcheck hadolint dub ldc base-devel"
 
     run_as_root pacman -Sy --noconfirm --needed

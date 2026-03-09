@@ -38,7 +38,7 @@ dub test --compiler=ldc2 -b unittest-cov -- -v
 Generate API docs:
 
 ```bash
-dub run adrdox -- . "$PWD/source/dosierskanilo" -o docs -i --skeleton "$PWD/skeleton.html"
+dub run adrdox -- "$PWD" -o docs -i --skeleton "$PWD/skeleton.html"
 cp -f ./dosierskanilo-icon.svg ./docs/dosierskanilo-icon.svg
 RELEASE_TAG="$(git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0)"
 RELEASE_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
