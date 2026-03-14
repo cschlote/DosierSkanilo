@@ -6,7 +6,7 @@
  *
  * Authors: Carsten Schlote, schlote@vahanus.net
  * Copyright: Carsten Schlote, Released under CC-BY-NC-SA 4.0 license, 2018
- * License: CC-NC-BY 4.0
+ * License: CC-BY-NC-SA 4.0
  */
 module dosierskanilo.namedbinaryblob;
 
@@ -100,7 +100,7 @@ struct CheckSums
 	{
 		string md5sum_b64; ///< base64 of md5 hash
 		string sha1sum_b64; ///< base 64 of sha1 hash
-		string xxh64sum_b64; ///< base 64 of sha1 hash
+		string xxh64sum_b64; ///< base 64 of xxh64 hash
 	}
 
 	/** the file md5sum as a property */
@@ -115,25 +115,25 @@ struct CheckSums
 		md5sum_b64 = (data is null) ? null : Base64.encode(data);
 	}
 
-	/** getter - the file md5sum as a property */
+	/** getter - the file sha1sum as a property */
 	ubyte[] get_sha1sum() const @property pure @safe
 	{
 		return (sha1sum_b64 is null) ? null : Base64.decode(sha1sum_b64);
 	}
 
-	/** setter - the file md5sum as a property */
+	/** setter - the file sha1sum as a property */
 	void set_sha1sum(ubyte[] data) @property @safe
 	{
 		sha1sum_b64 = (data is null) ? null : Base64.encode(data);
 	}
 
-	/** getter - the file md5sum as a property */
+	/** getter - the file xxh64 as a property */
 	ubyte[] get_xxh64() const @property pure @safe
 	{
 		return (xxh64sum_b64 is null) ? null : Base64.decode(xxh64sum_b64);
 	}
 
-	/** setter - the file md5sum as a property */
+	/** setter - the file xxh64 as a property */
 	void set_xxh64(ubyte[] data) @property @safe
 	{
 		xxh64sum_b64 = (data is null) ? null : Base64.encode(data);
@@ -384,7 +384,7 @@ mixin template payloadHelpers()
 
 	Task!(updateDigests, NamedBinaryBlob, shared(bool)*, ProgressCallBack*)* task_hashme; ///< Pointer to hashing job
 	Task!(updateFileType, NamedBinaryBlob)* task_filetype; /// Query filetype with 'file' utility
-	Task!(updateMediaInfo, NamedBinaryBlob)* task_mediasig; ///< Pointer to mediasig job
+	Task!(updateMediaInfo, NamedBinaryBlob, bool)* task_mediasig; ///< Pointer to mediasig job
 	Task!(updateArchives, NamedBinaryBlob)* task_archiveScan; ///< Pointer to archive scan job
 	Task!(updateTorrentInfo, NamedBinaryBlob)* task_torrentscan; ///< Pointer to torrent scan job
 }
@@ -421,7 +421,7 @@ mixin template payloadOptional()
 		string[] mediaInfo; ///< A media signature constructed with libmediainfo or NULL for no media file
 		string md5sum_b64; ///< base64 of md5 hash
 		string sha1sum_b64; ///< base 64 of sha1 hash
-		string xxh64sum_b64; ///< base 64 of sha1 hash
+		string xxh64sum_b64; ///< base 64 of xxh64 hash
 	}
 }
 

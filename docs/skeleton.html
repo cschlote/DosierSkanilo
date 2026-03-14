@@ -401,7 +401,7 @@
 				<div class="meta-line" aria-label="Release and Build Information">
 					<span class="chip"><span class="label">Release</span> <span id="meta-release">26.6.x</span></span>
 					<span class="chip"><span class="label">Tag</span> <a id="meta-tag-link" href="https://github.com/cschlote/DosierSkanilo/releases/tag/v26.6.0">v26.6.0</a></span>
-					<span class="chip"><span class="label">Notes</span> <a id="meta-changelog-link" href="https://github.com/cschlote/DosierSkanilo/blob/main/CHANGELOG.md">CHANGELOG</a></span>
+					<span class="chip"><span class="label">Notes</span> <a id="meta-changelog-link" href="https://github.com/cschlote/DosierSkanilo/blob/main/docs/CHANGELOG.md">CHANGELOG</a></span>
 					<span class="chip"><span class="label">Docs Build</span> <span id="meta-build-date">runtime</span></span>
 					<span class="chip"><span class="label">Compiler</span> <span id="meta-compiler">ldc2 (default)</span></span>
 					<span class="chip"><span class="label">Theme</span> <span id="meta-theme">Slate</span></span>
@@ -419,7 +419,7 @@
 					<div class="card quickstart">
 						<h3>Quick Start</h3>
 						<p>Generate docs:</p>
-						<pre><code>dub run adrdox -- . -o docs -i --skeleton skeleton.html</code></pre>
+						<pre><code>dub run adrdox -- . -o public -i --skeleton docs/skeleton.html</code></pre>
 						<p>Build scanner:</p>
 						<pre><code>dub build --compiler=ldc2</code></pre>
 					</div>

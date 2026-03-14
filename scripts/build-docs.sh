@@ -2,21 +2,14 @@
 set -euo pipefail
 set -x
 
-# We cache the DUB builds, so allow upgrades
-dub upgrade
-
 DUB_COMPILER="${DUB_COMPILER:-ldc2}"
+ADRDOX_COMPILER="${ADRDOX_COMPILER:-}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Verbosely build the dub package
-# shellcheck disable=SC2086
-dub build --compiler="${DUB_COMPILER}" ${CI_DUBARGS:=} -v
-
-# Also build API documentation with adrdox
+# Fetch docs generator if needed.
 dub fetch adrdox
-# ADRDOX can crash with some compiler/toolchain combos (seen on Debian + ldc2).
-# Prefer gdc for docs generation when available, but keep an override via env.
-ADRDOX_COMPILER="${ADRDOX_COMPILER:-}"
+
+# Prefer gdc for adrdox when available; fallback to project compiler.
 if [ -z "${ADRDOX_COMPILER}" ]; then
 	if command -v gdc >/dev/null 2>&1; then
 		ADRDOX_COMPILER="gdc"
@@ -24,9 +17,9 @@ if [ -z "${ADRDOX_COMPILER}" ]; then
 		ADRDOX_COMPILER="${DUB_COMPILER}"
 	fi
 fi
+
 echo "Generating docs with adrdox compiler: ${ADRDOX_COMPILER}"
 
-# Restricting adrdox input to the D source tree is more stable than scanning repo root.
 mkdir -p "${ROOT_DIR}/public"
 dub run adrdox --compiler="${ADRDOX_COMPILER}" -- source/dosierskanilo -o public -i --skeleton "${ROOT_DIR}/docs/skeleton.html"
 cp -f "${ROOT_DIR}/docs/dosierskanilo-icon.svg" "${ROOT_DIR}/public/dosierskanilo-icon.svg"
@@ -48,4 +41,4 @@ cat > "${ROOT_DIR}/public/meta.json" <<EOF
 }
 EOF
 
-echo "Successfully finished build script."
+echo "Successfully finished docs build script."

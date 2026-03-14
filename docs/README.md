@@ -38,20 +38,20 @@ dub test --compiler=ldc2 -b unittest-cov -- -v
 Generate API docs:
 
 ```bash
-dub run adrdox -- "$PWD" -o docs -i --skeleton "$PWD/skeleton.html"
-cp -f ./dosierskanilo-icon.svg ./docs/dosierskanilo-icon.svg
+dub run adrdox -- "$PWD" -o public -i --skeleton "$PWD/docs/skeleton.html"
+cp -f ./docs/dosierskanilo-icon.svg ./public/dosierskanilo-icon.svg
 RELEASE_TAG="$(git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0)"
 RELEASE_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
 RELEASE_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 BUILD_ISO="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-cat > ./docs/meta.json <<EOF
+cat > ./public/meta.json <<EOF
 {
   "releaseTag": "${RELEASE_TAG}",
   "branch": "${RELEASE_BRANCH}",
   "commit": "${RELEASE_COMMIT}",
   "compiler": "ldc2",
   "buildDateUtc": "${BUILD_ISO}",
-  "changelogUrl": "https://github.com/cschlote/DosierSkanilo/blob/main/CHANGELOG.md",
+  "changelogUrl": "https://github.com/cschlote/DosierSkanilo/blob/main/docs/CHANGELOG.md",
   "releaseUrl": "https://github.com/cschlote/DosierSkanilo/releases/tag/${RELEASE_TAG}"
 }
 EOF
@@ -82,7 +82,7 @@ is skipped while the rest of the suite continues.
 Run the same stage order locally:
 
 ```bash
-./scripts/ci-local.sh
+./scripts/build-all.sh
 ```
 
 ## Runtime Dependencies
@@ -95,13 +95,45 @@ Run the same stage order locally:
   - `unrar`
   - `7z`
 
+## CLI Reference
+
+Current command-line options (from `source/commandline.d`):
+
+- `-p`, `--path`: path to scan
+- `-j`, `--json`: JSON file name for load/store
+- `-r`, `--recursive`: recurse into subdirectories
+- `-s`, `--scan`: discover files from the scan path
+- `-c`, `--checksum`: calculate digests
+- `-y`, `--filetypes`: detect file type via `file`
+- `-m`, `--mediasig`: extract MediaInfo signatures
+- `--rescan-mediasig`: force MediaInfo refresh (see notes below)
+- `-z`, `--scanArchives`: inspect archive contents
+- `-o`, `--scanTorrents`: inspect torrent metadata
+- `-a`, `--analyse`: run duplicate/missing-file analysis
+- `-d`, `--dropMissing`: remove non-existing files from DB during analysis
+- `-w`, `--writeJSON`: write updated JSON
+- `-t`, `--threads`: worker-thread count (default: `1`)
+- `-f`, `--force`: allow overwrite/force load behavior
+- `-h`, `--pickhidden`: include hidden files/directories in scan
+- `-v`, `--verbose`: verbose output
+- `--help`: print help
+
+Operational notes:
+
+- `--json` currently accepts a filename ending in `.json`; passing a path is
+  rejected by argument validation.
+- `--rescan-mediasig` forces a media refresh when combined with `--mediasig`
+  (single-thread and multi-thread).
+- `-h` is bound to `--pickhidden`; use `--help` for help output to avoid
+  ambiguity.
+
 ## Typical Usage
 
 Scan recursively, compute checksums, file type, media info, run analysis, and
 write JSON:
 
 ```bash
-./dosierskanilo \
+./build/bin/dosierskanilo \
   --path=/media/user/films \
   --json=media-user-films.json \
   --recursive \
@@ -117,7 +149,7 @@ write JSON:
 Minimal duplicate scan (checksums + analysis only):
 
 ```bash
-./dosierskanilo \
+./build/bin/dosierskanilo \
   --path=/data/library \
   --json=library-scan.json \
   --recursive \
@@ -131,7 +163,7 @@ Minimal duplicate scan (checksums + analysis only):
 Enable archive and torrent analysis:
 
 ```bash
-./dosierskanilo \
+./build/bin/dosierskanilo \
   --path=/data/incoming \
   --json=incoming.json \
   --recursive \
@@ -147,7 +179,7 @@ Enable archive and torrent analysis:
 
 Detailed architecture and diagrams:
 
-- `ARCHITECTURE.md`
+- `docs/ARCHITECTURE.md`
 
 ## Source Map
 

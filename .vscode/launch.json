@@ -8,7 +8,7 @@
             "type": "lldb",
             "request": "launch",
             "name": "Launch Program (CodeLLDB): With Save",
-            "program": "${workspaceFolder}/dosierskanilo",
+            "program": "${workspaceFolder}/build/bin/dosierskanilo",
             "args": [
                 "--path=./",
                 "-r",
@@ -50,7 +50,7 @@
             "type": "lldb",
             "request": "launch",
             "name": "Launch Testbench (CodeLLDB)",
-            "program": "${workspaceFolder}/dosierskanilo-test-application",
+            "program": "${workspaceFolder}/build/bin/dosierskanilo-test-application",
             "args": [
                 "--",
                 "-v",

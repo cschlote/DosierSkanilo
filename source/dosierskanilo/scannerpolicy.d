@@ -1,4 +1,9 @@
-/** Scanner policy helpers for deciding which jobs should be queued. */
+/** Scanner policy helpers for deciding which jobs should be queued.
+ *
+ * Authors: Carsten Schlote, schlote@vahanus.net
+ * Copyright: Carsten Schlote, Released under CC-BY-NC-SA 4.0 license, 2018
+ * License: CC-BY-NC-SA 4.0
+ */
 module dosierskanilo.scannerpolicy;
 
 import dosierskanilo.namedbinaryblob;

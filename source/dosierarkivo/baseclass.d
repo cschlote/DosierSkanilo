@@ -3,6 +3,10 @@
  * This code might be useful for other projects. Instead of replicating code we either
  * use an existing library or we put the code here and make it available to other projects. This module
  * contains the baseclass for file archives and the factory method to create an instance.
+ *
+ * Authors: Carsten Schlote, schlote@vahanus.net
+ * Copyright: Carsten Schlote, Released under CC-BY-NC-SA 4.0 license, 2018
+ * License: CC-BY-NC-SA 4.0
  */
 module dosierarkivo.baseclass;
 

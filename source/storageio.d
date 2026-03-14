@@ -2,7 +2,7 @@
  *
  * Authors: Carsten Schlote, schlote@vahanus.net
  * Copyright: Carsten Schlote, Released under CC-BY-NC-SA 4.0 license, 2018
- * License: CC-NC-BY 4.0
+ * License: CC-BY-NC-SA 4.0
  */
 module storageio;
 
@@ -90,10 +90,12 @@ unittest
 /** Write scanned data to some storage file
  *
  *  Depending on configuration, the data is serialized to some file.
- * @param jsonFile = JSON storage file path.
- * @param dynObjectArray = source object array.
- * @param jsonFileExtension = file extension for backup files (default: ".json").
- * @return true on success, false on failure. On failure, the original file is left unchanged if possible.
+ * Params:
+ *   jsonFile = JSON storage file path.
+ *   dynObjectArray = source object array.
+ *   jsonFileExtension = file extension for backup files (default: ".json").
+ * Returns:
+ *   true on success, false on failure. On failure, the original file is left unchanged if possible.
  */
 bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlob[] dynObjectArray, string jsonFileExtension = ".json")
 {

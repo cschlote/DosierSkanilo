@@ -7,7 +7,17 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
-## Release 26.6.2 (planned)
+## Release 26.6.2
+
+- Unified MediaInfo rescan behavior in scanner job execution:
+  - `--mediasig --rescan-mediasig` now forces refresh in both
+    single-thread and multi-thread mode
+
+- Refreshed project documentation to match current runtime behavior:
+  - added complete CLI option reference to `README.md`
+  - documented JSON argument constraints and help/pickhidden short-option
+    ambiguity (`--help` recommended)
+  - updated media rescan notes in `README.md` and `ARCHITECTURE.md`
 
 - Stabilized ADRDOX generation in CI for Debian-based environments:
   - `scripts/build.sh` now selects ADRDOX compiler dynamically and prefers
@@ -23,6 +33,25 @@ They represent the functional evolution and are intentionally summarized.
 - Aligned GitHub Actions docs pipeline with GitLab behavior:
   - `build_pages` now reuses `./scripts/build.sh` instead of a duplicated,
     manual ADRDOX invocation block
+
+- Reorganized documentation layout and publication targets:
+  - moved markdown docs and ADRDOX template assets under `docs/`
+    (`README.md`, `ARCHITECTURE.md`, `CHANGELOG.md`, `TODO.md`,
+    `skeleton.html`, `dosierskanilo-icon.svg`)
+  - switched ADRDOX generation output from `docs/` to `public/`
+    so `public/` is the direct Pages publishing directory
+  - updated build scripts, CI workflows, and VS Code tasks accordingly
+  - updated `.gitignore` to track `docs/` sources and ignore generated
+    `public/` output
+
+- Streamlined local developer operations in scripts and VS Code tasks:
+  - added `scripts/build-all.sh` and a new VS Code `rebuild` task chaining
+    `clean` then `build-all` for one-shot local rebuilds
+  - removed obsolete `build-doxygen` task in favor of ADRDOX-only docs flow
+  - added dedicated `scripts/build-docs.sh` and routed docs tasks to scripts
+    for CLI/IDE parity
+  - moved unittest coverage `.lst` artifacts to `build/coverage/` and kept
+    workspace-root symlinks for VS Code coverage overlays
 
 ## Release 26.6.1
 

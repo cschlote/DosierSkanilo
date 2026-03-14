@@ -45,8 +45,8 @@ lint:
     - ldc2 --version
     - dub --version
     - ./scripts/build.sh
-    - tar -C docs -czf docs.tar.gz .
-    - ls -l docs.tar.gz
+    - tar -C public -czf public.tar.gz .
+    - ls -l public.tar.gz
     - ./scripts/test.sh
 
 build:debian13:
@@ -63,31 +63,40 @@ build:alpine:
   artifacts:
     expire_in: 1 week
     paths:
-      - docs.tar.gz
-      - "source-*.lst"
+      - public.tar.gz
+      - "build/coverage/*.lst"
 
 #-- Deploy the application --------------------------------------------------
 
 deploy_staging:
+  before_script:
+    - sh ./scripts/install-dependencies.sh build
+    - sh ./scripts/install-dependencies.sh runtime
   stage: deploy
   script:
     - ./scripts/deploy.sh
   environment:
     name: staging
     url: https://packages.vahanus.net
-  only:
-    - main
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "testing"'
+      when: always
+    - when: manual
 
 deploy_prod:
+  before_script:
+    - sh ./scripts/install-dependencies.sh build
+    - sh ./scripts/install-dependencies.sh runtime
   stage: deploy
   script:
     - echo "Deploy to production server"
   environment:
     name: production
     url: https://packages.vahanus.net
-  when: manual
-  only:
-    - main
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^(v+)\d+\.\d+\.\d+$/'
+      when: always
+    - when: manual
 
 #-- Publish API docs via GitLab Pages ---------------------------------------
 
@@ -99,7 +108,7 @@ pages:
   script:
     - rm -rf public
     - mkdir -p public
-    - tar -xzf docs.tar.gz -C public
+    - tar -xzf public.tar.gz -C public
     - echo "API documentation published to GitLab Pages at ${CI_PAGES_URL}."
   artifacts:
     paths:

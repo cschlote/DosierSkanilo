@@ -15,7 +15,7 @@
  *
  * Authors: Carsten Schlote, schlote@vahanus.net
  * Copyright: Carsten Schlote, Released under CC-BY-NC-SA 4.0 license, 2018
- * License: CC-NC-BY 4.0
+ * License: CC-BY-NC-SA 4.0
  */
 module appmain;
 
@@ -422,9 +422,11 @@ bool runScannerJobs()
 					obj.task_filetype = task!updateFileType(obj);
 					myTaskPool.put(obj.task_filetype);
 				}
-				if (argsArray.argDoMediaSig && obj.mediaInfoSig is null)
+				if (argsArray.argDoMediaSig && (obj.mediaInfoSig is null ||
+						argsArray.argRescanMediaSig))
 				{
-					obj.task_mediasig = task!updateMediaInfo(obj);
+					obj.task_mediasig = task!updateMediaInfo(obj,
+						argsArray.argRescanMediaSig);
 					myTaskPool.put(obj.task_mediasig);
 				}
 				if (shouldQueueArchiveScanJob(argsArray.argScanArchives, obj))
@@ -516,8 +518,8 @@ bool runScannerJobs()
 				{
 					updateFileType(obj, false);
 				}
-				if (argsArray.argDoMediaSig || (argsArray.argRescanMediaSig &&
-						obj.mediaInfoSig is null))
+				if (argsArray.argDoMediaSig && (obj.mediaInfoSig is null ||
+						argsArray.argRescanMediaSig))
 				{
 					updateMediaInfo(obj, argsArray.argRescanMediaSig);
 				}
