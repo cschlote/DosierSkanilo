@@ -82,7 +82,7 @@ is skipped while the rest of the suite continues.
 Run the same stage order locally:
 
 ```bash
-./scripts/ci-local.sh
+./scripts/build-all.sh
 ```
 
 ## Runtime Dependencies
