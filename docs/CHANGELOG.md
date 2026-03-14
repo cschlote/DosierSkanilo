@@ -44,6 +44,15 @@ They represent the functional evolution and are intentionally summarized.
   - updated `.gitignore` to track `docs/` sources and ignore generated
     `public/` output
 
+- Streamlined local developer operations in scripts and VS Code tasks:
+  - added `scripts/build-all.sh` and a new VS Code `rebuild` task chaining
+    `clean` then `build-all` for one-shot local rebuilds
+  - removed obsolete `build-doxygen` task in favor of ADRDOX-only docs flow
+  - added dedicated `scripts/build-docs.sh` and routed docs tasks to scripts
+    for CLI/IDE parity
+  - moved unittest coverage `.lst` artifacts to `build/coverage/` and kept
+    workspace-root symlinks for VS Code coverage overlays
+
 ## Release 26.6.1
 
 - Fixed CI documentation instability caused by `adrdox` parser/segfault failures
