@@ -62,18 +62,6 @@
             "problemMatcher": [
                 "$gcc"
             ]
-        },
-        {
-            "label": "build-doxygen",
-            "type": "shell",
-            "group": {
-                "kind": "build",
-                "isDefault": false
-            },
-            "command": "./scripts/build-docs.sh",
-            "problemMatcher": [
-                "$gcc"
-            ]
         }
     ]
 }
