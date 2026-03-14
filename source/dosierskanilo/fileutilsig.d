@@ -2,7 +2,7 @@
  *
  * Authors: Carsten Schlote, schlote@vahanus.net
  * Copyright: Carsten Schlote, Released under CC-BY-NC-SA 4.0 license, 2018
- * License: CC-NC-BY 4.0
+ * License: CC-BY-NC-SA 4.0
  */
 module dosierskanilo.fileutilsig;
 
