@@ -64,7 +64,7 @@ build:alpine:
     expire_in: 1 week
     paths:
       - public.tar.gz
-      - "source-*.lst"
+      - "build/coverage/*.lst"
 
 #-- Deploy the application --------------------------------------------------
 

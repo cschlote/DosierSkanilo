@@ -3,6 +3,7 @@ docs.json
 __dummy.html
 public/
 /build/bin/
+/build/coverage/
 /dosierskanilo
 dosierskanilo.so
 dosierskanilo.dylib
