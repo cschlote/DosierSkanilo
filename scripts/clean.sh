@@ -4,7 +4,7 @@ set -eu
 DUB_COMPILER="${DUB_COMPILER:-ldc2}"
 
 echo "[clean] Running dub clean"
-dub clean --compiler="${DUB_COMPILER}" -v
+dub clean -v
 
 echo "[clean] Removing generated binaries and coverage"
 rm -rf ./build/bin ./build/coverage
