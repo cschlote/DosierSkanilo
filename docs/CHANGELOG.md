@@ -7,7 +7,7 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
-## Release 26.6.2 (planned)
+## Release 26.6.2
 
 - Unified MediaInfo rescan behavior in scanner job execution:
   - `--mediasig --rescan-mediasig` now forces refresh in both
