@@ -34,6 +34,16 @@ They represent the functional evolution and are intentionally summarized.
   - `build_pages` now reuses `./scripts/build.sh` instead of a duplicated,
     manual ADRDOX invocation block
 
+- Reorganized documentation layout and publication targets:
+  - moved markdown docs and ADRDOX template assets under `docs/`
+    (`README.md`, `ARCHITECTURE.md`, `CHANGELOG.md`, `TODO.md`,
+    `skeleton.html`, `dosierskanilo-icon.svg`)
+  - switched ADRDOX generation output from `docs/` to `public/`
+    so `public/` is the direct Pages publishing directory
+  - updated build scripts, CI workflows, and VS Code tasks accordingly
+  - updated `.gitignore` to track `docs/` sources and ignore generated
+    `public/` output
+
 ## Release 26.6.1
 
 - Fixed CI documentation instability caused by `adrdox` parser/segfault failures

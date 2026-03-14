@@ -45,8 +45,8 @@ lint:
     - ldc2 --version
     - dub --version
     - ./scripts/build.sh
-    - tar -C docs -czf docs.tar.gz .
-    - ls -l docs.tar.gz
+    - tar -C public -czf public.tar.gz .
+    - ls -l public.tar.gz
     - ./scripts/test.sh
 
 build:debian13:
@@ -63,7 +63,7 @@ build:alpine:
   artifacts:
     expire_in: 1 week
     paths:
-      - docs.tar.gz
+      - public.tar.gz
       - "source-*.lst"
 
 #-- Deploy the application --------------------------------------------------
@@ -108,7 +108,7 @@ pages:
   script:
     - rm -rf public
     - mkdir -p public
-    - tar -xzf docs.tar.gz -C public
+    - tar -xzf public.tar.gz -C public
     - echo "API documentation published to GitLab Pages at ${CI_PAGES_URL}."
   artifacts:
     paths:

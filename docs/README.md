@@ -38,20 +38,20 @@ dub test --compiler=ldc2 -b unittest-cov -- -v
 Generate API docs:
 
 ```bash
-dub run adrdox -- "$PWD" -o docs -i --skeleton "$PWD/skeleton.html"
-cp -f ./dosierskanilo-icon.svg ./docs/dosierskanilo-icon.svg
+dub run adrdox -- "$PWD" -o public -i --skeleton "$PWD/docs/skeleton.html"
+cp -f ./docs/dosierskanilo-icon.svg ./public/dosierskanilo-icon.svg
 RELEASE_TAG="$(git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0)"
 RELEASE_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
 RELEASE_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 BUILD_ISO="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-cat > ./docs/meta.json <<EOF
+cat > ./public/meta.json <<EOF
 {
   "releaseTag": "${RELEASE_TAG}",
   "branch": "${RELEASE_BRANCH}",
   "commit": "${RELEASE_COMMIT}",
   "compiler": "ldc2",
   "buildDateUtc": "${BUILD_ISO}",
-  "changelogUrl": "https://github.com/cschlote/DosierSkanilo/blob/main/CHANGELOG.md",
+  "changelogUrl": "https://github.com/cschlote/DosierSkanilo/blob/main/docs/CHANGELOG.md",
   "releaseUrl": "https://github.com/cschlote/DosierSkanilo/releases/tag/${RELEASE_TAG}"
 }
 EOF
@@ -179,7 +179,7 @@ Enable archive and torrent analysis:
 
 Detailed architecture and diagrams:
 
-- `ARCHITECTURE.md`
+- `docs/ARCHITECTURE.md`
 
 ## Source Map
 
