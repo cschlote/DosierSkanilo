@@ -1,6 +1,7 @@
 {
 	"targetType": "executable",
 	"name": "dosierskanilo",
+	"targetPath": "build/bin",
 	"description": "DosierSkanilo is a blob-centric media and archive file scanner that computes checksums, extracts metadata, and stores JSON results for duplicate detection.",
 	"authors": [
 		"Carsten Schlote"

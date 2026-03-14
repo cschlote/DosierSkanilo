@@ -2,6 +2,7 @@
 docs.json
 __dummy.html
 public/
+/build/bin/
 /dosierskanilo
 dosierskanilo.so
 dosierskanilo.dylib

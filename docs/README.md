@@ -133,7 +133,7 @@ Scan recursively, compute checksums, file type, media info, run analysis, and
 write JSON:
 
 ```bash
-./dosierskanilo \
+./build/bin/dosierskanilo \
   --path=/media/user/films \
   --json=media-user-films.json \
   --recursive \
@@ -149,7 +149,7 @@ write JSON:
 Minimal duplicate scan (checksums + analysis only):
 
 ```bash
-./dosierskanilo \
+./build/bin/dosierskanilo \
   --path=/data/library \
   --json=library-scan.json \
   --recursive \
@@ -163,7 +163,7 @@ Minimal duplicate scan (checksums + analysis only):
 Enable archive and torrent analysis:
 
 ```bash
-./dosierskanilo \
+./build/bin/dosierskanilo \
   --path=/data/incoming \
   --json=incoming.json \
   --recursive \
