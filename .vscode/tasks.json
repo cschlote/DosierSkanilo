@@ -62,6 +62,31 @@
             "problemMatcher": [
                 "$gcc"
             ]
+        },
+        {
+            "label": "build-all",
+            "type": "shell",
+            "command": "./scripts/build-all.sh",
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "rebuild",
+            "dependsOn": [
+                "clean",
+                "build-all"
+            ],
+            "dependsOrder": "sequence",
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": []
         }
     ]
 }
