@@ -42,7 +42,7 @@
         {
             "label": "test-host",
             "type": "shell",
-            "command": "mkdir -p build/coverage && rm -f build/coverage/*.lst ./*.lst && dub test --compiler=ldc2 -b unittest-cov -- -v && find . -maxdepth 1 -type f -name '*.lst' -exec mv -f {} build/coverage/ \\;",
+            "command": "mkdir -p build/coverage && rm -f build/coverage/*.lst ./*.lst && find . -maxdepth 1 -type l -name '*.lst' -delete && dub test --compiler=ldc2 -b unittest-cov -- -v && find . -maxdepth 1 -type f -name '*.lst' -exec mv -f {} build/coverage/ \\; && find build/coverage -maxdepth 1 -type f -name '*.lst' -exec ln -sfn {} ./ \\;",
             "group": {
                 "kind": "build",
                 "isDefault": false
