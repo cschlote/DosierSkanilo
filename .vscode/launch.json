@@ -50,10 +50,11 @@
             "type": "lldb",
             "request": "launch",
             "name": "Launch Testbench (CodeLLDB)",
-            "program": "${workspaceFolder}/build/bin/dosierskanilo-test-application",
+            "program": "${workspaceFolder}/build/bin/dosierskanilo-test-library",
             "args": [
                 "--",
                 "-v",
+                "-t0"
                 // "-i", "class FileArchive7z"
             ],
             "cwd": "${workspaceFolder}"
