@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-set -x
+#set -x
 
 # We cache the DUB builds, so allow upgrades
 dub upgrade
@@ -10,7 +10,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Verbosely build the dub package
 # shellcheck disable=SC2086
-dub build ${CI_DUBARGS:=} -v
+dub build ${CI_DUBARGS:=}
 
 # Also build API documentation with adrdox
 dub fetch adrdox
