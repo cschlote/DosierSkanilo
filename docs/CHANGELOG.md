@@ -9,6 +9,15 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- Refactored storageio.d for improved clarity and maintainability
+- Use canonical $DC environment variable instead of $DUB_COMPILER for compiler selection
+- Added configurations to build either a CLI application or a library via dub
+- Silenced build script output for cleaner logs
+- Replaced dummy serial number with real value from git in build process
+- Split source files for better modularity
+- Added unittests for core modules
+- Fixed and improved VS Code launcher integration
+- Fixed and improved unittests
 - Use DC instead of DUB_COMPILER ENV variable. This is the standard like CC is for
   a C compiler. So, we use this scheme, too. It is also supported by Dub.
 
