@@ -63,6 +63,10 @@ NamedBinaryBlob[] dynObjectArray; /// Dynamic Array with our class objects
 /* Custom CTRL-C handler for a smooth abort of running scan operation */
 shared bool gotCtrlC; /// Set in handler
 
+/* Some constants */
+immutable string appName = "DosierSkanilo";
+immutable string appVersion = import("build/bin/build-version.txt").strip;
+
 /** Main Entry
  *
  * Decode command-line parameters and run the scanner workflow.
@@ -83,7 +87,7 @@ int main(string[] args)
 	}
 	else
 	{
-		logLine("DosierSkanilo V0.0.0");
+		logFLine("%s %s", appName, appVersion);
 		rc = parseCommandLineArgs(args);
 		if (rc)
 		{
