@@ -50,7 +50,8 @@ bool readStorageJsonFile(string jsonFile, bool forceOverwrite, ref NamedBinaryBl
             }
             else
             {
-                logLine("Aborting read operation to avoid data loss. Use --force to ignore deserialization errors.");
+                logLine(
+                    "Aborting read operation to avoid data loss. Use --force to ignore deserialization errors.");
                 rc = false;
             }
         }
@@ -96,13 +97,14 @@ unittest
  * Params:
  *   originalFile = the original file path to base the backup name on.
  *   extension = the file extension to use for the backup file (e.g., ".json").
+ *   nowString = optional timestamp string to use in the backup file name (default: current time in ISO format).
  * Returns:
  *   a new file name in the format "basename-YYYY-MM-DDTHH-MM-SS.extension".
  */
-private string getBackupFileName(string originalFile, string extension)
+private string getBackupFileName(string originalFile, string extension, string nowString = Clock
+        .currTime.toISOExtString())
 {
     auto basename = originalFile.baseName(extension);
-    auto nowString = Clock.currTime.toISOExtString();
     return basename ~ "-" ~ nowString ~ extension;
 }
 
@@ -120,12 +122,13 @@ private bool makeBackupFile(string backupFile, string originalFile, ref bool mus
     bool rc = true;
     try
     {
-        rename(originalFile, backupFile );
+        rename(originalFile, backupFile);
         logFLine("Backuped file '%s' to '%s'.", originalFile, backupFile);
     }
     catch (FileException e)
     {
-        logLine("Failed to rename existing file for backup. Attempting to copy and delete original.");
+        logLine(
+            "Failed to rename existing file for backup. Attempting to copy and delete original.");
         logLine(e.msg);
         try
         {
@@ -170,22 +173,23 @@ unittest
 {
     import std.process;
     import std.conv : text;
-    import std.file : exists, remove,  getcwd;
+    import std.file : exists, remove, getcwd;
     import std.path : buildPath;
 
-    /* Test with local file to trigger rename-based backup and restore. */
     auto nowString = Clock.currTime.toISOExtString();
+
+    /* Test with local file to trigger rename-based backup and restore. */
     auto localFile = buildPath(getcwd(), "storageio-backup-test-" ~ nowString ~ ".json");
     scope (exit)
     {
         if (exists(localFile))
             remove(localFile);
     }
-    auto backupFile = getBackupFileName(localFile, ".json");
+    auto backupFile = getBackupFileName(localFile, ".json", nowString);
     scope (exit)
     {
         if (exists(backupFile))
-             remove(backupFile);
+            remove(backupFile);
     }
     write(localFile, "{ \"test\": \"data\" }");
     // Test backup creation
@@ -197,7 +201,6 @@ unittest
     restoreOriginalFile(localFile, backupFile, mustCopy);
     assert(exists(localFile), "Original file should exist after restore.");
 
-
     /* Test with tempDir() path on possibly different filesystem to trigger copy-based backup and restore. */
     auto tempFile2 = buildPath(tempDir(), "storageio-backup-test-" ~ nowString ~ ".json");
     scope (exit)
@@ -205,11 +208,11 @@ unittest
         if (exists(tempFile2))
             remove(tempFile2);
     }
-    auto backupFile2 = getBackupFileName(tempFile2, ".json");
+    auto backupFile2 = getBackupFileName(tempFile2, ".json", nowString);
     scope (exit)
     {
         if (exists(backupFile2))
-             remove(backupFile2);
+            remove(backupFile2);
     }
     write(tempFile2, "{ \"test\": \"data\" }");
     // Test backup creation
@@ -221,7 +224,6 @@ unittest
     restoreOriginalFile(tempFile2, backupFile2, mustCopy2);
     assert(exists(tempFile2), "Original file should exist after restore.");
 }
-
 
 /** Write scanned data to some storage file
  *
