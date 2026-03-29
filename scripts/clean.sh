@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -eu
 
-DUB_COMPILER="${DUB_COMPILER:-ldc2}"
+DC="${DC:-ldc2}"
 
 echo "[clean] Running dub clean"
 dub clean -v

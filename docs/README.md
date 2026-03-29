@@ -26,13 +26,15 @@ while multiple file names can reference that same payload.
 Build:
 
 ```bash
-dub build --compiler=ldc2
+exort DC=ldc2
+dub build
 ```
 
 Run tests:
 
 ```bash
-dub test --compiler=ldc2 -b unittest-cov -- -v
+exort DC=ldc2
+dub test -b unittest-cov -- -v
 ```
 
 Generate API docs:
@@ -60,7 +62,7 @@ EOF
 Compiler strategy:
 
 - CI and local helper scripts default to `ldc2` for `build`, `test`, and `run`.
-- Override compiler explicitly when needed: `DUB_COMPILER=dmd ./scripts/test.sh`.
+- Override compiler explicitly when needed: `DC=dmd ./scripts/test.sh`.
 - The project is tested primarily with `ldc2`; other compilers are best-effort.
 
 ## CI and Linting
