@@ -168,7 +168,7 @@ private void restoreOriginalFile(string jsonFile, string newname, bool mustCopy)
     }
 }
 
-@("Unittest for backup and restore")
+@("Unittest for backup and restore 1 - rename")
 unittest
 {
     import std.process;
@@ -179,7 +179,7 @@ unittest
     auto nowString = Clock.currTime.toISOExtString();
 
     /* Test with local file to trigger rename-based backup and restore. */
-    auto localFile = buildPath(getcwd(), "storageio-backup-test-" ~ nowString ~ ".json");
+    auto localFile = buildPath(getcwd(), "storageio-backup-test1-" ~ nowString ~ ".json");
     scope (exit)
     {
         if (exists(localFile))
@@ -192,14 +192,26 @@ unittest
             remove(backupFile);
     }
     write(localFile, "{ \"test\": \"data\" }");
+
     // Test backup creation
     bool mustCopy = false;
     assert(makeBackupFile(backupFile, localFile, mustCopy), "Should create backup file.");
     assert(exists(backupFile), "Backup file should exist after creation.");
+
     // Test restore from backup
     write(localFile, "{ \"test\": \"data\" }");
     restoreOriginalFile(localFile, backupFile, mustCopy);
     assert(exists(localFile), "Original file should exist after restore.");
+}
+
+@("Unittest for backup and restore 2 - copy")
+unittest
+{
+    import std.conv : text;
+    import std.file : exists, remove, getcwd;
+    import std.path : buildPath;
+
+    auto nowString = Clock.currTime.toISOExtString();
 
     /* Test with tempDir() path on possibly different filesystem to trigger copy-based backup and restore. */
     auto tempFile2 = buildPath(tempDir(), "storageio-backup-test-" ~ nowString ~ ".json");
@@ -232,16 +244,19 @@ unittest
  *   jsonFile = JSON storage file path.
  *   dynObjectArray = source object array.
  *   jsonFileExtension = file extension for backup files (default: ".json").
+ *   nowString = optional timestamp string to use in backup file names (default: current time in ISO format).
  * Returns:
  *   true on success, false on failure. On failure, the original file is left unchanged if possible.
  */
-bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlob[] dynObjectArray, string jsonFileExtension = ".json")
+bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlob[] dynObjectArray,
+    string jsonFileExtension = ".json",
+    string nowString = Clock.currTime.toISOExtString())
 {
     string newname = null;
     bool mustCopy = false;
     if (jsonFile.exists)
     {
-        newname = getBackupFileName(jsonFile, jsonFileExtension);
+        newname = getBackupFileName(jsonFile, jsonFileExtension, nowString);
         logFLine("Backed up existing file '%s' to '%s'.", jsonFile, newname);
         auto rc = makeBackupFile(newname, jsonFile, mustCopy);
         if (!rc)
@@ -269,17 +284,15 @@ unittest
     import std.process;
     import std.conv : text;
 
-    import core.thread;
+    auto currtime = Clock.currTime();
+    auto currtimestr = currtime.toISOExtString();
 
-    auto tempFile = buildPath(tempDir(), "storageio-test-" ~ Thread.getThis.id.text ~ ".json");
+    auto tempFile = buildPath(tempDir(), "storageio-test-" ~ currtimestr ~ ".json");
     scope (exit)
     {
         if (exists(tempFile))
             remove(tempFile);
     }
-    auto currtime = Clock.currTime();
-    auto currtimestr = currtime.toISOExtString();
-
     // Create some test data
     NamedBinaryBlob[] objs = [new NamedBinaryBlob("dummy", 1, currtime)];
     assert(objs[0].getFirstFileName == "dummy", "Object name should match.");
@@ -287,7 +300,7 @@ unittest
     assert(objs[0].getFirstFileModDate == currtimestr, "Object lastModified should match.");
 
     // Save some data
-    assert(writeStorageJsonFile(tempFile, objs), "Should write storage file.");
+    assert(writeStorageJsonFile(tempFile, objs, ".json", currtimestr), "Should write storage file.");
     assert(exists(tempFile), "Storage file should exist after writing.");
 
     // Read back and check content
@@ -298,7 +311,14 @@ unittest
     assert(readObjs[0].getFirstFileModDate == currtimestr, "Object lastModified should match.");
 
     // Save some data again, which should trigger backup of the existing file
-    assert(writeStorageJsonFile(tempFile, objs), "Should write storage file and create backup.");
+    auto backupFile = getBackupFileName(tempFile, ".json", currtimestr);
+    scope (exit)
+    {
+        if (exists(backupFile))
+            remove(backupFile);
+    }
+    assert(writeStorageJsonFile(tempFile, objs, ".json", currtimestr), "Should write storage file and create backup.");
     assert(exists(tempFile), "Storage file should exist after writing.");
+    assert(exists(backupFile), "Backup file should exist after writing existing file.");
 
 }
