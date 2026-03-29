@@ -53,7 +53,7 @@ unittest
     auto type2 = getFileType("test/dummy-audio-file.mp3");
     // writeln(type2);
     assert(type2.startsWith(
-            "Audio file with ID3 version 2.3.0, contains: MPEG ADTS, layer III, v1, 128 kbps, 44.1 kHz, JntStereo"), type2);
+            "Audio file with ID3 version 2.3.0, contains: MPEG ADTS, layer III, v1, variable bitrate, 44.1 kHz, JntStereo"), type2);
 
     auto type3 = getFileType("test/no-file.txt");
     assert(type3 is null, type3);

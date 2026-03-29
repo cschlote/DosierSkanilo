@@ -18,11 +18,24 @@
 	"versions": [
 		"useJSONStorage"
 	],
+	"preGenerateCommands": [
+		"mkdir -p build/bin",
+		"git describe --long --always > build/bin/build-version.txt"],
 	"dflags": [
 		"-J."
 	],
-	"mainSourceFile": "source/appmain.d",
 	"sourcePaths": [
 		"source"
+	],
+	"configurations": [
+		{
+			"name": "cli",
+			"targetType": "executable",
+			"mainSourceFile": "source/appmain.d"
+		},
+		{
+			"name": "library",
+			"targetType": "library"
+		}
 	]
 }

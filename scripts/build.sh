@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
-set -x
+#set -x
 
 # We cache the DUB builds, so allow upgrades
 dub upgrade
 
-DUB_COMPILER="${DUB_COMPILER:-ldc2}"
+DC="${DC:-ldc2}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Verbosely build the dub package
 # shellcheck disable=SC2086
-dub build --compiler="${DUB_COMPILER}" ${CI_DUBARGS:=} -v
+dub build ${CI_DUBARGS:=}
 
 # Also build API documentation with adrdox
 dub fetch adrdox
@@ -21,7 +21,7 @@ if [ -z "${ADRDOX_COMPILER}" ]; then
 	if command -v gdc >/dev/null 2>&1; then
 		ADRDOX_COMPILER="gdc"
 	else
-		ADRDOX_COMPILER="${DUB_COMPILER}"
+		ADRDOX_COMPILER="${DC}"
 	fi
 fi
 echo "Generating docs with adrdox compiler: ${ADRDOX_COMPILER}"
@@ -41,7 +41,7 @@ cat > "${ROOT_DIR}/public/meta.json" <<EOF
 	"releaseTag": "${RELEASE_TAG}",
 	"branch": "${RELEASE_BRANCH}",
 	"commit": "${RELEASE_COMMIT}",
-	"compiler": "${DUB_COMPILER}",
+	"compiler": "${DC}",
 	"buildDateUtc": "${BUILD_ISO}",
 	"changelogUrl": "https://github.com/cschlote/DosierSkanilo/blob/main/docs/CHANGELOG.md",
 	"releaseUrl": "https://github.com/cschlote/DosierSkanilo/releases/tag/${RELEASE_TAG}"

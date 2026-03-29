@@ -33,5 +33,6 @@ Project review date: 2026-03-08
 
 ## Validation snapshot
 
-- `dub test --compiler=ldc2 -b unittest-cov -- -v`: passed (`45 passed, 0 failed`).
-- `dub build --compiler=ldc2`: passed.
+- export DC=ldc2
+- `dub test -b unittest-cov -- -v`: passed (`45 passed, 0 failed`).
+- `dub build`: passed.

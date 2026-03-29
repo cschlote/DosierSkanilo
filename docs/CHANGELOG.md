@@ -7,6 +7,20 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
+## Unreleased
+
+- Refactored storageio.d for improved clarity and maintainability
+- Use canonical $DC environment variable instead of $DUB_COMPILER for compiler selection
+- Added configurations to build either a CLI application or a library via dub
+- Silenced build script output for cleaner logs
+- Replaced dummy serial number with real value from git in build process
+- Split source files for better modularity
+- Added unittests for core modules
+- Fixed and improved VS Code launcher integration
+- Fixed and improved unittests
+- Use DC instead of DUB_COMPILER ENV variable. This is the standard like CC is for
+  a C compiler. So, we use this scheme, too. It is also supported by Dub.
+
 ## Release 26.6.2
 
 - Unified MediaInfo rescan behavior in scanner job execution:
@@ -21,7 +35,7 @@ They represent the functional evolution and are intentionally summarized.
 
 - Stabilized ADRDOX generation in CI for Debian-based environments:
   - `scripts/build.sh` now selects ADRDOX compiler dynamically and prefers
-    `gdc` when available (fallback to `DUB_COMPILER`), avoiding
+    `gdc` when available (fallback to `DC`), avoiding
     Debian+`ldc2` parser/segfault failures
   - kept manual override support via `ADRDOX_COMPILER`
 - Consolidated CI dependency management into `scripts/install-dependencies.sh`:
@@ -109,7 +123,7 @@ They represent the functional evolution and are intentionally summarized.
   - GitLab test stage now publishes `.lst` coverage artifacts for diagnostics
 - Standardized compiler behavior across local scripts, tasks, and docs:
   - `scripts/build.sh` and `scripts/test.sh` now default to
-    `DUB_COMPILER=ldc2` and pass compiler explicitly to `dub build/test/run`
+    `DC=ldc2` and pass compiler explicitly to `dub build/test/run`
   - VS Code `test-host` task now uses `--compiler=ldc2`
   - `README.md` now documents compiler defaults and override mechanism
 - Completed low-priority cleanup for naming and wording consistency:
