@@ -20,7 +20,7 @@ import std.range;
 import std.regex;
 import std.stdio;
 import core.sys.posix.libgen;
-import dosierskanilo.namedbinaryblob;
+import dosierskanilo.model.namedbinaryblob;
 
 /** Types of archives we support */
 enum ArchiveType
@@ -187,7 +187,7 @@ version (unittest)
             auto expectedFile = buildPath(destFile);
             assert(expectedFile.exists, expectedFile);
 
-            import dosierskanilo.digests;
+            import dosierskanilo.metadata.digests;
 
             ubyte[] sha1sum_s, sha1sum_d;
             calculatesDigests(null, listEntry, null, &sha1sum_s, null, null);

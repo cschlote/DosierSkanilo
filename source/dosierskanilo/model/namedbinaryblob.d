@@ -8,7 +8,7 @@
  * Copyright: Carsten Schlote, Released under CC-BY-NC-SA 4.0 license, 2018
  * License: CC-BY-NC-SA 4.0
  */
-module dosierskanilo.namedbinaryblob;
+module dosierskanilo.model.namedbinaryblob;
 
 import std.array;
 import std.algorithm;
@@ -26,14 +26,14 @@ import std.string : format, empty;
 
 import jsonizer;
 
-import dosierskanilo.mediainfosig;
-import dosierskanilo.digests;
-import dosierskanilo.torrentinfo;
+import dosierskanilo.metadata.mediainfosig;
+import dosierskanilo.metadata.digests;
+import dosierskanilo.metadata.torrentinfo;
 
 import dosierarkivo.baseclass;
 
-import commandline;
-import logging;
+import dosierskanilo.cli.commandline;
+import dosierskanilo.cli.logging;
 
 enum int DATA_CLASS_VERSION1 = 1; ///< Current version of the NamedBinaryBlob structure, v1
 enum int DATA_CLASS_VERSION2 = 2; ///< Current version of the NamedBinaryBlob structure, v2
@@ -1282,7 +1282,7 @@ void updateFileType(NamedBinaryBlob obj, bool rescan = false)
 			auto filespecs = obj.getExistingFiles;
 			foreach (spec; filespecs)
 			{
-				import dosierskanilo.fileutilsig : getFileType;
+				import dosierskanilo.metadata.fileutilsig : getFileType;
 
 				obj.fileType = getFileType(spec.fileName);
 				break;
@@ -1401,7 +1401,7 @@ void updateArchives(NamedBinaryBlob obj, bool rescan = false,
 
 						enforce(destFile.exists, destFile);
 
-						import dosierskanilo.digests;
+						import dosierskanilo.metadata.digests;
 						import std.stdio : File;
 
 						ubyte[] md5sum_s, sha1sum_s, xxh64sum_s;

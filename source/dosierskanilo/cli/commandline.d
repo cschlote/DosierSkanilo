@@ -4,7 +4,7 @@
  * Copyright: Carsten Schlote, Released under CC-BY-NC-SA 4.0 license, 2018
  * License: CC-BY-NC-SA 4.0
  */
-module commandline;
+module dosierskanilo.cli.commandline;
 
 import std.conv;
 import std.exception;
@@ -15,7 +15,7 @@ import std.process;
 import std.range;
 import std.string;
 
-import logging;
+import dosierskanilo.cli.logging;
 import core.internal.lifetime;
 
 enum jsonFileExtension = ".json"; /// The file extension we use for JSON files
@@ -333,7 +333,7 @@ struct ProgressCallBack
  */
 string makeProgressString(size_t i, size_t m)
 {
-    import logging;
+    import dosierskanilo.cli.logging;
     import std.range;
 
     static int q = 0;

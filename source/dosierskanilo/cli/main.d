@@ -17,7 +17,7 @@
  * Copyright: Carsten Schlote, Released under CC-BY-NC-SA 4.0 license, 2018
  * License: CC-BY-NC-SA 4.0
  */
-module appmain;
+module dosierskanilo.cli.main;
 
 /* ----------------------------------------------------------------------- */
 
@@ -39,18 +39,18 @@ import std.string;
 import std.typecons;
 import std.utf;
 
-import dosierskanilo.namedbinaryblob;
-import dosierskanilo.digests;
-import dosierskanilo.mediainfosig;
-import dosierskanilo.scannerpolicy;
+import dosierskanilo.metadata.mediainfosig;
+import dosierskanilo.metadata.digests;
+import dosierskanilo.model.namedbinaryblob;
+
 
 import dosierarkivo.baseclass;
 
-import analyze;
-import commandline;
-import logging;
-import scanning;
-import storageio;
+import dosierskanilo.service.analyze;
+import dosierskanilo.cli.commandline;
+import dosierskanilo.cli.logging;
+import dosierskanilo.service.scanning;
+import dosierskanilo.service.storageio;
 
 version (ldc)
 {

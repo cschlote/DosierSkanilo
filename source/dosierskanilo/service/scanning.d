@@ -3,7 +3,7 @@
  * Copyright: Carsten Schlote, Released under CC-BY-NC-SA 4.0 license, 2018
  * License: CC-BY-NC-SA 4.0
  */
-module scanning;
+module dosierskanilo.service.scanning;
 
 import std.array;
 import std.exception;
@@ -15,11 +15,10 @@ import std.string;
 import std.stdio;
 import std.uuid;
 
-import dosierskanilo.namedbinaryblob;
-import dosierskanilo.scannerpolicy;
+import dosierskanilo.model.namedbinaryblob;
 
-import commandline;
-import logging;
+import dosierskanilo.cli.commandline;
+import dosierskanilo.cli.logging;
 
 /** Scan a directory tree and collect data
  *
@@ -346,4 +345,31 @@ bool runScannerJobs(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCt
     }
     stdout.flush();
     return rc;
+}
+
+/** Determine whether archive scanning should be queued for a blob.
+ *
+ * Params:
+ *   scanArchivesEnabled = true if archive scanning is enabled
+ *   obj = the binary blob to check
+ * Returns:
+ *   true if the job should be queued
+ */
+bool shouldQueueArchiveScanJob(bool scanArchivesEnabled, const NamedBinaryBlob obj)
+{
+    return scanArchivesEnabled && obj.archiveSpecs is null;
+}
+
+@("shouldQueueArchiveScanJob")
+unittest
+{
+    import std.datetime.systime : SysTime;
+
+    auto blob = new NamedBinaryBlob("test/dummy-text-file.txt", 1, SysTime(4_237_892));
+
+    assert(!shouldQueueArchiveScanJob(false, blob));
+    assert(shouldQueueArchiveScanJob(true, blob));
+
+    blob.archiveSpecs = [new ArchiveSpec()];
+    assert(!shouldQueueArchiveScanJob(true, blob));
 }

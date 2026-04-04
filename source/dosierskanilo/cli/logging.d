@@ -8,7 +8,7 @@
  * Copyright: Carsten Schlote, Released under CC-BY-NC-SA 4.0 license, 2018
  * License: CC-BY-NC-SA 4.0
  */
-module logging;
+module dosierskanilo.cli.logging;
 
 import std.stdio : writef, writeln, writefln, write, stdout;
 
@@ -92,7 +92,7 @@ void logFVerbose(T...)(T args)
     }
     else
     {
-        import commandline  : argsArray;
+        import dosierskanilo.cli.commandline  : argsArray;
 
         if (argsArray.argVerboseOutputs)
             writef(args);
@@ -112,7 +112,7 @@ void logFLineVerbose(T...)(T args)
     }
     else
     {
-        import commandline  : argsArray;
+        import dosierskanilo.cli.commandline  : argsArray;
 
         if (argsArray.argVerboseOutputs)
             writefln(args);
@@ -132,7 +132,7 @@ void logLineVerbose(T...)(T args)
     }
     else
     {
-        import commandline  : argsArray;
+        import dosierskanilo.cli.commandline  : argsArray;
 
         if (argsArray.argVerboseOutputs)
             writeln(args);
@@ -152,7 +152,7 @@ void logVerbose(T...)(T args)
     }
     else
     {
-        import commandline  : argsArray;
+        import dosierskanilo.cli.commandline  : argsArray;
 
         if (argsArray.argVerboseOutputs)
         {

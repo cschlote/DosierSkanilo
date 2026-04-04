@@ -3,7 +3,7 @@
  * Copyright: Carsten Schlote, Released under CC-BY-NC-SA 4.0 license, 2018
  * License: CC-BY-NC-SA 4.0
  */
-module analyze;
+module dosierskanilo.service.analyze;
 
 import std.exception;
 import std.datetime.systime;
@@ -11,9 +11,9 @@ import std.file;
 import std.path;
 import std.uuid;
 
-import dosierskanilo.namedbinaryblob;
-import commandline;
-import logging;
+import dosierskanilo.model.namedbinaryblob; // model stays
+import dosierskanilo.cli.commandline;
+import dosierskanilo.cli.logging;
 
 /** Do some basic analysis on data
 */

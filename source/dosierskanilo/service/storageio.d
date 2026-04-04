@@ -1,10 +1,10 @@
-/** JSON storage read helpers.
+/** JSON storage helpers.
  *
  * Authors: Carsten Schlote, schlote@vahanus.net
  * Copyright: Carsten Schlote, Released under CC-BY-NC-SA 4.0 license, 2018
  * License: CC-BY-NC-SA 4.0
  */
-module storageio;
+module dosierskanilo.service.storageio;
 
 import std.exception;
 import std.datetime.systime;
@@ -12,8 +12,8 @@ import std.file;
 import std.path;
 import std.uuid;
 
-import dosierskanilo.namedbinaryblob;
-import logging;
+import dosierskanilo.model.namedbinaryblob; // model stays
+import dosierskanilo.cli.logging;
 
 /** Read scanner data from a JSON storage file.
  *

@@ -99,7 +99,7 @@ Run the same stage order locally:
 
 ## CLI Reference
 
-Current command-line options (from `source/commandline.d`):
+Current command-line options (from `source/dosierskanilo/cli/commandline.d`):
 
 - `-p`, `--path`: path to scan
 - `-j`, `--json`: JSON file name for load/store
@@ -185,8 +185,12 @@ Detailed architecture and diagrams:
 
 ## Source Map
 
-- `source/appmain.d`: main workflow, scanner orchestration, analysis
-- `source/commandline.d`: CLI options and progress rendering
+- `source/dosierskanilo/cli/main.d`: main workflow, scanner orchestration, analysis
+- `source/dosierskanilo/cli/commandline.d`: CLI options and progress rendering
+- `source/dosierskanilo/cli/logging.d`: logging wrapper
+- `source/dosierskanilo/metadata/scanning.d`: directory scanning + job scheduling
+- `source/dosierskanilo/metadata/analyze.d`: duplicate/missing-file analysis
+- `source/dosierskanilo/metadata/storageio.d`: JSON storage read/write and backup
 - `source/dosierskanilo/namedbinaryblob.d`: core blob model, serialization,
   migrations, update jobs, merge/cleanup
 - `source/dosierskanilo/digests.d`: digest calculation

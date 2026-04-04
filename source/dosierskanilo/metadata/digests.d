@@ -3,7 +3,7 @@
  * Copyright: Carsten Schlote, Released under CC-BY-NC-SA 4.0 license, 2018
  * License: CC-BY-NC-SA 4.0
  */
-module dosierskanilo.digests;
+module dosierskanilo.metadata.digests;
 
 import std.digest.md;
 import std.digest.sha;
@@ -15,7 +15,7 @@ import std.uuid;
 import xxhash3;
 
 // FIXME: Move this to more general place.
-import commandline : ProgressCallBack;
+import dosierskanilo.cli.commandline : ProgressCallBack;
 
 /** Calculate MD5, SHA1, and XXH64 digests for a file.
  *
