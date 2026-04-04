@@ -3,7 +3,7 @@
  * Copyright: Carsten Schlote, Released under CC-BY-NC-SA 4.0 license, 2018
  * License: CC-BY-NC-SA 4.0
  */
-module dosierskanilo.mediainfosig;
+module dosierskanilo.metadata.mediainfosig;
 
 import std.array : array;
 import std.algorithm : map;
@@ -21,7 +21,7 @@ import jsonizer;
 import mediainfodll;
 import mediainfo;
 
-import logging;
+import dosierskanilo.cli.logging;
 
 /** A structure with image media info
  *

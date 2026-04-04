@@ -16,7 +16,7 @@
  * Copyright: Carsten Schlote, Released under CC-BY-NC-SA 4.0 license, 2018
  * License: CC-BY-NC-SA 4.0
  */
-module dosierskanilo.torrentinfo;
+module dosierskanilo.metadata.torrentinfo;
 
 import std.file;
 import std.digest.sha;
@@ -28,7 +28,7 @@ import std.algorithm;
 import std.format;
 import std.sumtype;
 
-import logging;
+import dosierskanilo.cli.logging;
 import jsonizer;
 
 /** Represents a single file in a torrent.
