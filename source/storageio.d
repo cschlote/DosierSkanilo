@@ -1,4 +1,4 @@
-/** JSON storage read helpers.
+/** JSON storage helpers.
  *
  * Authors: Carsten Schlote, schlote@vahanus.net
  * Copyright: Carsten Schlote, Released under CC-BY-NC-SA 4.0 license, 2018
