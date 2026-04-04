@@ -9,6 +9,8 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+## Release 26.8.0
+
 - Reorganized source tree into namespaced subpackages to eliminate module
   name collisions when embedding this project as a library dependency:
   - `dosierskanilo.cli.*` — CLI entry point and helpers
