@@ -9,17 +9,21 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
-- Refactored storageio.d for improved clarity and maintainability
-- Use canonical $DC environment variable instead of $DUB_COMPILER for compiler selection
-- Added configurations to build either a CLI application or a library via dub
-- Silenced build script output for cleaner logs
-- Replaced dummy serial number with real value from git in build process
-- Split source files for better modularity
-- Added unittests for core modules
-- Fixed and improved VS Code launcher integration
-- Fixed and improved unittests
-- Use DC instead of DUB_COMPILER ENV variable. This is the standard like CC is for
-  a C compiler. So, we use this scheme, too. It is also supported by Dub.
+- Reorganized source tree into namespaced subpackages to eliminate module
+  name collisions when embedding this project as a library dependency:
+  - `dosierskanilo.cli.*` — CLI entry point and helpers
+    (`cli/main.d`, `cli/commandline.d`, `cli/logging.d`)
+  - `dosierskanilo.metadata.*` — adapters for external metadata tools
+    (`metadata/digests.d`, `metadata/mediainfosig.d`,
+    `metadata/fileutilsig.d`, `metadata/torrentinfo.d`)
+  - `dosierskanilo.model.*` — core data structures
+    (`model/namedbinaryblob.d`)
+  - `dosierskanilo.service.*` — business logic / service layer
+    (`service/scanning.d`, `service/analyze.d`, `service/storageio.d`)
+  - `scannerpolicy` merged into `service/scanning.d`; separate module removed
+  - Updated `dub.json` `mainSourceFile` to new path
+  - All cross-module imports updated throughout the source tree
+  - All documentation references (README, ARCHITECTURE, skeleton.html) updated
 
 ## Release 26.6.2
 

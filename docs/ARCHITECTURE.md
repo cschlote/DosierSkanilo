@@ -86,7 +86,7 @@ classDiagram
 
 ## 3. Job Execution Model
 
-`runScannerJobs()` in `source/appmain.d` supports:
+`runScannerJobs()` in `source/dosierskanilo/metadata/scanning.d` supports:
 
 - Single-thread mode
 - Multi-thread mode via `std.parallelism.TaskPool`
@@ -166,9 +166,18 @@ Output is stored in `TorrentInfo` per blob.
 
 ```mermaid
 flowchart LR
-    appmain --> commandline
-    appmain --> logging
-    appmain --> namedbinaryblob
+  main --> commandline
+  main --> logging
+  main --> scanning
+  main --> storageio
+  main --> analyze
+  main --> namedbinaryblob
+
+    scanning --> commandline
+    scanning --> logging
+    analyze --> commandline
+    analyze --> logging
+    storageio --> logging
 
     namedbinaryblob --> digests
     namedbinaryblob --> fileutilsig
