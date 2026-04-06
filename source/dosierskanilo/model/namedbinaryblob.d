@@ -96,7 +96,7 @@ struct CheckSums
 	mixin JsonizeMe;
 
 	/* public serialized members */
-	@jsonize
+	@jsonize(JsonizeIn.opt, JsonizeOut.opt)
 	{
 		string md5sum_b64; ///< base64 of md5 hash
 		string sha1sum_b64; ///< base 64 of sha1 hash
