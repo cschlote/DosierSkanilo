@@ -911,9 +911,16 @@ unittest
 
 version (unittest)
 {
-	auto test_json_v0 = import("./test/json_file_v0.json");
-	auto test_json_v1 = import("./test/json_file_v1.json");
-	auto test_json_v2 = import("./test/json_file_v2.json");
+	enum json_file_v0 = "./test/json_file_v0.json";
+	enum json_file_v1 = "./test/json_file_v1.json";
+	enum json_file_v2 = "./test/json_file_v2.json";
+	enum json_file_v2_archive = "./test/json_file_v2_archive.json";
+	enum json_file_v2_torrent = "./test/json_file_v2_torrent.json";
+	auto test_json_v0 = import(json_file_v0);
+	auto test_json_v1 = import(json_file_v1);
+	auto test_json_v2 = import(json_file_v2);
+	auto test_json_v2_archive = import(json_file_v2_archive);
+	auto test_json_v2_torrent = import(json_file_v2_torrent);
 }
 
 /** Fixup legacy fields in NamedBinaryBlob array for deserialization
@@ -993,7 +1000,7 @@ NamedBinaryBlob[] fixupDataClassArrayIn(NamedBinaryBlob[] dataArray)
 		}
 
 		// -- Fixup broken torrent entries ---------------------------
-		if ((obj.torrentInfo !is null) && (obj.torrentInfo.infoHashHex.empty))
+		if ((obj.torrentInfo !is null) && (obj.torrentInfo.magnetURI.empty))
 		{
 			obj.torrentInfo = null;
 		}
@@ -1042,7 +1049,7 @@ NamedBinaryBlob[] fixupDataClassArrayOut(NamedBinaryBlob[] dataArray)
 		}
 
 		// -- Fixup broken torrent entries ---------------------------
-		if ((obj.torrentInfo !is null) && (obj.torrentInfo.empty))
+		if ((obj.torrentInfo !is null) && (obj.torrentInfo.magnetURI.empty))
 		{
 			obj.torrentInfo = null;
 		}
@@ -1168,13 +1175,13 @@ unittest
 	auto dca = deserializeDataClassJsonFile("./test/json_file_notexisting.json");
 	assert(dca.length == 0);
 
-	auto dca0 = deserializeDataClassJsonFile("./test/json_file_v0.json");
+	auto dca0 = deserializeDataClassJsonFile(json_file_v0);
 	assert(dca0.length == 3);
 
-	auto dca1 = deserializeDataClassJsonFile("./test/json_file_v1.json");
+	auto dca1 = deserializeDataClassJsonFile(json_file_v1);
 	assert(dca1.length == 3);
 
-	auto dca2 = deserializeDataClassJsonFile("./test/json_file_v2.json");
+	auto dca2 = deserializeDataClassJsonFile(json_file_v2);
 	assert(dca2.length == 3);
 
 	assert(dca0 == dca1);
@@ -1212,8 +1219,37 @@ void serializeDataClassArrayFile(string fileName, NamedBinaryBlob[] dataArray)
 @("serializeDataClassArrayFile")
 unittest
 {
-	auto dca1 = deserializeDataClassJsonFile("./test/json_file_v2.json");
-	assert(dca1.length == 3);
+	auto dca1 = deserializeDataClassJsonString(test_json_v2);
+	assert(dca1.length == 3, dca1.length.to!string);
+
+	import std.path : buildPath;
+	import std.file : tempDir, mkdirRecurse, remove;
+	import std.json : parseJSON;
+	import std.uuid : randomUUID;
+
+	auto dir = buildPath(tempDir(), "filescanner_serializer_test");
+	mkdirRecurse(dir);
+	auto file = buildPath(dir, randomUUID().toString);
+	scope(exit) { remove(file); };
+
+	file.serializeDataClassArrayFile(dca1);
+	//file.writeJSON(test_json_v2);
+
+	auto jsonstring = file.readText;
+	//writeln(jsonstring);
+	auto json = jsonstring.parseJSON;
+
+	auto jsonstring0 = json_file_v2.readText;
+	auto json0 = jsonstring0.parseJSON;
+
+	assert (jsonstring == jsonstring0, "Serialized JSON does not match expected JSON.\nGot:\n" ~ jsonstring ~ "\nExpected:\n" ~ jsonstring0);
+}
+
+@("archive serialization")
+unittest
+{
+	auto dca1 = deserializeDataClassJsonFile(json_file_v2_archive);
+	assert(dca1.length == 1, dca1.length.to!string);
 
 	import std.path : buildPath;
 	import std.file : tempDir, mkdirRecurse, remove;
@@ -1225,11 +1261,45 @@ unittest
 	auto file = buildPath(dir, randomUUID().toString);
 
 	file.serializeDataClassArrayFile(dca1);
-	//file.writeJSON(test_json_v1);
+	//file.writeJSON(test_json_v2_archive);
+
 	auto jsonstring = file.readText;
 	//writeln(jsonstring);
 	auto json = jsonstring.parseJSON;
 
+	auto jsonstring0 = json_file_v2_archive.readText;
+	auto json0 = jsonstring0.parseJSON;
+
+	assert (jsonstring == jsonstring0, "Serialized JSON does not match expected JSON.\nGot:\n" ~ jsonstring ~ "\nExpected:\n" ~ jsonstring0);
+	remove(file);
+}
+
+@("torrentInfo serialization")
+unittest
+{
+	auto dca1 = deserializeDataClassJsonFile(json_file_v2_torrent);
+	assert(dca1.length == 1, dca1.length.to!string);
+
+	import std.path : buildPath;
+	import std.file : tempDir, mkdirRecurse, remove;
+	import std.json : parseJSON;
+	import std.uuid : randomUUID;
+
+	auto dir = buildPath(tempDir(), "filescanner_serializer_test");
+	mkdirRecurse(dir);
+	auto file = buildPath(dir, randomUUID().toString);
+
+	file.serializeDataClassArrayFile(dca1);
+	//file.writeJSON(test_json_v2_torrent);
+
+	auto jsonstring = file.readText;
+	//writeln(jsonstring);
+	auto json = jsonstring.parseJSON;
+
+	auto jsonstring0 = json_file_v2_torrent.readText;
+	auto json0 = jsonstring0.parseJSON;
+
+	assert (jsonstring == jsonstring0, "Serialized JSON does not match expected JSON.\nGot:\n" ~ jsonstring ~ "\nExpected:\n" ~ jsonstring0);
 	remove(file);
 }
 
