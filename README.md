@@ -26,42 +26,28 @@ while multiple file names can reference that same payload.
 Build:
 
 ```bash
-exort DC=ldc2
+export DC=ldc2
 dub build
 ```
 
 Run tests:
 
 ```bash
-exort DC=ldc2
+export DC=ldc2
 dub test -b unittest-cov -- -v
 ```
 
 Generate API docs:
 
 ```bash
-dub run adrdox -- "$PWD" -o public -i --skeleton "$PWD/docs/skeleton.html"
-cp -f ./docs/dosierskanilo-icon.svg ./public/dosierskanilo-icon.svg
-RELEASE_TAG="$(git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0)"
-RELEASE_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
-RELEASE_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
-BUILD_ISO="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-cat > ./public/meta.json <<EOF
-{
-  "releaseTag": "${RELEASE_TAG}",
-  "branch": "${RELEASE_BRANCH}",
-  "commit": "${RELEASE_COMMIT}",
-  "compiler": "ldc2",
-  "buildDateUtc": "${BUILD_ISO}",
-  "changelogUrl": "https://github.com/cschlote/DosierSkanilo/blob/main/docs/CHANGELOG.md",
-  "releaseUrl": "https://github.com/cschlote/DosierSkanilo/releases/tag/${RELEASE_TAG}"
-}
-EOF
+./scripts/build-docs.sh
 ```
 
 Compiler strategy:
 
-- CI and local helper scripts default to `ldc2` for `build`, `test`, and `run`.
+- CI and local helper scripts use `ldc2` as default for `build`, `test`, and `run`.
+- `dub` resolves the D compiler from the `DC` environment variable, analogous to `CC` in C toolchains.
+- If `DC` is unset, the helper scripts initialize it to `ldc2`.
 - Override compiler explicitly when needed: `DC=dmd ./scripts/test.sh`.
 - The project is tested primarily with `ldc2`; other compilers are best-effort.
 
@@ -188,13 +174,12 @@ Detailed architecture and diagrams:
 - `source/dosierskanilo/cli/main.d`: main workflow, scanner orchestration, analysis
 - `source/dosierskanilo/cli/commandline.d`: CLI options and progress rendering
 - `source/dosierskanilo/cli/logging.d`: logging wrapper
-- `source/dosierskanilo/metadata/scanning.d`: directory scanning + job scheduling
-- `source/dosierskanilo/metadata/analyze.d`: duplicate/missing-file analysis
-- `source/dosierskanilo/metadata/storageio.d`: JSON storage read/write and backup
-- `source/dosierskanilo/namedbinaryblob.d`: core blob model, serialization,
-  migrations, update jobs, merge/cleanup
-- `source/dosierskanilo/digests.d`: digest calculation
-- `source/dosierskanilo/mediainfosig.d`: MediaInfo mapping
-- `source/dosierskanilo/fileutilsig.d`: file type extraction via `file`
-- `source/dosierskanilo/torrentinfo.d`: torrent parser and metadata extraction
+- `source/dosierskanilo/service/scanning.d`: directory scanning + job scheduling
+- `source/dosierskanilo/service/analyze.d`: duplicate/missing-file analysis
+- `source/dosierskanilo/service/storageio.d`: JSON storage read/write and backup
+- `source/dosierskanilo/model/namedbinaryblob.d`: core blob model, serialization, migrations, update jobs, merge/cleanup
+- `source/dosierskanilo/metadata/digests.d`: digest calculation
+- `source/dosierskanilo/metadata/mediainfosig.d`: MediaInfo mapping
+- `source/dosierskanilo/metadata/fileutilsig.d`: file type extraction via `file`
+- `source/dosierskanilo/metadata/torrentinfo.d`: torrent parser and metadata extraction
 - `source/dosierarkivo/baseclass.d`: archive adapters and extraction logic

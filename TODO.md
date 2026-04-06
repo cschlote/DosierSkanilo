@@ -1,38 +1,11 @@
 # TODO
 
-Project review date: 2026-03-08
+## P1
 
-## Current focus
+- [ ] `changelogUrl` in `scripts/build.sh` und `scripts/build-docs.sh` auf den kanonischen Pfad angleichen
+- [ ] `analyze.d`-Modulheader in der API-Doku präziser benennen
 
-- Keep archive, scanner, and storage behavior stable while simplifying maintenance.
-- Keep CI and local workflows compiler-consistent (`ldc2` default, explicit overrides).
+## P2
 
-## Open items
-
-### P1 - High
-
-- [ ] Address hash/const diagnostics in `NamedBinaryBlob` model
-  - Impact: Static analysis reports `opEquals`/`toHash` and constness mismatches, which can become correctness or API-friction issues when using these types in hashed or const-heavy contexts.
-  - Code pointers: `source/dosierskanilo/namedbinaryblob.d:93`, `source/dosierskanilo/namedbinaryblob.d:435`, `source/dosierskanilo/namedbinaryblob.d:579`.
-  - Required change:
-    - Define consistent `toHash` where `opEquals` is provided and align method constness (`toString`/related operators) with D expectations.
-    - Add/adjust unittests for equality/hash behavior.
-
-### P3 - Low
-
-- [ ] Add markdown lint gate for project docs
-  - Impact: Doc formatting regressions (tabs/list indentation drift) can accumulate unnoticed.
-  - Required change:
-    - Add a markdown lint step in CI or local lint script and enforce it for `README.md`, `CHANGELOG.md`, and `TODO.md`.
-
-## Recently completed (summary)
-
-- Release 26.5.0 wave completed: scanner/storage/CI fixes, compiler consistency, changelog update, and release tag/push.
-- Build artifact ignore patterns refreshed in `.gitignore` (`dosierskanilo`, `dosierskanilo-test-*`).
-- Changelog indentation normalized to spaces for markdown-lint compatibility.
-
-## Validation snapshot
-
-- export DC=ldc2
-- `dub test -b unittest-cov -- -v`: passed (`45 passed, 0 failed`).
-- `dub build`: passed.
+- [ ] `NamedBinaryBlob`-Hash- und Const-Diagnostik bereinigen (`opEquals`, `toHash`, `toString`)
+- [ ] Markdown-Linting für `README.md`, `docs/ARCHITECTURE.md`, `CHANGELOG.md` und `TODO.md` ergänzen
