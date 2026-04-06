@@ -156,6 +156,7 @@ version (unittest)
         "test/dummy-text-file.txt", "test/dummy-video-file.mp4.mkv",
         "test/example.torrent", "test/json_file_v0.json", "test/json_file_v1.json",
         "test/json_file_v1_wrongversion.json", "test/json_file_v2.json",
+        "test/json_file_v2_archive.json", "test/json_file_v2_torrent.json",
         "test/test-multifile.torrent"
     ];
 
