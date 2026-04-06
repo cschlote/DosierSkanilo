@@ -227,9 +227,9 @@ bool runScannerJobs(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCt
                         argsArray.argRescanMediaSig);
                     myTaskPool.put(obj.task_mediasig);
                 }
-                if (shouldQueueArchiveScanJob(argsArray.argScanArchives, obj))
+                if (argsArray.argScanArchives && obj.archiveSpecs is null)
                 {
-                    obj.task_archiveScan = task!updateArchives(obj);
+                    obj.task_archiveScan = task!updateArchives(obj, argsArray.argRescanMediaSig, argsArray.argScanArchives > 1, &gotCtrlC, cast(ProgressCallBack*)null);
                     myTaskPool.put(obj.task_archiveScan);
                 }
                 if (argsArray.argScanTorrents && obj.torrentInfo is null)
@@ -321,11 +321,11 @@ bool runScannerJobs(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCt
                 {
                     updateMediaInfo(obj, argsArray.argRescanMediaSig);
                 }
-                if (shouldQueueArchiveScanJob(argsArray.argScanArchives, obj))
+                if (argsArray.argScanArchives && obj.archiveSpecs is null)
                 {
                     ProgressCallBack cb = ProgressCallBack(&progressCallBack);
 
-                    updateArchives(obj, false, &gotCtrlC, &cb);
+                    updateArchives(obj, argsArray.argRescanMediaSig, argsArray.argScanArchives > 1, &gotCtrlC, &cb);
                 }
                 if (argsArray.argScanTorrents && obj.torrentInfo is null)
                 {
@@ -345,31 +345,4 @@ bool runScannerJobs(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCt
     }
     stdout.flush();
     return rc;
-}
-
-/** Determine whether archive scanning should be queued for a blob.
- *
- * Params:
- *   scanArchivesEnabled = true if archive scanning is enabled
- *   obj = the binary blob to check
- * Returns:
- *   true if the job should be queued
- */
-bool shouldQueueArchiveScanJob(bool scanArchivesEnabled, const NamedBinaryBlob obj)
-{
-    return scanArchivesEnabled && obj.archiveSpecs is null;
-}
-
-@("shouldQueueArchiveScanJob")
-unittest
-{
-    import std.datetime.systime : SysTime;
-
-    auto blob = new NamedBinaryBlob("test/dummy-text-file.txt", 1, SysTime(4_237_892));
-
-    assert(!shouldQueueArchiveScanJob(false, blob));
-    assert(shouldQueueArchiveScanJob(true, blob));
-
-    blob.archiveSpecs = [new ArchiveSpec()];
-    assert(!shouldQueueArchiveScanJob(true, blob));
 }

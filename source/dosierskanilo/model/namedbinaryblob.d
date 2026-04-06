@@ -261,7 +261,8 @@ unittest
 	assert(fs0.toString == `FileSpec('', )`, fs0.toString);
 
 	auto fs1 = new FileSpec("test/dummy-text-file.txt", SysTime(1_234_567));
-	assert(fs1.toString == format("FileSpec('%s', %s)", "test/dummy-text-file.txt", ts), fs1.toString);
+	assert(fs1.toString == format("FileSpec('%s', %s)", "test/dummy-text-file.txt", ts), fs1
+			.toString);
 	assert(fs1.exists, "File must exist");
 
 	auto fs2 = new FileSpec("test/non-existing-file.txt", SysTime(1_234_567));
@@ -354,7 +355,7 @@ unittest
 	// writeln("AS1: ", asd1);
 	assert(
 		asd1 == format("ArchiveSpec('%s', %d, '%s', %s)", "test/dummy-text-file.txt", 1_234_567, ts,
-				const(CheckSums)()), as1
+			const(CheckSums)()), as1
 			.toString);
 
 	assert(as1.opCmp(as0) > 0, "as1 > as0");
@@ -385,7 +386,7 @@ mixin template payloadHelpers()
 	Task!(updateDigests, NamedBinaryBlob, shared(bool)*, ProgressCallBack*)* task_hashme; ///< Pointer to hashing job
 	Task!(updateFileType, NamedBinaryBlob)* task_filetype; /// Query filetype with 'file' utility
 	Task!(updateMediaInfo, NamedBinaryBlob, bool)* task_mediasig; ///< Pointer to mediasig job
-	Task!(updateArchives, NamedBinaryBlob)* task_archiveScan; ///< Pointer to archive scan job
+	Task!(updateArchives, NamedBinaryBlob, bool, bool, shared(bool)*, ProgressCallBack*)* task_archiveScan; ///< Pointer to archive scan job
 	Task!(updateTorrentInfo, NamedBinaryBlob)* task_torrentscan; ///< Pointer to torrent scan job
 }
 /// Mandatory variables of the class describing a binary blob
@@ -583,7 +584,8 @@ class NamedBinaryBlob
 		auto mtime = this.getFirstFileModDate;
 
 		return format("NamedBinaryBlob('%s', %d, %s, %s, fileType='%s', MI=%s, AR=%s, TO=%s)",
-			baseName(filename), fileSize, mtime, this.checkSums, this.fileType, this.mediaInfoSig, this.archiveSpecs, this.torrentInfo);
+			baseName(filename), fileSize, mtime, this.checkSums, this.fileType, this.mediaInfoSig, this.archiveSpecs, this
+				.torrentInfo);
 	}
 
 	/* ------------------------------------------------------------------- */
@@ -759,22 +761,27 @@ unittest
 	auto ts2 = SysTime(2_345_678).toISOExtString;
 
 	auto mis0 = new NamedBinaryBlob();
-	assert(mis0.toString == `NamedBinaryBlob('', 0, , CheckSums("", "", ""), fileType='', MI=null, AR=[], TO=null)`, mis0.toString);
+	assert(mis0.toString == `NamedBinaryBlob('', 0, , CheckSums("", "", ""), fileType='', MI=null, AR=[], TO=null)`, mis0
+			.toString);
 	auto mis1 = new NamedBinaryBlob("file1", 1234, SysTime(1_234_567));
-	assert(mis1.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), fileType='', MI=null, AR=[], TO=null)", ts),
+	assert(mis1.toString == format(
+			"NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), fileType='', MI=null, AR=[], TO=null)", ts),
 		mis1.toString);
 	auto mis2 = new NamedBinaryBlob(["file1", "file2"], 1234, SysTime(1_234_567));
-	assert(mis2.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), fileType='', MI=null, AR=[], TO=null)", ts),
+	assert(mis2.toString == format(
+			"NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), fileType='', MI=null, AR=[], TO=null)", ts),
 		mis2.toString);
 	auto mis3 = new NamedBinaryBlob(["file1", "file2"], 1234, SysTime(1_234_567), CheckSums());
-	assert(mis3.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), fileType='', MI=null, AR=[], TO=null)", ts),
+	assert(mis3.toString == format(
+			"NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), fileType='', MI=null, AR=[], TO=null)", ts),
 		mis3.toString);
 	auto mis4 = new NamedBinaryBlob(["file1", "file2"], 1234, SysTime(1_234_567), CheckSums("a", "b", "c"), new MediaInfoSig());
 	assert(
 		mis4.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"a\", \"b\", \"c\"), fileType='', MI=MediaInfoSig(), AR=[], TO=null)", ts),
 		mis4.toString);
 	auto mis5 = new NamedBinaryBlob("file1", 1234, SysTime(1_234_567), CheckSums());
-	assert(mis5.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), fileType='', MI=null, AR=[], TO=null)", ts),
+	assert(mis5.toString == format(
+			"NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), fileType='', MI=null, AR=[], TO=null)", ts),
 		mis5.toString);
 	auto mis6 = new NamedBinaryBlob("file1", 1234, SysTime(1_234_567), CheckSums(), new MediaInfoSig());
 	assert(
@@ -791,7 +798,8 @@ unittest
 
 	auto mis12 = new NamedBinaryBlob(["file2", "file8", "file1"], 1234, SysTime(1_234_567));
 	assert(mis12.getFirstFileName == "file1");
-	assert(mis12.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), fileType='', MI=null, AR=[], TO=null)", ts),
+	assert(mis12.toString == format(
+			"NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), fileType='', MI=null, AR=[], TO=null)", ts),
 		mis12.toString);
 
 	assert(mis12.hasFileName("file8"));
@@ -1230,7 +1238,10 @@ unittest
 	auto dir = buildPath(tempDir(), "filescanner_serializer_test");
 	mkdirRecurse(dir);
 	auto file = buildPath(dir, randomUUID().toString);
-	scope(exit) { remove(file); };
+	scope (exit)
+	{
+		remove(file);
+	};
 
 	file.serializeDataClassArrayFile(dca1);
 	//file.writeJSON(test_json_v2);
@@ -1242,7 +1253,7 @@ unittest
 	auto jsonstring0 = json_file_v2.readText;
 	auto json0 = jsonstring0.parseJSON;
 
-	assert (jsonstring == jsonstring0, "Serialized JSON does not match expected JSON.\nGot:\n" ~ jsonstring ~ "\nExpected:\n" ~ jsonstring0);
+	assert(jsonstring == jsonstring0, "Serialized JSON does not match expected JSON.\nGot:\n" ~ jsonstring ~ "\nExpected:\n" ~ jsonstring0);
 }
 
 @("archive serialization")
@@ -1270,7 +1281,7 @@ unittest
 	auto jsonstring0 = json_file_v2_archive.readText;
 	auto json0 = jsonstring0.parseJSON;
 
-	assert (jsonstring == jsonstring0, "Serialized JSON does not match expected JSON.\nGot:\n" ~ jsonstring ~ "\nExpected:\n" ~ jsonstring0);
+	assert(jsonstring == jsonstring0, "Serialized JSON does not match expected JSON.\nGot:\n" ~ jsonstring ~ "\nExpected:\n" ~ jsonstring0);
 	remove(file);
 }
 
@@ -1299,7 +1310,7 @@ unittest
 	auto jsonstring0 = json_file_v2_torrent.readText;
 	auto json0 = jsonstring0.parseJSON;
 
-	assert (jsonstring == jsonstring0, "Serialized JSON does not match expected JSON.\nGot:\n" ~ jsonstring ~ "\nExpected:\n" ~ jsonstring0);
+	assert(jsonstring == jsonstring0, "Serialized JSON does not match expected JSON.\nGot:\n" ~ jsonstring ~ "\nExpected:\n" ~ jsonstring0);
 	remove(file);
 }
 
@@ -1432,7 +1443,9 @@ unittest
  *   gotCtrlC = shared bool pointer to check for Ctrl-C interrupt
  *   progressCallBack = callback function to report progress
  */
-void updateArchives(NamedBinaryBlob obj, bool rescan = false,
+void updateArchives(NamedBinaryBlob obj,
+	bool rescan = false,
+	bool deep = true,
 	shared(bool)* gotCtrlC = null,
 	ProgressCallBack* progressCallBack = null)
 {
@@ -1469,43 +1482,49 @@ void updateArchives(NamedBinaryBlob obj, bool rescan = false,
 					foreach (idx, arcfile; arcfiles)
 					{
 						logFLineVerbose("\n  with archive file '%s'", arcfile);
+
 						mkdirRecurse(getTmpDirPrefix);
 						scope (success)
 							if (getTmpDirPrefix.exists)
 								rmdirRecurse(getTmpDirPrefix);
 
-						auto destFile = buildPath(getTmpDirPrefix(), arcfile);
-						auto exOk = archiveObj.extractEntry(arcfile, getTmpDirPrefix());
-
-						enforce(destFile.exists, destFile);
-
-						import dosierskanilo.metadata.digests;
-						import std.stdio : File;
-
-						ubyte[] md5sum_s, sha1sum_s, xxh64sum_s;
-						calculatesDigests(gotCtrlC, destFile, &md5sum_s, &sha1sum_s, &xxh64sum_s, progressCallBack);
-						if (progressCallBack !is null)
-							progressCallBack.fp(idx, arcfiles.length);
-
+						size_t arcFileSize = 0;
+						string arcModTimeStr = "";
 						CheckSums sums = CheckSums();
-						sums.set_md5sum = md5sum_s;
-						sums.set_sha1sum = sha1sum_s;
-						sums.set_xxh64 = xxh64sum_s;
+						if (deep)
+						{
+							auto destFile = buildPath(getTmpDirPrefix(), arcfile);
 
-						SysTime arcAccessTime;
-						SysTime arcModTime;
-						destFile.getTimes(arcAccessTime, arcModTime);
-						auto arcModTimeStr = arcModTime.toISOExtString;
+							auto exOk = archiveObj.extractEntry(arcfile, getTmpDirPrefix());
+							enforce(exOk, "Failed to extract archive entry '%s' from archive '%s'".format(arcfile, spec.fileName));
+							enforce(destFile.exists, destFile);
 
-						auto arcFileSize = destFile.getSize;
+							import dosierskanilo.metadata.digests;
+							import std.stdio : File;
 
+							ubyte[] md5sum_s, sha1sum_s, xxh64sum_s;
+							calculatesDigests(gotCtrlC, destFile, &md5sum_s, &sha1sum_s, &xxh64sum_s, progressCallBack);
+							if (progressCallBack !is null)
+								progressCallBack.fp(idx, arcfiles.length);
+
+							sums.set_md5sum = md5sum_s;
+							sums.set_sha1sum = sha1sum_s;
+							sums.set_xxh64 = xxh64sum_s;
+
+							SysTime arcAccessTime;
+							SysTime arcModTime;
+							destFile.getTimes(arcAccessTime, arcModTime);
+							arcModTimeStr = arcModTime.toISOExtString;
+
+							arcFileSize = destFile.getSize;
+						}
 						ArchiveSpec aspec = new ArchiveSpec(arcfile, arcFileSize, arcModTimeStr, sums);
 						obj.archiveSpecs ~= aspec;
-					}
-					if (progressCallBack !is null)
-						progressCallBack.fp(arcfiles.length, arcfiles.length);
-					break;
 
+						if (progressCallBack !is null)
+							progressCallBack.fp(arcfiles.length, arcfiles.length);
+					}
+					break;
 				}
 			}
 		}
@@ -1544,8 +1563,10 @@ unittest
 	}
 
 	enum string fnMany = "updateTest-many.zip";
-	enum string stagingDir = "test/updateArchives-many-entries";
+	enum string stagingDir = ".test/updateArchives-many-entries";
 
+	/* Delete the archive with many entries, and the staging directory, if they exist.
+	*/
 	void deleteManyEntriesArchive()
 	{
 		if (fnMany.exists)
@@ -1554,6 +1575,9 @@ unittest
 			rmdirRecurse(stagingDir);
 	}
 
+	/* Create an archive with more than 10 entries, to test the code path for that.
+	 * The code should scan all entries, not just the first 10.
+	 */
 	void createManyEntriesArchive(size_t entryCount)
 	{
 		deleteManyEntriesArchive();
@@ -1587,7 +1611,7 @@ unittest
 	auto dco2 = new NamedBinaryBlob(fnMany, fh2.size, SysTime(4_237_892));
 	updateArchives(dco2, true);
 	assert(dco2.archiveSpecs.length >= 11,
-		"Expected all archive entries to be scanned for archives with more than 10 files.");
+		"Expected all archive entries to be scanned for archives with more than 10 files.\nGot %d entries.".format(dco2.archiveSpecs.length));
 }
 
 /** Get torrent info for file, if missing
