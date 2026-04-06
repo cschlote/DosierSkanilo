@@ -9,6 +9,8 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+## Release 26.8.1
+
 - Added explicit duplication semantics for metadata payload models:
   - explicit `dup` handling in torrent metadata structures
   - improved `NamedBinaryBlob` formatting and roundtrip stability
