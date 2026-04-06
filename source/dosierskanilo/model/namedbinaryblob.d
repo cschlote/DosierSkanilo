@@ -292,9 +292,9 @@ class ArchiveSpec
 		string fileName;
 		size_t fileSize;
 		string timeLastModified;
-		@jsonize(JsonizeIn.opt, JsonizeOut.opt)
-		CheckSums checkSums;
 	}
+	@jsonize(JsonizeIn.opt, JsonizeOut.opt)
+	CheckSums checkSums;
 
 	this()
 	{
@@ -389,42 +389,6 @@ mixin template payloadHelpers()
 	Task!(updateArchives, NamedBinaryBlob, bool, bool, shared(bool)*, ProgressCallBack*)* task_archiveScan; ///< Pointer to archive scan job
 	Task!(updateTorrentInfo, NamedBinaryBlob)* task_torrentscan; ///< Pointer to torrent scan job
 }
-/// Mandatory variables of the class describing a binary blob
-mixin template payloadMandatory()
-{
-	CheckSums checkSums; ///< Multiple checksums of the file
-	size_t fileSize; ///< file size
-}
-/// Optional variables of the class
-mixin template payloadOptional()
-{
-	/** Filename fields
-	 *
-	 * We support either a single filename (fileName) or multiple filenames
-	 * (fileNames) for entries that represent multiple files (like multi-part
-	 * archives or multi-track media files).
-	 */
-	string fileName; ///< absolute filename  AND
-	string timeLastModified; ///< Time of last modification OR
-	@jsonize(JsonizeIn.opt, JsonizeOut.no) string[] fileNames; ///< set of absolute filenames and time (for multiple entries) OR
-	FileSpec[] fileSpecs; /// v3: combined entry
-
-	string fileType; /// Output of 'file' CLI tool.
-	MediaInfoSig mediaInfoSig; ///< Parsed media info signature
-	ArchiveSpec[] archiveSpecs; /// Contents of an archive
-	TorrentInfo torrentInfo; /// Extracted torrent information
-
-	// Legacy fields, kept for backward compatibility, but not serialized anymore
-	// Data is dropped during serialization
-	@jsonize(JsonizeIn.opt, JsonizeOut.no)
-	 // deprecated  // causes tons of messages...
-	{
-		string[] mediaInfo; ///< A media signature constructed with libmediainfo or NULL for no media file
-		string md5sum_b64; ///< base64 of md5 hash
-		string sha1sum_b64; ///< base 64 of sha1 hash
-		string xxh64sum_b64; ///< base 64 of xxh64 hash
-	}
-}
 
 /** Simple class to store the basic file properties
  *
@@ -443,15 +407,39 @@ class NamedBinaryBlob
 	// private:
 	mixin payloadHelpers;
 
-	// public:
-	/* public serialized members */
 	@jsonize
 	{
-		mixin payloadMandatory;
-		@jsonize(Jsonize.opt)
-		{
-			mixin payloadOptional;
-		}
+		size_t fileSize; ///< file size
+	}
+
+	/** Filename fields
+	 *
+	 * We support either a single filename (fileName) or multiple filenames
+	 * (fileNames) for entries that represent multiple files (like multi-part
+	 * archives or multi-track media files).
+	 */
+	@jsonize(Jsonize.opt)
+	{
+		CheckSums checkSums; ///< Multiple checksums of the file
+		string fileName; ///< absolute filename  AND
+		string timeLastModified; ///< Time of last modification OR
+		FileSpec[] fileSpecs; /// v3: combined entry
+
+		string fileType; /// Output of 'file' CLI tool.
+		MediaInfoSig mediaInfoSig; ///< Parsed media info signature
+		ArchiveSpec[] archiveSpecs; /// Contents of an archive
+		TorrentInfo torrentInfo; /// Extracted torrent information
+	}
+
+	// Legacy fields, kept for backward compatibility, but not serialized anymore
+	// Data is dropped during serialization
+	@jsonize(JsonizeIn.opt, JsonizeOut.no)
+	{
+		string[] fileNames; ///< set of absolute filenames and time (for multiple entries) OR
+		string[] mediaInfo; ///< A media signature constructed with libmediainfo or NULL for no media file
+		string md5sum_b64; ///< base64 of md5 hash
+		string sha1sum_b64; ///< base 64 of sha1 hash
+		string xxh64sum_b64; ///< base 64 of xxh64 hash
 	}
 	/* ------------------------------------------------------------------- */
 
@@ -478,6 +466,8 @@ class NamedBinaryBlob
 		timeLastModified = ""; // Used to replace array by single string
 		mediaInfo = null; // More humand readable format
 		mediaInfoSig = null; // MediaInfo as JSON fields
+		archiveSpecs = null; // Contents of an archive
+		torrentInfo = null; // Extracted torrent information
 	}
 
 	/** constructor with parameters for single file entry
@@ -1467,10 +1457,13 @@ void updateArchives(NamedBinaryBlob obj,
 			{
 				import std.string : startsWith;
 				import std.algorithm.searching : find;
-				if (obj.fileType.startsWith("RAR") && obj.fileType.find("EncryptedBlockHeader") )
+
+				if (obj.fileType.startsWith("RAR") && obj.fileType.find("EncryptedBlockHeader"))
 				{
 					logLineVerbose();
-					logFLineVerbose("Found RAR archive with encrypted block header, skipping archive scan for file '%s'", spec.fileName);
+					logFLineVerbose(
+						"Found RAR archive with encrypted block header, skipping archive scan for file '%s'", spec
+							.fileName);
 					continue;
 				}
 				auto archiveObj = fileArchive(spec.fileName);
@@ -1504,7 +1497,8 @@ void updateArchives(NamedBinaryBlob obj,
 							auto destFile = buildPath(getTmpDirPrefix(), arcfile);
 
 							auto exOk = archiveObj.extractEntry(arcfile, getTmpDirPrefix());
-							enforce(exOk, "Failed to extract archive entry '%s' from archive '%s'".format(arcfile, spec.fileName));
+							enforce(exOk, "Failed to extract archive entry '%s' from archive '%s'".format(arcfile, spec
+									.fileName));
 							enforce(destFile.exists, destFile);
 
 							import dosierskanilo.metadata.digests;
@@ -1619,7 +1613,8 @@ unittest
 	auto dco2 = new NamedBinaryBlob(fnMany, fh2.size, SysTime(4_237_892));
 	updateArchives(dco2, true);
 	assert(dco2.archiveSpecs.length >= 11,
-		"Expected all archive entries to be scanned for archives with more than 10 files.\nGot %d entries.".format(dco2.archiveSpecs.length));
+		"Expected all archive entries to be scanned for archives with more than 10 files.\nGot %d entries.".format(
+			dco2.archiveSpecs.length));
 }
 
 /** Get torrent info for file, if missing
