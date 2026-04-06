@@ -582,8 +582,8 @@ class NamedBinaryBlob
 		auto filename = this.getFirstFileName;
 		auto mtime = this.getFirstFileModDate;
 
-		return format("NamedBinaryBlob('%s', %d, %s, %s, %s)",
-			baseName(filename), fileSize, mtime, this.checkSums, this.mediaInfoSig);
+		return format("NamedBinaryBlob('%s', %d, %s, %s, fileType='%s', MI=%s, AR=%s, TO=%s)",
+			baseName(filename), fileSize, mtime, this.checkSums, this.fileType, this.mediaInfoSig, this.archiveSpecs, this.torrentInfo);
 	}
 
 	/* ------------------------------------------------------------------- */
@@ -607,11 +607,19 @@ class NamedBinaryBlob
 
 	/* ------------------------------------------------------------------- */
 
+	/** Create a deep copy of the object
+	 *
+	 * Returns: a new NamedBinaryBlob object with the same content as this object
+	 */
 	NamedBinaryBlob dup()
 	{
 		auto dc = new NamedBinaryBlob(this);
 		if (dc.mediaInfoSig !is null)
 			dc.mediaInfoSig = dc.mediaInfoSig.dup;
+		if (dc.archiveSpecs !is null)
+			dc.archiveSpecs = dc.archiveSpecs.dup;
+		if (dc.torrentInfo !is null)
+			dc.torrentInfo = dc.torrentInfo.dup;
 		return dc;
 	}
 
@@ -751,26 +759,26 @@ unittest
 	auto ts2 = SysTime(2_345_678).toISOExtString;
 
 	auto mis0 = new NamedBinaryBlob();
-	assert(mis0.toString == `NamedBinaryBlob('', 0, , CheckSums("", "", ""), null)`, mis0.toString);
+	assert(mis0.toString == `NamedBinaryBlob('', 0, , CheckSums("", "", ""), fileType='', MI=null, AR=[], TO=null)`, mis0.toString);
 	auto mis1 = new NamedBinaryBlob("file1", 1234, SysTime(1_234_567));
-	assert(mis1.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), null)", ts),
+	assert(mis1.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), fileType='', MI=null, AR=[], TO=null)", ts),
 		mis1.toString);
 	auto mis2 = new NamedBinaryBlob(["file1", "file2"], 1234, SysTime(1_234_567));
-	assert(mis2.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), null)", ts),
+	assert(mis2.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), fileType='', MI=null, AR=[], TO=null)", ts),
 		mis2.toString);
 	auto mis3 = new NamedBinaryBlob(["file1", "file2"], 1234, SysTime(1_234_567), CheckSums());
-	assert(mis3.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), null)", ts),
+	assert(mis3.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), fileType='', MI=null, AR=[], TO=null)", ts),
 		mis3.toString);
 	auto mis4 = new NamedBinaryBlob(["file1", "file2"], 1234, SysTime(1_234_567), CheckSums("a", "b", "c"), new MediaInfoSig());
 	assert(
-		mis4.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"a\", \"b\", \"c\"), MediaInfoSig())", ts),
+		mis4.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"a\", \"b\", \"c\"), fileType='', MI=MediaInfoSig(), AR=[], TO=null)", ts),
 		mis4.toString);
 	auto mis5 = new NamedBinaryBlob("file1", 1234, SysTime(1_234_567), CheckSums());
-	assert(mis5.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), null)", ts),
+	assert(mis5.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), fileType='', MI=null, AR=[], TO=null)", ts),
 		mis5.toString);
 	auto mis6 = new NamedBinaryBlob("file1", 1234, SysTime(1_234_567), CheckSums(), new MediaInfoSig());
 	assert(
-		mis6.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), MediaInfoSig())", ts),
+		mis6.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), fileType='', MI=MediaInfoSig(), AR=[], TO=null)", ts),
 		mis6.toString);
 
 	auto mis10 = new NamedBinaryBlob(mis4);
@@ -783,7 +791,7 @@ unittest
 
 	auto mis12 = new NamedBinaryBlob(["file2", "file8", "file1"], 1234, SysTime(1_234_567));
 	assert(mis12.getFirstFileName == "file1");
-	assert(mis12.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), null)", ts),
+	assert(mis12.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), fileType='', MI=null, AR=[], TO=null)", ts),
 		mis12.toString);
 
 	assert(mis12.hasFileName("file8"));
