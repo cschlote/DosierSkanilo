@@ -325,7 +325,7 @@ bool runScannerJobs(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCt
                 {
                     ProgressCallBack cb = ProgressCallBack(&progressCallBack);
 
-                    updateArchives(obj, argsArray.argRescanMediaSig, argsArray.argScanArchives > 1, &gotCtrlC, &cb);
+                    updateArchives(obj, false, argsArray.argScanArchives > 1, &gotCtrlC, &cb);
                 }
                 if (argsArray.argScanTorrents && obj.torrentInfo is null)
                 {

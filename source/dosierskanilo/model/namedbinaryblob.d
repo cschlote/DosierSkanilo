@@ -1465,6 +1465,14 @@ void updateArchives(NamedBinaryBlob obj,
 			auto filespecs = obj.fileSpecs.sort;
 			foreach (spec; obj.getExistingFiles)
 			{
+				import std.string : startsWith;
+				import std.algorithm.searching : find;
+				if (obj.fileType.startsWith("RAR") && obj.fileType.find("EncryptedBlockHeader") )
+				{
+					logLineVerbose();
+					logFLineVerbose("Found RAR archive with encrypted block header, skipping archive scan for file '%s'", spec.fileName);
+					continue;
+				}
 				auto archiveObj = fileArchive(spec.fileName);
 				if (archiveObj)
 				{
@@ -1481,7 +1489,7 @@ void updateArchives(NamedBinaryBlob obj,
 
 					foreach (idx, arcfile; arcfiles)
 					{
-						logFLineVerbose("\n  with archive file '%s'", arcfile);
+						logFLineVerbose("  with archive file '%s'", arcfile);
 
 						mkdirRecurse(getTmpDirPrefix);
 						scope (success)
