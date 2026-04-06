@@ -582,8 +582,8 @@ class NamedBinaryBlob
 		auto filename = this.getFirstFileName;
 		auto mtime = this.getFirstFileModDate;
 
-		return format("NamedBinaryBlob('%s', %d, %s, %s, %s)",
-			baseName(filename), fileSize, mtime, this.checkSums, this.mediaInfoSig);
+		return format("NamedBinaryBlob('%s', %d, %s, %s, fileType='%s', MI=%s, AR=%s, TO=%s)",
+			baseName(filename), fileSize, mtime, this.checkSums, this.fileType, this.mediaInfoSig, this.archiveSpecs, this.torrentInfo);
 	}
 
 	/* ------------------------------------------------------------------- */
@@ -607,11 +607,19 @@ class NamedBinaryBlob
 
 	/* ------------------------------------------------------------------- */
 
+	/** Create a deep copy of the object
+	 *
+	 * Returns: a new NamedBinaryBlob object with the same content as this object
+	 */
 	NamedBinaryBlob dup()
 	{
 		auto dc = new NamedBinaryBlob(this);
 		if (dc.mediaInfoSig !is null)
 			dc.mediaInfoSig = dc.mediaInfoSig.dup;
+		if (dc.archiveSpecs !is null)
+			dc.archiveSpecs = dc.archiveSpecs.dup;
+		if (dc.torrentInfo !is null)
+			dc.torrentInfo = dc.torrentInfo.dup;
 		return dc;
 	}
 
@@ -751,26 +759,26 @@ unittest
 	auto ts2 = SysTime(2_345_678).toISOExtString;
 
 	auto mis0 = new NamedBinaryBlob();
-	assert(mis0.toString == `NamedBinaryBlob('', 0, , CheckSums("", "", ""), null)`, mis0.toString);
+	assert(mis0.toString == `NamedBinaryBlob('', 0, , CheckSums("", "", ""), fileType='', MI=null, AR=[], TO=null)`, mis0.toString);
 	auto mis1 = new NamedBinaryBlob("file1", 1234, SysTime(1_234_567));
-	assert(mis1.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), null)", ts),
+	assert(mis1.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), fileType='', MI=null, AR=[], TO=null)", ts),
 		mis1.toString);
 	auto mis2 = new NamedBinaryBlob(["file1", "file2"], 1234, SysTime(1_234_567));
-	assert(mis2.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), null)", ts),
+	assert(mis2.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), fileType='', MI=null, AR=[], TO=null)", ts),
 		mis2.toString);
 	auto mis3 = new NamedBinaryBlob(["file1", "file2"], 1234, SysTime(1_234_567), CheckSums());
-	assert(mis3.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), null)", ts),
+	assert(mis3.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), fileType='', MI=null, AR=[], TO=null)", ts),
 		mis3.toString);
 	auto mis4 = new NamedBinaryBlob(["file1", "file2"], 1234, SysTime(1_234_567), CheckSums("a", "b", "c"), new MediaInfoSig());
 	assert(
-		mis4.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"a\", \"b\", \"c\"), MediaInfoSig())", ts),
+		mis4.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"a\", \"b\", \"c\"), fileType='', MI=MediaInfoSig(), AR=[], TO=null)", ts),
 		mis4.toString);
 	auto mis5 = new NamedBinaryBlob("file1", 1234, SysTime(1_234_567), CheckSums());
-	assert(mis5.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), null)", ts),
+	assert(mis5.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), fileType='', MI=null, AR=[], TO=null)", ts),
 		mis5.toString);
 	auto mis6 = new NamedBinaryBlob("file1", 1234, SysTime(1_234_567), CheckSums(), new MediaInfoSig());
 	assert(
-		mis6.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), MediaInfoSig())", ts),
+		mis6.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), fileType='', MI=MediaInfoSig(), AR=[], TO=null)", ts),
 		mis6.toString);
 
 	auto mis10 = new NamedBinaryBlob(mis4);
@@ -783,7 +791,7 @@ unittest
 
 	auto mis12 = new NamedBinaryBlob(["file2", "file8", "file1"], 1234, SysTime(1_234_567));
 	assert(mis12.getFirstFileName == "file1");
-	assert(mis12.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), null)", ts),
+	assert(mis12.toString == format("NamedBinaryBlob('file1', 1234, %s, CheckSums(\"\", \"\", \"\"), fileType='', MI=null, AR=[], TO=null)", ts),
 		mis12.toString);
 
 	assert(mis12.hasFileName("file8"));
@@ -903,9 +911,16 @@ unittest
 
 version (unittest)
 {
-	auto test_json_v0 = import("./test/json_file_v0.json");
-	auto test_json_v1 = import("./test/json_file_v1.json");
-	auto test_json_v2 = import("./test/json_file_v2.json");
+	enum json_file_v0 = "./test/json_file_v0.json";
+	enum json_file_v1 = "./test/json_file_v1.json";
+	enum json_file_v2 = "./test/json_file_v2.json";
+	enum json_file_v2_archive = "./test/json_file_v2_archive.json";
+	enum json_file_v2_torrent = "./test/json_file_v2_torrent.json";
+	auto test_json_v0 = import(json_file_v0);
+	auto test_json_v1 = import(json_file_v1);
+	auto test_json_v2 = import(json_file_v2);
+	auto test_json_v2_archive = import(json_file_v2_archive);
+	auto test_json_v2_torrent = import(json_file_v2_torrent);
 }
 
 /** Fixup legacy fields in NamedBinaryBlob array for deserialization
@@ -985,7 +1000,7 @@ NamedBinaryBlob[] fixupDataClassArrayIn(NamedBinaryBlob[] dataArray)
 		}
 
 		// -- Fixup broken torrent entries ---------------------------
-		if ((obj.torrentInfo !is null) && (obj.torrentInfo.infoHashHex.empty))
+		if ((obj.torrentInfo !is null) && (obj.torrentInfo.magnetURI.empty))
 		{
 			obj.torrentInfo = null;
 		}
@@ -1034,7 +1049,7 @@ NamedBinaryBlob[] fixupDataClassArrayOut(NamedBinaryBlob[] dataArray)
 		}
 
 		// -- Fixup broken torrent entries ---------------------------
-		if ((obj.torrentInfo !is null) && (obj.torrentInfo.empty))
+		if ((obj.torrentInfo !is null) && (obj.torrentInfo.magnetURI.empty))
 		{
 			obj.torrentInfo = null;
 		}
@@ -1160,13 +1175,13 @@ unittest
 	auto dca = deserializeDataClassJsonFile("./test/json_file_notexisting.json");
 	assert(dca.length == 0);
 
-	auto dca0 = deserializeDataClassJsonFile("./test/json_file_v0.json");
+	auto dca0 = deserializeDataClassJsonFile(json_file_v0);
 	assert(dca0.length == 3);
 
-	auto dca1 = deserializeDataClassJsonFile("./test/json_file_v1.json");
+	auto dca1 = deserializeDataClassJsonFile(json_file_v1);
 	assert(dca1.length == 3);
 
-	auto dca2 = deserializeDataClassJsonFile("./test/json_file_v2.json");
+	auto dca2 = deserializeDataClassJsonFile(json_file_v2);
 	assert(dca2.length == 3);
 
 	assert(dca0 == dca1);
@@ -1204,8 +1219,37 @@ void serializeDataClassArrayFile(string fileName, NamedBinaryBlob[] dataArray)
 @("serializeDataClassArrayFile")
 unittest
 {
-	auto dca1 = deserializeDataClassJsonFile("./test/json_file_v2.json");
-	assert(dca1.length == 3);
+	auto dca1 = deserializeDataClassJsonString(test_json_v2);
+	assert(dca1.length == 3, dca1.length.to!string);
+
+	import std.path : buildPath;
+	import std.file : tempDir, mkdirRecurse, remove;
+	import std.json : parseJSON;
+	import std.uuid : randomUUID;
+
+	auto dir = buildPath(tempDir(), "filescanner_serializer_test");
+	mkdirRecurse(dir);
+	auto file = buildPath(dir, randomUUID().toString);
+	scope(exit) { remove(file); };
+
+	file.serializeDataClassArrayFile(dca1);
+	//file.writeJSON(test_json_v2);
+
+	auto jsonstring = file.readText;
+	//writeln(jsonstring);
+	auto json = jsonstring.parseJSON;
+
+	auto jsonstring0 = json_file_v2.readText;
+	auto json0 = jsonstring0.parseJSON;
+
+	assert (jsonstring == jsonstring0, "Serialized JSON does not match expected JSON.\nGot:\n" ~ jsonstring ~ "\nExpected:\n" ~ jsonstring0);
+}
+
+@("archive serialization")
+unittest
+{
+	auto dca1 = deserializeDataClassJsonFile(json_file_v2_archive);
+	assert(dca1.length == 1, dca1.length.to!string);
 
 	import std.path : buildPath;
 	import std.file : tempDir, mkdirRecurse, remove;
@@ -1217,11 +1261,45 @@ unittest
 	auto file = buildPath(dir, randomUUID().toString);
 
 	file.serializeDataClassArrayFile(dca1);
-	//file.writeJSON(test_json_v1);
+	//file.writeJSON(test_json_v2_archive);
+
 	auto jsonstring = file.readText;
 	//writeln(jsonstring);
 	auto json = jsonstring.parseJSON;
 
+	auto jsonstring0 = json_file_v2_archive.readText;
+	auto json0 = jsonstring0.parseJSON;
+
+	assert (jsonstring == jsonstring0, "Serialized JSON does not match expected JSON.\nGot:\n" ~ jsonstring ~ "\nExpected:\n" ~ jsonstring0);
+	remove(file);
+}
+
+@("torrentInfo serialization")
+unittest
+{
+	auto dca1 = deserializeDataClassJsonFile(json_file_v2_torrent);
+	assert(dca1.length == 1, dca1.length.to!string);
+
+	import std.path : buildPath;
+	import std.file : tempDir, mkdirRecurse, remove;
+	import std.json : parseJSON;
+	import std.uuid : randomUUID;
+
+	auto dir = buildPath(tempDir(), "filescanner_serializer_test");
+	mkdirRecurse(dir);
+	auto file = buildPath(dir, randomUUID().toString);
+
+	file.serializeDataClassArrayFile(dca1);
+	//file.writeJSON(test_json_v2_torrent);
+
+	auto jsonstring = file.readText;
+	//writeln(jsonstring);
+	auto json = jsonstring.parseJSON;
+
+	auto jsonstring0 = json_file_v2_torrent.readText;
+	auto json0 = jsonstring0.parseJSON;
+
+	assert (jsonstring == jsonstring0, "Serialized JSON does not match expected JSON.\nGot:\n" ~ jsonstring ~ "\nExpected:\n" ~ jsonstring0);
 	remove(file);
 }
 

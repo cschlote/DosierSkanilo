@@ -1,0 +1,28 @@
+{
+    "dataArray": [
+        {
+            "archiveSpecs": [
+                {
+                    "checkSums": {
+                        "md5sum_b64": "md5==",
+                        "sha1sum_b64": "sha1==",
+                        "xxh64sum_b64": "xxh64=="
+                    },
+                    "fileName": "urtzel.bin",
+                    "fileSize": 235210,
+                    "timeLastModified": "2025-07-18T22:17:19"
+                }
+            ],
+            "checkSums": {
+                "md5sum_b64": "md5==",
+                "sha1sum_b64": "sha1==",
+                "xxh64sum_b64": "xxh64=="
+            },
+            "fileName": "test.rar",
+            "fileSize": 200176,
+            "fileType": "RAR archive data",
+            "timeLastModified": "2025-07-18T22:17:19"
+        }
+    ],
+    "dataVersion": 2
+}

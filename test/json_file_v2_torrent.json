@@ -1,0 +1,21 @@
+{
+    "dataArray": [
+        {
+            "checkSums": {
+                "md5sum_b64": "md5==",
+                "sha1sum_b64": "sha1==",
+                "xxh64sum_b64": "xxh64=="
+            },
+            "fileName": "example.torrent",
+            "fileSize": 200176,
+            "fileType": "BitTorrent file",
+            "timeLastModified": "2025-07-18T22:17:19",
+            "torrentInfo": {
+                "magnetURI": "magnet:?xt=urn:btih:A667379e5f2c3a4b5e76c0c",
+                "name": "example.torrent",
+                "totalSize": 2579535210
+            }
+        }
+    ],
+    "dataVersion": 2
+}

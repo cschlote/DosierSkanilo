@@ -88,6 +88,22 @@ class TorrentInfo
             // files.length == 0
             ;
     }
+
+    TorrentInfo dup()
+    {
+        auto copy = new TorrentInfo();
+        copy.name = this.name;
+        copy.magnetURI = this.magnetURI;
+        copy.totalSize = this.totalSize;
+        copy.isMultiFile = this.isMultiFile;
+        copy.infoHashHex = this.infoHashHex;
+        copy.announce = this.announce;
+        copy.pieceLength = this.pieceLength;
+        copy.piecesCount = this.piecesCount;
+        if (this.files !is null)
+            copy.files = this.files.dup;
+        return copy;
+    }
 }
 
 /** Parse a `.torrent` file and extract relevant metadata.

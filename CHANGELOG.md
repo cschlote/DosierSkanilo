@@ -9,6 +9,17 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- Added explicit duplication semantics for metadata payload models:
+  - explicit `dup` handling in torrent metadata structures
+  - improved `NamedBinaryBlob` formatting and roundtrip stability
+  - folded related unittest adjustments into the same behavior change
+
+- Fixed archive-baseclass unittest setup to keep test execution stable.
+
+- Added regression coverage and fixtures for archive/torrent metadata paths:
+  - new/updated JSON v2 fixtures for archive and torrent data
+  - extended parser regression checks for archive/torrent metadata handling
+
 ## Release 26.8.0
 
 - Reorganized source tree into namespaced subpackages to eliminate module
