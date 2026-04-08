@@ -9,6 +9,8 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+## Release 26.8.2
+
 - Improved documentation and published metadata consistency:
   - corrected the published `changelogUrl` in `scripts/build.sh` and
     `scripts/build-docs.sh`
