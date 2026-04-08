@@ -9,6 +9,29 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- Improved documentation and published metadata consistency:
+  - corrected the published `changelogUrl` in `scripts/build.sh` and
+    `scripts/build-docs.sh`
+  - aligned README wording and module references with the current repository
+    layout
+  - updated the analysis service module header for clearer generated API docs
+
+- Added markdown linting to the local quality gate:
+  - `scripts/lint.sh` now runs `markdownlint-cli2` or `markdownlint`
+  - normalized wrapped lines in `README.md`, `CHANGELOG.md`, and `TODO.md`
+    for markdown-lint compliance
+
+- Tightened `NamedBinaryBlob` equality/hash semantics and const-correctness:
+  - added explicit `toHash()` implementations for `CheckSums` and
+    `NamedBinaryBlob`
+  - made blob formatting and lookup helpers const-correct
+  - kept `fileSpecs` ordering deterministic after construction and mutation
+  - extended unittests to cover hash/equality behavior
+
+- Updated project tracking docs:
+  - marked the recent documentation, lint, and model maintenance items as
+    completed in `TODO.md`
+
 ## Release 26.8.1
 
 - Added explicit duplication semantics for metadata payload models:
