@@ -46,7 +46,8 @@ Generate API docs:
 Compiler strategy:
 
 - CI and local helper scripts use `ldc2` as default for `build`, `test`, and `run`.
-- `dub` resolves the D compiler from the `DC` environment variable, analogous to `CC` in C toolchains.
+- `dub` resolves the D compiler from the `DC` environment variable,
+  analogous to `CC` in C toolchains.
 - If `DC` is unset, the helper scripts initialize it to `ldc2`.
 - Override compiler explicitly when needed: `DC=dmd ./scripts/test.sh`.
 - The project is tested primarily with `ldc2`; other compilers are best-effort.
@@ -177,7 +178,8 @@ Detailed architecture and diagrams:
 - `source/dosierskanilo/service/scanning.d`: directory scanning + job scheduling
 - `source/dosierskanilo/service/analyze.d`: duplicate/missing-file analysis
 - `source/dosierskanilo/service/storageio.d`: JSON storage read/write and backup
-- `source/dosierskanilo/model/namedbinaryblob.d`: core blob model, serialization, migrations, update jobs, merge/cleanup
+- `source/dosierskanilo/model/namedbinaryblob.d`: core blob model,
+  serialization, migrations, update jobs, merge/cleanup
 - `source/dosierskanilo/metadata/digests.d`: digest calculation
 - `source/dosierskanilo/metadata/mediainfosig.d`: MediaInfo mapping
 - `source/dosierskanilo/metadata/fileutilsig.d`: file type extraction via `file`
