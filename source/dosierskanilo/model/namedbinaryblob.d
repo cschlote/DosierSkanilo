@@ -140,7 +140,7 @@ struct CheckSums
 	}
 
 	/** Check if all three digests are present */
-	bool hasDigests() @safe pure const
+	bool hasDigests() @safe pure nothrow const
 	{
 		return !this.md5sum_b64.empty && !this.sha1sum_b64.empty && !this.xxh64sum_b64.empty;
 	}
@@ -153,6 +153,29 @@ struct CheckSums
 			this.md5sum_b64 == other.md5sum_b64 &&
 			this.sha1sum_b64 == other.sha1sum_b64 &&
 			this.xxh64sum_b64 == other.xxh64sum_b64;
+	}
+
+	size_t toHash() const nothrow @safe
+	{
+		if (!this.hasDigests)
+			return 0;
+
+		size_t hash = 1469598103934665603UL;
+		void mixString(string value) nothrow @safe
+		{
+			foreach (immutable char ch; value)
+			{
+				hash ^= cast(ubyte) ch;
+				hash *= 1099511628211UL;
+			}
+			hash ^= 0xff;
+			hash *= 1099511628211UL;
+		}
+
+		mixString(this.md5sum_b64);
+		mixString(this.sha1sum_b64);
+		mixString(this.xxh64sum_b64);
+		return hash;
 	}
 }
 
@@ -173,6 +196,13 @@ unittest
 	sums.set_xxh64(testdata);
 	assert(sums.get_xxh64 == testdata, "Data Mismatch");
 	assert(sums.hasDigests, "Check failed.");
+
+	CheckSums sums2;
+	sums2.set_md5sum(testdata);
+	sums2.set_sha1sum(testdata);
+	sums2.set_xxh64(testdata);
+	assert(sums == sums2, "Equality mismatch");
+	assert(sums.toHash == sums2.toHash, "Hash mismatch");
 }
 
 /* ----------------------------------------------------------------------------- */
@@ -210,7 +240,7 @@ class FileSpec
 		timeLastModified = modtime.toISOExtString;
 	}
 
-	int opCmp(FileSpec rhs) const pure
+	int opCmp(FileSpec rhs) const pure @safe
 	{
 		if (this.fileName > rhs.fileName)
 			return 1;
@@ -324,7 +354,7 @@ class ArchiveSpec
 		checkSums = sums;
 	}
 
-	int opCmp(ArchiveSpec rhs) const pure
+	int opCmp(ArchiveSpec rhs) const pure @safe
 	{
 		if (this.fileName > rhs.fileName)
 			return 1;
@@ -480,6 +510,7 @@ class NamedBinaryBlob
 	{
 		this();
 		fileSpecs ~= specs;
+		fileSpecs.sort;
 		fileSize = size;
 	}
 	/** constructor with parameters for single file entry
@@ -494,6 +525,7 @@ class NamedBinaryBlob
 		this();
 		auto fileSpec = new FileSpec(name, modificationTime.toISOExtString);
 		fileSpecs ~= fileSpec;
+		fileSpecs.sort;
 		fileSize = size;
 	}
 
@@ -509,6 +541,7 @@ class NamedBinaryBlob
 		this();
 		foreach (fn; names)
 			fileSpecs ~= new FileSpec(fn, modificationTime.toISOExtString);
+		fileSpecs.sort;
 		fileSize = size;
 	}
 
@@ -567,14 +600,15 @@ class NamedBinaryBlob
 	/* ------------------------------------------------------------------- */
 
 	/** create a string from the object contents */
-	override string toString()
+	override string toString() const
 	{
 		//assert(fileNames.length > 0, "NamedBinaryBlob entry has no filenames!");
 		auto filename = this.getFirstFileName;
 		auto mtime = this.getFirstFileModDate;
+		CheckSums sums = this.checkSums;
 
 		return format("NamedBinaryBlob('%s', %d, %s, %s, fileType='%s', MI=%s, AR=%s, TO=%s)",
-			baseName(filename), fileSize, mtime, this.checkSums, this.fileType, this.mediaInfoSig, this.archiveSpecs, this
+			baseName(filename), fileSize, mtime, sums, this.fileType, this.mediaInfoSig, this.archiveSpecs, this
 				.torrentInfo);
 	}
 
@@ -593,8 +627,17 @@ class NamedBinaryBlob
 	*/
 	bool opEquals(const NamedBinaryBlob other) const @safe
 	{
+		if (other is null)
+			return false;
 		return this.fileSize == other.fileSize &&
 			this.checkSums == other.checkSums;
+	}
+
+	override size_t toHash() const nothrow @safe
+	{
+		size_t hash = this.fileSize;
+		hash ^= this.checkSums.toHash + 0x9e3779b97f4a7c15UL + (hash << 6) + (hash >> 2);
+		return hash;
 	}
 
 	/* ------------------------------------------------------------------- */
@@ -621,24 +664,36 @@ class NamedBinaryBlob
 	 *
 	 * Returns: first file modification time, or "" for an empty set.
 	 */
-	string getFirstFileModDate() pure
+	string getFirstFileModDate() const
 	{
-		import std.algorithm.sorting : sort;
+		if (this.fileSpecs.length == 0)
+			return "";
 
-		auto rs = this.fileSpecs.length ? this.fileSpecs.sort.front.timeLastModified : "";
-		return rs;
+		size_t firstIndex = 0;
+		foreach (index, fs; this.fileSpecs[1 .. $])
+		{
+			if (fs.timeLastModified < this.fileSpecs[firstIndex].timeLastModified)
+				firstIndex = index + 1;
+		}
+		return this.fileSpecs[firstIndex].timeLastModified;
 	}
 
 	/** Get the first filename from sorted file entries.
 	 *
 	 * Returns: first filename, or "" for an empty set.
 	 */
-	string getFirstFileName() pure
+	string getFirstFileName() const
 	{
-		import std.algorithm.sorting : sort;
+		if (this.fileSpecs.length == 0)
+			return "";
 
-		auto rs = this.fileSpecs.length ? this.fileSpecs.sort.front.fileName : "";
-		return rs;
+		size_t firstIndex = 0;
+		foreach (index, fs; this.fileSpecs[1 .. $])
+		{
+			if (fs.fileName < this.fileSpecs[firstIndex].fileName)
+				firstIndex = index + 1;
+		}
+		return this.fileSpecs[firstIndex].fileName;
 	}
 
 	/* ------------------------------------------------------------------- */
@@ -716,6 +771,7 @@ class NamedBinaryBlob
 
 		auto fs = new FileSpec(filename, timeLastModified);
 		this.fileSpecs ~= fs;
+		this.fileSpecs.sort;
 		return fs;
 	}
 
@@ -736,6 +792,7 @@ class NamedBinaryBlob
 		{
 			auto fs = found[0];
 			this.fileSpecs = this.fileSpecs.filter!(a => a.fileName != filename).array;
+			this.fileSpecs.sort;
 			return fs;
 		}
 		else
@@ -785,6 +842,11 @@ unittest
 	auto mis11 = mis4.dup;
 	assert(mis11 == mis4, "Same contents");
 	assert(&mis11 != &mis4, "Same objects?");
+
+	auto hashBlob1 = new NamedBinaryBlob("file1", 1234, SysTime(1_234_567), CheckSums("a", "b", "c"));
+	auto hashBlob2 = new NamedBinaryBlob("file2", 1234, SysTime(2_345_678), CheckSums("a", "b", "c"));
+	assert(hashBlob1 == hashBlob2, "Blob equality mismatch");
+	assert(hashBlob1.toHash == hashBlob2.toHash, "Blob hash mismatch");
 
 	auto mis12 = new NamedBinaryBlob(["file2", "file8", "file1"], 1234, SysTime(1_234_567));
 	assert(mis12.getFirstFileName == "file1");
