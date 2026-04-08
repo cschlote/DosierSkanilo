@@ -86,7 +86,7 @@ classDiagram
 
 ## 3. Job Execution Model
 
-`runScannerJobs()` in `source/dosierskanilo/metadata/scanning.d` supports:
+`runScannerJobs()` in `source/dosierskanilo/service/scanning.d` supports:
 
 - Single-thread mode
 - Multi-thread mode via `std.parallelism.TaskPool`
@@ -105,8 +105,6 @@ is reported. Ctrl-C is handled to stop long operations safely.
 Scheduling policy details:
 
 - Most jobs are queued only when target metadata is missing.
-- Archive scheduling is centralized via
-  `dosierskanilo.scannerpolicy.shouldQueueArchiveScanJob(...)`.
 - Media rescan semantics are consistent across execution modes:
   - `--mediasig --rescan-mediasig` forces refresh in single-thread and
     multi-thread mode
@@ -153,7 +151,7 @@ and stores results in `ArchiveSpec[]`.
 
 ## 7. Torrent Handling
 
-`source/dosierskanilo/torrentinfo.d` includes:
+`source/dosierskanilo/metadata/torrentinfo.d` includes:
 
 - Internal bencode parser
 - SHA1 info-hash computation over bencoded `info` dictionary

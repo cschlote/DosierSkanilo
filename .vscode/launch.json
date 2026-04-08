@@ -20,10 +20,11 @@
                 "-c",
                 // "-o",
                 "-a",
-                "-z",
+                "-z", // "-z",
                 "-w","-f",
                 "-t0"
             ],
+            "cwd": "/mnt/sshfs/"
         },
         {
             "type": "lldb",
@@ -54,8 +55,8 @@
             "args": [
                 "--",
                 "-v",
-                "-t0"
-                // "-i", "class FileArchive7z"
+                "-t0",
+                "-i", "updateArchives"
             ],
             "cwd": "${workspaceFolder}"
         }

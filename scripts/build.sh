@@ -43,7 +43,7 @@ cat > "${ROOT_DIR}/public/meta.json" <<EOF
 	"commit": "${RELEASE_COMMIT}",
 	"compiler": "${DC}",
 	"buildDateUtc": "${BUILD_ISO}",
-	"changelogUrl": "https://github.com/cschlote/DosierSkanilo/blob/main/docs/CHANGELOG.md",
+	"changelogUrl": "https://github.com/cschlote/DosierSkanilo/blob/main/CHANGELOG.md",
 	"releaseUrl": "https://github.com/cschlote/DosierSkanilo/releases/tag/${RELEASE_TAG}"
 }
 EOF

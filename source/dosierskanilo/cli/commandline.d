@@ -46,7 +46,7 @@ struct ArgsArray
     bool argDoChecksums; /// Calculate the checksums
     bool argDoMediaSig; /// Calculate the media signature
     bool argRescanMediaSig; /// Rescan all files for media signature, even if already present
-    bool argScanArchives; /// Scan the contents of archives
+    uint argScanArchives; /// Scan the contents of archives
     bool argScanTorrents; /// Scan the contents of torrent files
     bool argRunAnalysis; /// Execute analysis on database
     bool argDropMissing; /// Drop missing files from database
@@ -74,6 +74,7 @@ bool parseCommandLineArgs(string[] args, ArgsArray* argsarray = &argsArray)
 
     /* Parse the commandline with std.getopt */
     auto helpInformation = getopt(args, /* std.getopt.config.required, */
+
         "path|p", "Path to scan for files", &argsarray.argScanPath,
         "json|j", "Name of JSON file to read from and store results to", &argsarray.argJSONFile,
         "recursive|r", "Recursively scan directories", &argsarray.argRecursive,
@@ -82,7 +83,7 @@ bool parseCommandLineArgs(string[] args, ArgsArray* argsarray = &argsArray)
         "filetypes|y", "Query file type with 'file' utility", &argsarray.argDoFileTypes,
         "mediasig|m", "Calculate the media signature", &argsarray.argDoMediaSig,
         "rescan-mediasig", "Rescan all files for media signature", &argsarray.argRescanMediaSig,
-        "scanArchives|z", "Get the contents of archives", &argsarray.argScanArchives,
+        "scanArchives+|z+", "Get the contents of archives", &argsarray.argScanArchives,
         "scanTorrents|o", "Get the contents of torrent files", &argsarray.argScanTorrents,
         "analyse|a", "Analyze database", &argsarray.argRunAnalysis,
         "dropMissing|d", "Drop missing files from database", &argsarray.argDropMissing,
@@ -189,14 +190,17 @@ unittest
     string[] testArgs2b = ["programname", "-p", testdir, "-j", jsonfile, "-f"];
     bool res2b = parseCommandLineArgs(testArgs2b, &args);
     assert(res2b == true, "Should be true. Overwrite for jsonfile given.");
-    string[] testArgs2c = ["programname", "-p", testdir, "-j", jsonfile, "-w", "-f"];
+    string[] testArgs2c = [
+        "programname", "-p", testdir, "-j", jsonfile, "-w", "-f"
+    ];
     bool res2c = parseCommandLineArgs(testArgs2c, &args);
     assert(res2c == true, "Should be true. Overwrite for jsonfile given.");
 
     /* All args set */
     string[] testArgs = [
         "programname", "-p", testdir, "-j", jsonfile, "-r", "-s",
-        "-c", "-y", "-m", "-a", "-w", "-t", "4", "-f", "-h", "-v"
+        "-c", "-y", "-m", "-a", "-w", "-t", "4", "-f", "-h", "-v",
+        "-z", "-z", "-o"
     ];
     bool res = parseCommandLineArgs(testArgs, &args);
     assert(res == true, "Parsing failed");
@@ -213,6 +217,8 @@ unittest
     assert(args.argForceOverwrite == true, args.argForceOverwrite.to!string);
     assert(args.argPickHidden == true, args.argPickHidden.to!string);
     assert(args.argVerboseOutputs == true, args.argVerboseOutputs.to!string);
+    assert(args.argScanArchives == 2, args.argScanArchives.to!string);
+    assert(args.argScanTorrents == true, args.argScanTorrents.to!string);
 }
 
 /** Shortens a string `s` to exactly `maxLen` characters.
