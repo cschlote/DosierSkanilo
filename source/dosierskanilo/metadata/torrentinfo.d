@@ -257,6 +257,18 @@ private alias BList = BNode[];
 /// Bencoded dictionary
 private alias BDict = BNode[string];
 
+/** some workaround for CI toolchains that fail to emit SumType equality for recursive types */
+static this()
+{
+    import core.internal.array.equality : __equals;
+
+    // Force druntime equality instantiation for `torrentinfo.BNode[]`.
+    // SumType!(long, string, BNode[], BDict).opEquals requires __equals!(BNode, BNode)
+    // to be emitted, but this does not happen automatically with some dmd/druntime versions.
+    BNode[] nodes;
+    auto _ = __equals(nodes, nodes);
+}
+
 /*
  * Compatibility note:
  * We intentionally use explicit extractor helpers instead of the more compact
