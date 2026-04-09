@@ -359,3 +359,133 @@ bool runScannerJobs(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCt
     stdout.flush();
     return rc;
 }
+
+@("scanDirTree and runScannerJobs")
+unittest
+{
+    import std.file : mkdirRecurse, remove, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "scanning-" ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+    {
+        if (exists(buildPath(root, "visible.jpg")))
+            remove(buildPath(root, "visible.jpg"));
+        if (exists(buildPath(root, ".hidden.jpg")))
+            remove(buildPath(root, ".hidden.jpg"));
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+
+    auto visible = buildPath(root, "visible.jpg");
+    auto hidden = buildPath(root, ".hidden.jpg");
+    write(visible, cast(ubyte[])[0, 1, 2, 3, 4, 5]);
+    write(hidden, cast(ubyte[])[9, 8, 7]);
+
+    NamedBinaryBlob[] objs;
+    shared(bool) gotCtrlC = false;
+    ArgsArray args;
+    args.argDoChecksums = true;
+    args.argDoFileTypes = true;
+    args.argDoMediaSig = true;
+
+    assert(scanDirTree(root, false, objs, gotCtrlC, args));
+    assert(objs.length == 1);
+    assert(objs[0].getFirstFileName == visible);
+    assert(objs[0].getExistingFiles.length == 1);
+
+    write(visible, cast(ubyte[])[0, 1, 2, 3, 4, 5, 6, 7]);
+    assert(scanDirTree(root, false, objs, gotCtrlC, args));
+    assert(objs.length == 1);
+    assert(objs[0].fileSize == 8);
+
+    assert(runScannerJobs(objs, gotCtrlC, args));
+    assert(objs[0].checkSums.hasDigests);
+    assert(!objs[0].fileType.empty);
+    assert(objs[0].mediaInfoSig !is null);
+}
+
+@("runScannerJobs archive and torrent")
+unittest
+{
+    import std.conv : to;
+    import std.file : getcwd, mkdirRecurse, remove, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.process : execute;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "scanning-archive-" ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+    {
+        auto zipPath = buildPath(root, "jobs.zip");
+        auto payload = buildPath(root, "payload.txt");
+        if (exists(zipPath))
+            remove(zipPath);
+        if (exists(payload))
+            remove(payload);
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+
+    auto payload = buildPath(root, "payload.txt");
+    write(payload, "archive payload\n");
+    auto zipPath = buildPath(root, "jobs.zip");
+    auto zipCreate = execute(["zip", "-q", "-j", zipPath, payload]);
+    assert(zipCreate.status == 0, zipCreate.output);
+
+    auto torrentPath = "test/example.torrent";
+    NamedBinaryBlob[] objs = [
+        new NamedBinaryBlob(zipPath, getSize(zipPath), Clock.currTime()),
+        new NamedBinaryBlob(torrentPath, getSize(torrentPath), Clock.currTime()),
+    ];
+    shared(bool) gotCtrlC = false;
+    ArgsArray args;
+    args.argScanArchives = 1;
+    args.argScanTorrents = true;
+    args.argNumberOfThreads = 2;
+
+    assert(runScannerJobs(objs, gotCtrlC, args));
+    assert(objs[0].archiveSpecs !is null);
+    assert(objs[0].archiveSpecs.length > 0);
+    assert(objs[1].torrentInfo !is null);
+}
+
+@("runScannerJobs threaded")
+unittest
+{
+    import std.file : mkdirRecurse, remove, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "scanning-threaded-" ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+    {
+        auto picture = buildPath(root, "threaded.jpg");
+        if (exists(picture))
+            remove(picture);
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+
+    auto picture = buildPath(root, "threaded.jpg");
+    write(picture, cast(ubyte[])[1, 2, 3, 4, 5, 6, 7, 8]);
+
+    NamedBinaryBlob[] objs;
+    shared(bool) gotCtrlC = false;
+    ArgsArray args;
+    args.argDoChecksums = true;
+    args.argDoFileTypes = true;
+    args.argDoMediaSig = true;
+    args.argNumberOfThreads = 2;
+
+    assert(scanDirTree(root, false, objs, gotCtrlC, args));
+    assert(objs.length == 1);
+    assert(runScannerJobs(objs, gotCtrlC, args));
+    assert(objs[0].checkSums.hasDigests);
+    assert(!objs[0].fileType.empty);
+    assert(objs[0].mediaInfoSig !is null);
+}

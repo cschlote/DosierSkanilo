@@ -148,6 +148,14 @@ unittest
     assert(parsed.length == 0);
 }
 
+@("zip archive missing file fallback")
+unittest
+{
+    auto obj = new FileArchiveZip("definitely-missing-archive.zip");
+    auto entries = obj.getEntries();
+    assert(entries.length == 0);
+}
+
 @("archive extraction with special filenames")
 unittest
 {

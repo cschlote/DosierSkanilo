@@ -148,3 +148,48 @@ bool analyseData(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCtrlC
 	rc = true;
 	return rc;
 }
+
+@("analyseData duplicate merge and missing-file drop")
+unittest
+{
+    import std.file : getSize, mkdirRecurse, remove, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "analyze-" ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+    {
+        auto file1 = buildPath(root, "dup-1.bin");
+        auto file2 = buildPath(root, "dup-2.bin");
+        if (exists(file1))
+            remove(file1);
+        if (exists(file2))
+            remove(file2);
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+
+    auto file1 = buildPath(root, "dup-1.bin");
+    auto file2 = buildPath(root, "dup-2.bin");
+    auto payload = cast(ubyte[])"duplicate payload";
+    write(file1, payload);
+    write(file2, payload);
+
+    auto obj1 = new NamedBinaryBlob(file1, getSize(file1), Clock.currTime());
+    auto obj2 = new NamedBinaryBlob(file2, getSize(file2), Clock.currTime());
+    auto missing = new NamedBinaryBlob(buildPath(root, "missing.bin"), 99, Clock.currTime());
+
+    updateDigests(obj1, null);
+    updateDigests(obj2, null);
+
+    NamedBinaryBlob[] objs = [obj1, obj2, missing];
+    shared(bool) gotCtrlC = false;
+    ArgsArray args;
+    args.argDropMissing = true;
+
+    assert(analyseData(objs, gotCtrlC, args));
+    assert(objs.length == 1);
+    assert(objs[0].fileSpecs.length == 2);
+    assert(objs[0].checkSums.hasDigests);
+}
