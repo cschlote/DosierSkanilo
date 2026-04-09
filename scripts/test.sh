@@ -35,6 +35,17 @@ print_coverage() {
     local coverage_files=()
     local lst_file
 
+    is_own_coverage_file() {
+        case "$(basename "$1")" in
+            source-dosierarkivo-*.lst|source-dosierskanilo-*.lst|source-dosierskanilo_cli-*.lst)
+                return 0
+                ;;
+            *)
+                return 1
+                ;;
+        esac
+    }
+
     shopt -s nullglob
     coverage_files=("${LST_DIR}"/*.lst)
     shopt -u nullglob
@@ -45,6 +56,10 @@ print_coverage() {
     fi
 
     for lst_file in "${coverage_files[@]}"; do
+        if ! is_own_coverage_file "${lst_file}"; then
+            continue
+        fi
+
         local stats
         local covered
         local executable
@@ -74,6 +89,11 @@ print_coverage() {
         total_covered=$((total_covered + covered))
         total_executable=$((total_executable + executable))
     done
+
+    if [ "${total_executable}" -eq 0 ]; then
+        echo "No project coverage listings found."
+        return 0
+    fi
 
     local total_percent
     total_percent=$(awk -v c="${total_covered}" -v e="${total_executable}" 'BEGIN { if (e == 0) printf "100.00"; else printf "%.2f", (100.0 * c / e) }')
