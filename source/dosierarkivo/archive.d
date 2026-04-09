@@ -39,6 +39,15 @@ abstract class FileArchive
     /** Path to the archive file on disk. */
     string fileName;
 
+    /** Create a new archive wrapper.
+     *
+     * Concrete implementations typically call this from their constructor to
+     * initialize the shared fields.
+     *
+     * Params:
+     *   type = archive type handled by the concrete implementation.
+     *   filename = path to the archive file on disk.
+     */
     this(ArchiveType type, string filename)
     {
         fileType = type;
@@ -46,8 +55,12 @@ abstract class FileArchive
     }
 
     /** Get list of entries in archive
+     *
+     * The base implementation returns `null` and is meant to be overridden by
+     * concrete archive handlers.
+     *
      * Returns:
-     *   null or list of entries in archive
+     *   `null` or the list of entries in the archive.
      */
     string[] getEntries()
     {
@@ -55,6 +68,9 @@ abstract class FileArchive
     }
 
     /** Extract entry from archive to destination directory. The destination file is the same as the entry name.
+     *
+     * The base implementation returns `false` and is meant to be overridden by
+     * concrete archive handlers.
      *
      * Params:
      *   filename = name of entry in archive

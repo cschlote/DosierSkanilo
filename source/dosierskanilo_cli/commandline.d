@@ -34,11 +34,14 @@ EOS";
 
 /** Parse command-line arguments into an ArgsArray instance.
  *
+ * This validates the scan path and JSON output file before the rest of the
+ * application starts.
+ *
  * Params:
  *   args = raw command-line arguments
  *   argsarray = destination struct for parsed values
  * Returns:
- *   true, if parsing and validation were successful
+ *   `true` if parsing and validation were successful.
  */
 bool parseCommandLineArgs(string[] args, ArgsArray* argsarray = &argsArray)
 {
@@ -196,8 +199,15 @@ unittest
 }
 
 /** Shortens a string `s` to exactly `maxLen` characters.
- * If `s` is longer, the middle part is replaced by "..."
- * so the resulting string has exactly `maxLen` characters.
+ *
+ * The result keeps the start and end intact so file names remain readable in
+ * narrow terminal columns.
+ *
+ * Params:
+ *   str = input string.
+ *   maxLen = target maximum length.
+ * Returns:
+ *   A string shortened from the middle if needed.
  */
 dstring shortenMiddle(string str, size_t maxLen)
 {
@@ -262,6 +272,8 @@ unittest
 
 /** Pad whitespace to the left side of a string.
  *
+ * This is used to keep the progress display aligned across varying file names.
+ *
  * Params:
  *   s = input string
  *   padlen = target length after left-padding
@@ -305,6 +317,9 @@ struct ProgressCallBack
 
 /** Create a spinner character plus normalized progress text.
  *
+ * The spinner gives a sense of liveliness when the progress ratio is not
+ * changing visibly.
+ *
  * Params:
  *   i = current value
  *   m = maximum value
@@ -336,6 +351,9 @@ unittest
 
 /** Update progress output for a sub-task callback.
  *
+ * This is called from background jobs and renders their progress inline with
+ * the main scanner progress line.
+ *
  * Params:
  *   i = current value
  *   m = maximum value
@@ -354,6 +372,9 @@ size_t lastTotalFiles;
 string lastFile;
 
 /** Print scan progress on a single console line.
+ *
+ * This is the terminal renderer used by both the scanner and nested work
+ * units.
  *
  * Params:
  *   idx = current position

@@ -16,8 +16,18 @@ import dosierskanilo.model.namedbinaryblob;
 import dosierskanilo.options;
 import dosierskanilo.progress;
 
-/** Do some basic analysis on data
-*/
+/** Do some basic analysis on data.
+ *
+ * The analysis step removes missing files, identifies same-size groups, checks
+ * hashes, merges duplicates, and drops invalidated objects.
+ *
+ * Params:
+ *   dynObjectArray = database objects to analyze and possibly modify.
+ *   gotCtrlC = shared abort flag set by the signal handler.
+ *   argsArray = parsed command-line options.
+ * Returns:
+ *   `true` when analysis completed.
+ */
 bool analyseData(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCtrlC, ref ArgsArray argsArray)
 {
 	bool rc;

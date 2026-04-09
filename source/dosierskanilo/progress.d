@@ -23,7 +23,17 @@ struct ProgressCallBack
 	void function(size_t i, size_t m) fp;
 }
 
-/** Shorten a string by replacing its middle section with an ellipsis. */
+/** Shorten a string by replacing its middle section with an ellipsis.
+ *
+ * This keeps the start and end of the string intact so paths remain
+ * recognizable in progress output.
+ *
+ * Params:
+ *   str = input string to shorten.
+ *   maxLen = maximum length of the returned string.
+ * Returns:
+ *   A string with at most `maxLen` characters.
+ */
 dstring shortenMiddle(string str, size_t maxLen)
 {
 	auto dstr = str.to!dstring;
@@ -71,7 +81,16 @@ unittest
 	assert(type4 == "|aaaa|...g|hhhh", type4.to!string);
 }
 
-/** Left-pad a D string with spaces up to `padlen`. */
+/** Left-pad a D string with spaces up to `padlen`.
+ *
+ * This is used to keep the progress display aligned to a fixed column width.
+ *
+ * Params:
+ *   s = input string.
+ *   padlen = target length after left-padding.
+ * Returns:
+ *   The padded string, or `s` unchanged if it is already long enough.
+ */
 dstring padLeft(dstring s, size_t padlen)
 {
 	size_t slen = s.length;
@@ -97,7 +116,17 @@ unittest
 	assert(b3 == a3, a3.to!string);
 }
 
-/** Create a compact textual progress indicator. */
+/** Create a compact textual progress indicator.
+ *
+ * The spinner cycles through a small set of characters to show activity even
+ * when the numeric ratio changes slowly.
+ *
+ * Params:
+ *   i = current progress value.
+ *   m = maximum progress value.
+ * Returns:
+ *   A spinner plus normalized progress ratio.
+ */
 string makeProgressString(size_t i, size_t m)
 {
 	static int q = 0;
@@ -123,13 +152,31 @@ private size_t lastIdx;
 private size_t lastTotalFiles;
 private string lastFile;
 
-/** Update the shared progress line for a callback sub-task. */
+/** Update the shared progress line for a callback sub-task.
+ *
+ * This reuses the most recent top-level progress line and appends the nested
+ * task state.
+ *
+ * Params:
+ *   i = current progress value.
+ *   m = maximum progress value.
+ */
 void progressCallBack(size_t i, size_t m)
 {
 	printProgress(lastIdx, lastTotalFiles, lastFile, makeProgressString(i, m));
 }
 
-/** Print scan progress on a single console line. */
+/** Print scan progress on a single console line.
+ *
+ * The display is rate-limited so it does not spam the terminal on every file
+ * update.
+ *
+ * Params:
+ *   idx = current position.
+ *   totalfiles = total number of files.
+ *   file = file currently processed.
+ *   subJob = optional sub-task description.
+ */
 void printProgress(size_t idx, size_t totalfiles, string file, string subJob = null)
 {
 	enum EL0 = "\x1b[K";

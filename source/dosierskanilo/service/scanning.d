@@ -27,11 +27,17 @@ import dosierskanilo.progress;
  *  Try to find an existing NamedBinaryBlob object in the dynamic array, or
  *  create a container object and add it to the dynamic Array.
  *
- *  Param:
- *   scanPath - Path to directory for the scan
- *   pickHidden - if true, hidden files and directories are also scanned
+ *  Files are updated in-place when only metadata changes; otherwise a new blob
+ *  node is created so history is preserved for multi-file entries.
  *
- *  Returns true, if all Files were scanned, otherwise false is returned.
+ * Params:
+ *   scanPath = path to directory for the scan.
+ *   pickHidden = if true, hidden files and directories are also scanned.
+ *   dynObjectArray = database objects collected so far.
+ *   gotCtrlC = shared abort flag set by the signal handler.
+ *   argsArray = parsed command-line options.
+ * Returns:
+ *   `true` if the scan completed.
  */
 bool scanDirTree(string scanPath, bool pickHidden = false, ref NamedBinaryBlob[] dynObjectArray, ref shared(
         bool) gotCtrlC, ref ArgsArray argsArray)
@@ -179,10 +185,17 @@ bool scanDirTree(string scanPath, bool pickHidden = false, ref NamedBinaryBlob[]
     return rc;
 }
 
-/** Execute scanner jobs on collected files
+/** Execute scanner jobs on collected files.
  *
- *  Here we execute a set of jobs, whose results are added as 'signatures'
- *  to the object.
+ * This runs the optional signature extraction passes for checksums, file
+ * types, media signatures, archives, and torrent metadata.
+ *
+ * Params:
+ *   dynObjectArray = database objects to enrich.
+ *   gotCtrlC = shared abort flag set by the signal handler.
+ *   argsArray = parsed command-line options.
+ * Returns:
+ *   `true` when all configured jobs finished.
  */
 bool runScannerJobs(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCtrlC, ref ArgsArray argsArray)
 {
