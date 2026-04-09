@@ -110,6 +110,9 @@ unittest
 	CheckSums sums;
 	ubyte[] testdata = [1, 2, 3, 4, 5, 6, 7];
 
+	assert(!sums.hasDigests, "Empty sums must not report digests.");
+	assert(sums.toHash == 0, "Empty sums must hash to zero.");
+
 	sums.set_md5sum(testdata);
 	assert(sums.get_md5sum == testdata, "Data Mismatch");
 	assert(!sums.hasDigests, "Check failed.");
@@ -128,4 +131,7 @@ unittest
 	sums2.set_xxh64(testdata);
 	assert(sums == sums2, "Equality mismatch");
 	assert(sums.toHash == sums2.toHash, "Hash mismatch");
+
+	sums2.set_xxh64([7, 6, 5, 4, 3, 2, 1]);
+	assert(sums != sums2, "Partial mismatch should break equality.");
 }
