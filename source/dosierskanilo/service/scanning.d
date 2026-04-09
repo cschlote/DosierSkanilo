@@ -15,8 +15,8 @@ import std.string;
 import std.stdio;
 import std.uuid;
 
-import dosierskanilo;
 import dosierskanilo.logging;
+import dosierskanilo.model.namedbinaryblob;
 import dosierskanilo.options;
 import dosierskanilo.progress;
 

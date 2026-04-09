@@ -12,8 +12,8 @@ import std.file;
 import std.path;
 import std.uuid;
 
-import dosierskanilo;
 import dosierskanilo.logging;
+import dosierskanilo.model.namedbinaryblob;
 
 /** Read scanner data from a JSON storage file.
  *

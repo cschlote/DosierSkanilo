@@ -9,6 +9,13 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- Split the CLI-specific code into a dedicated application package:
+  - moved CLI entry points and command-line parsing into `dosierskanilo_cli`
+  - kept shared logging, options, and progress helpers in the library surface
+  - let the CLI depend on `dosierskanilo` and `dosierarkivo` as libraries
+  - reduced cross-package imports so the library modules can evolve without
+    dragging CLI-only code with them
+
 ## Release 26.9.0
 
 - Split the archive helper code into dedicated modules and package facades:

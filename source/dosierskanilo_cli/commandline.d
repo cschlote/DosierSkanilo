@@ -15,8 +15,7 @@ import std.process;
 import std.range;
 import std.string;
 
-import dosierskanilo.logging;
-import dosierskanilo.options;
+import dosierskanilo;
 import core.internal.lifetime;
 
 immutable string helpText = q"EOS

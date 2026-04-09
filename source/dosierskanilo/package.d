@@ -6,6 +6,9 @@
  */
 module dosierskanilo;
 
+public import dosierskanilo.logging;
+public import dosierskanilo.options;
+public import dosierskanilo.progress;
 public import dosierskanilo.metadata.digests;
 public import dosierskanilo.metadata.fileutilsig;
 public import dosierskanilo.metadata.mediainfosig;
@@ -14,3 +17,6 @@ public import dosierskanilo.model.archivespec;
 public import dosierskanilo.model.checksums;
 public import dosierskanilo.model.filespec;
 public import dosierskanilo.model.namedbinaryblob;
+public import dosierskanilo.service.analyze;
+public import dosierskanilo.service.scanning;
+public import dosierskanilo.service.storageio;

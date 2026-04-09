@@ -9,7 +9,7 @@ module dosierskanilo.model.checksums;
 import jsonizer;
 
 import std.base64 : Base64;
-import std.string :  empty;
+import std.string : empty;
 
 /** Simple struct to store the checksums of a file
  *

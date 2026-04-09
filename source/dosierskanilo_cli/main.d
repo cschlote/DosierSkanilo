@@ -40,14 +40,9 @@ import std.typecons;
 import std.utf;
 
 import dosierskanilo;
-import dosierskanilo.options;
-import dosierskanilo.logging;
 import dosierarkivo;
 
-import dosierskanilo.service.analyze;
 import dosierskanilo_cli.commandline;
-import dosierskanilo.service.scanning;
-import dosierskanilo.service.storageio;
 
 version (ldc)
 {
