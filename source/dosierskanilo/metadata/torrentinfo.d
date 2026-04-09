@@ -63,7 +63,7 @@ class TorrentInfo
         TorrentFileEntry[] files; /// List of files
         /** SHA1 hash of the bencoded `info` dictionary (hex encoded)
         * See:  https://www.bittorrent.org/beps/bep_0003.html#info-hash */
-        string infoHashHex;
+        string infoHashHex; /// Hex-encoded SHA1 hash of the `info` dictionary
         string announce; /// Primary announce tracker
         ulong pieceLength; /// Piece length in bytes
         /**
@@ -75,6 +75,7 @@ class TorrentInfo
         ulong piecesCount; /// Number of pieces
     }
 
+    /** Check whether the torrent info contains any meaningful data. */
     bool empty() const
     {
         return
@@ -89,6 +90,7 @@ class TorrentInfo
             ;
     }
 
+    /** Create a deep-ish copy of the torrent info object. */
     TorrentInfo dup()
     {
         auto copy = new TorrentInfo();
@@ -241,19 +243,19 @@ TorrentInfo getTorrentInfo(string filePath)
  * Required indirection because SumType does not allow
  * directly recursive aliases.
  */
-struct BNode
+private struct BNode
 {
     BValue value;
 }
 
 /// Internal representation of a bencoded value
-alias BValue = SumType!(long, string, BList, BDict);
+private alias BValue = SumType!(long, string, BList, BDict);
 
 /// Bencoded list
-alias BList = BNode[];
+private alias BList = BNode[];
 
 /// Bencoded dictionary
-alias BDict = BNode[string];
+private alias BDict = BNode[string];
 
 /*
  * Compatibility note:
@@ -332,7 +334,7 @@ private bool tryGetBDict(BValue value, out BDict result)
  * ============================================================
  */
 
-class BencodeParser
+private class BencodeParser
 {
     private const(ubyte)[] data;
     private size_t pos;
@@ -425,7 +427,7 @@ class BencodeParser
 }
 
 /** Encode a bencode node (used for info-dictionary hashing). */
-void bencode(ref Appender!(ubyte[]) out_, BNode node)
+private void bencode(ref Appender!(ubyte[]) out_, BNode node)
 {
     node.value.match!(
         (long i) {
@@ -459,7 +461,7 @@ void bencode(ref Appender!(ubyte[]) out_, BNode node)
 }
 
 /** Convert bytes to a lowercase hexadecimal string. */
-string toHex(const ubyte[] data)
+private string toHex(const ubyte[] data)
 {
     string result;
     foreach (b; data)

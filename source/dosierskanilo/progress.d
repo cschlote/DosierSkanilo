@@ -19,9 +19,11 @@ import dosierskanilo.logging;
 /** Wrapper around a progress callback function pointer. */
 struct ProgressCallBack
 {
+	/** Callback invoked with the current and maximum progress values. */
 	void function(size_t i, size_t m) fp;
 }
 
+/** Shorten a string by replacing its middle section with an ellipsis. */
 dstring shortenMiddle(string str, size_t maxLen)
 {
 	auto dstr = str.to!dstring;
@@ -69,6 +71,7 @@ unittest
 	assert(type4 == "|aaaa|...g|hhhh", type4.to!string);
 }
 
+/** Left-pad a D string with spaces up to `padlen`. */
 dstring padLeft(dstring s, size_t padlen)
 {
 	size_t slen = s.length;
@@ -94,6 +97,7 @@ unittest
 	assert(b3 == a3, a3.to!string);
 }
 
+/** Create a compact textual progress indicator. */
 string makeProgressString(size_t i, size_t m)
 {
 	static int q = 0;
@@ -114,16 +118,18 @@ unittest
 	assert(s3.startsWith("| 1.000000"), s3);
 }
 
-SysTime lastProgress;
-size_t lastIdx;
-size_t lastTotalFiles;
-string lastFile;
+private SysTime lastProgress;
+private size_t lastIdx;
+private size_t lastTotalFiles;
+private string lastFile;
 
+/** Update the shared progress line for a callback sub-task. */
 void progressCallBack(size_t i, size_t m)
 {
 	printProgress(lastIdx, lastTotalFiles, lastFile, makeProgressString(i, m));
 }
 
+/** Print scan progress on a single console line. */
 void printProgress(size_t idx, size_t totalfiles, string file, string subJob = null)
 {
 	enum EL0 = "\x1b[K";

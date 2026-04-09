@@ -1,4 +1,7 @@
-/** Public package facade for dosierskanilo library modules.
+/** Public package facade for the library-facing dosierskanilo modules.
+ *
+ * This package exposes the reusable library surface for consumers. The CLI
+ * application lives in `dosierskanilo_cli`.
  *
  * Authors: Carsten Schlote, schlote@vahanus.net
  * Copyright: Carsten Schlote, Released under CC-BY-NC-SA 4.0 license, 2018

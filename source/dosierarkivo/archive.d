@@ -6,7 +6,7 @@
  */
 module dosierarkivo.archive;
 
-/** Types of archives we support */
+/** Types of archives we support. */
 enum ArchiveType
 {
     unknown,
@@ -16,9 +16,13 @@ enum ArchiveType
     _7z
 }
 
+/** File extension for ZIP archives. */
 enum ZIP_SUFFIX = ".zip";
+/** File extension for TAR archives. */
 enum TAR_SUFFIX = ".tar";
+/** File extension for RAR archives. */
 enum RAR_SUFFIX = ".rar";
+/** File extension for 7z archives. */
 enum _7Z_SUFFIX = ".7z";
 
 /** Top-level representation of an archive file.
@@ -30,8 +34,10 @@ enum _7Z_SUFFIX = ".7z";
  */
 abstract class FileArchive
 {
+    /** Archive type represented by the concrete implementation. */
     const ArchiveType fileType;
-    string fileName; /// path to archive file
+    /** Path to the archive file on disk. */
+    string fileName;
 
     this(ArchiveType type, string filename)
     {

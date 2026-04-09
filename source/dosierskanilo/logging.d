@@ -8,18 +8,22 @@ module dosierskanilo.logging;
 
 import std.stdio : stdout, write, writef, writefln, writeln;
 
+/** Global verbose-output flag used by logging helpers. */
 __gshared bool verboseEnabled;
 
+/** Enable or disable verbose log output. */
 void setVerboseOutputs(bool enabled) nothrow
 {
 	verboseEnabled = enabled;
 }
 
+/** Return the current verbose-output state. */
 bool isVerboseOutputs() nothrow
 {
 	return verboseEnabled;
 }
 
+/** Write formatted text without a trailing newline. */
 void logF(T...)(T args)
 {
 	version (unittest)
@@ -32,6 +36,7 @@ void logF(T...)(T args)
 	}
 }
 
+/** Write formatted text with a trailing newline. */
 void logFLine(T...)(T args)
 {
 	version (unittest)
@@ -44,6 +49,7 @@ void logFLine(T...)(T args)
 	}
 }
 
+/** Write text with a trailing newline. */
 void logLine(T...)(T args)
 {
 	version (unittest)
@@ -56,6 +62,7 @@ void logLine(T...)(T args)
 	}
 }
 
+/** Write text without a trailing newline. */
 void log(T...)(T args)
 {
 	version (unittest)
@@ -68,6 +75,7 @@ void log(T...)(T args)
 	}
 }
 
+/** Write formatted verbose text without a trailing newline. */
 void logFVerbose(T...)(T args)
 {
 	version (unittest)
@@ -81,6 +89,7 @@ void logFVerbose(T...)(T args)
 	}
 }
 
+/** Write formatted verbose text with a trailing newline. */
 void logFLineVerbose(T...)(T args)
 {
 	version (unittest)
@@ -94,6 +103,7 @@ void logFLineVerbose(T...)(T args)
 	}
 }
 
+/** Write verbose text with a trailing newline. */
 void logLineVerbose(T...)(T args)
 {
 	version (unittest)
@@ -107,6 +117,7 @@ void logLineVerbose(T...)(T args)
 	}
 }
 
+/** Write verbose text without a trailing newline. */
 void logVerbose(T...)(T args)
 {
 	version (unittest)
