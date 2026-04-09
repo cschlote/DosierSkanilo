@@ -243,7 +243,7 @@ TorrentInfo getTorrentInfo(string filePath)
  * Required indirection because SumType does not allow
  * directly recursive aliases.
  */
-private struct BNode
+/*private*/ struct BNode
 {
     BValue value;
 }
