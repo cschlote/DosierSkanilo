@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-set -ex
+set -euo pipefail
+#set -x
 
 DC="${DC:-ldc2}"
 LST_DIR="./build/coverage"
@@ -25,3 +26,58 @@ dub run -- -p ./docs/ -j dosierskanilo.json -f -r
 
 # Redo, an calc checksums
 dub run -- -p ./docs/ -j dosierskanilo.json -f -r -c -m
+
+# Calculate coverage percentage for all files. Output the stats for each file.
+# Finally output the total coverage percentage.
+print_coverage() {
+    local total_covered=0
+    local total_executable=0
+    local coverage_files=()
+    local lst_file
+
+    shopt -s nullglob
+    coverage_files=("${LST_DIR}"/*.lst)
+    shopt -u nullglob
+
+    if [ "${#coverage_files[@]}" -eq 0 ]; then
+        echo "No coverage listings found."
+        return 0
+    fi
+
+    for lst_file in "${coverage_files[@]}"; do
+        local stats
+        local covered
+        local executable
+
+        stats=$(awk '
+            BEGIN {
+                FS = "|"
+            }
+            {
+                marker = $1
+                gsub(/[ \t]/, "", marker)
+                if (marker ~ /^[0-9]+$/) {
+                    executable++
+                    if ((marker + 0) > 0)
+                        covered++
+                }
+            }
+            END {
+                printf "%d %d\n", covered + 0, executable + 0
+            }
+        ' "${lst_file}")
+        read -r covered executable <<<"${stats}"
+
+        local percent
+        percent=$(awk -v c="${covered}" -v e="${executable}" 'BEGIN { if (e == 0) printf "100.00"; else printf "%.2f", (100.0 * c / e) }')
+        printf "%s: %s/%s (%s%%)\n" "$(basename "${lst_file}" .lst)" "${covered}" "${executable}" "${percent}"
+        total_covered=$((total_covered + covered))
+        total_executable=$((total_executable + executable))
+    done
+
+    local total_percent
+    total_percent=$(awk -v c="${total_covered}" -v e="${total_executable}" 'BEGIN { if (e == 0) printf "100.00"; else printf "%.2f", (100.0 * c / e) }')
+    printf "Total coverage: %s%%\n" "${total_percent}"
+}
+
+print_coverage

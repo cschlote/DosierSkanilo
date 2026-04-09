@@ -39,6 +39,7 @@ lint:
   stage: build
   tags:
     - gitlabdocker
+  coverage: '/^Total coverage: ([0-9]+(\.[0-9]+)?)%$/'
   before_script:
     - sh ./scripts/install-dependencies.sh build
     - sh ./scripts/install-dependencies.sh runtime
