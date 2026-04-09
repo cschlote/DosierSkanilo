@@ -39,12 +39,10 @@ import std.string;
 import std.typecons;
 import std.utf;
 
-import dosierskanilo.metadata.mediainfosig;
-import dosierskanilo.metadata.digests;
-import dosierskanilo.model.namedbinaryblob;
+import dosierskanilo;
 
 
-import dosierarkivo.baseclass;
+import dosierarkivo;
 
 import dosierskanilo.service.analyze;
 import dosierskanilo.cli.commandline;

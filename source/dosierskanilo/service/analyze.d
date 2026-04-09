@@ -11,7 +11,7 @@ import std.file;
 import std.path;
 import std.uuid;
 
-import dosierskanilo.model.namedbinaryblob; // model stays
+import dosierskanilo;
 import dosierskanilo.cli.commandline;
 import dosierskanilo.cli.logging;
 

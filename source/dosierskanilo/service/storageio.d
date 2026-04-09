@@ -12,7 +12,7 @@ import std.file;
 import std.path;
 import std.uuid;
 
-import dosierskanilo.model.namedbinaryblob; // model stays
+import dosierskanilo;
 import dosierskanilo.cli.logging;
 
 /** Read scanner data from a JSON storage file.

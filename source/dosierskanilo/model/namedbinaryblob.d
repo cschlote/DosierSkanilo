@@ -10,30 +10,23 @@
  */
 module dosierskanilo.model.namedbinaryblob;
 
-import std.array;
 import std.algorithm;
-import std.base64 : Base64;
-import std.datetime.timezone : TimeZone;
+import std.array;
 import std.datetime.systime : SysTime;
-import std.exception;
-import std.conv : to;
-import std.file : exists, readText, tempDir, getSize, getTimes, mkdirRecurse, rmdirRecurse;
-import std.parallelism : Task, task;
-import std.path : baseName, buildPath;
-import std.process : thisProcessID, thisThreadID;
-import std.stdio : writeln, writefln;
-import std.string : format, empty;
+import std.datetime.timezone : TimeZone;
+import std.exception : assertThrown, enforce;
 
 import jsonizer;
 
-import dosierskanilo.metadata.mediainfosig;
-import dosierskanilo.metadata.digests;
-import dosierskanilo.metadata.torrentinfo;
-
-import dosierarkivo.baseclass;
-
+import dosierarkivo;
 import dosierskanilo.cli.commandline;
 import dosierskanilo.cli.logging;
+import dosierskanilo.metadata.digests;
+import dosierskanilo.metadata.mediainfosig;
+import dosierskanilo.metadata.torrentinfo;
+public import dosierskanilo.model.archivespec;
+public import dosierskanilo.model.checksums;
+public import dosierskanilo.model.filespec;
 
 enum int DATA_CLASS_VERSION1 = 1; ///< Current version of the NamedBinaryBlob structure, v1
 enum int DATA_CLASS_VERSION2 = 2; ///< Current version of the NamedBinaryBlob structure, v2
@@ -86,318 +79,11 @@ unittest
 	assert(wrap.dataArray.length == 4);
 }
 
-/** Simple struct to store the checksums of a file
- *
- * This struct encapsulates the checksums of a file in base64 encoding.
- */
-struct CheckSums
-{
-	/* Add code needed for JSON serialization */
-	mixin JsonizeMe;
-
-	/* public serialized members */
-	@jsonize(JsonizeIn.opt, JsonizeOut.opt)
-	{
-		string md5sum_b64; ///< base64 of md5 hash
-		string sha1sum_b64; ///< base 64 of sha1 hash
-		string xxh64sum_b64; ///< base 64 of xxh64 hash
-	}
-
-	/** the file md5sum as a property */
-	ubyte[] get_md5sum() const @property pure @safe
-	{
-		return (md5sum_b64 is null) ? null : Base64.decode(md5sum_b64);
-	}
-
-	/** setter - the file md5sum as a property */
-	void set_md5sum(ubyte[] data) @property @safe
-	{
-		md5sum_b64 = (data is null) ? null : Base64.encode(data);
-	}
-
-	/** getter - the file sha1sum as a property */
-	ubyte[] get_sha1sum() const @property pure @safe
-	{
-		return (sha1sum_b64 is null) ? null : Base64.decode(sha1sum_b64);
-	}
-
-	/** setter - the file sha1sum as a property */
-	void set_sha1sum(ubyte[] data) @property @safe
-	{
-		sha1sum_b64 = (data is null) ? null : Base64.encode(data);
-	}
-
-	/** getter - the file xxh64 as a property */
-	ubyte[] get_xxh64() const @property pure @safe
-	{
-		return (xxh64sum_b64 is null) ? null : Base64.decode(xxh64sum_b64);
-	}
-
-	/** setter - the file xxh64 as a property */
-	void set_xxh64(ubyte[] data) @property @safe
-	{
-		xxh64sum_b64 = (data is null) ? null : Base64.encode(data);
-	}
-
-	/** Check if all three digests are present */
-	bool hasDigests() @safe pure nothrow const
-	{
-		return !this.md5sum_b64.empty && !this.sha1sum_b64.empty && !this.xxh64sum_b64.empty;
-	}
-
-	/** equality operator
-	*/
-	bool opEquals(const CheckSums other) const @safe
-	{
-		return this.hasDigests && other.hasDigests &&
-			this.md5sum_b64 == other.md5sum_b64 &&
-			this.sha1sum_b64 == other.sha1sum_b64 &&
-			this.xxh64sum_b64 == other.xxh64sum_b64;
-	}
-
-	size_t toHash() const nothrow @safe
-	{
-		if (!this.hasDigests)
-			return 0;
-
-		size_t hash = 1469598103934665603UL;
-		void mixString(string value) nothrow @safe
-		{
-			foreach (immutable char ch; value)
-			{
-				hash ^= cast(ubyte) ch;
-				hash *= 1099511628211UL;
-			}
-			hash ^= 0xff;
-			hash *= 1099511628211UL;
-		}
-
-		mixString(this.md5sum_b64);
-		mixString(this.sha1sum_b64);
-		mixString(this.xxh64sum_b64);
-		return hash;
-	}
-}
-
-@("struct CheckSums")
-unittest
-{
-	CheckSums sums;
-	ubyte[] testdata = [1, 2, 3, 4, 5, 6, 7];
-
-	sums.set_md5sum(testdata);
-	assert(sums.get_md5sum == testdata, "Data Mismatch");
-	assert(!sums.hasDigests, "Check failed.");
-
-	sums.set_sha1sum(testdata);
-	assert(sums.get_sha1sum == testdata, "Data Mismatch");
-	assert(!sums.hasDigests, "Check failed.");
-
-	sums.set_xxh64(testdata);
-	assert(sums.get_xxh64 == testdata, "Data Mismatch");
-	assert(sums.hasDigests, "Check failed.");
-
-	CheckSums sums2;
-	sums2.set_md5sum(testdata);
-	sums2.set_sha1sum(testdata);
-	sums2.set_xxh64(testdata);
-	assert(sums == sums2, "Equality mismatch");
-	assert(sums.toHash == sums2.toHash, "Hash mismatch");
-}
-
-/* ----------------------------------------------------------------------------- */
-
-/** Each binary blob can have multiple filenames and times */
-class FileSpec
-{
-	/* Add code needed for JSON serialization */
-	mixin JsonizeMe;
-
-	@jsonize(JsonizeIn.opt, JsonizeOut.opt)
-	{
-		string fileName;
-		string timeLastModified;
-	}
-
-	this()
-	{
-		fileName = "";
-		timeLastModified = "";
-	}
-
-	this(string fn, string modtime) @safe
-	{
-		fileName = fn;
-		timeLastModified = modtime;
-	}
-
-	import std.datetime : SysTime;
-	import core.stdcpp.array;
-
-	this(string fn, SysTime modtime)
-	{
-		fileName = fn;
-		timeLastModified = modtime.toISOExtString;
-	}
-
-	int opCmp(FileSpec rhs) const pure @safe
-	{
-		if (this.fileName > rhs.fileName)
-			return 1;
-		else if (this.fileName < rhs.fileName)
-			return -1;
-		else
-			return 0;
-	}
-
-	override string toString() const pure
-	{
-		return format("FileSpec('%s', %s)", fileName, timeLastModified);
-	}
-
-	// int opEquals(FileSpec rhs) const pure
-	// {
-	// 	return this.fileName == rhs.fileName &&
-	// 		this.timeLastModified == rhs.timeLastModified;
-	// }
-
-	import std.typecons : Nullable;
-
-	private Nullable!bool fileExists; ///< Helper field, not serialized
-
-	/** Check if the file exists on disk
-	 *
-	 * Returns: true, if the file exists on disk, false otherwise
-	 * Note: The result is cached in the fileExists field to avoid multiple disk accesses for the same file.
-	 */
-	bool exists() @safe
-	{
-		import std.file : exists;
-
-		if (this.fileExists.isNull)
-		{
-			this.fileExists = this.fileName.exists;
-		}
-		return this.fileExists.get;
-	}
-}
-
-@("class FileSpec")
-unittest
-{
-	auto ts = SysTime(1_234_567).toISOExtString;
-
-	auto fs0 = new FileSpec();
-	assert(fs0.toString == `FileSpec('', )`, fs0.toString);
-
-	auto fs1 = new FileSpec("test/dummy-text-file.txt", SysTime(1_234_567));
-	assert(fs1.toString == format("FileSpec('%s', %s)", "test/dummy-text-file.txt", ts), fs1
-			.toString);
-	assert(fs1.exists, "File must exist");
-
-	auto fs2 = new FileSpec("test/non-existing-file.txt", SysTime(1_234_567));
-	assert(!fs2.exists, "File must not exist");
-
-	assert(fs1.opCmp(fs2) < 0, "fs1 < fs2");
-	assert(fs2.opCmp(fs1) > 0, "fs2 > fs1");
-	assert(fs1.opCmp(fs1) == 0, "fs1 == fs1");
-}
-
-/* ----------------------------------------------------------------------------- */
-
-/** Contents description of an archive file
- *
- * There are several known archive file formats (zip, tar, rar, 7z, ...). Each of
- * them can contain multiple files inside. We store the basic information
- * about each file inside the archive in this class.
- */
-class ArchiveSpec
-{
-	/* Add code needed for JSON serialization */
-	mixin JsonizeMe;
-
-	/* public serialized members */
-	@jsonize
-	{
-		string fileName;
-		size_t fileSize;
-		string timeLastModified;
-	}
-	@jsonize(JsonizeIn.opt, JsonizeOut.opt)
-	CheckSums checkSums;
-
-	this()
-	{
-		fileName = "";
-		fileSize = 0;
-		timeLastModified = "";
-		checkSums = CheckSums();
-	}
-
-	this(string fn, size_t fsize, string modtime, CheckSums sums)
-	{
-		fileName = fn;
-		fileSize = fsize;
-		timeLastModified = modtime;
-		checkSums = sums;
-	}
-
-	import std.datetime : SysTime;
-	import core.stdcpp.array;
-	import std.experimental.allocator.building_blocks.fallback_allocator;
-
-	this(string fn, size_t fsize, SysTime modtime, CheckSums sums)
-	{
-		fileName = fn;
-		fileSize = fsize;
-		timeLastModified = modtime.toISOExtString;
-		checkSums = sums;
-	}
-
-	int opCmp(ArchiveSpec rhs) const pure @safe
-	{
-		if (this.fileName > rhs.fileName)
-			return 1;
-		else if (this.fileName < rhs.fileName)
-			return -1;
-		else
-			return 0;
-	}
-
-	override string toString() const pure
-	{
-		return format("ArchiveSpec('%s', %d, '%s', %s)", fileName, fileSize, timeLastModified, checkSums);
-	}
-}
-
-@("class ArchiveSpec")
-unittest
-{
-	auto ts = SysTime(1_234_567).toISOExtString;
-
-	auto as0 = new ArchiveSpec();
-	auto asd0 = as0.toString;
-	// writeln("AS0: ", asd0);
-	assert(asd0 == `ArchiveSpec('', 0, '', const(CheckSums)("", "", ""))`, as0.toString);
-
-	auto as1 = new ArchiveSpec("test/dummy-text-file.txt", 1_234_567, SysTime(1_234_567), CheckSums());
-	auto asd1 = as1.toString;
-	// writeln("AS1: ", asd1);
-	assert(
-		asd1 == format("ArchiveSpec('%s', %d, '%s', %s)", "test/dummy-text-file.txt", 1_234_567, ts,
-			const(CheckSums)()), as1
-			.toString);
-
-	assert(as1.opCmp(as0) > 0, "as1 > as0");
-	assert(as0.opCmp(as1) < 0, "as0 < as1");
-	assert(as1.opCmp(as1) == 0, "as1 == as1");
-}
-
-/* ----------------------------------------------------------------------------- */
-
 /// Helper variables of the class
 mixin template payloadHelpers()
 {
+	import std.parallelism : Task, task;
+
 	//bool invalidated; ///< Set, when file entry is marked for removal
 	bool isBlobOrphaned() ///< Set, when there is no file entry on disk for this blob
 	{
@@ -602,6 +288,9 @@ class NamedBinaryBlob
 	/** create a string from the object contents */
 	override string toString() const
 	{
+		import std.string : format;
+		import std.path : baseName;
+
 		//assert(fileNames.length > 0, "NamedBinaryBlob entry has no filenames!");
 		auto filename = this.getFirstFileName;
 		auto mtime = this.getFirstFileModDate;
@@ -766,6 +455,8 @@ class NamedBinaryBlob
 	 */
 	FileSpec addFileSpec(string filename, string timeLastModified) @safe
 	{
+		import std.string : format;
+
 		enforce(!this.hasFileName(filename),
 			"FileSpec with filename '%s' already exists.".format(filename));
 
@@ -804,6 +495,8 @@ class NamedBinaryBlob
 @("class MediaInfoSig")
 unittest
 {
+	import std.string : format, empty;
+
 	auto ts = SysTime(1_234_567).toISOExtString;
 	auto ts2 = SysTime(2_345_678).toISOExtString;
 
@@ -1218,6 +911,8 @@ unittest
  */
 NamedBinaryBlob[] deserializeDataClassJsonFile(string fileName, bool verbose = false)
 {
+	import std.file : exists, readText;
+
 	logFLineVerbose("Read serialized data from JSON file %s", fileName);
 	//enforce(exists(fileName), "File %s does not exist!".format(fileName));
 	if (!exists(fileName))
@@ -1232,6 +927,8 @@ NamedBinaryBlob[] deserializeDataClassJsonFile(string fileName, bool verbose = f
 @("deserializeDataClassJsonFile")
 unittest
 {
+	import std.file : exists, readText, tempDir, getSize, getTimes, mkdirRecurse, rmdirRecurse;
+
 	auto dca = deserializeDataClassJsonFile("./test/json_file_notexisting.json");
 	assert(dca.length == 0);
 
@@ -1276,94 +973,59 @@ void serializeDataClassArrayFile(string fileName, NamedBinaryBlob[] dataArray)
 	wrapper.dataArray = fixupDataClassArrayIn(wrapper.dataArray);
 }
 
-@("serializeDataClassArrayFile")
-unittest
+version (unittest)
 {
-	auto dca1 = deserializeDataClassJsonString(test_json_v2);
-	assert(dca1.length == 3, dca1.length.to!string);
-
-	import std.path : buildPath;
-	import std.file : tempDir, mkdirRecurse, remove;
-	import std.json : parseJSON;
-	import std.uuid : randomUUID;
-
-	auto dir = buildPath(tempDir(), "filescanner_serializer_test");
-	mkdirRecurse(dir);
-	auto file = buildPath(dir, randomUUID().toString);
-	scope (exit)
+	void testSerializeDataClassArrayFile(string fileName, int expectedLength, string expectedJsonFile)
 	{
-		remove(file);
-	};
+		import std.conv : to;
+		import std.file : mkdirRecurse, readText, remove, tempDir;
+		import std.json : parseJSON;
+		import std.path : buildPath;
+		import std.uuid : randomUUID;
 
-	file.serializeDataClassArrayFile(dca1);
-	//file.writeJSON(test_json_v2);
+		auto dca1 = deserializeDataClassJsonString(fileName);
+		assert(dca1.length == expectedLength, dca1.length.to!string);
 
-	auto jsonstring = file.readText;
-	//writeln(jsonstring);
-	auto json = jsonstring.parseJSON;
+		auto dir = buildPath(tempDir(), "filescanner_serializer_test");
+		mkdirRecurse(dir);
+		auto file = buildPath(dir, randomUUID().toString);
+		scope (exit)
+		{
+			remove(file);
+		}
 
-	auto jsonstring0 = json_file_v2.readText;
-	auto json0 = jsonstring0.parseJSON;
+		file.serializeDataClassArrayFile(dca1);
+		//file.writeJSON(test_json_v2);
 
-	assert(jsonstring == jsonstring0, "Serialized JSON does not match expected JSON.\nGot:\n" ~ jsonstring ~ "\nExpected:\n" ~ jsonstring0);
+		auto jsonstring = file.readText;
+		//writeln(jsonstring);
+		auto json = jsonstring.parseJSON;
+
+		auto jsonstring0 = expectedJsonFile.readText;
+		auto json0 = jsonstring0.parseJSON;
+
+		assert(jsonstring == jsonstring0, "Serialized JSON does not match expected JSON.\nGot:\n" ~ jsonstring ~ "\nExpected:\n" ~ jsonstring0);
+		assert(json == json0, "Parsed JSON does not match expected JSON.\nGot:\n" ~ json.toString ~ "\nExpected:\n" ~ json0
+				.toString);
+	}
 }
 
-@("archive serialization")
+@("(de)serializeDataClassArrayFile 1 - standard fields")
 unittest
 {
-	auto dca1 = deserializeDataClassJsonFile(json_file_v2_archive);
-	assert(dca1.length == 1, dca1.length.to!string);
-
-	import std.path : buildPath;
-	import std.file : tempDir, mkdirRecurse, remove;
-	import std.json : parseJSON;
-	import std.uuid : randomUUID;
-
-	auto dir = buildPath(tempDir(), "filescanner_serializer_test");
-	mkdirRecurse(dir);
-	auto file = buildPath(dir, randomUUID().toString);
-
-	file.serializeDataClassArrayFile(dca1);
-	//file.writeJSON(test_json_v2_archive);
-
-	auto jsonstring = file.readText;
-	//writeln(jsonstring);
-	auto json = jsonstring.parseJSON;
-
-	auto jsonstring0 = json_file_v2_archive.readText;
-	auto json0 = jsonstring0.parseJSON;
-
-	assert(jsonstring == jsonstring0, "Serialized JSON does not match expected JSON.\nGot:\n" ~ jsonstring ~ "\nExpected:\n" ~ jsonstring0);
-	remove(file);
+	testSerializeDataClassArrayFile(test_json_v2, 3, json_file_v2);
 }
 
-@("torrentInfo serialization")
+@("(de)serializeDataClassArrayFile 2 - archive serialization")
 unittest
 {
-	auto dca1 = deserializeDataClassJsonFile(json_file_v2_torrent);
-	assert(dca1.length == 1, dca1.length.to!string);
+	testSerializeDataClassArrayFile(test_json_v2_archive, 1, json_file_v2_archive);
+}
 
-	import std.path : buildPath;
-	import std.file : tempDir, mkdirRecurse, remove;
-	import std.json : parseJSON;
-	import std.uuid : randomUUID;
-
-	auto dir = buildPath(tempDir(), "filescanner_serializer_test");
-	mkdirRecurse(dir);
-	auto file = buildPath(dir, randomUUID().toString);
-
-	file.serializeDataClassArrayFile(dca1);
-	//file.writeJSON(test_json_v2_torrent);
-
-	auto jsonstring = file.readText;
-	//writeln(jsonstring);
-	auto json = jsonstring.parseJSON;
-
-	auto jsonstring0 = json_file_v2_torrent.readText;
-	auto json0 = jsonstring0.parseJSON;
-
-	assert(jsonstring == jsonstring0, "Serialized JSON does not match expected JSON.\nGot:\n" ~ jsonstring ~ "\nExpected:\n" ~ jsonstring0);
-	remove(file);
+@("(de)serializeDataClassArrayFile 3 - torrentInfo serialization")
+unittest
+{
+	testSerializeDataClassArrayFile(test_json_v2_torrent, 1, json_file_v2_torrent);
 }
 
 /** Calc the Digests, if missing
@@ -1503,6 +1165,11 @@ void updateArchives(NamedBinaryBlob obj,
 {
 	string getTmpDirPrefix() const
 	{
+		import std.process : thisProcessID, thisThreadID;
+		import std.path : buildPath;
+		import std.file : tempDir;
+		import std.conv : to;
+
 		return buildPath(tempDir, "dosierskanilo-" ~ thisProcessID.to!string ~ "-" ~ thisThreadID
 				.to!string);
 	}
@@ -1544,6 +1211,8 @@ void updateArchives(NamedBinaryBlob obj,
 
 					foreach (idx, arcfile; arcfiles)
 					{
+						import std.file : mkdirRecurse, rmdirRecurse;
+
 						logFLineVerbose("  with archive file '%s'", arcfile);
 
 						mkdirRecurse(getTmpDirPrefix);
@@ -1556,6 +1225,10 @@ void updateArchives(NamedBinaryBlob obj,
 						CheckSums sums = CheckSums();
 						if (deep)
 						{
+							import std.string : format;
+							import std.path : buildPath;
+							import std.file : getSize, getTimes;
+
 							auto destFile = buildPath(getTmpDirPrefix(), arcfile);
 
 							auto exOk = archiveObj.extractEntry(arcfile, getTmpDirPrefix());
@@ -1745,6 +1418,7 @@ unittest
 NamedBinaryBlob mergeDataClassObjects(NamedBinaryBlob[] objs)
 {
 	import std.algorithm.iteration : uniq;
+	import std.string : format;
 
 	enforce(objs.length >= 2, "Need at least 2 objects");
 	MediaInfoSig mis = null;
