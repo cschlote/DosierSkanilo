@@ -94,3 +94,22 @@ abstract class FileArchive
         }
     }
 }
+
+@("file archive defaults")
+unittest
+{
+	class DummyArchive : FileArchive
+	{
+		this()
+		{
+			super(ArchiveType.zip, "dummy.zip");
+		}
+	}
+
+	auto archive = new DummyArchive();
+
+	assert(archive.fileType == ArchiveType.zip);
+	assert(archive.fileName == "dummy.zip");
+	assert(archive.getEntries is null);
+	assert(!archive.extractEntry("entry.txt", "/tmp"));
+}

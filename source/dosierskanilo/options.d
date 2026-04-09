@@ -33,3 +33,15 @@ struct ArgsArray
 
 /** Process-global command-line state used by the CLI workflow. */
 ArgsArray argsArray;
+
+@("options defaults")
+unittest
+{
+	import std.string : empty;
+	
+	ArgsArray opts;
+	assert(opts.argNumberOfThreads == 1);
+	assert(opts.argScanArchives == 0);
+	assert(opts.argJSONFile.empty);
+	assert(opts.argScanPath.empty);
+}

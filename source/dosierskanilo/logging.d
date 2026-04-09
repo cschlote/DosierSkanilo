@@ -190,3 +190,17 @@ void logVerbose(T...)(T args)
 		}
 	}
 }
+
+@("logging verbose flag toggles")
+unittest
+{
+	bool original = isVerboseOutputs();
+	scope (exit)
+		setVerboseOutputs(original);
+
+	setVerboseOutputs(false);
+	assert(!isVerboseOutputs);
+
+	setVerboseOutputs(true);
+	assert(isVerboseOutputs);
+}

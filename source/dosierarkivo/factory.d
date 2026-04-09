@@ -56,3 +56,21 @@ unittest
     auto fa = fileArchive("test/not-found.txt");
     assert(fa is null);
 }
+
+@("fileArchive() unsupported extension")
+unittest
+{
+	import std.file : remove, tempDir, write;
+	import std.path : buildPath;
+	import std.uuid : randomUUID;
+
+	auto tmpFile = buildPath(tempDir(), "archive-factory-" ~ randomUUID().toString() ~ ".txt");
+	scope (exit)
+	{
+		if (exists(tmpFile))
+			remove(tmpFile);
+	}
+	write(tmpFile, "not an archive");
+	auto fa = fileArchive(tmpFile);
+	assert(fa is null);
+}
