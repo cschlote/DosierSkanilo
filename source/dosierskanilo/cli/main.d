@@ -44,7 +44,7 @@ import dosierskanilo.metadata.digests;
 import dosierskanilo.model.namedbinaryblob;
 
 
-import dosierarkivo.baseclass;
+import dosierarkivo;
 
 import dosierskanilo.service.analyze;
 import dosierskanilo.cli.commandline;

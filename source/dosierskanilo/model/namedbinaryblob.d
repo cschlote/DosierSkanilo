@@ -18,7 +18,7 @@ import std.exception : assertThrown, enforce;
 
 import jsonizer;
 
-import dosierarkivo.baseclass;
+import dosierarkivo;
 import dosierskanilo.cli.commandline;
 import dosierskanilo.cli.logging;
 import dosierskanilo.metadata.digests;

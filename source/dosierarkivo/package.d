@@ -1,10 +1,10 @@
-/** Backward-compatible archive facade.
+/** Archive package facade.
  *
  * Authors: Carsten Schlote, schlote@vahanus.net
  * Copyright: Carsten Schlote, Released under CC-BY-NC-SA 4.0 license, 2018
  * License: CC-BY-NC-SA 4.0
  */
-module dosierarkivo.baseclass;
+module dosierarkivo;
 
 public import dosierarkivo.archive;
 public import dosierarkivo.factory;
