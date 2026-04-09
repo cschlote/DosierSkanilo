@@ -21,7 +21,7 @@ import jsonizer;
 import mediainfodll;
 import mediainfo;
 
-import dosierskanilo.cli.logging;
+import dosierskanilo.logging;
 
 /** A structure with image media info
  *

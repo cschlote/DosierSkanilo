@@ -12,8 +12,9 @@ import std.path;
 import std.uuid;
 
 import dosierskanilo;
-import dosierskanilo.cli.commandline;
-import dosierskanilo.cli.logging;
+import dosierskanilo.logging;
+import dosierskanilo.options;
+import dosierskanilo.progress;
 
 /** Do some basic analysis on data
 */

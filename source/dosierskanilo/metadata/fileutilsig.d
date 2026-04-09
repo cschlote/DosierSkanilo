@@ -6,7 +6,7 @@
  */
 module dosierskanilo.metadata.fileutilsig;
 
-import dosierskanilo.cli.logging;
+import dosierskanilo.logging;
 import std.algorithm.searching;
 
 /** Query the file type string for a file path.

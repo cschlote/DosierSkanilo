@@ -16,9 +16,9 @@ import std.stdio;
 import std.uuid;
 
 import dosierskanilo;
-
-import dosierskanilo.cli.commandline;
-import dosierskanilo.cli.logging;
+import dosierskanilo.logging;
+import dosierskanilo.options;
+import dosierskanilo.progress;
 
 /** Scan a directory tree and collect data
  *

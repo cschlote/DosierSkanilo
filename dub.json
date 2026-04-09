@@ -31,7 +31,7 @@
 		{
 			"name": "cli",
 			"targetType": "executable",
-			"mainSourceFile": "source/dosierskanilo/cli/main.d"
+			"mainSourceFile": "source/dosierskanilo_cli/main.d"
 		},
 		{
 			"name": "library",

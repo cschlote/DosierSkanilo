@@ -4,7 +4,7 @@
  * Copyright: Carsten Schlote, Released under CC-BY-NC-SA 4.0 license, 2018
  * License: CC-BY-NC-SA 4.0
  */
-module dosierskanilo.cli.commandline;
+module dosierskanilo_cli.commandline;
 
 import std.conv;
 import std.exception;
@@ -15,10 +15,9 @@ import std.process;
 import std.range;
 import std.string;
 
-import dosierskanilo.cli.logging;
+import dosierskanilo.logging;
+import dosierskanilo.options;
 import core.internal.lifetime;
-
-enum jsonFileExtension = ".json"; /// The file extension we use for JSON files
 
 immutable string helpText = q"EOS
 
@@ -33,31 +32,6 @@ It can store its results in a JSON file, and read them back later on. It has
 also some analysis functions to find duplicate files, missing files, etc.
 
 EOS";
-
-/** This struct holds all commandline args */
-struct ArgsArray
-{
-    /* Commandline args - shared with all out threads */
-    string argScanPath; /// Path to directory to scan
-    bool argRecursive; /// Scan recursively
-    bool argScanFiles; /// Scan for new files
-    string argJSONFile; /// PathName of JSON file to write
-    bool argDoFileTypes; /// Use the 'file' utility to scan filetypes
-    bool argDoChecksums; /// Calculate the checksums
-    bool argDoMediaSig; /// Calculate the media signature
-    bool argRescanMediaSig; /// Rescan all files for media signature, even if already present
-    uint argScanArchives; /// Scan the contents of archives
-    bool argScanTorrents; /// Scan the contents of torrent files
-    bool argRunAnalysis; /// Execute analysis on database
-    bool argDropMissing; /// Drop missing files from database
-    bool argWriteJSON; /// Write file to disk, maybe -f is needed
-    int argNumberOfThreads = 1; /// Number of worker threads for pool
-    bool argForceOverwrite; /// ForceOverwrite of defective/alien JSON files
-    bool argPickHidden; /// Pick hidden files and directories too
-    bool argVerboseOutputs; /// be verbose
-}
-/** This is the global args array */
-ArgsArray argsArray;
 
 /** Parse command-line arguments into an ArgsArray instance.
  *
@@ -105,6 +79,7 @@ bool parseCommandLineArgs(string[] args, ArgsArray* argsarray = &argsArray)
         }
         return false;
     }
+    setVerboseOutputs(argsarray.argVerboseOutputs);
     /* Validate some arguments */
     if (argsarray.argScanPath.empty)
     {
@@ -339,7 +314,7 @@ struct ProgressCallBack
  */
 string makeProgressString(size_t i, size_t m)
 {
-    import dosierskanilo.cli.logging;
+    import dosierskanilo.logging;
     import std.range;
 
     static int q = 0;

@@ -28,7 +28,7 @@ import std.algorithm;
 import std.format;
 import std.sumtype;
 
-import dosierskanilo.cli.logging;
+import dosierskanilo.logging;
 import jsonizer;
 
 /** Represents a single file in a torrent.

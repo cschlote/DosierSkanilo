@@ -17,7 +17,7 @@
  * Copyright: Carsten Schlote, Released under CC-BY-NC-SA 4.0 license, 2018
  * License: CC-BY-NC-SA 4.0
  */
-module dosierskanilo.cli.main;
+module dosierskanilo_cli.main;
 
 /* ----------------------------------------------------------------------- */
 
@@ -40,13 +40,12 @@ import std.typecons;
 import std.utf;
 
 import dosierskanilo;
-
-
+import dosierskanilo.options;
+import dosierskanilo.logging;
 import dosierarkivo;
 
 import dosierskanilo.service.analyze;
-import dosierskanilo.cli.commandline;
-import dosierskanilo.cli.logging;
+import dosierskanilo_cli.commandline;
 import dosierskanilo.service.scanning;
 import dosierskanilo.service.storageio;
 
