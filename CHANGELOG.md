@@ -9,6 +9,25 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+## Release 26.9.0
+
+- Split the archive helper code into dedicated modules and package facades:
+  - `dosierarkivo.archive` now contains the shared archive base class and type
+    constants
+  - `dosierarkivo.factory` routes archive files to format-specific
+    implementations
+  - `dosierarkivo.ziparchive`, `tararchive`, `rararchive`, and
+    `sevenziparchive` now own the concrete archive backends
+  - `dosierarkivo.package` preserves a stable top-level import surface
+
+- Split model types into focused modules and added a stable package facade:
+  - `dosierskanilo.model.checksums`, `filespec`, and `archivespec` now live in
+    their own modules
+  - `dosierskanilo.package` re-exports the library-facing model and metadata
+    modules
+  - `dosierskanilo.cli` continues to import the package facade instead of the
+    individual modules
+
 ## Release 26.8.2
 
 - Improved documentation and published metadata consistency:
