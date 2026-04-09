@@ -95,6 +95,35 @@ unittest
     assert(objs.length == 0, "Force mode should reset database to empty.");
 }
 
+@("writeStorageJsonFile roundtrip and backup")
+unittest
+{
+    import std.file : exists, readText, remove, getcwd;
+    import std.path : buildPath;
+
+    auto stamp = "2000-01-01T00:00:00";
+    auto jsonFile = buildPath(tempDir(), "storageio-write-" ~ stamp ~ ".json");
+    auto backupFile = buildPath(getcwd(), "storageio-write-" ~ stamp ~ "-" ~ stamp ~ ".json");
+    scope (exit)
+    {
+        if (exists(jsonFile))
+            remove(jsonFile);
+        if (exists(backupFile))
+            remove(backupFile);
+    }
+
+    NamedBinaryBlob[] objs;
+    objs ~= new NamedBinaryBlob("test/dummy-text-file.txt", 1234, Clock.currTime());
+
+    assert(writeStorageJsonFile(jsonFile, objs, ".json", stamp));
+    assert(exists(jsonFile));
+    assert(readText(jsonFile).length > 0);
+
+    assert(writeStorageJsonFile(jsonFile, objs, ".json", stamp));
+    assert(exists(backupFile));
+    assert(exists(jsonFile));
+}
+
 /** Generate a backup file name based on the original file name and current timestamp.
  *
  * The backup name keeps the original basename and appends the timestamp before

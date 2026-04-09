@@ -776,6 +776,29 @@ unittest
 	// logFLine("Subtitle file media sig: %s", sig5);
 }
 
+@("parseMediaInfoSignature and helpers")
+unittest
+{
+	auto sig = parseMediaInfoSignature([
+		"<image:0, 320 x 200, JPG>",
+		"<video:0, 1920 x 1080 @ 30.0, 5000kbps, 5 min, AV1>",
+		"<audio:1, 6 ch., 1 h, 192kbps en, AAC>",
+		"<text:2, de, 1.0, 5 min, 12kbps, ASS>"
+	]);
+	assert(sig.imageStreams.length == 1);
+	assert(sig.videoStreams.length == 1);
+	assert(sig.audioStreams.length == 1);
+	assert(sig.textStreams.length == 1);
+	assert(hasMediaFileExtension("test/dummy-audio-file.mp3"));
+	assert(!hasMediaFileExtension("test/dummy-text-file.txt"));
+	assert(parseBitRate("1234") == 1234);
+	assert(parseBitRate("Unknown") == 0);
+	assert(parseFrameRate("12.5") == 12.5);
+	assert(parseFrameRate("Unknown") == 0.0);
+	assert(parseInteger("42") == 42);
+	assert(parseInteger("Unknown") == 0);
+}
+
 /** Parse media info signature from media info lines
  *
  * Param:

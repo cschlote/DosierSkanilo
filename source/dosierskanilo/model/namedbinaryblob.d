@@ -622,6 +622,33 @@ unittest
 	assert(mixedBlob.getFirstExistingFileName == "test/dummy-text-file.txt");
 }
 
+@("fixupDataClassArrayIn legacy fields")
+unittest
+{
+	auto legacy = new NamedBinaryBlob();
+	legacy.fileName = "test/dummy-text-file.txt";
+	legacy.timeLastModified = SysTime(1_234_567).toISOExtString;
+	legacy.fileNames = ["test/dummy-audio-file.mp3"];
+	legacy.md5sum_b64 = "a";
+	legacy.sha1sum_b64 = "b";
+	legacy.xxh64sum_b64 = "c";
+	legacy.mediaInfo = ["<audio:0, 2 ch., 1 h, 0kbps ?, AAC>"];
+	legacy.mediaInfoSig = null;
+	legacy.torrentInfo = new TorrentInfo();
+	legacy.torrentInfo.magnetURI = "";
+
+	auto fixed = fixupDataClassArrayIn([legacy]);
+	assert(fixed.length == 1);
+	assert(fixed[0].fileSpecs.length == 2);
+	assert(fixed[0].fileName.empty);
+	assert(fixed[0].timeLastModified.empty);
+	assert(fixed[0].checkSums.md5sum_b64 == "a");
+	assert(fixed[0].checkSums.sha1sum_b64 == "b");
+	assert(fixed[0].checkSums.xxh64sum_b64 == "c");
+	assert(fixed[0].mediaInfoSig !is null);
+	assert(fixed[0].torrentInfo is null);
+}
+
 /* ----------------------------------------------------------------------- */
 
 /* ----------------------------------------------------------------------- */
@@ -1183,7 +1210,7 @@ unittest
 {
 	import std.stdio : File;
 
-	string filename = "./test/dummy-audio-file.mp3";
+	string filename = "./test/dummy-picture-file.jpg";
 	auto fh = File(filename);
 	auto dco = new NamedBinaryBlob(filename, fh.size, SysTime(4_237_892));
 	updateMediaInfo(dco, true);
