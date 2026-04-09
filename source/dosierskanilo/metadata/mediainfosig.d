@@ -395,9 +395,11 @@ unittest
 
 	auto mis1 = new MediaInfoSig();
 	assert(mis1.toString == "MediaInfoSig()", mis1.toString);
+	assert(mis1.empty);
 	auto mis2 = new MediaInfoSig([mii], [miv], [mia], [mit]);
 	assert(mis2.toString == "MediaInfoSig(image0('JPG', 320x200), video0('de', 'AV1', 320x200, 25fps, 5000000bps, '1h'), audio1('de', 'AAC', 6 ch., 200000bps, '1h'), text1('de', 'AAC', 0.1fps, 200000bps, '1h'))", mis2
 			.toString);
+	assert(!mis2.empty);
 
 	auto mis9 = mis2.dup;
 	assert(&mis9 != &mis2, "No different object");

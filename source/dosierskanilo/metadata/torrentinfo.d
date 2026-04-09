@@ -498,8 +498,8 @@ unittest
 @("getTorrentInfo - multi file torrent")
 unittest
 {
-    auto ti = getTorrentInfo("test/test-multifile.torrent");
-    assert(ti.infoHashHex == "0f43d6fb308b289e9c443a9fc0095b40a0f27a4e");
+	auto ti = getTorrentInfo("test/test-multifile.torrent");
+	assert(ti.infoHashHex == "0f43d6fb308b289e9c443a9fc0095b40a0f27a4e");
     assert(startsWith(ti.magnetURI, "magnet:?xt=urn:btih:"));
     assert(ti.name == "multifile_tmp");
     assert(ti.isMultiFile);
@@ -512,6 +512,41 @@ unittest
 
         // writeln(f.path.join("/"));
         sum += f.length;
-    }
-    assert(ti.totalSize == sum);
+	}
+	assert(ti.totalSize == sum);
+}
+
+@("TorrentInfo helpers")
+unittest
+{
+	auto emptyInfo = new TorrentInfo();
+	assert(emptyInfo.empty);
+	assert(emptyInfo.dup !is emptyInfo);
+
+	emptyInfo.name = "archive";
+	emptyInfo.totalSize = 42;
+	assert(!emptyInfo.empty);
+
+	auto filled = new TorrentInfo();
+	filled.name = "demo";
+	filled.magnetURI = "magnet:?xt=urn:btih:demo";
+	filled.totalSize = 7;
+	filled.isMultiFile = true;
+	filled.infoHashHex = "deadbeef";
+	filled.announce = "udp://tracker.example";
+	filled.pieceLength = 16384;
+	filled.piecesCount = 2;
+	filled.files = [new TorrentFileEntry()];
+	auto copy = filled.dup;
+	assert(copy !is filled);
+	assert(copy.name == filled.name);
+	assert(copy.magnetURI == filled.magnetURI);
+	assert(copy.totalSize == filled.totalSize);
+	assert(copy.isMultiFile == filled.isMultiFile);
+	assert(copy.infoHashHex == filled.infoHashHex);
+	assert(copy.announce == filled.announce);
+	assert(copy.pieceLength == filled.pieceLength);
+	assert(copy.piecesCount == filled.piecesCount);
+	assert(copy.files.length == 1);
+	assert(copy.files !is filled.files);
 }
