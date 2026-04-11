@@ -3,6 +3,9 @@ set -euo pipefail
 #set -x
 
 DC="${DC:-ldc2}"
+# The DC environment variable can be set to specify the D compiler to use (e.g., ldc2, dmd, gdc).
+# It is used by dub to determine which compiler to use.
+export DC
 LST_DIR="./build/coverage"
 
 # Keep coverage listing files in one place.
