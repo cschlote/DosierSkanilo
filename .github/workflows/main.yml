@@ -23,6 +23,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Fix git safe.directory for container builds
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       - name: Cache DUB
         uses: actions/cache@v4
         with:
@@ -52,6 +55,9 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Fix git safe.directory for container builds
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Cache DUB
         uses: actions/cache@v4
@@ -87,6 +93,9 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Fix git safe.directory for container builds
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Cache DUB
         uses: actions/cache@v4
@@ -166,6 +175,9 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Fix git safe.directory for container builds
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Cache DUB
         uses: actions/cache@v4
