@@ -9,6 +9,8 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+## Release 26.9.1
+
 - Split the CLI-specific code into a dedicated application package:
   - moved CLI entry points and command-line parsing into `dosierskanilo_cli`
   - kept shared logging, options, and progress helpers in the library surface
