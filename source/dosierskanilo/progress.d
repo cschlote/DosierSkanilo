@@ -102,6 +102,7 @@ dstring padLeft(dstring s, size_t padlen)
 	return pad ~ s;
 }
 
+@("padLeft")
 unittest
 {
 	dstring a = "!--- !--- !--- ";
