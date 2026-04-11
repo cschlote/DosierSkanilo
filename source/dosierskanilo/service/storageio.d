@@ -12,17 +12,20 @@ import std.file;
 import std.path;
 import std.uuid;
 
-import dosierskanilo;
-import dosierskanilo.cli.logging;
+import dosierskanilo.logging;
+import dosierskanilo.model.namedbinaryblob;
 
 /** Read scanner data from a JSON storage file.
  *
+ * Missing files are treated as first-run state. Deserialization errors only
+ * abort the load when `forceOverwrite` is false.
+ *
  * Params:
  *   jsonFile = JSON storage file path.
- *   forceOverwrite = continue with empty DB when deserialize fails.
+ *   forceOverwrite = continue with an empty database when deserialization fails.
  *   dynObjectArray = destination object array.
  * Returns:
- *   true on success or intentional empty initialization.
+ *   `true` on success or intentional empty initialization.
  */
 bool readStorageJsonFile(string jsonFile, bool forceOverwrite, ref NamedBinaryBlob[] dynObjectArray)
 {
@@ -92,7 +95,39 @@ unittest
     assert(objs.length == 0, "Force mode should reset database to empty.");
 }
 
+@("writeStorageJsonFile roundtrip and backup")
+unittest
+{
+    import std.file : exists, readText, remove, getcwd;
+    import std.path : buildPath;
+
+    auto stamp = "2000-01-01T00:00:00";
+    auto jsonFile = buildPath(tempDir(), "storageio-write-" ~ stamp ~ ".json");
+    auto backupFile = buildPath(getcwd(), "storageio-write-" ~ stamp ~ "-" ~ stamp ~ ".json");
+    scope (exit)
+    {
+        if (exists(jsonFile))
+            remove(jsonFile);
+        if (exists(backupFile))
+            remove(backupFile);
+    }
+
+    NamedBinaryBlob[] objs;
+    objs ~= new NamedBinaryBlob("test/dummy-text-file.txt", 1234, Clock.currTime());
+
+    assert(writeStorageJsonFile(jsonFile, objs, ".json", stamp));
+    assert(exists(jsonFile));
+    assert(readText(jsonFile).length > 0);
+
+    assert(writeStorageJsonFile(jsonFile, objs, ".json", stamp));
+    assert(exists(backupFile));
+    assert(exists(jsonFile));
+}
+
 /** Generate a backup file name based on the original file name and current timestamp.
+ *
+ * The backup name keeps the original basename and appends the timestamp before
+ * the extension.
  *
  * Params:
  *   originalFile = the original file path to base the backup name on.
@@ -110,12 +145,15 @@ private string getBackupFileName(string originalFile, string extension, string n
 
 /** Make a backup of the original file if it exists.
  *
+ * The function prefers rename-based backup creation and falls back to copy and
+ * delete when renaming is not possible.
+ *
  * Params:
  *   backupFile = the backup file path to create.
  *   originalFile = the original file path to back up.
  *   mustCopy = if true, attempt to copy the original file to the backup location instead of renaming. This is used when the original file cannot be renamed due to permissions or other issues.
  * Returns:
- *   true on success, false on failure.
+ *   `true` on success, `false` on failure.
  */
 private bool makeBackupFile(string backupFile, string originalFile, ref bool mustCopy)
 {
@@ -148,6 +186,9 @@ private bool makeBackupFile(string backupFile, string originalFile, ref bool mus
 }
 
 /** Restore the original file from the backup if possible, or remove the backup if it was copied.
+ *
+ * This is the counterpart to `makeBackupFile` and undoes the temporary rename
+ * or copy step after a failed write.
  *
  * Params:
  *   jsonFile = the original file path to restore.
@@ -237,16 +278,18 @@ unittest
     assert(exists(tempFile2), "Original file should exist after restore.");
 }
 
-/** Write scanned data to some storage file
+/** Write scanned data to some storage file.
  *
- *  Depending on configuration, the data is serialized to some file.
+ * The function writes through a backup file first so the original JSON is only
+ * replaced after serialization succeeds.
+ *
  * Params:
  *   jsonFile = JSON storage file path.
  *   dynObjectArray = source object array.
  *   jsonFileExtension = file extension for backup files (default: ".json").
  *   nowString = optional timestamp string to use in backup file names (default: current time in ISO format).
  * Returns:
- *   true on success, false on failure. On failure, the original file is left unchanged if possible.
+ *   `true` on success, `false` on failure. On failure, the original file is left unchanged if possible.
  */
 bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlob[] dynObjectArray,
     string jsonFileExtension = ".json",

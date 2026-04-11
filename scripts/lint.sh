@@ -38,8 +38,10 @@ if command -v markdownlint-cli2 >/dev/null 2>&1; then
 	markdownlint-cli2 README.md docs/ARCHITECTURE.md CHANGELOG.md TODO.md
 elif command -v markdownlint >/dev/null 2>&1; then
 	markdownlint README.md docs/ARCHITECTURE.md CHANGELOG.md TODO.md
+elif command -v mdl >/dev/null 2>&1; then
+	mdl README.md docs/ARCHITECTURE.md CHANGELOG.md TODO.md
 else
-	echo "ERROR: markdownlint-cli2 or markdownlint is not installed." >&2
+	echo "ERROR: markdownlint-cli2, markdownlint, or mdl is not installed." >&2
 	exit 1
 fi
 

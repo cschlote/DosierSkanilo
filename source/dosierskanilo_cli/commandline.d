@@ -4,7 +4,7 @@
  * Copyright: Carsten Schlote, Released under CC-BY-NC-SA 4.0 license, 2018
  * License: CC-BY-NC-SA 4.0
  */
-module dosierskanilo.cli.commandline;
+module dosierskanilo_cli.commandline;
 
 import std.conv;
 import std.exception;
@@ -15,10 +15,8 @@ import std.process;
 import std.range;
 import std.string;
 
-import dosierskanilo.cli.logging;
+import dosierskanilo;
 import core.internal.lifetime;
-
-enum jsonFileExtension = ".json"; /// The file extension we use for JSON files
 
 immutable string helpText = q"EOS
 
@@ -34,38 +32,16 @@ also some analysis functions to find duplicate files, missing files, etc.
 
 EOS";
 
-/** This struct holds all commandline args */
-struct ArgsArray
-{
-    /* Commandline args - shared with all out threads */
-    string argScanPath; /// Path to directory to scan
-    bool argRecursive; /// Scan recursively
-    bool argScanFiles; /// Scan for new files
-    string argJSONFile; /// PathName of JSON file to write
-    bool argDoFileTypes; /// Use the 'file' utility to scan filetypes
-    bool argDoChecksums; /// Calculate the checksums
-    bool argDoMediaSig; /// Calculate the media signature
-    bool argRescanMediaSig; /// Rescan all files for media signature, even if already present
-    uint argScanArchives; /// Scan the contents of archives
-    bool argScanTorrents; /// Scan the contents of torrent files
-    bool argRunAnalysis; /// Execute analysis on database
-    bool argDropMissing; /// Drop missing files from database
-    bool argWriteJSON; /// Write file to disk, maybe -f is needed
-    int argNumberOfThreads = 1; /// Number of worker threads for pool
-    bool argForceOverwrite; /// ForceOverwrite of defective/alien JSON files
-    bool argPickHidden; /// Pick hidden files and directories too
-    bool argVerboseOutputs; /// be verbose
-}
-/** This is the global args array */
-ArgsArray argsArray;
-
 /** Parse command-line arguments into an ArgsArray instance.
+ *
+ * This validates the scan path and JSON output file before the rest of the
+ * application starts.
  *
  * Params:
  *   args = raw command-line arguments
  *   argsarray = destination struct for parsed values
  * Returns:
- *   true, if parsing and validation were successful
+ *   `true` if parsing and validation were successful.
  */
 bool parseCommandLineArgs(string[] args, ArgsArray* argsarray = &argsArray)
 {
@@ -105,6 +81,7 @@ bool parseCommandLineArgs(string[] args, ArgsArray* argsarray = &argsArray)
         }
         return false;
     }
+    setVerboseOutputs(argsarray.argVerboseOutputs);
     /* Validate some arguments */
     if (argsarray.argScanPath.empty)
     {
@@ -222,8 +199,15 @@ unittest
 }
 
 /** Shortens a string `s` to exactly `maxLen` characters.
- * If `s` is longer, the middle part is replaced by "..."
- * so the resulting string has exactly `maxLen` characters.
+ *
+ * The result keeps the start and end intact so file names remain readable in
+ * narrow terminal columns.
+ *
+ * Params:
+ *   str = input string.
+ *   maxLen = target maximum length.
+ * Returns:
+ *   A string shortened from the middle if needed.
  */
 dstring shortenMiddle(string str, size_t maxLen)
 {
@@ -288,6 +272,8 @@ unittest
 
 /** Pad whitespace to the left side of a string.
  *
+ * This is used to keep the progress display aligned across varying file names.
+ *
  * Params:
  *   s = input string
  *   padlen = target length after left-padding
@@ -331,6 +317,9 @@ struct ProgressCallBack
 
 /** Create a spinner character plus normalized progress text.
  *
+ * The spinner gives a sense of liveliness when the progress ratio is not
+ * changing visibly.
+ *
  * Params:
  *   i = current value
  *   m = maximum value
@@ -339,7 +328,7 @@ struct ProgressCallBack
  */
 string makeProgressString(size_t i, size_t m)
 {
-    import dosierskanilo.cli.logging;
+    import dosierskanilo.logging;
     import std.range;
 
     static int q = 0;
@@ -362,6 +351,9 @@ unittest
 
 /** Update progress output for a sub-task callback.
  *
+ * This is called from background jobs and renders their progress inline with
+ * the main scanner progress line.
+ *
  * Params:
  *   i = current value
  *   m = maximum value
@@ -380,6 +372,9 @@ size_t lastTotalFiles;
 string lastFile;
 
 /** Print scan progress on a single console line.
+ *
+ * This is the terminal renderer used by both the scanner and nested work
+ * units.
  *
  * Params:
  *   idx = current position

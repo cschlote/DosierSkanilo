@@ -15,10 +15,10 @@ import std.string;
 import std.stdio;
 import std.uuid;
 
-import dosierskanilo;
-
-import dosierskanilo.cli.commandline;
-import dosierskanilo.cli.logging;
+import dosierskanilo.logging;
+import dosierskanilo.model.namedbinaryblob;
+import dosierskanilo.options;
+import dosierskanilo.progress;
 
 /** Scan a directory tree and collect data
  *
@@ -27,11 +27,17 @@ import dosierskanilo.cli.logging;
  *  Try to find an existing NamedBinaryBlob object in the dynamic array, or
  *  create a container object and add it to the dynamic Array.
  *
- *  Param:
- *   scanPath - Path to directory for the scan
- *   pickHidden - if true, hidden files and directories are also scanned
+ *  Files are updated in-place when only metadata changes; otherwise a new blob
+ *  node is created so history is preserved for multi-file entries.
  *
- *  Returns true, if all Files were scanned, otherwise false is returned.
+ * Params:
+ *   scanPath = path to directory for the scan.
+ *   pickHidden = if true, hidden files and directories are also scanned.
+ *   dynObjectArray = database objects collected so far.
+ *   gotCtrlC = shared abort flag set by the signal handler.
+ *   argsArray = parsed command-line options.
+ * Returns:
+ *   `true` if the scan completed.
  */
 bool scanDirTree(string scanPath, bool pickHidden = false, ref NamedBinaryBlob[] dynObjectArray, ref shared(
         bool) gotCtrlC, ref ArgsArray argsArray)
@@ -179,10 +185,17 @@ bool scanDirTree(string scanPath, bool pickHidden = false, ref NamedBinaryBlob[]
     return rc;
 }
 
-/** Execute scanner jobs on collected files
+/** Execute scanner jobs on collected files.
  *
- *  Here we execute a set of jobs, whose results are added as 'signatures'
- *  to the object.
+ * This runs the optional signature extraction passes for checksums, file
+ * types, media signatures, archives, and torrent metadata.
+ *
+ * Params:
+ *   dynObjectArray = database objects to enrich.
+ *   gotCtrlC = shared abort flag set by the signal handler.
+ *   argsArray = parsed command-line options.
+ * Returns:
+ *   `true` when all configured jobs finished.
  */
 bool runScannerJobs(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCtrlC, ref ArgsArray argsArray)
 {
@@ -345,4 +358,134 @@ bool runScannerJobs(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCt
     }
     stdout.flush();
     return rc;
+}
+
+@("scanDirTree and runScannerJobs")
+unittest
+{
+    import std.file : mkdirRecurse, remove, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "scanning-" ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+    {
+        if (exists(buildPath(root, "visible.jpg")))
+            remove(buildPath(root, "visible.jpg"));
+        if (exists(buildPath(root, ".hidden.jpg")))
+            remove(buildPath(root, ".hidden.jpg"));
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+
+    auto visible = buildPath(root, "visible.jpg");
+    auto hidden = buildPath(root, ".hidden.jpg");
+    write(visible, cast(ubyte[])[0, 1, 2, 3, 4, 5]);
+    write(hidden, cast(ubyte[])[9, 8, 7]);
+
+    NamedBinaryBlob[] objs;
+    shared(bool) gotCtrlC = false;
+    ArgsArray args;
+    args.argDoChecksums = true;
+    args.argDoFileTypes = true;
+    args.argDoMediaSig = true;
+
+    assert(scanDirTree(root, false, objs, gotCtrlC, args));
+    assert(objs.length == 1);
+    assert(objs[0].getFirstFileName == visible);
+    assert(objs[0].getExistingFiles.length == 1);
+
+    write(visible, cast(ubyte[])[0, 1, 2, 3, 4, 5, 6, 7]);
+    assert(scanDirTree(root, false, objs, gotCtrlC, args));
+    assert(objs.length == 1);
+    assert(objs[0].fileSize == 8);
+
+    assert(runScannerJobs(objs, gotCtrlC, args));
+    assert(objs[0].checkSums.hasDigests);
+    assert(!objs[0].fileType.empty);
+    assert(objs[0].mediaInfoSig !is null);
+}
+
+@("runScannerJobs archive and torrent")
+unittest
+{
+    import std.conv : to;
+    import std.file : getcwd, mkdirRecurse, remove, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.process : execute;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "scanning-archive-" ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+    {
+        auto zipPath = buildPath(root, "jobs.zip");
+        auto payload = buildPath(root, "payload.txt");
+        if (exists(zipPath))
+            remove(zipPath);
+        if (exists(payload))
+            remove(payload);
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+
+    auto payload = buildPath(root, "payload.txt");
+    write(payload, "archive payload\n");
+    auto zipPath = buildPath(root, "jobs.zip");
+    auto zipCreate = execute(["zip", "-q", "-j", zipPath, payload]);
+    assert(zipCreate.status == 0, zipCreate.output);
+
+    auto torrentPath = "test/example.torrent";
+    NamedBinaryBlob[] objs = [
+        new NamedBinaryBlob(zipPath, getSize(zipPath), Clock.currTime()),
+        new NamedBinaryBlob(torrentPath, getSize(torrentPath), Clock.currTime()),
+    ];
+    shared(bool) gotCtrlC = false;
+    ArgsArray args;
+    args.argScanArchives = 1;
+    args.argScanTorrents = true;
+    args.argNumberOfThreads = 2;
+
+    assert(runScannerJobs(objs, gotCtrlC, args));
+    assert(objs[0].archiveSpecs !is null);
+    assert(objs[0].archiveSpecs.length > 0);
+    assert(objs[1].torrentInfo !is null);
+}
+
+@("runScannerJobs threaded")
+unittest
+{
+    import std.file : mkdirRecurse, remove, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "scanning-threaded-" ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+    {
+        auto picture = buildPath(root, "threaded.jpg");
+        if (exists(picture))
+            remove(picture);
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+
+    auto picture = buildPath(root, "threaded.jpg");
+    write(picture, cast(ubyte[])[1, 2, 3, 4, 5, 6, 7, 8]);
+
+    NamedBinaryBlob[] objs;
+    shared(bool) gotCtrlC = false;
+    ArgsArray args;
+    args.argDoChecksums = true;
+    args.argDoFileTypes = true;
+    args.argDoMediaSig = true;
+    args.argNumberOfThreads = 2;
+
+    assert(scanDirTree(root, false, objs, gotCtrlC, args));
+    assert(objs.length == 1);
+    assert(runScannerJobs(objs, gotCtrlC, args));
+    assert(objs[0].checkSums.hasDigests);
+    assert(!objs[0].fileType.empty);
+    assert(objs[0].mediaInfoSig !is null);
 }

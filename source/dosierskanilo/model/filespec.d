@@ -91,6 +91,8 @@ unittest
 	auto ts = SysTime(1_234_567).toISOExtString;
 
 	auto fs0 = new FileSpec();
+	assert(fs0.fileName == "");
+	assert(fs0.timeLastModified == "");
 	assert(fs0.toString == `FileSpec('', )`, fs0.toString);
 
 	auto fs1 = new FileSpec("test/dummy-text-file.txt", SysTime(1_234_567));

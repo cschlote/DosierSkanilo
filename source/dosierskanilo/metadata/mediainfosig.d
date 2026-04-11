@@ -21,7 +21,7 @@ import jsonizer;
 import mediainfodll;
 import mediainfo;
 
-import dosierskanilo.cli.logging;
+import dosierskanilo.logging;
 
 /** A structure with image media info
  *
@@ -64,6 +64,7 @@ public:
 		return met;
 	}
 
+	/** Create a copy of the image stream record. */
 	MediaInfoImage dup()
 	{
 		auto mii = new MediaInfoImage(index, format, width, height);
@@ -135,7 +136,7 @@ class MediaInfoVideo
 		return met;
 	}
 
-	/// duplicate object
+	/** Create a copy of the video stream record. */
 	MediaInfoVideo dup()
 	{
 		return new MediaInfoVideo(index, language, format, width, height, frameRate, bitRate, duration);
@@ -199,7 +200,7 @@ class MediaInfoAudio
 			.format(index, language, format, channels, bitRate, duration);
 		return met;
 	}
-	/// duplicate object
+	/** Create a copy of the audio stream record. */
 	MediaInfoAudio dup()
 	{
 		return new MediaInfoAudio(index, language, format, channels, bitRate, duration);
@@ -263,7 +264,7 @@ class MediaInfoText
 			.format(index, language, format, frameRate, bitRate, duration);
 		return met;
 	}
-	/// duplicate
+	/** Create a copy of the text stream record. */
 	MediaInfoText dup()
 	{
 		return new MediaInfoText(index, language, format, frameRate, bitRate, duration);
@@ -367,14 +368,14 @@ class MediaInfoSig
 	// 	// just ignore for now
 	// }
 
+	/** Create a deep copy of the media info signature. */
 	MediaInfoSig dup()
 	{
 		auto dupObj = new MediaInfoSig(this);
 		return dupObj;
 	}
 
-	/** Check if the media info signature is empty
-	 */
+	/** Check if the media info signature is empty. */
 	bool empty() const
 	{
 		return imageStreams.length == 0 &&
@@ -394,9 +395,11 @@ unittest
 
 	auto mis1 = new MediaInfoSig();
 	assert(mis1.toString == "MediaInfoSig()", mis1.toString);
+	assert(mis1.empty);
 	auto mis2 = new MediaInfoSig([mii], [miv], [mia], [mit]);
 	assert(mis2.toString == "MediaInfoSig(image0('JPG', 320x200), video0('de', 'AV1', 320x200, 25fps, 5000000bps, '1h'), audio1('de', 'AAC', 6 ch., 200000bps, '1h'), text1('de', 'AAC', 0.1fps, 200000bps, '1h'))", mis2
 			.toString);
+	assert(!mis2.empty);
 
 	auto mis9 = mis2.dup;
 	assert(&mis9 != &mis2, "No different object");
@@ -427,7 +430,7 @@ unittest
 
 /** Parse bitrate string into ulong
  */
-ulong parseBitRate(string bitrateStr) pure @safe
+private ulong parseBitRate(string bitrateStr) pure @safe
 {
 	ulong bitrateInt = 0;
 	if (!bitrateStr.empty && !bitrateStr.startsWith("Unknown"))
@@ -449,7 +452,7 @@ ulong parseBitRate(string bitrateStr) pure @safe
 
 /** Parse frame rate string into double
  */
-double parseFrameRate(string frameRateStr) pure @safe
+private double parseFrameRate(string frameRateStr) pure @safe
 {
 	double frameRateDbl = 0.0;
 	if (!frameRateStr.empty && !frameRateStr.startsWith("Unknown"))
@@ -472,7 +475,7 @@ double parseFrameRate(string frameRateStr) pure @safe
 
 /** Parse integer string into ulong
  */
-ulong parseInteger(string intStr) pure @safe
+private ulong parseInteger(string intStr) pure @safe
 {
 	ulong intVal = 0;
 	if (!intStr.empty && !intStr.startsWith("Unknown"))
@@ -495,7 +498,7 @@ ulong parseInteger(string intStr) pure @safe
 
 /** Parse an image stream from MediaInfo object
  */
-MediaInfoImage parseImageStream(MediaInfo info, uint index)
+private MediaInfoImage parseImageStream(MediaInfo info, uint index)
 {
 	MediaInfoImage mii = null;
 	try
@@ -515,7 +518,7 @@ MediaInfoImage parseImageStream(MediaInfo info, uint index)
 /**
  * Parse a video stream from MediaInfo object
  */
-MediaInfoVideo parseVideoStream(MediaInfo info, uint index)
+private MediaInfoVideo parseVideoStream(MediaInfo info, uint index)
 {
 	MediaInfoVideo ms = null;
 	try
@@ -545,7 +548,7 @@ MediaInfoVideo parseVideoStream(MediaInfo info, uint index)
 /**
  * Parse a audio stream from MediaInfo object
  */
-MediaInfoAudio parseAudioStream(MediaInfo info, uint index)
+private MediaInfoAudio parseAudioStream(MediaInfo info, uint index)
 {
 	MediaInfoAudio ms = null;
 	try
@@ -570,7 +573,7 @@ MediaInfoAudio parseAudioStream(MediaInfo info, uint index)
 /**
  * Parse a text stream from MediaInfo object
  */
-MediaInfoText parseTextStream(MediaInfo info, uint index)
+private MediaInfoText parseTextStream(MediaInfo info, uint index)
 {
 	MediaInfoText ms = null;
 	try
@@ -601,7 +604,7 @@ MediaInfoText parseTextStream(MediaInfo info, uint index)
  * that just don't contain any media streams.
  * MediaInfo tends to crash on non-media files.
  */
-immutable string[] knownMediaFileExtensions = [
+private immutable string[] knownMediaFileExtensions = [
 	".3gp", ".3g2", ".aac", ".ac3", ".aiff", ".amr", ".asf", ".avi",
 	".flac", ".flv", ".m4a", ".m4v", ".mkv", ".mov", ".mp3", ".mp4",
 	".mpeg", ".mpg", ".mts", ".mxf", ".ogg", ".ogv", ".rmvb", ".wav",
@@ -771,6 +774,29 @@ unittest
 	// logFLine("Video file media sig: %s", sig3);
 	// logFLine("Picture file media sig: %s", sig4);
 	// logFLine("Subtitle file media sig: %s", sig5);
+}
+
+@("parseMediaInfoSignature and helpers")
+unittest
+{
+	auto sig = parseMediaInfoSignature([
+		"<image:0, 320 x 200, JPG>",
+		"<video:0, 1920 x 1080 @ 30.0, 5000kbps, 5 min, AV1>",
+		"<audio:1, 6 ch., 1 h, 192kbps en, AAC>",
+		"<text:2, de, 1.0, 5 min, 12kbps, ASS>"
+	]);
+	assert(sig.imageStreams.length == 1);
+	assert(sig.videoStreams.length == 1);
+	assert(sig.audioStreams.length == 1);
+	assert(sig.textStreams.length == 1);
+	assert(hasMediaFileExtension("test/dummy-audio-file.mp3"));
+	assert(!hasMediaFileExtension("test/dummy-text-file.txt"));
+	assert(parseBitRate("1234") == 1234);
+	assert(parseBitRate("Unknown") == 0);
+	assert(parseFrameRate("12.5") == 12.5);
+	assert(parseFrameRate("Unknown") == 0.0);
+	assert(parseInteger("42") == 42);
+	assert(parseInteger("Unknown") == 0);
 }
 
 /** Parse media info signature from media info lines

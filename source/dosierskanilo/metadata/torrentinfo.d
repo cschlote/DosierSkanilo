@@ -28,7 +28,7 @@ import std.algorithm;
 import std.format;
 import std.sumtype;
 
-import dosierskanilo.cli.logging;
+import dosierskanilo.logging;
 import jsonizer;
 
 /** Represents a single file in a torrent.
@@ -63,7 +63,7 @@ class TorrentInfo
         TorrentFileEntry[] files; /// List of files
         /** SHA1 hash of the bencoded `info` dictionary (hex encoded)
         * See:  https://www.bittorrent.org/beps/bep_0003.html#info-hash */
-        string infoHashHex;
+        string infoHashHex; /// Hex-encoded SHA1 hash of the `info` dictionary
         string announce; /// Primary announce tracker
         ulong pieceLength; /// Piece length in bytes
         /**
@@ -75,6 +75,7 @@ class TorrentInfo
         ulong piecesCount; /// Number of pieces
     }
 
+    /** Check whether the torrent info contains any meaningful data. */
     bool empty() const
     {
         return
@@ -89,6 +90,7 @@ class TorrentInfo
             ;
     }
 
+    /** Create a deep-ish copy of the torrent info object. */
     TorrentInfo dup()
     {
         auto copy = new TorrentInfo();
@@ -241,19 +243,31 @@ TorrentInfo getTorrentInfo(string filePath)
  * Required indirection because SumType does not allow
  * directly recursive aliases.
  */
-struct BNode
+/*private*/ struct BNode
 {
     BValue value;
 }
 
 /// Internal representation of a bencoded value
-alias BValue = SumType!(long, string, BList, BDict);
+private alias BValue = SumType!(long, string, BList, BDict);
 
 /// Bencoded list
-alias BList = BNode[];
+private alias BList = BNode[];
 
 /// Bencoded dictionary
-alias BDict = BNode[string];
+private alias BDict = BNode[string];
+
+/** some workaround for CI toolchains that fail to emit SumType equality for recursive types */
+static this()
+{
+    import core.internal.array.equality : __equals;
+
+    // Force druntime equality instantiation for `torrentinfo.BNode[]`.
+    // SumType!(long, string, BNode[], BDict).opEquals requires __equals!(BNode, BNode)
+    // to be emitted, but this does not happen automatically with some dmd/druntime versions.
+    BNode[] nodes;
+    auto _ = __equals(nodes, nodes);
+}
 
 /*
  * Compatibility note:
@@ -332,7 +346,7 @@ private bool tryGetBDict(BValue value, out BDict result)
  * ============================================================
  */
 
-class BencodeParser
+private class BencodeParser
 {
     private const(ubyte)[] data;
     private size_t pos;
@@ -425,7 +439,7 @@ class BencodeParser
 }
 
 /** Encode a bencode node (used for info-dictionary hashing). */
-void bencode(ref Appender!(ubyte[]) out_, BNode node)
+private void bencode(ref Appender!(ubyte[]) out_, BNode node)
 {
     node.value.match!(
         (long i) {
@@ -459,7 +473,7 @@ void bencode(ref Appender!(ubyte[]) out_, BNode node)
 }
 
 /** Convert bytes to a lowercase hexadecimal string. */
-string toHex(const ubyte[] data)
+private string toHex(const ubyte[] data)
 {
     string result;
     foreach (b; data)
@@ -496,8 +510,8 @@ unittest
 @("getTorrentInfo - multi file torrent")
 unittest
 {
-    auto ti = getTorrentInfo("test/test-multifile.torrent");
-    assert(ti.infoHashHex == "0f43d6fb308b289e9c443a9fc0095b40a0f27a4e");
+	auto ti = getTorrentInfo("test/test-multifile.torrent");
+	assert(ti.infoHashHex == "0f43d6fb308b289e9c443a9fc0095b40a0f27a4e");
     assert(startsWith(ti.magnetURI, "magnet:?xt=urn:btih:"));
     assert(ti.name == "multifile_tmp");
     assert(ti.isMultiFile);
@@ -510,6 +524,41 @@ unittest
 
         // writeln(f.path.join("/"));
         sum += f.length;
-    }
-    assert(ti.totalSize == sum);
+	}
+	assert(ti.totalSize == sum);
+}
+
+@("TorrentInfo helpers")
+unittest
+{
+	auto emptyInfo = new TorrentInfo();
+	assert(emptyInfo.empty);
+	assert(emptyInfo.dup !is emptyInfo);
+
+	emptyInfo.name = "archive";
+	emptyInfo.totalSize = 42;
+	assert(!emptyInfo.empty);
+
+	auto filled = new TorrentInfo();
+	filled.name = "demo";
+	filled.magnetURI = "magnet:?xt=urn:btih:demo";
+	filled.totalSize = 7;
+	filled.isMultiFile = true;
+	filled.infoHashHex = "deadbeef";
+	filled.announce = "udp://tracker.example";
+	filled.pieceLength = 16384;
+	filled.piecesCount = 2;
+	filled.files = [new TorrentFileEntry()];
+	auto copy = filled.dup;
+	assert(copy !is filled);
+	assert(copy.name == filled.name);
+	assert(copy.magnetURI == filled.magnetURI);
+	assert(copy.totalSize == filled.totalSize);
+	assert(copy.isMultiFile == filled.isMultiFile);
+	assert(copy.infoHashHex == filled.infoHashHex);
+	assert(copy.announce == filled.announce);
+	assert(copy.pieceLength == filled.pieceLength);
+	assert(copy.piecesCount == filled.piecesCount);
+	assert(copy.files.length == 1);
+	assert(copy.files !is filled.files);
 }

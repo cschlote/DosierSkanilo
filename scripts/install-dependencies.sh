@@ -29,10 +29,19 @@ have_all_cmds() {
     return 0
 }
 
+have_any_cmds() {
+    for dep in "$@"; do
+        if have_cmd "$dep"; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 mode_already_satisfied() {
     case "$MODE" in
         lint)
-            have_all_cmds dub ldc2 cc shellcheck hadolint
+            have_all_cmds dub ldc2 cc shellcheck hadolint && have_any_cmds markdownlint-cli2 markdownlint mdl
             ;;
         build)
             have_all_cmds dub ldc2 cc rsync
@@ -90,10 +99,20 @@ install_hadolint_binary() {
     run_as_root rm -f "$hadolint_tmp"
 }
 
+install_markdownlint_cli() {
+    if ! have_cmd npm; then
+        echo "ERROR: npm is not installed, cannot install markdownlint-cli." >&2
+        return 1
+    fi
+
+    # markdownlint-cli provides the `markdownlint` command.
+    run_as_root npm install -g markdownlint-cli
+}
+
 install_alpine() {
     runtime_pkgs="bash libmediainfo mediainfo file unzip zip tar p7zip rsync"
     build_pkgs="ca-certificates git bash tar zstd ldc gcc-gdc dub build-base openssl-dev libmediainfo-dev rsync"
-    lint_pkgs="shellcheck dub ldc build-base ca-certificates wget"
+    lint_pkgs="shellcheck nodejs npm dub ldc build-base ca-certificates wget"
 
     if [ "$MODE" = "build" ]; then
         # shellcheck disable=SC2086
@@ -106,6 +125,9 @@ install_alpine() {
     elif [ "$MODE" = "lint" ]; then
         # shellcheck disable=SC2086
         run_as_root apk add --no-cache $lint_pkgs
+        if ! have_cmd markdownlint && ! have_cmd markdownlint-cli2 && ! have_cmd mdl; then
+            install_markdownlint_cli
+        fi
         if ! have_cmd hadolint; then
             if ! run_as_root apk add --no-cache hadolint >/dev/null 2>&1; then
                 echo "hadolint package unavailable in apk, falling back to binary install." >&2
@@ -143,7 +165,7 @@ install_debian_ubuntu() {
 
     runtime_pkgs="bash libmediainfo0v5 libmediainfo-dev file unzip zip tar p7zip-full rsync"
     build_pkgs="ca-certificates git bash tar zstd ldc gdc dub libssl-dev build-essential rsync"
-    lint_pkgs="shellcheck hadolint dub ldc build-essential"
+    lint_pkgs="shellcheck hadolint markdownlint dub ldc build-essential"
 
     if [ "$MODE" = "build" ]; then
         # shellcheck disable=SC2086
@@ -166,7 +188,7 @@ install_debian_ubuntu() {
 install_manjaro() {
     runtime_pkgs="bash mediainfo file unzip zip tar p7zip rsync"
     build_pkgs="ca-certificates git bash tar zstd ldc dub openssl base-devel rsync"
-    lint_pkgs="shellcheck hadolint dub ldc base-devel"
+    lint_pkgs="shellcheck hadolint markdownlint-cli dub ldc base-devel"
 
     run_as_root pacman -Sy --noconfirm --needed
 

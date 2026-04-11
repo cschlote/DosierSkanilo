@@ -85,9 +85,17 @@ unittest
 	auto ts = SysTime(1_234_567).toISOExtString;
 
 	auto as0 = new ArchiveSpec();
+	assert(as0.fileName == "");
+	assert(as0.fileSize == 0);
+	assert(as0.timeLastModified == "");
 	auto asd0 = as0.toString;
 	// writeln("AS0: ", asd0);
 	assert(asd0 == `ArchiveSpec('', 0, '', const(CheckSums)("", "", ""))`, as0.toString);
+
+	auto as0s = new ArchiveSpec("test/dummy-text-file.txt", 1_234_567, ts, CheckSums());
+	assert(as0s.fileName == "test/dummy-text-file.txt");
+	assert(as0s.fileSize == 1_234_567);
+	assert(as0s.timeLastModified == ts);
 
 	auto as1 = new ArchiveSpec("test/dummy-text-file.txt", 1_234_567, SysTime(1_234_567), CheckSums());
 	auto asd1 = as1.toString;

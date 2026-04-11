@@ -21,10 +21,13 @@ jobs:
         run: apk add --no-cache git bash tar zstd
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+
+      - name: Fix git safe.directory for container builds
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Cache DUB
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             .dub
@@ -51,10 +54,13 @@ jobs:
         run: apk add --no-cache git bash tar zstd
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+
+      - name: Fix git safe.directory for container builds
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Cache DUB
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             .dub
@@ -86,10 +92,13 @@ jobs:
         run: apk add --no-cache git bash tar zstd
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+
+      - name: Fix git safe.directory for container builds
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Cache DUB
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             .dub
@@ -123,7 +132,7 @@ jobs:
         run: apk add --no-cache git bash
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Deploy to staging
         run: ./scripts/deploy.sh
@@ -144,7 +153,7 @@ jobs:
         run: apk add --no-cache git bash
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Deploy to production placeholder
         run: echo "Deploy to production server"
@@ -165,10 +174,13 @@ jobs:
             ca-certificates git bash tar zstd
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+
+      - name: Fix git safe.directory for container builds
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Cache DUB
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             .dub

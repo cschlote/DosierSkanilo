@@ -19,8 +19,9 @@ import std.exception : assertThrown, enforce;
 import jsonizer;
 
 import dosierarkivo;
-import dosierskanilo.cli.commandline;
-import dosierskanilo.cli.logging;
+import dosierskanilo.logging;
+import dosierskanilo.options;
+import dosierskanilo.progress;
 import dosierskanilo.metadata.digests;
 import dosierskanilo.metadata.mediainfosig;
 import dosierskanilo.metadata.torrentinfo;
@@ -83,21 +84,6 @@ unittest
 mixin template payloadHelpers()
 {
 	import std.parallelism : Task, task;
-
-	//bool invalidated; ///< Set, when file entry is marked for removal
-	bool isBlobOrphaned() ///< Set, when there is no file entry on disk for this blob
-	{
-		import std.algorithm : any;
-
-		bool rc = false;
-		if (fileSpecs.length == 0)
-			rc = true;
-		else
-		{
-			rc = fileSpecs.any!(a => !a.exists());
-		}
-		return rc;
-	}
 
 	Task!(updateDigests, NamedBinaryBlob, shared(bool)*, ProgressCallBack*)* task_hashme; ///< Pointer to hashing job
 	Task!(updateFileType, NamedBinaryBlob)* task_filetype; /// Query filetype with 'file' utility
@@ -322,6 +308,15 @@ class NamedBinaryBlob
 			this.checkSums == other.checkSums;
 	}
 
+	/** hash function for the object
+	 *
+	 * We use the file size and checksums to calculate the hash. The filenames
+	 * or media info are not relevant for hashing. They are just metadata.
+	 *
+	 * We also check for full checksums. If not available, we can't match.
+	 *
+	 * Returns: hash value for the object
+	 */
 	override size_t toHash() const nothrow @safe
 	{
 		size_t hash = this.fileSize;
@@ -329,7 +324,23 @@ class NamedBinaryBlob
 		return hash;
 	}
 
-	/* ------------------------------------------------------------------- */
+	/** Check if the blob is orphaned, i.e. if there is no file entry on disk for this blob
+	 *
+	 * Returns: true, if there is no file entry on disk for this blob, false otherwise
+	 */
+	bool isBlobOrphaned() ///< Set, when there is no file entry on disk for this blob
+	{
+		import std.algorithm : any;
+
+		bool rc = false;
+		if (fileSpecs.length == 0)
+			rc = true;
+		else
+		{
+			rc = fileSpecs.all!(a => !(a.exists()));
+		}
+		return rc;
+	}
 
 	/** Create a deep copy of the object
 	 *
@@ -391,16 +402,15 @@ class NamedBinaryBlob
 	 *
 	 * Returns: existing `FileSpec` entries, or an empty array if none exist.
 	 */
-	FileSpec[] getExistingFiles()
+	FileSpec[] getExistingFiles() @safe
 	{
 		import std.algorithm.sorting : sort;
+		import std.file : exists;
 
 		FileSpec[] rs = null;
 		if (fileSpecs.length)
 		{
-			import std.file : exists;
-
-			rs = fileSpecs.filter!(a => a.exists).array;
+			rs = fileSpecs.sort.filter!(a => a.exists).array;
 		}
 		return rs;
 	}
@@ -409,11 +419,12 @@ class NamedBinaryBlob
 	 *
 	 * Returns: first existing filename, or "" for an empty set.
 	 */
-	string getFirstExistingFileName()
+	string getFirstExistingFileName() @safe
 	{
 		import std.algorithm.sorting : sort;
 
-		auto rs = this.getExistingFiles.length ? this.fileSpecs.sort.front.fileName : "";
+		auto ef = this.getExistingFiles();
+		auto rs = ef.length ? ef[0].fileName : "";
 		return rs;
 	}
 
@@ -576,6 +587,66 @@ unittest
 	auto en = mis13.getExistingFiles();
 	assert(en.length == 2);
 
+}
+
+/* Trivial cases: empty blob, blob with non-existing file, blob with existing file, blob with mixed existing
+   and non-existing files */
+@("NamedBinaryBlob helper methods")
+unittest
+{
+	auto emptyBlob = new NamedBinaryBlob();
+	assert(emptyBlob.isBlobOrphaned);
+	assert(emptyBlob.getFirstFileName == "");
+	assert(emptyBlob.getFirstFileModDate == "");
+	assert(emptyBlob.getFirstExistingFileName == "");
+
+	auto nonExistentBlob = new NamedBinaryBlob("test/does-not-exist.txt", 12, SysTime(1_234_567));
+	assert(nonExistentBlob.isBlobOrphaned);
+	assert(nonExistentBlob.getFirstFileName == "test/does-not-exist.txt");
+	assert(nonExistentBlob.getFirstFileModDate == SysTime(1_234_567).toISOExtString);
+	assert(nonExistentBlob.getFirstExistingFileName == "");
+
+	auto existingBlob = new NamedBinaryBlob("test/dummy-text-file.txt", 12, SysTime(1_234_567));
+	assert(!existingBlob.isBlobOrphaned);
+	assert(existingBlob.getFirstFileName == "test/dummy-text-file.txt");
+	assert(existingBlob.getFirstExistingFileName == "test/dummy-text-file.txt");
+	assert(existingBlob.getFirstFileModDate == SysTime(1_234_567).toISOExtString);
+
+	string[] mixedFiles = [
+		"test/does-not-exist.txt",
+		"test/dummy-text-file.txt"
+	];
+	auto mixedBlob = new NamedBinaryBlob(mixedFiles, 12, SysTime(1_234_567));
+	assert(!mixedBlob.isBlobOrphaned);
+	debug { import std.stdio : writeln; try { writeln(mixedBlob.getFirstExistingFileName); } catch (Exception) {} }
+	assert(mixedBlob.getFirstExistingFileName == "test/dummy-text-file.txt");
+}
+
+@("fixupDataClassArrayIn legacy fields")
+unittest
+{
+	auto legacy = new NamedBinaryBlob();
+	legacy.fileName = "test/dummy-text-file.txt";
+	legacy.timeLastModified = SysTime(1_234_567).toISOExtString;
+	legacy.fileNames = ["test/dummy-audio-file.mp3"];
+	legacy.md5sum_b64 = "a";
+	legacy.sha1sum_b64 = "b";
+	legacy.xxh64sum_b64 = "c";
+	legacy.mediaInfo = ["<audio:0, 2 ch., 1 h, 0kbps ?, AAC>"];
+	legacy.mediaInfoSig = null;
+	legacy.torrentInfo = new TorrentInfo();
+	legacy.torrentInfo.magnetURI = "";
+
+	auto fixed = fixupDataClassArrayIn([legacy]);
+	assert(fixed.length == 1);
+	assert(fixed[0].fileSpecs.length == 2);
+	assert(fixed[0].fileName.empty);
+	assert(fixed[0].timeLastModified.empty);
+	assert(fixed[0].checkSums.md5sum_b64 == "a");
+	assert(fixed[0].checkSums.sha1sum_b64 == "b");
+	assert(fixed[0].checkSums.xxh64sum_b64 == "c");
+	assert(fixed[0].mediaInfoSig !is null);
+	assert(fixed[0].torrentInfo is null);
 }
 
 /* ----------------------------------------------------------------------- */
@@ -1139,7 +1210,7 @@ unittest
 {
 	import std.stdio : File;
 
-	string filename = "./test/dummy-audio-file.mp3";
+	string filename = "./test/dummy-picture-file.jpg";
 	auto fh = File(filename);
 	auto dco = new NamedBinaryBlob(filename, fh.size, SysTime(4_237_892));
 	updateMediaInfo(dco, true);
