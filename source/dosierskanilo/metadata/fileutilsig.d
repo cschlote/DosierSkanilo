@@ -51,9 +51,10 @@ unittest
     assert(type1 == "ASCII text", type1);
 
     auto type2 = getFileType("test/dummy-audio-file.mp3");
-    // writeln(type2);
-    assert(type2.startsWith(
-            "Audio file with ID3 version 2.3.0, contains: MPEG ADTS, layer III, v1, variable bitrate, 44.1 kHz, JntStereo"), type2);
+    // `file` changes its MP3 wording across versions, so keep the test stable
+    // by checking for the relevant markers instead of the full sentence.
+    assert(type2.canFind("Audio file with ID3 version 2.3.0"), type2);
+    assert(type2.canFind("MPEG ADTS, layer III"), type2);
 
     auto type3 = getFileType("test/no-file.txt");
     assert(type3 is null, type3);
