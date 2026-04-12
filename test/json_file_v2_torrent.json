@@ -17,5 +17,7 @@
             }
         }
     ],
-    "dataVersion": 2
+    "dataVersion": 3,
+    "fileUtilityVersion": "file-5.47",
+    "mediaInfoVersion": "MediaInfoLib - v26.01"
 }

@@ -23,23 +23,23 @@ import dosierskanilo.model.namedbinaryblob;
  * Params:
  *   jsonFile = JSON storage file path.
  *   forceOverwrite = continue with an empty database when deserialization fails.
- *   dynObjectArray = destination object array.
+ *   dynObjectWrapper = destination wrapper object.
  * Returns:
  *   `true` on success or intentional empty initialization.
  */
-bool readStorageJsonFile(string jsonFile, bool forceOverwrite, ref NamedBinaryBlob[] dynObjectArray)
+bool readStorageJsonFile(string jsonFile, bool forceOverwrite, ref NamedBinaryBlobWrapper dynObjectWrapper)
 {
     bool rc = true;
     if (!exists(jsonFile))
     {
         logFLine("Storage file '%s' does not exist. Start with an empty database.", jsonFile);
-        dynObjectArray.length = 0;
+        dynObjectWrapper = NamedBinaryBlobWrapper(DATA_CLASS_VERSION3, []);
     }
     else
     {
         try
         {
-            dynObjectArray = deserializeDataClassJsonFile(jsonFile);
+            dynObjectWrapper = deserializeDataClassJsonWrapperFile(jsonFile);
         }
         catch (Exception ex)
         {
@@ -49,7 +49,7 @@ bool readStorageJsonFile(string jsonFile, bool forceOverwrite, ref NamedBinaryBl
             if (forceOverwrite)
             {
                 logLine("Force mode enabled. Continue with an empty database.");
-                dynObjectArray.length = 0;
+                dynObjectWrapper = NamedBinaryBlobWrapper(DATA_CLASS_VERSION3, []);
             }
             else
             {
@@ -59,6 +59,19 @@ bool readStorageJsonFile(string jsonFile, bool forceOverwrite, ref NamedBinaryBl
             }
         }
     }
+    return rc;
+}
+
+/** Read scanner data from a JSON storage file into an array.
+ *
+ * This compatibility overload keeps older call sites working while the main
+ * application stores the wrapper object directly.
+ */
+bool readStorageJsonFile(string jsonFile, bool forceOverwrite, ref NamedBinaryBlob[] dynObjectArray)
+{
+    NamedBinaryBlobWrapper wrapper;
+    auto rc = readStorageJsonFile(jsonFile, forceOverwrite, wrapper);
+    dynObjectArray = wrapper.dataArray;
     return rc;
 }
 
@@ -285,13 +298,13 @@ unittest
  *
  * Params:
  *   jsonFile = JSON storage file path.
- *   dynObjectArray = source object array.
+ *   dynObjectWrapper = source wrapper object.
  *   jsonFileExtension = file extension for backup files (default: ".json").
  *   nowString = optional timestamp string to use in backup file names (default: current time in ISO format).
  * Returns:
  *   `true` on success, `false` on failure. On failure, the original file is left unchanged if possible.
  */
-bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlob[] dynObjectArray,
+bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlobWrapper dynObjectWrapper,
     string jsonFileExtension = ".json",
     string nowString = Clock.currTime.toISOExtString())
 {
@@ -308,7 +321,7 @@ bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlob[] dynObjectArray,
     logLine("Serialize Array of Objects");
     try
     {
-        serializeDataClassArrayFile(jsonFile, dynObjectArray);
+        serializeDataClassWrapperFile(jsonFile, dynObjectWrapper);
     }
     catch (Exception ex)
     {
@@ -319,6 +332,19 @@ bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlob[] dynObjectArray,
         return false;
     }
     return true;
+}
+
+/** Write scanned data to some storage file from an array.
+ *
+ * This compatibility overload keeps older call sites working while the main
+ * application stores the wrapper object directly.
+ */
+bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlob[] dynObjectArray,
+    string jsonFileExtension = ".json",
+    string nowString = Clock.currTime.toISOExtString())
+{
+    NamedBinaryBlobWrapper wrapper = NamedBinaryBlobWrapper(DATA_CLASS_VERSION3, dynObjectArray);
+    return writeStorageJsonFile(jsonFile, wrapper, jsonFileExtension, nowString);
 }
 
 @("writeStorageJsonFile")

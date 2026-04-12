@@ -9,10 +9,10 @@
 	"copyright": "Created 2018, Carsten Schlote",
 	"license": "CC-BY-NC-SA 4.0",
 	"dependencies": {
-		"silly": "~>1.2.0-dev.2",
-		"mediainfo-d": "~>0.1.0",
-		"jsonizer": "~>0.7.7",
-		"xxhash3": "~>0.0.5"
+		"silly": "~>1",
+		"mediainfo-d": "~>26",
+		"jsonizer": "~>0",
+		"xxhash3": "~>0"
 	},
 	"systemDependencies": "Install library on debian/ubuntu: apt install -y libmediainfo0v5 libmediainfo-dev",
 	"versions": [

@@ -90,6 +90,16 @@ class TorrentInfo
             ;
     }
 
+    override string toString() const
+    {
+        string result = name;
+        if (totalSize > 0)
+            result ~= " (" ~ totalSize.text ~ ")";
+        if (isMultiFile)
+            result ~= " [multi-file]";
+        return result;
+    }
+
     /** Create a deep-ish copy of the torrent info object. */
     TorrentInfo dup()
     {

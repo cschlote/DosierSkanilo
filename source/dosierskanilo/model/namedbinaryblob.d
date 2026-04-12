@@ -23,6 +23,7 @@ import dosierskanilo.logging;
 import dosierskanilo.options;
 import dosierskanilo.progress;
 import dosierskanilo.metadata.digests;
+import dosierskanilo.metadata.fileutilsig;
 import dosierskanilo.metadata.mediainfosig;
 import dosierskanilo.metadata.torrentinfo;
 public import dosierskanilo.model.archivespec;
@@ -35,8 +36,8 @@ enum int DATA_CLASS_VERSION3 = 3; ///< Current version of the NamedBinaryBlob st
 
 /** Wrapper class to serialize an array of NamedBinaryBlob objects
  *
- * This class is used to wrap an array of NamedBinaryBlob objects for serialization.
- * It also contains a version number to handle future changes in the data structure.
+ * This class wraps the data array together with global metadata that describes
+ * the environment the data was collected with.
  */
 struct NamedBinaryBlobWrapper
 {
@@ -50,6 +51,12 @@ struct NamedBinaryBlobWrapper
 		NamedBinaryBlob[] dataArray; ///< Array of NamedBinaryBlob objects
 	}
 
+	@jsonize(Jsonize.opt)
+	{
+		string mediaInfoVersion; ///< version string of the MediaInfo library
+		string fileUtilityVersion; ///< version string of the file utility
+	}
+
 	/** constructor with parameters
 	 *
 	 * Params:
@@ -60,6 +67,20 @@ struct NamedBinaryBlobWrapper
 	{
 		dataVersion = dataversion;
 		dataArray = dataarray;
+	}
+
+	/** Refresh wrapper metadata from the current runtime environment. */
+	void refreshRuntimeMetadata()
+	{
+		try
+		{
+			mediaInfoVersion = getMediaInfoVersion();
+		}
+		catch (Exception)
+		{
+			mediaInfoVersion = "unknown";
+		}
+		fileUtilityVersion = getFileUtilityVersion();
 	}
 }
 
@@ -78,6 +99,8 @@ unittest
 	]);
 	assert(wrap.dataVersion == DATA_CLASS_VERSION3);
 	assert(wrap.dataArray.length == 4);
+	assert(wrap.mediaInfoVersion.length == 0);
+	assert(wrap.fileUtilityVersion.length == 0);
 }
 
 /// Helper variables of the class
@@ -896,19 +919,19 @@ unittest
 	assert(dca[1].fileSpecs.length == 2);
 }
 
-/** Deserialize a JSON file and return NamedBinaryBlob[] array
+/** Deserialize a JSON string into the global wrapper structure.
  *
  * Params:
  *   serializedData = JSON string with serialized NamedBinaryBlob data
  * Returns:
- *   array of deserialized NamedBinaryBlob objects
+ *   wrapper object with deserialized NamedBinaryBlob data and metadata
  */
-NamedBinaryBlob[] deserializeDataClassJsonString(const string serializedData)
+NamedBinaryBlobWrapper deserializeDataClassJsonWrapperString(const string serializedData)
 {
 	NamedBinaryBlobWrapper wrapper;
 
-	NamedBinaryBlob[] deserializedData;
-	ulong deserializedObjectsLength;
+	if (serializedData.length == 0)
+		return wrapper;
 
 	// Check for new JSON object format
 	if (serializedData[0] != '[')
@@ -924,9 +947,9 @@ NamedBinaryBlob[] deserializeDataClassJsonString(const string serializedData)
 			wrapper.dataVersion = DATA_CLASS_VERSION2;
 		}
 
-		enforce(wrapper.dataVersion == DATA_CLASS_VERSION2,
+		enforce(wrapper.dataVersion == DATA_CLASS_VERSION2 || wrapper.dataVersion == DATA_CLASS_VERSION3,
 			"Data version mismatch, expected " ~ to!string(
-				DATA_CLASS_VERSION2) ~ ", got " ~ to!string(wrapper.dataVersion));
+			DATA_CLASS_VERSION3) ~ " or " ~ to!string(DATA_CLASS_VERSION2) ~ ", got " ~ to!string(wrapper.dataVersion));
 	}
 	// Check for old plain array JSON
 	else if (serializedData[0] == '[')
@@ -934,27 +957,50 @@ NamedBinaryBlob[] deserializeDataClassJsonString(const string serializedData)
 		logLineVerbose("  Reading directly into NamedBinaryBlob[] array (legacy format)...");
 		wrapper.dataArray = fromJSONString!(NamedBinaryBlob[])(serializedData);
 		wrapper.dataArray = fixupDataClassArrayIn(wrapper.dataArray);
-		wrapper.dataVersion = DATA_CLASS_VERSION2;
+		wrapper.dataVersion = DATA_CLASS_VERSION3;
 	}
 	// Shouldn't happen
 	else
 		assert(false, "Unknow JSON format?");
 
-	deserializedData = wrapper.dataArray;
+	wrapper.dataArray = fixupDataClassArrayIn(wrapper.dataArray);
+	logFLineVerbose("  got %d entries in array after deserialization() of archive data.", wrapper.dataArray.length);
 
-	deserializedObjectsLength = deserializedData.length;
-	logFLineVerbose("  got %d entries in array after deserialization() of archive data.", deserializedObjectsLength);
-
-	logFLineVerbose("  fixup legacy fields in deserialized array...");
-	deserializedData = fixupDataClassArrayIn(deserializedData);
-	logFLineVerbose("  sort and uniq deserialized array by their filenames (use a range)");
-	auto sortedDeserializedData_rng = sortDataClassArrayByFileName(deserializedData);
-	auto uniqSortedDeserializedData = uniqDataClassArrayByFileName(sortedDeserializedData_rng);
-
-	logFLineVerbose("  got %d entries in array after uniq()", uniqSortedDeserializedData.length);
-
-	return uniqSortedDeserializedData;
+	return wrapper;
 }
+
+/** Deserialize a JSON string and return NamedBinaryBlob[] array
+ *
+ * Params:
+ *   serializedData = JSON string with serialized NamedBinaryBlob data
+ * Returns:
+ *   array of deserialized NamedBinaryBlob objects
+ */
+NamedBinaryBlob[] deserializeDataClassJsonString(const string serializedData)
+{
+	return deserializeDataClassJsonWrapperString(serializedData).dataArray;
+}
+
+/** Deserialize a JSON file and return NamedBinaryBlobWrapper object.
+ *
+ * Params:
+ *   fileName = the name of JSON file to read.
+ *   verbose = enable verbose logging
+ * Returns:
+ *   wrapper with deserialized NamedBinaryBlob data and metadata, or an empty wrapper when file is missing
+ */
+NamedBinaryBlobWrapper deserializeDataClassJsonWrapperFile(string fileName)
+{
+	import std.file : exists, readText;
+
+	logFLineVerbose("Read serialized data from JSON file %s", fileName);
+	if (!exists(fileName))
+		return NamedBinaryBlobWrapper(DATA_CLASS_VERSION3, []);
+
+	const string serializedData = readText(fileName);
+	return deserializeDataClassJsonWrapperString(serializedData);
+}
+
 
 @("deserializeDataClassJsonString")
 unittest
@@ -968,8 +1014,14 @@ unittest
 	auto dca2 = deserializeDataClassJsonString(test_json_v2);
 	assert(dca2.length == 3);
 
-	assert(dca0 == dca1);
-	assert(dca0 == dca2);
+	auto s0 = sortDataClassArrayByFileName(dca0);
+	auto s1 = sortDataClassArrayByFileName(dca1);
+	auto s2 = sortDataClassArrayByFileName(dca2);
+	foreach (index; 0 .. s0.length)
+	{
+		assert(s0[index].toString == s1[index].toString, s0[index].toString ~ " != " ~ s1[index].toString);
+		assert(s0[index].toString == s2[index].toString, s0[index].toString ~ " != " ~ s2[index].toString);
+	}
 }
 
 /** Deserialize a JSON file and return NamedBinaryBlob[] array
@@ -995,6 +1047,27 @@ NamedBinaryBlob[] deserializeDataClassJsonFile(string fileName, bool verbose = f
 	return deserializeDataClassJsonString(serializedData);
 }
 
+/** Serialize the wrapper object into a JSON file.
+ *
+ * Store the wrapper data in a JSON file.
+ * Params:
+ *   fileName = The filename for the JSON
+ *   wrapper = Wrapper object to serialize
+ */
+void serializeDataClassWrapperFile(string fileName, ref NamedBinaryBlobWrapper wrapper)
+{
+	logFLineVerbose("Generate JSON data and write it to file %s", fileName);
+	wrapper.dataVersion = DATA_CLASS_VERSION3;
+	wrapper.refreshRuntimeMetadata();
+
+	logFLineVerbose("  sort and uniq serialized array by their filenames (use a range)");
+	auto sortedDeserializedData_rng = sortDataClassArrayByFileName(wrapper.dataArray);
+	auto uniqSortedDeserializedData = uniqDataClassArrayByFileName(sortedDeserializedData_rng);
+	wrapper.dataArray = fixupDataClassArrayOut(uniqSortedDeserializedData);
+	writeJSON!(NamedBinaryBlobWrapper)(fileName, wrapper);
+	wrapper.dataArray = fixupDataClassArrayIn(wrapper.dataArray);
+}
+
 @("deserializeDataClassJsonFile")
 unittest
 {
@@ -1012,8 +1085,14 @@ unittest
 	auto dca2 = deserializeDataClassJsonFile(json_file_v2);
 	assert(dca2.length == 3);
 
-	assert(dca0 == dca1);
-	assert(dca0 == dca2);
+	auto s0 = sortDataClassArrayByFileName(dca0);
+	auto s1 = sortDataClassArrayByFileName(dca1);
+	auto s2 = sortDataClassArrayByFileName(dca2);
+	foreach (index; 0 .. s0.length)
+	{
+		assert(s0[index].toString == s1[index].toString, s0[index].toString ~ " != " ~ s1[index].toString);
+		assert(s0[index].toString == s2[index].toString, s0[index].toString ~ " != " ~ s2[index].toString);
+	}
 
 	auto job0 = function() {
 		auto dca2 = deserializeDataClassJsonFile("./test/json_file_v1_wrongversion.json");
@@ -1030,18 +1109,8 @@ unittest
  */
 void serializeDataClassArrayFile(string fileName, NamedBinaryBlob[] dataArray)
 {
-	logFLineVerbose("Generate JSON data and write it to file %s", fileName);
-	NamedBinaryBlobWrapper wrapper;
-	wrapper.dataVersion = DATA_CLASS_VERSION2;
-
-	logFLineVerbose("  sort and uniq serialized array by their filenames (use a range)");
-	auto sortedDeserializedData_rng = sortDataClassArrayByFileName(dataArray);
-	auto uniqSortedDeserializedData = uniqDataClassArrayByFileName(sortedDeserializedData_rng);
-	wrapper.dataArray = uniqSortedDeserializedData;
-
-	wrapper.dataArray = fixupDataClassArrayOut(wrapper.dataArray);
-	writeJSON!(NamedBinaryBlobWrapper)(fileName, wrapper);
-	wrapper.dataArray = fixupDataClassArrayIn(wrapper.dataArray);
+	auto wrapper = NamedBinaryBlobWrapper(DATA_CLASS_VERSION3, dataArray);
+	serializeDataClassWrapperFile(fileName, wrapper);
 }
 
 version (unittest)

@@ -9,6 +9,11 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- Promoted `NamedBinaryBlobWrapper` to the primary in-memory storage object:
+  - the CLI now keeps the global scan state in the wrapper instead of a raw array
+  - JSON storage reads and writes preserve wrapper-level metadata alongside the blob list
+  - added runtime version fields for the `MediaInfo` library and the `file` utility
+
 ## Release 26.9.1
 
 - Split the CLI-specific code into a dedicated application package:

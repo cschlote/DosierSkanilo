@@ -383,6 +383,28 @@ class MediaInfoSig
 			audioStreams.length == 0 &&
 			textStreams.length == 0;
 	}
+
+	/** Some simple getters for common use cases. */
+	bool hasVideo() const
+	{
+		return videoStreams.length > 0;
+	}
+	bool hasAudio() const
+	{
+		return audioStreams.length > 0;
+	}
+	bool hasImage() const
+	{
+		return imageStreams.length > 0;
+	}
+	bool hasText() const
+	{
+		return textStreams.length > 0;
+	}
+	bool hasMedia() const
+	{
+		return hasVideo() || hasAudio() || hasImage() || hasText();
+	}
 }
 
 @("class MediaInfoSig")
