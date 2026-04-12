@@ -9,11 +9,11 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
-- Renamed `NamedBinaryBlobWrapper` to `NamedBinaryBlobCatalog`
-- Promoted `NamedBinaryBlobWrapper` to the primary in-memory storage object:
-  - the CLI now keeps the global scan state in the wrapper instead of a raw array
-  - JSON storage reads and writes preserve wrapper-level metadata alongside the blob list
-  - added runtime version fields for the `MediaInfo` library and the `file` utility
+## Release 26.9.2
+
+- Keep scan results in a dedicated catalog object.
+  - store the current scan state together with tool version details
+  - keep the saved JSON format aligned with the in-memory catalog
 
 ## Release 26.9.1
 

@@ -1069,6 +1069,8 @@ NamedBinaryBlob[] deserializeDataClassJsonFile(string fileName, bool verbose = f
 void serializeDataClassWrapperFile(string fileName, ref NamedBinaryBlobCatalog wrapper)
 {
 	logFLineVerbose("Generate JSON data and write it to file %s", fileName);
+	if (wrapper.dataVersion == 0)
+		wrapper.dataVersion = DATA_CLASS_VERSION3;
 	wrapper.dataVersion = DATA_CLASS_VERSION3;
 	wrapper.refreshRuntimeMetadata();
 
@@ -1076,13 +1078,14 @@ void serializeDataClassWrapperFile(string fileName, ref NamedBinaryBlobCatalog w
 	auto sortedDeserializedData_rng = sortDataClassArrayByFileName(wrapper.dataArray);
 	auto uniqSortedDeserializedData = uniqDataClassArrayByFileName(sortedDeserializedData_rng);
 	wrapper.dataArray = fixupDataClassArrayOut(uniqSortedDeserializedData);
-	writeJSON!(NamedBinaryBlobCatalog)(fileName, wrapper);
+	writeJSON!(NamedBinaryBlobWrapper)(fileName, wrapper);
 	wrapper.dataArray = fixupDataClassArrayIn(wrapper.dataArray);
 }
 
 @("deserializeDataClassJsonFile")
 unittest
 {
+	import core.exception : AssertError;
 	import std.file : exists, readText, tempDir, getSize, getTimes, mkdirRecurse, rmdirRecurse;
 
 	auto dca = deserializeDataClassJsonFile("./test/json_file_notexisting.json");
@@ -1106,10 +1109,7 @@ unittest
 		assert(s0[index].toString == s2[index].toString, s0[index].toString ~ " != " ~ s2[index].toString);
 	}
 
-	auto job0 = function() {
-		auto dca2 = deserializeDataClassJsonFile("./test/json_file_v1_wrongversion.json");
-	};
-	assertThrown(job0(), "No bumm?");
+	assertThrown!AssertError(deserializeDataClassJsonFile("./test/json_file_v1_wrongversion.json"), "No bumm?");
 }
 
 /** Serialize an array of NamedBinaryBlob classes
