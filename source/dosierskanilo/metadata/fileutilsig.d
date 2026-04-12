@@ -41,6 +41,25 @@ string getFileType(const string filename)
     return rv;
 }
 
+/** Query the installed `file` utility version string.
+ *
+ * Returns: version string reported by the `file` command, or `"unknown"` if
+ * the version cannot be queried.
+ */
+string getFileUtilityVersion()
+{
+    import std.process : execute;
+    import std.string : indexOf, strip;
+
+    auto rc = execute(["file", "--version"]);
+    if (rc.status != 0 || rc.output.strip.length == 0)
+        return "unknown";
+
+    auto versionText = rc.output.strip;
+    auto newlineIndex = versionText.indexOf('\n');
+    return (newlineIndex < 0 ? versionText : versionText[0 .. newlineIndex]).strip;
+}
+
 @("getFileType")
 unittest
 {
@@ -58,4 +77,11 @@ unittest
 
     auto type3 = getFileType("test/no-file.txt");
     assert(type3 is null, type3);
+}
+
+@("getFileUtilityVersion")
+unittest
+{
+    auto versionText = getFileUtilityVersion();
+    assert(versionText.length > 0, versionText);
 }

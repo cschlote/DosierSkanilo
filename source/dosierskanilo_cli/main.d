@@ -51,8 +51,8 @@ version (ldc)
 
 /* ----------------------------------------------------------------------- */
 
-/* The dynamic array with all file objects */
-NamedBinaryBlob[] dynObjectArray; /// Dynamic Array with our class objects
+/* The global wrapper with all file objects and shared metadata */
+NamedBinaryBlobCatalog dynObjectWrapper = NamedBinaryBlobCatalog(DATA_CLASS_VERSION3, []); /// Global data wrapper
 
 /* Custom CTRL-C handler for a smooth abort of running scan operation */
 shared bool gotCtrlC; /// Set in handler
@@ -146,7 +146,7 @@ bool executeFileScannerOperation()
 
 	/* Read the JSON file, if existent */
 	const bool rc_load = readStorageJsonFile(argsArray.argJSONFile, argsArray.argForceOverwrite,
-		dynObjectArray);
+		dynObjectWrapper);
 	if (!rc_load)
 	{
 		logLine("Abort program. Use -f to force overwriting of output file.");
@@ -161,7 +161,7 @@ bool executeFileScannerOperation()
 		import std.algorithm.iteration : fold;
 
 		const bool rc_scandirtree =
-			scanDirTree(argsArray.argScanPath, argsArray.argPickHidden, dynObjectArray, gotCtrlC, argsArray);
+			scanDirTree(argsArray.argScanPath, argsArray.argPickHidden, dynObjectWrapper.dataArray, gotCtrlC, argsArray);
 		if (!rc_scandirtree)
 		{
 			logLine("Failed to scan the directory tree.");
@@ -173,7 +173,7 @@ bool executeFileScannerOperation()
 	try
 	{
 		/* Execute the checksum and MediaInfo jobs for each file. */
-		const bool rc_dojobs = runScannerJobs(dynObjectArray, gotCtrlC, argsArray);
+		const bool rc_dojobs = runScannerJobs(dynObjectWrapper.dataArray, gotCtrlC, argsArray);
 		if (!rc_dojobs)
 			logLine("Failed to run all scanner jobs.");
 	}
@@ -182,7 +182,7 @@ bool executeFileScannerOperation()
 		logLine("Something happened while scanning and an exception was thrown.");
 		auto emergencySaveName = buildPath(thisExePath.dirName, ".crash_save.json");
 		logFLine("Serialize Array of Objects to temporary file: %s", emergencySaveName);
-		serializeDataClassArrayFile(emergencySaveName, dynObjectArray);
+		serializeDataClassWrapperFile(emergencySaveName, dynObjectWrapper);
 		logLine("Exception message: ", e.msg);
 		logLine("File: ", e.file);
 		logLine("Line: ", e.line);
@@ -195,7 +195,7 @@ bool executeFileScannerOperation()
 	if (argsArray.argRunAnalysis)
 	{
 		/* Do something useful on data */
-		const bool rc_analyse = analyseData(dynObjectArray, gotCtrlC, argsArray);
+		const bool rc_analyse = analyseData(dynObjectWrapper.dataArray, gotCtrlC, argsArray);
 		if (!rc_analyse)
 			logLine("Data analysis failed.");
 	}
@@ -203,7 +203,7 @@ bool executeFileScannerOperation()
 	/* Serialize the data */
 	if (argsArray.argWriteJSON)
 	{
-		const bool rc_write = writeStorageJsonFile(argsArray.argJSONFile, dynObjectArray);
+		const bool rc_write = writeStorageJsonFile(argsArray.argJSONFile, dynObjectWrapper);
 		if (!rc_write)
 			logLine("Write to storage file failed! Check data!");
 	}

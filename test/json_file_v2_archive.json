@@ -24,5 +24,7 @@
             "timeLastModified": "2025-07-18T22:17:19"
         }
     ],
-    "dataVersion": 2
+    "dataVersion": 3,
+    "fileUtilityVersion": "file-5.47",
+    "mediaInfoVersion": "MediaInfoLib - v26.01"
 }

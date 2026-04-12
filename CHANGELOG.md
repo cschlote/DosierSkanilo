@@ -9,6 +9,12 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+## Release 26.9.2
+
+- Keep scan results in a dedicated catalog object.
+  - store the current scan state together with tool version details
+  - keep the saved JSON format aligned with the in-memory catalog
+
 ## Release 26.9.1
 
 - Split the CLI-specific code into a dedicated application package:
