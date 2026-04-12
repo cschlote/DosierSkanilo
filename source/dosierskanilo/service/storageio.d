@@ -27,13 +27,13 @@ import dosierskanilo.model.namedbinaryblob;
  * Returns:
  *   `true` on success or intentional empty initialization.
  */
-bool readStorageJsonFile(string jsonFile, bool forceOverwrite, ref NamedBinaryBlobWrapper dynObjectWrapper)
+bool readStorageJsonFile(string jsonFile, bool forceOverwrite, ref NamedBinaryBlobCatalog dynObjectWrapper)
 {
     bool rc = true;
     if (!exists(jsonFile))
     {
         logFLine("Storage file '%s' does not exist. Start with an empty database.", jsonFile);
-        dynObjectWrapper = NamedBinaryBlobWrapper(DATA_CLASS_VERSION3, []);
+        dynObjectWrapper = NamedBinaryBlobCatalog(DATA_CLASS_VERSION3, []);
     }
     else
     {
@@ -49,7 +49,7 @@ bool readStorageJsonFile(string jsonFile, bool forceOverwrite, ref NamedBinaryBl
             if (forceOverwrite)
             {
                 logLine("Force mode enabled. Continue with an empty database.");
-                dynObjectWrapper = NamedBinaryBlobWrapper(DATA_CLASS_VERSION3, []);
+                dynObjectWrapper = NamedBinaryBlobCatalog(DATA_CLASS_VERSION3, []);
             }
             else
             {
@@ -69,7 +69,7 @@ bool readStorageJsonFile(string jsonFile, bool forceOverwrite, ref NamedBinaryBl
  */
 bool readStorageJsonFile(string jsonFile, bool forceOverwrite, ref NamedBinaryBlob[] dynObjectArray)
 {
-    NamedBinaryBlobWrapper wrapper;
+    NamedBinaryBlobCatalog wrapper;
     auto rc = readStorageJsonFile(jsonFile, forceOverwrite, wrapper);
     dynObjectArray = wrapper.dataArray;
     return rc;
@@ -304,7 +304,7 @@ unittest
  * Returns:
  *   `true` on success, `false` on failure. On failure, the original file is left unchanged if possible.
  */
-bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlobWrapper dynObjectWrapper,
+bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlobCatalog dynObjectWrapper,
     string jsonFileExtension = ".json",
     string nowString = Clock.currTime.toISOExtString())
 {
@@ -343,7 +343,7 @@ bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlob[] dynObjectArray,
     string jsonFileExtension = ".json",
     string nowString = Clock.currTime.toISOExtString())
 {
-    NamedBinaryBlobWrapper wrapper = NamedBinaryBlobWrapper(DATA_CLASS_VERSION3, dynObjectArray);
+    NamedBinaryBlobCatalog wrapper = NamedBinaryBlobCatalog(DATA_CLASS_VERSION3, dynObjectArray);
     return writeStorageJsonFile(jsonFile, wrapper, jsonFileExtension, nowString);
 }
 

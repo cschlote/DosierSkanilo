@@ -52,7 +52,7 @@ version (ldc)
 /* ----------------------------------------------------------------------- */
 
 /* The global wrapper with all file objects and shared metadata */
-NamedBinaryBlobWrapper dynObjectWrapper = NamedBinaryBlobWrapper(DATA_CLASS_VERSION3, []); /// Global data wrapper
+NamedBinaryBlobCatalog dynObjectWrapper = NamedBinaryBlobCatalog(DATA_CLASS_VERSION3, []); /// Global data wrapper
 
 /* Custom CTRL-C handler for a smooth abort of running scan operation */
 shared bool gotCtrlC; /// Set in handler

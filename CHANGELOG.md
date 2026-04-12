@@ -9,6 +9,7 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- Renamed
 - Promoted `NamedBinaryBlobWrapper` to the primary in-memory storage object:
   - the CLI now keeps the global scan state in the wrapper instead of a raw array
   - JSON storage reads and writes preserve wrapper-level metadata alongside the blob list
