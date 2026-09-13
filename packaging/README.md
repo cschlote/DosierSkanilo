@@ -4,6 +4,14 @@ This directory contains release scaffolding for Arch/AUR, Flatpak, Fedora and
 Debian. The project is publicly mirrored at
 `https://github.com/cschlote/DosierSkanilo`.
 
+## Package names
+
+- `dosierskanilo`: CLI scanner and backend library
+- `dosierskanilo-git`: development snapshot of the CLI/backend
+
+The GUI is packaged separately in `DosierSkanilo-Gui` as `dosierskanilo-gui`
+and `dosierskanilo-gui-git`. There is intentionally no umbrella package.
+
 The current stable release is `26.9.2` (`v26.9.2`). Replace `SKIP` and other
 placeholders in distribution recipes before publishing packages. The project
 license is `CC-BY-NC-SA 4.0`; package recipes must install the repository's
