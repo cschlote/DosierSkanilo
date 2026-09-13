@@ -11,3 +11,7 @@ Minimal guidelines for coding AI working in this repository:
 - Merge feature branches into `main` with `--no-ff` so the merge history stays explicit.
 - For release commits, move the `## Unreleased` notes to `## Release X.Y.Z` and keep the summary in simple English.
 - Prefix release tags with `v`, for example `v26.9.2`.
+
+## D language guide
+
+See [docs/development/d-language-guide.md](docs/development/d-language-guide.md) for the shared D style and documentation rules.

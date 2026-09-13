@@ -1,0 +1,14 @@
+Source: dosierskanilo
+Section: utils
+Priority: optional
+Maintainer: Carsten Schlote <schlote@vahanus.net>
+Build-Depends: debhelper-compat (= 13), ldc, dub, libmediainfo-dev
+Standards-Version: 4.7.0
+Homepage: https://github.com/cschlote/DosierSkanilo
+
+Package: dosierskanilo
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, mediainfo, file, unzip, tar, unrar, p7zip
+Description: blob-centric media and archive file scanner
+ DosierSkanilo scans files, calculates checksums, extracts metadata and stores
+ JSON results for duplicate detection.
