@@ -1,0 +1,16 @@
+app-id: org.dosierskanilo.DosierSkanilo
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+command: dosierskanilo
+finish-args:
+  - --filesystem=home
+modules:
+  - name: dosierskanilo
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 build/bin/dosierskanilo /app/bin/dosierskanilo
+    sources:
+      - type: archive
+        url: https://github.com/cschlote/DosierSkanilo/archive/refs/tags/v26.9.2.tar.gz
+        sha256: REPLACE_WITH_RELEASE_ARCHIVE_HASH

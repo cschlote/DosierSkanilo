@@ -1,0 +1,10 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	DC=ldc2 dub build --build=release --compiler=ldc2 --config=cli
+
+override_dh_auto_install:
+	install -D -m 0755 build/bin/dosierskanilo debian/dosierskanilo/usr/bin/dosierskanilo
