@@ -15,6 +15,7 @@ import std.array;
 import std.datetime.systime : SysTime;
 import std.datetime.timezone : TimeZone;
 import std.exception : assertThrown, enforce;
+import std.string : startsWith;
 
 import jsonizer;
 
@@ -674,6 +675,56 @@ unittest
 	assert(fixed[0].torrentInfo is null);
 }
 
+/** Correct MediaInfo's classification of standalone JPEG image files.
+ *
+ * Some JPEG files are reported by MediaInfo as a video stream with JPEG format
+ * instead of as an image stream. The file utility identifies these files more
+ * reliably as still images, so use that result to repair the stream category.
+ */
+private void normalizeJpegImageMediaInfo(NamedBinaryBlob obj)
+{
+	if (obj is null || obj.mediaInfoSig is null || !obj.fileType.startsWith("JPEG image data"))
+		return;
+
+	MediaInfoVideo[] remainingVideoStreams;
+	foreach (stream; obj.mediaInfoSig.videoStreams)
+	{
+		if (stream !is null && stream.format == "JPEG")
+		{
+			obj.mediaInfoSig.imageStreams ~= new MediaInfoImage(
+				stream.index, stream.format, stream.width, stream.height);
+		}
+		else
+		{
+			remainingVideoStreams ~= stream;
+		}
+	}
+	obj.mediaInfoSig.videoStreams = remainingVideoStreams;
+}
+
+@("normalize JPEG image MediaInfo classification")
+unittest
+{
+	auto image = new NamedBinaryBlob("photo.jpg", 1234, SysTime(1_234_567));
+	image.fileType = "JPEG image data, JFIF standard 1.02, baseline, 350x333";
+	image.mediaInfoSig = new MediaInfoSig();
+	image.mediaInfoSig.videoStreams ~= new MediaInfoVideo(0, "", "JPEG", 350, 333);
+
+	auto otherVideo = new MediaInfoVideo(1, "", "AV1", 1920, 1080);
+	image.mediaInfoSig.videoStreams ~= otherVideo;
+
+	normalizeJpegImageMediaInfo(image);
+	assert(image.mediaInfoSig.imageStreams.length == 1);
+	assert(image.mediaInfoSig.imageStreams[0].format == "JPEG");
+	assert(image.mediaInfoSig.imageStreams[0].width == 350);
+	assert(image.mediaInfoSig.imageStreams[0].height == 333);
+	assert(image.mediaInfoSig.videoStreams.length == 1);
+	assert(image.mediaInfoSig.videoStreams[0] is otherVideo);
+
+	normalizeJpegImageMediaInfo(image);
+	assert(image.mediaInfoSig.imageStreams.length == 1);
+}
+
 /* ----------------------------------------------------------------------- */
 
 /* ----------------------------------------------------------------------- */
@@ -842,6 +893,7 @@ NamedBinaryBlob[] fixupDataClassArrayIn(NamedBinaryBlob[] dataArray)
 						v.index = 0;
 			}
 		}
+		normalizeJpegImageMediaInfo(obj);
 		//-- filter empty mediaInfoSig ---------------------------
 		if (obj.mediaInfoSig !is null && obj.mediaInfoSig.empty)
 		{
@@ -891,6 +943,8 @@ NamedBinaryBlob[] fixupDataClassArrayOut(NamedBinaryBlob[] dataArray)
 
 		// -- Clear legacy mediaInfo field ---------------------------
 		obj.mediaInfo = null;
+
+		normalizeJpegImageMediaInfo(obj);
 
 		if (obj.mediaInfoSig !is null && obj.mediaInfoSig.empty)
 		{

@@ -9,6 +9,9 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- Normalize JPEG files identified by `file` as still images when MediaInfo
+  incorrectly stores their JPEG stream as a video stream.
+
 ## Release 26.9.2
 
 - Keep scan results in a dedicated catalog object.
