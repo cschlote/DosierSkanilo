@@ -9,6 +9,8 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- Handle unknown or malformed command-line options without a stack dump and
+  show a useful error message with a hint to use `--help`.
 - Normalize JPEG files identified by `file` as still images when MediaInfo
   incorrectly stores their JPEG stream as a video stream.
 

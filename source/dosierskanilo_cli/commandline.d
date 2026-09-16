@@ -49,25 +49,35 @@ bool parseCommandLineArgs(string[] args, ArgsArray* argsarray = &argsArray)
         args ~= "--help"; // Show help, if no args given.
 
     /* Parse the commandline with std.getopt */
-    auto helpInformation = getopt(args, /* std.getopt.config.required, */
+    GetoptResult helpInformation;
+    try
+    {
+        helpInformation = getopt(args, /* std.getopt.config.required, */
 
-        "path|p", "Path to scan for files", &argsarray.argScanPath,
-        "json|j", "Name of JSON file to read from and store results to", &argsarray.argJSONFile,
-        "recursive|r", "Recursively scan directories", &argsarray.argRecursive,
-        "scan|s", "Scan for new files.", &argsarray.argScanFiles,
-        "checksum|c", "Calculate the checksums", &argsarray.argDoChecksums,
-        "filetypes|y", "Query file type with 'file' utility", &argsarray.argDoFileTypes,
-        "mediasig|m", "Calculate the media signature", &argsarray.argDoMediaSig,
-        "rescan-mediasig", "Rescan all files for media signature", &argsarray.argRescanMediaSig,
-        "scanArchives+|z+", "Get the contents of archives", &argsarray.argScanArchives,
-        "scanTorrents|o", "Get the contents of torrent files", &argsarray.argScanTorrents,
-        "analyse|a", "Analyze database", &argsarray.argRunAnalysis,
-        "dropMissing|d", "Drop missing files from database", &argsarray.argDropMissing,
-        "writeJSON|w", "Write the modified JSON data.", &argsarray.argWriteJSON,
-        "threads|t", "Number of worker threads", &argsarray.argNumberOfThreads,
-        "force|f", "Force overwriting JSON file", &argsarray.argForceOverwrite,
-        "pickhidden|h", "Pick hidden files and directories too", &argsarray.argPickHidden,
-        "verbose|v", "Be verbose", &argsarray.argVerboseOutputs);
+            "path|p", "Path to scan for files", &argsarray.argScanPath,
+            "json|j", "Name of JSON file to read from and store results to", &argsarray.argJSONFile,
+            "recursive|r", "Recursively scan directories", &argsarray.argRecursive,
+            "scan|s", "Scan for new files.", &argsarray.argScanFiles,
+            "checksum|c", "Calculate the checksums", &argsarray.argDoChecksums,
+            "filetypes|y", "Query file type with 'file' utility", &argsarray.argDoFileTypes,
+            "mediasig|m", "Calculate the media signature", &argsarray.argDoMediaSig,
+            "rescan-mediasig", "Rescan all files for media signature", &argsarray.argRescanMediaSig,
+            "scanArchives+|z+", "Get the contents of archives", &argsarray.argScanArchives,
+            "scanTorrents|o", "Get the contents of torrent files", &argsarray.argScanTorrents,
+            "analyse|a", "Analyze database", &argsarray.argRunAnalysis,
+            "dropMissing|d", "Drop missing files from database", &argsarray.argDropMissing,
+            "writeJSON|w", "Write the modified JSON data.", &argsarray.argWriteJSON,
+            "threads|t", "Number of worker threads", &argsarray.argNumberOfThreads,
+            "force|f", "Force overwriting JSON file", &argsarray.argForceOverwrite,
+            "pickhidden|h", "Pick hidden files and directories too", &argsarray.argPickHidden,
+            "verbose|v", "Be verbose", &argsarray.argVerboseOutputs);
+    }
+    catch (GetOptException ex)
+    {
+        logLine("Invalid command-line arguments: ", ex.msg);
+        logLine("Use --help to see the available options.");
+        return false;
+    }
 
     if (helpInformation.helpWanted)
     {
@@ -144,6 +154,10 @@ unittest
     string[] testArgs0 = ["programname"];
     bool res0 = parseCommandLineArgs(testArgs0, &args);
     assert(res0 == false, "Should be false. No args given.");
+
+    string[] testArgsUnknown = ["programname", "--version"];
+    bool resUnknown = parseCommandLineArgs(testArgsUnknown, &args);
+    assert(resUnknown == false, "Should be false. Unknown option.");
 
     string[] testArgs1 = ["programname", "-v"];
     bool res1 = parseCommandLineArgs(testArgs1, &args);
