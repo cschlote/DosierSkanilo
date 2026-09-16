@@ -70,7 +70,8 @@ bool parseCommandLineArgs(string[] args, ArgsArray* argsarray = &argsArray)
             "threads|t", "Number of worker threads", &argsarray.argNumberOfThreads,
             "force|f", "Force overwriting JSON file", &argsarray.argForceOverwrite,
             "pickhidden|h", "Pick hidden files and directories too", &argsarray.argPickHidden,
-            "verbose|v", "Be verbose", &argsarray.argVerboseOutputs);
+            "verbose|v", "Be verbose", &argsarray.argVerboseOutputs,
+            "version", "Show the application version", &argsarray.argVersion);
     }
     catch (GetOptException ex)
     {
@@ -155,9 +156,10 @@ unittest
     bool res0 = parseCommandLineArgs(testArgs0, &args);
     assert(res0 == false, "Should be false. No args given.");
 
-    string[] testArgsUnknown = ["programname", "--version"];
-    bool resUnknown = parseCommandLineArgs(testArgsUnknown, &args);
-    assert(resUnknown == false, "Should be false. Unknown option.");
+    string[] testArgsVersion = ["programname", "--version"];
+    bool resVersion = parseCommandLineArgs(testArgsVersion, &args);
+    assert(resVersion == false, "Should be false. No scan path given.");
+    assert(args.argVersion == true, "Version option was not parsed.");
 
     string[] testArgs1 = ["programname", "-v"];
     bool res1 = parseCommandLineArgs(testArgs1, &args);

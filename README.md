@@ -105,6 +105,7 @@ Current command-line options (from `source/dosierskanilo/cli/commandline.d`):
 - `-f`, `--force`: allow overwrite/force load behavior
 - `-h`, `--pickhidden`: include hidden files/directories in scan
 - `-v`, `--verbose`: verbose output
+- `--version`: show the application version
 - `--help`: print help
 
 Operational notes:

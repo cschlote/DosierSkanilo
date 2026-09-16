@@ -29,6 +29,7 @@ struct ArgsArray
 	bool argForceOverwrite; ///< Overwrite an existing JSON file.
 	bool argPickHidden; ///< Include hidden files and directories.
 	bool argVerboseOutputs; ///< Enable verbose logging.
+	bool argVersion; ///< Show the application version.
 }
 
 /** Process-global command-line state used by the CLI workflow. */
