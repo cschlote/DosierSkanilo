@@ -187,7 +187,7 @@ Detailed architecture and diagrams:
   transfer API
 - `source/dosierskanilo/repository/scanner.d`: incremental filesystem scan
 - `source/dosierskanilo/repository/metadata.d`: blob-wise checksum and file
-  type jobs
+  type, media, archive and torrent jobs
 - `source/dosierskanilo/model/namedbinaryblob.d`: core blob model,
   serialization, migrations, update jobs, merge/cleanup
 - `source/dosierskanilo/metadata/digests.d`: digest calculation

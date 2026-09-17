@@ -24,6 +24,8 @@ They represent the functional evolution and are intentionally summarized.
   paths, unchanged-file detection and missing-file cleanup.
 - Added blob-wise repository jobs for checksums and `file` type detection with
   persisted metadata status.
+- Added blob-wise repository persistence for MediaInfo, archive and torrent
+  metadata, including rescan replacement of related records.
 
 ## Release 26.9.3
 

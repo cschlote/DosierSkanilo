@@ -118,6 +118,16 @@ struct MetadataScanOptions
     bool calculateChecksums;
     /// Query the `file` utility when no file type is stored.
     bool detectFileTypes;
+    /// Extract structured MediaInfo streams.
+    bool extractMediaInfo;
+    /// Inspect archive entries.
+    bool scanArchives;
+    /// Inspect archive entries and calculate entry checksums.
+    bool deepArchiveScan = true;
+    /// Parse torrent metadata.
+    bool scanTorrents;
+    /// Force refresh of metadata that is already present.
+    bool rescan;
 }
 
 /** Counters returned by a repository metadata update. */
@@ -129,6 +139,12 @@ struct MetadataSummary
     size_t checksumsUpdated;
     /// Number of blobs whose file type was updated.
     size_t fileTypesUpdated;
+    /// Number of blobs whose MediaInfo was updated.
+    size_t mediaInfoUpdated;
+    /// Number of blobs whose archive entries were updated.
+    size_t archivesUpdated;
+    /// Number of blobs whose torrent metadata was updated.
+    size_t torrentsUpdated;
     /// Number of metadata jobs that failed.
     size_t failed;
 }

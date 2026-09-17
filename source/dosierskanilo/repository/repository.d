@@ -370,3 +370,34 @@ unittest
     assert(blobs[0].checkSums.hasDigests);
     assert(blobs[0].fileType.length > 0);
 }
+
+@("repository metadata update for media and torrent data")
+unittest
+{
+    import std.file : copy, exists, mkdirRecurse, rmdirRecurse, tempDir;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "repository-rich-metadata-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    copy("./test/dummy-picture-file.jpg", buildPath(root, "picture.jpg"));
+    copy("./test/example.torrent", buildPath(root, "example.torrent"));
+    scope (exit)
+    {
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+
+    auto repository = Repository.initialize(root);
+    repository.scan();
+    MetadataScanOptions options;
+    options.extractMediaInfo = true;
+    options.scanTorrents = true;
+    auto summary = repository.updateMetadata(options);
+    assert(summary.blobsVisited == 2);
+    assert(summary.mediaInfoUpdated >= 1);
+    assert(summary.torrentsUpdated == 1);
+    assert(summary.failed == 0);
+    repository.close();
+}
