@@ -110,3 +110,25 @@ struct ScanSummary
     /// Number of missing references removed by `dropMissing`.
     size_t filesDropped;
 }
+
+/** Options for metadata extraction after a repository filesystem scan. */
+struct MetadataScanOptions
+{
+    /// Calculate MD5, SHA1 and XXH64 when a complete set is missing.
+    bool calculateChecksums;
+    /// Query the `file` utility when no file type is stored.
+    bool detectFileTypes;
+}
+
+/** Counters returned by a repository metadata update. */
+struct MetadataSummary
+{
+    /// Number of blobs with at least one existing file reference visited.
+    size_t blobsVisited;
+    /// Number of blobs whose checksum set was updated.
+    size_t checksumsUpdated;
+    /// Number of blobs whose file type was updated.
+    size_t fileTypesUpdated;
+    /// Number of metadata jobs that failed.
+    size_t failed;
+}

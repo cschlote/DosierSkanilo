@@ -10,6 +10,7 @@ import std.string : empty;
 import std.typecons : Nullable;
 
 import dosierskanilo.repository.errors;
+import dosierskanilo.repository.metadata : updateRepositoryMetadata;
 import dosierskanilo.repository.schema : migrate;
 import dosierskanilo.repository.scanner : scanRepository;
 import dosierskanilo.repository.transfer : exportCatalogJson, importCatalogJson;
@@ -192,6 +193,14 @@ public:
         return scanRepository(database, repositoryPaths.rootPath, options);
     }
 
+    /** Run selected metadata extraction jobs for stored file references. */
+    MetadataSummary updateMetadata(
+        MetadataScanOptions options = MetadataScanOptions())
+    {
+        requireOpen();
+        return updateRepositoryMetadata(database, repositoryPaths.rootPath, options);
+    }
+
     /** Explicitly close the repository connection. */
     void close()
     {
@@ -319,4 +328,45 @@ unittest
     auto dropped = repository.scan(dropOptions);
     assert(dropped.filesDropped == 1);
     repository.close();
+}
+
+@("repository metadata update for checksums and file type")
+unittest
+{
+    import std.file : copy, exists, mkdirRecurse, rmdirRecurse, tempDir;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "repository-metadata-" ~ randomUUID().toString());
+    mkdirRecurse(root);
+    auto input = buildPath(root, "sample.txt");
+    copy("./test/dummy-text-file.txt", input);
+    auto exported = buildPath(root, "metadata.json");
+    scope (exit)
+    {
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+
+    auto repository = Repository.initialize(root);
+    auto scanSummary = repository.scan();
+    assert(scanSummary.filesAdded == 1);
+
+    MetadataScanOptions options;
+    options.calculateChecksums = true;
+    options.detectFileTypes = true;
+    auto metadataSummary = repository.updateMetadata(options);
+    assert(metadataSummary.blobsVisited == 1);
+    assert(metadataSummary.checksumsUpdated == 1);
+    assert(metadataSummary.fileTypesUpdated == 1);
+    assert(metadataSummary.failed == 0);
+
+    repository.exportJson(exported);
+    repository.close();
+
+    import dosierskanilo.model.namedbinaryblob : deserializeDataClassJsonFile;
+    auto blobs = deserializeDataClassJsonFile(exported);
+    assert(blobs.length == 1);
+    assert(blobs[0].checkSums.hasDigests);
+    assert(blobs[0].fileType.length > 0);
 }

@@ -204,7 +204,8 @@ Run scans against SQLite without keeping the complete catalog in memory.
 - [x] Skip unchanged files based on size and modification time.
 - [x] Mark missing paths and optionally remove them with `dropMissing`.
 - [ ] Queue only new or changed files for metadata extraction.
-- [ ] Represent extractor state explicitly: not requested, pending, completed,
+- [x] Persist checksum and file type results with metadata status.
+- [ ] Represent all extractor states explicitly: not requested, pending, completed,
   empty or failed.
 - [ ] Refactor worker jobs to return result DTOs instead of mutating a shared
   global catalog.

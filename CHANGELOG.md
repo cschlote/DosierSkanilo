@@ -22,6 +22,8 @@ They represent the functional evolution and are intentionally summarized.
   including path-prefix filtering and relational metadata reconstruction.
 - Added the first incremental repository filesystem scan with root-relative
   paths, unchanged-file detection and missing-file cleanup.
+- Added blob-wise repository jobs for checksums and `file` type detection with
+  persisted metadata status.
 
 ## Release 26.9.3
 
