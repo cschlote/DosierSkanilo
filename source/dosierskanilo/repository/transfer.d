@@ -50,7 +50,17 @@ void importCatalogJson(ref Database db, string rootPath, string jsonFile,
 }
 
 /** Export repository data as the current JSON catalog format. */
-void exportCatalogJson(ref Database db, string jsonFile, JsonExportOptions options)
+void exportCatalogJson(ref Database db, string rootPath, string jsonFile,
+    JsonExportOptions options)
+{
+    auto blobs = loadCatalogFromDatabase(db, rootPath, options);
+    auto wrapper = NamedBinaryBlobCatalog(DATA_CLASS_VERSION3, blobs);
+    serializeDataClassWrapperFile(jsonFile, wrapper);
+}
+
+/** Load repository data into the existing domain model for library consumers. */
+NamedBinaryBlob[] loadCatalogFromDatabase(ref Database db, string rootPath,
+    JsonExportOptions options)
 {
     NamedBinaryBlob[] blobs;
     auto result = db.execute("SELECT id, file_size, md5, sha1, xxh64, file_type "
@@ -58,7 +68,7 @@ void exportCatalogJson(ref Database db, string jsonFile, JsonExportOptions optio
     foreach (row; result)
     {
         auto blobId = row.peek!long(0);
-        auto paths = loadFileSpecs(db, blobId, options.pathPrefix);
+        auto paths = loadFileSpecs(db, blobId, rootPath, options);
         if (paths.length == 0)
             continue;
 
@@ -75,9 +85,7 @@ void exportCatalogJson(ref Database db, string jsonFile, JsonExportOptions optio
         loadTorrentInfo(db, blobId, blob);
         blobs ~= blob;
     }
-
-    auto wrapper = NamedBinaryBlobCatalog(DATA_CLASS_VERSION3, blobs);
-    serializeDataClassWrapperFile(jsonFile, wrapper);
+    return blobs;
 }
 
 private void clearCatalog(ref Database db)
@@ -237,20 +245,27 @@ private void insertTorrentInfo(ref Database db, long blobId, TorrentInfo info)
     }
 }
 
-private FileSpec[] loadFileSpecs(ref Database db, long blobId, string pathPrefix)
+private FileSpec[] loadFileSpecs(ref Database db, long blobId, string rootPath,
+    JsonExportOptions options)
 {
     FileSpec[] specs;
-    auto result = pathPrefix.empty
+    auto result = options.pathPrefix.empty
         ? db.execute("SELECT relative_path, time_last_modified FROM file_refs "
             ~ "WHERE blob_id = ? ORDER BY relative_path", blobId)
         : db.execute("SELECT relative_path, time_last_modified FROM file_refs "
             ~ "WHERE blob_id = ? AND (relative_path = ? OR relative_path LIKE ?) "
-            ~ "ORDER BY relative_path", blobId, pathPrefix,
-            pathPrefix ~ "/%");
+            ~ "ORDER BY relative_path", blobId, options.pathPrefix,
+            options.pathPrefix ~ "/%");
     foreach (row; result)
     {
         auto modified = row.peek!(Nullable!string)(1);
-        specs ~= new FileSpec(row.peek!string(0),
+        auto fileName = row.peek!string(0);
+        if (options.absolutePaths)
+        {
+            import std.path : buildPath;
+            fileName = buildPath(rootPath, fileName);
+        }
+        specs ~= new FileSpec(fileName,
             modified.isNull ? "" : modified.get);
     }
     return specs;

@@ -9,12 +9,14 @@ import std.path : absolutePath, buildNormalizedPath, buildPath, dirName;
 import std.string : empty;
 import std.typecons : Nullable;
 
+import dosierskanilo.model.namedbinaryblob : NamedBinaryBlob;
 import dosierskanilo.repository.errors;
 import dosierskanilo.repository.analysis : analyzeRepository;
 import dosierskanilo.repository.metadata : updateRepositoryMetadata;
 import dosierskanilo.repository.schema : migrate;
 import dosierskanilo.repository.scanner : scanRepository;
-import dosierskanilo.repository.transfer : exportCatalogJson, importCatalogJson;
+import dosierskanilo.repository.transfer : exportCatalogJson, importCatalogJson,
+    loadCatalogFromDatabase;
 import dosierskanilo.repository.types;
 
 /** A connection to one `.dosierskanilo` repository. */
@@ -184,7 +186,14 @@ public:
     void exportJson(string jsonFile, JsonExportOptions options = JsonExportOptions())
     {
         requireOpen();
-        exportCatalogJson(database, jsonFile, options);
+        exportCatalogJson(database, repositoryPaths.rootPath, jsonFile, options);
+    }
+
+    /** Load repository blobs using the shared domain model for consumers. */
+    NamedBinaryBlob[] loadCatalog(JsonExportOptions options = JsonExportOptions())
+    {
+        requireOpen();
+        return loadCatalogFromDatabase(database, repositoryPaths.rootPath, options);
     }
 
     /** Scan the repository root and update its filesystem references. */

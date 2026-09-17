@@ -283,7 +283,7 @@ dosierskanilo export
 
 ## WP-07: GUI Data-Source Integration
 
-Status: `[ ]`
+Status: `[-]`
 
 Repository: `DosierSkanilo-Gui`.
 
@@ -294,9 +294,9 @@ source abstraction.
 
 ### WP-07 Steps
 
-- [ ] Introduce a `DocumentSource` abstraction for JSON and SQLite sources.
-- [ ] Keep the current JSON loader as the first adapter implementation.
-- [ ] Add SQLite source opening and repository-root discovery.
+- [x] Introduce a `DocumentSource` abstraction for JSON and SQLite sources.
+- [x] Keep the current JSON loader as the first adapter implementation.
+- [x] Add SQLite source opening and repository-root discovery.
 - [ ] Replace complete `loadedRows` loading with paginated summaries.
 - [ ] Move text, media, archive and torrent filters to repository queries.
 - [ ] Refactor `BlobRow` so it does not require a complete `NamedBinaryBlob`.

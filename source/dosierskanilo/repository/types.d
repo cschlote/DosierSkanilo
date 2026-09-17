@@ -81,6 +81,8 @@ struct JsonExportOptions
      * file references.
      */
     string pathPrefix;
+    /// Return absolute filesystem paths for an in-process repository reader.
+    bool absolutePaths;
 }
 
 /** Options controlling a repository filesystem scan. */
