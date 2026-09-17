@@ -3,6 +3,8 @@ module dosierskanilo.repository.types;
 
 import std.path : buildPath;
 
+import dosierskanilo.model.namedbinaryblob : NamedBinaryBlob;
+
 /** Name of the repository metadata directory. */
 enum repositoryDirectoryName = ".dosierskanilo";
 
@@ -185,6 +187,14 @@ struct RepositoryQueryOptions
     bool archive;
     /// Require torrent metadata.
     bool torrent;
+}
+
+/** A bounded repository page with stable blob identities. */
+struct RepositoryBlobPage
+{
+    NamedBinaryBlob[] blobs;
+    long[] blobIds;
+    size_t total;
 }
 
 /** Counters returned by repository analysis. */

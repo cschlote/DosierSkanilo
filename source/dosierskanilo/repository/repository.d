@@ -18,7 +18,8 @@ import dosierskanilo.repository.schema : migrate;
 import dosierskanilo.repository.scanner : scanRepository;
 import dosierskanilo.repository.transfer : exportCatalogJson, importCatalogJson,
     loadCatalogFromDatabase, loadCatalogPageFromDatabase,
-    loadCatalogQueryPageFromDatabase, countCatalogQueryFromDatabase;
+    loadCatalogQueryPageFromDatabase, loadCatalogQueryPageWithIdsFromDatabase,
+    loadBlobDetailsFromDatabase, countCatalogQueryFromDatabase;
 import dosierskanilo.repository.types;
 
 /** A connection to one `.dosierskanilo` repository. */
@@ -225,6 +226,28 @@ public:
             "Repository query page size must be greater than zero.");
         return loadCatalogQueryPageFromDatabase(database, repositoryPaths.rootPath,
             options, exportOptions);
+    }
+
+    /** Load a bounded filtered page while retaining stable blob IDs. */
+    RepositoryBlobPage loadCatalogQueryPageWithIds(RepositoryQueryOptions options,
+        JsonExportOptions exportOptions = JsonExportOptions())
+    {
+        requireOpen();
+        enforce(options.limit > 0,
+            "Repository query page size must be greater than zero.");
+        auto page = loadCatalogQueryPageWithIdsFromDatabase(database,
+            repositoryPaths.rootPath, options, exportOptions);
+        page.total = countCatalogQuery(options);
+        return page;
+    }
+
+    /** Load one blob and its related details by stable repository ID. */
+    NamedBinaryBlob loadBlobDetails(long blobId,
+        JsonExportOptions options = JsonExportOptions())
+    {
+        requireOpen();
+        return loadBlobDetailsFromDatabase(database, repositoryPaths.rootPath,
+            blobId, options);
     }
 
     /** Count blobs matching repository-side query filters. */

@@ -66,7 +66,7 @@ NamedBinaryBlob[] loadCatalogFromDatabase(ref Database db, string rootPath,
     auto result = db.execute("SELECT id FROM blobs ORDER BY id");
     foreach (row; result)
     {
-        auto blob = loadBlobFromDatabase(db, rootPath, row.peek!long(0), options);
+        auto blob = loadBlobDetailsFromDatabase(db, rootPath, row.peek!long(0), options);
         if (blob !is null)
             blobs ~= blob;
     }
@@ -82,7 +82,7 @@ NamedBinaryBlob[] loadCatalogPageFromDatabase(ref Database db, string rootPath,
         cast(long) limit, cast(long) offset);
     foreach (row; result)
     {
-        auto blob = loadBlobFromDatabase(db, rootPath, row.peek!long(0), options);
+        auto blob = loadBlobDetailsFromDatabase(db, rootPath, row.peek!long(0), options);
         if (blob !is null)
             blobs ~= blob;
     }
@@ -93,19 +93,31 @@ NamedBinaryBlob[] loadCatalogPageFromDatabase(ref Database db, string rootPath,
 NamedBinaryBlob[] loadCatalogQueryPageFromDatabase(ref Database db, string rootPath,
     RepositoryQueryOptions options, JsonExportOptions exportOptions)
 {
+    return loadCatalogQueryPageWithIdsFromDatabase(db, rootPath, options,
+        exportOptions).blobs;
+}
+
+/** Load a bounded filtered page and retain its blob IDs. */
+RepositoryBlobPage loadCatalogQueryPageWithIdsFromDatabase(ref Database db,
+    string rootPath, RepositoryQueryOptions options, JsonExportOptions exportOptions)
+{
     auto statement = prepareCatalogQuery(db, "SELECT b.id FROM blobs b", options,
         true);
 
-    NamedBinaryBlob[] blobs;
+    RepositoryBlobPage page;
     auto result = statement.execute();
     foreach (row; result)
     {
-        auto blob = loadBlobFromDatabase(db, rootPath, row.peek!long(0),
+        auto blobId = row.peek!long(0);
+        auto blob = loadBlobDetailsFromDatabase(db, rootPath, blobId,
             exportOptions);
         if (blob !is null)
-            blobs ~= blob;
+        {
+            page.blobIds ~= blobId;
+            page.blobs ~= blob;
+        }
     }
-    return blobs;
+    return page;
 }
 
 /** Count rows matching repository query filters. */
@@ -206,7 +218,8 @@ private Statement prepareCatalogQuery(ref Database db, string selectSql,
     return statement;
 }
 
-private NamedBinaryBlob loadBlobFromDatabase(ref Database db, string rootPath,
+/** Load one blob and all related details by stable database ID. */
+NamedBinaryBlob loadBlobDetailsFromDatabase(ref Database db, string rootPath,
     long blobId, JsonExportOptions options)
 {
     auto result = db.execute("SELECT file_size, md5, sha1, xxh64, file_type "
