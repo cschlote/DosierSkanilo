@@ -9,6 +9,7 @@
 	"copyright": "Created 2018, Carsten Schlote",
 	"license": "CC-BY-NC-SA 4.0",
 	"dependencies": {
+		"d2sqlite3": "~>1.0.0",
 		"silly": "~>1",
 		"mediainfo-d": "~>26",
 		"jsonizer": "~>0",
@@ -16,7 +17,8 @@
 	},
 	"systemDependencies": "Install library on debian/ubuntu: apt install -y libmediainfo0v5 libmediainfo-dev",
 	"versions": [
-		"useJSONStorage"
+		"useJSONStorage",
+		"SqliteEnableUnlockNotify"
 	],
 	"preGenerateCommands": [
 		"mkdir -p build/bin",

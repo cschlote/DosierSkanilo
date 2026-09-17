@@ -43,6 +43,12 @@ Generate API docs:
 ./scripts/build-docs.sh
 ```
 
+Benchmark JSON and SQLite storage paths:
+
+```bash
+./scripts/benchmark-storage.sh ./test/json_file_v2.json 3
+```
+
 Compiler strategy:
 
 - CI and local helper scripts use `ldc2` as default for `build`, `test`, and `run`.
@@ -78,7 +84,8 @@ Run the same stage order locally:
 
 - `file` utility
 - MediaInfo library (`libmediainfo`)
-- Archive tools used by `source/dosierarkivo/baseclass.d`:
+- Archive tools used by `source/dosierarkivo/archive.d` and the
+  format-specific archive modules:
   - `unzip`
   - `tar`
   - `unrar`
@@ -86,10 +93,14 @@ Run the same stage order locally:
 
 ## CLI Reference
 
-Current command-line options (from `source/dosierskanilo/cli/commandline.d`):
+Current command-line options (from `source/dosierskanilo_cli/commandline.d`):
 
 - `-p`, `--path`: path to scan
 - `-j`, `--json`: JSON file name for load/store
+- `--repository`: repository root or path below a `.dosierskanilo` repository
+- `--init-repository`: initialize a repository at `--repository` or `--path`
+- `--import-json`: import a JSON catalog into a repository
+- `--export-json`: export a repository as JSON
 - `-r`, `--recursive`: recurse into subdirectories
 - `-s`, `--scan`: discover files from the scan path
 - `-c`, `--checksum`: calculate digests
@@ -112,6 +123,8 @@ Operational notes:
 
 - `--json` currently accepts a filename ending in `.json`; passing a path is
   rejected by argument validation.
+- Importing JSON into a non-empty repository requires `--force` and creates a
+  timestamped SQLite backup under `.dosierskanilo/backups/`.
 - `--rescan-mediasig` forces a media refresh when combined with `--mediasig`
   (single-thread and multi-thread).
 - `-h` is bound to `--pickhidden`; use `--help` for help output to avoid
@@ -165,24 +178,60 @@ Enable archive and torrent analysis:
   --force
 ```
 
+Initialize and scan a SQLite repository:
+
+```bash
+./build/bin/dosierskanilo \
+  --repository=/data/library \
+  --init-repository \
+  --recursive \
+  --scan \
+  --checksum \
+  --filetypes \
+  --mediasig \
+  --scanTorrents
+```
+
+Import or export JSON through a repository:
+
+```bash
+./build/bin/dosierskanilo \
+  --repository=/data/library \
+  --import-json=library-scan.json
+
+./build/bin/dosierskanilo \
+  --repository=/data/library \
+  --export-json=library-export.json
+```
+
 ## Architecture
 
 Detailed architecture and diagrams:
 
 - `docs/ARCHITECTURE.md`
+- `docs/JSON-FORMAT.md` - current JSON import/export format and migrations
+- `docs/DATABASE.md` - planned normalized SQLite repository architecture
+- `docs/SQLITE-IMPLEMENTATION-PLAN.md` - staged implementation checklist
+- `docs/BENCHMARKS.md` - JSON/SQLite storage baseline measurements
 
 ## Source Map
 
-- `source/dosierskanilo/cli/main.d`: main workflow, scanner orchestration, analysis
-- `source/dosierskanilo/cli/commandline.d`: CLI options and progress rendering
-- `source/dosierskanilo/cli/logging.d`: logging wrapper
+- `source/dosierskanilo_cli/main.d`: main workflow, scanner orchestration, analysis
+- `source/dosierskanilo_cli/commandline.d`: CLI options and progress rendering
+- `source/dosierskanilo_cli/logging.d`: logging wrapper
 - `source/dosierskanilo/service/scanning.d`: directory scanning + job scheduling
 - `source/dosierskanilo/service/analyze.d`: duplicate/missing-file analysis
 - `source/dosierskanilo/service/storageio.d`: JSON storage read/write and backup
+- `source/dosierskanilo/repository/*`: SQLite repository, schema and JSON
+  transfer API
+- `source/dosierskanilo/repository/scanner.d`: incremental filesystem scan
+- `source/dosierskanilo/repository/metadata.d`: blob-wise checksum and file
+  type, media, archive and torrent jobs
 - `source/dosierskanilo/model/namedbinaryblob.d`: core blob model,
   serialization, migrations, update jobs, merge/cleanup
 - `source/dosierskanilo/metadata/digests.d`: digest calculation
 - `source/dosierskanilo/metadata/mediainfosig.d`: MediaInfo mapping
 - `source/dosierskanilo/metadata/fileutilsig.d`: file type extraction via `file`
 - `source/dosierskanilo/metadata/torrentinfo.d`: torrent parser and metadata extraction
-- `source/dosierarkivo/baseclass.d`: archive adapters and extraction logic
+- `source/dosierarkivo/archive.d` and `source/dosierarkivo/*archive.d`: archive
+  adapters and extraction logic

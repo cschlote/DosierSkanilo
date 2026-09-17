@@ -30,6 +30,9 @@ calculate media signatures for audio and video files.
 It can store its results in a JSON file, and read them back later on. It has
 also some analysis functions to find duplicate files, missing files, etc.
 
+The repository mode stores the current state in a `.dosierskanilo` SQLite
+repository and keeps JSON available for import and export.
+
 EOS";
 
 /** Parse command-line arguments into an ArgsArray instance.
@@ -56,6 +59,10 @@ bool parseCommandLineArgs(string[] args, ArgsArray* argsarray = &argsArray)
 
             "path|p", "Path to scan for files", &argsarray.argScanPath,
             "json|j", "Name of JSON file to read from and store results to", &argsarray.argJSONFile,
+            "repository", "Repository root or path below a repository", &argsarray.argRepositoryPath,
+            "init-repository", "Initialize a .dosierskanilo repository", &argsarray.argInitRepository,
+            "import-json", "Import a JSON catalog into a repository", &argsarray.argImportJSON,
+            "export-json", "Export a repository as JSON", &argsarray.argExportJSON,
             "recursive|r", "Recursively scan directories", &argsarray.argRecursive,
             "scan|s", "Scan for new files.", &argsarray.argScanFiles,
             "checksum|c", "Calculate the checksums", &argsarray.argDoChecksums,
@@ -93,7 +100,42 @@ bool parseCommandLineArgs(string[] args, ArgsArray* argsarray = &argsArray)
         return false;
     }
     setVerboseOutputs(argsarray.argVerboseOutputs);
-    /* Validate some arguments */
+    const bool repositoryMode = argsarray.argInitRepository
+        || !argsarray.argRepositoryPath.empty
+        || !argsarray.argImportJSON.empty
+        || !argsarray.argExportJSON.empty;
+
+    if (repositoryMode)
+    {
+        if (argsarray.argRepositoryPath.empty)
+            argsarray.argRepositoryPath = argsarray.argScanPath;
+        if (argsarray.argRepositoryPath.empty)
+        {
+            logLine("We need a repository path. Use --repository or -p.");
+            return false;
+        }
+        if (!exists(argsarray.argRepositoryPath) || !isDir(argsarray.argRepositoryPath))
+        {
+            logFLine("Repository path '%s' is not an existing directory.",
+                argsarray.argRepositoryPath);
+            return false;
+        }
+        if (!argsarray.argImportJSON.empty
+            && !argsarray.argImportJSON.endsWith(jsonFileExtension))
+        {
+            logFLine("Import JSON filename '%s' looks invalid.", argsarray.argImportJSON);
+            return false;
+        }
+        if (!argsarray.argExportJSON.empty
+            && !argsarray.argExportJSON.endsWith(jsonFileExtension))
+        {
+            logFLine("Export JSON filename '%s' looks invalid.", argsarray.argExportJSON);
+            return false;
+        }
+        return true;
+    }
+
+    /* Validate JSON-mode arguments */
     if (argsarray.argScanPath.empty)
     {
         logLine("We need a scan path. Use -p to specify it.");
@@ -212,6 +254,14 @@ unittest
     assert(args.argVerboseOutputs == true, args.argVerboseOutputs.to!string);
     assert(args.argScanArchives == 2, args.argScanArchives.to!string);
     assert(args.argScanTorrents == true, args.argScanTorrents.to!string);
+
+    ArgsArray repositoryArgs;
+    string[] testRepositoryArgs = [
+        "programname", "--repository", testdir, "--init-repository"
+    ];
+    assert(parseCommandLineArgs(testRepositoryArgs, &repositoryArgs));
+    assert(repositoryArgs.argRepositoryPath == testdir);
+    assert(repositoryArgs.argInitRepository);
 }
 
 /** Shortens a string `s` to exactly `maxLen` characters.

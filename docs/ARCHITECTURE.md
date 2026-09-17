@@ -123,24 +123,38 @@ This keeps the model content-oriented while preserving all known file names.
 
 ## 5. Serialization and Migration
 
-Storage is JSON using `NamedBinaryBlobWrapper`:
+The current interchange format is JSON using `NamedBinaryBlobWrapper`. The
+version-3 wrapper contains:
 
 - `dataVersion`
 - `dataArray`
+- optional `mediaInfoVersion`
+- optional `fileUtilityVersion`
 
-On load, legacy fields are migrated in `fixupDataClassArrayIn()`.
-On save, outbound compatibility cleanup happens in
-`fixupDataClassArrayOut()`.
+The complete field inventory, legacy formats and output compatibility rules
+are documented in [JSON-FORMAT.md](JSON-FORMAT.md).
+
+On load, legacy fields are migrated in `fixupDataClassArrayIn()`. On save,
+outbound compatibility cleanup happens in `fixupDataClassArrayOut()`. The
+single-path output form (`fileName` and `timeLastModified`) and the multi-path
+form (`fileSpecs`) both represent the same internal `FileSpec[]` relationship.
 
 Relevant code:
 
 - `deserializeDataClassJsonString`
 - `deserializeDataClassJsonFile`
-- `serializeDataClassArrayFile`
+- `serializeDataClassWrapperFile`
+
+The planned normalized SQLite repository is described in
+[DATABASE.md](DATABASE.md). JSON remains the import/export boundary rather than
+the query store for large repositories.
+
+The implementation sequence is tracked in
+[SQLITE-IMPLEMENTATION-PLAN.md](SQLITE-IMPLEMENTATION-PLAN.md).
 
 ## 6. Archive Handling
 
-`source/dosierarkivo/baseclass.d` provides:
+`source/dosierarkivo/archive.d` provides:
 
 - Factory `fileArchive()` to pick implementation by extension
 - Backends: `zip`, `tar`, `rar`, `7z`
@@ -193,3 +207,5 @@ flowchart LR
 - Archive and torrent support allows deeper content intelligence than plain file
   tree scans.
 - JSON persistence plus fixups protects compatibility across schema evolution.
+- SQLite is planned as the normalized current-state store for repository-scale
+  scans and GUI queries.

@@ -7,6 +7,51 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
+## Release 26.10.0 - 2026-09-17
+
+- Added the initial public repository API for the planned SQLite backend.
+- Added `.dosierskanilo` repository initialization and parent-directory
+  discovery.
+- Added SQLite schema version 1 with repository, directory, blob, file
+  reference, media, archive and torrent tables.
+- Added `d2sqlite3` as the SQLite access dependency while keeping it behind the
+  repository API.
+- Made serialization fixture tests independent of installed `file` and
+  MediaInfo tool versions.
+- Added transactional JSON v3 import and export for initialized repositories,
+  including path-prefix filtering and relational metadata reconstruction.
+- Added the first incremental repository filesystem scan with root-relative
+  paths, unchanged-file detection and missing-file cleanup.
+- Added blob-wise repository jobs for checksums and `file` type detection with
+  persisted metadata status.
+- Added blob-wise repository persistence for MediaInfo, archive and torrent
+  metadata, including rescan replacement of related records.
+- Added repository-mode CLI options for initialization, scanning, metadata
+  updates and JSON import/export while retaining the legacy JSON mode.
+- Added SQL-based repository analysis for duplicate blob merging, missing-file
+  handling and orphan cleanup.
+- Added parallel metadata workers with central SQLite persistence and structured
+  repository operation logs.
+- Distinguish empty metadata results from completed metadata results so empty
+  extractors are not needlessly rerun.
+- Added a storage benchmark script and JSON compatibility coverage across all
+  supported fixture generations.
+- Added the initial JSON/SQLite storage benchmark baseline for 1k, 10k and 100k
+  synthetic records.
+- Added schema forward-version rejection and empty-directory scan coverage.
+- Added repository archive/torrent relationship persistence coverage.
+- Added concurrent repository reader/writer integration coverage.
+- Stabilized WAL initialization and close behavior for concurrent repository
+  readers and writers.
+- Protected non-empty JSON imports with `--force` and automatic SQLite backups.
+- Added populated GUI repository pagination coverage.
+- Repository-mode `--threads` now controls parallel metadata workers.
+- Added a library read API for loading repository data into the existing domain
+  model, enabling the GUI data-source adapter.
+- Added bounded repository catalog page reads for upcoming GUI pagination.
+- Added repository-side catalog filtering for path text, SHA1, media streams,
+  file type, archive and torrent metadata.
+
 ## Release 26.9.3
 
 - Added the `--version` command-line option.

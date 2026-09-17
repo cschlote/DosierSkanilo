@@ -1,6 +1,7 @@
 {
 	"fileVersion": 1,
 	"versions": {
+		"d2sqlite3": "1.0.0",
 		"jsonizer": "0.7.7",
 		"mediainfo-d": "26.4.2",
 		"silly": "1.2.0-dev.2",
