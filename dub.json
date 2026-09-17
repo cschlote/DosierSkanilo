@@ -17,7 +17,8 @@
 	},
 	"systemDependencies": "Install library on debian/ubuntu: apt install -y libmediainfo0v5 libmediainfo-dev",
 	"versions": [
-		"useJSONStorage"
+		"useJSONStorage",
+		"SqliteEnableUnlockNotify"
 	],
 	"preGenerateCommands": [
 		"mkdir -p build/bin",
