@@ -375,6 +375,7 @@ unittest
     auto repository = Repository.initialize(root);
     repository.importJson("./test/json_file_v2.json");
     assert(repository.blobCount == 3);
+    assert(repository.countCatalogQuery(RepositoryQueryOptions()) == 3);
     assert(repository.loadCatalogPage(0, 1).length == 1);
     RepositoryQueryOptions query;
     query.text = "ala";

@@ -124,6 +124,10 @@ RepositoryBlobPage loadCatalogQueryPageWithIdsFromDatabase(ref Database db,
 /** Count rows matching repository query filters. */
 long countCatalogQueryFromDatabase(ref Database db, RepositoryQueryOptions options)
 {
+    if (options.text.empty && !options.video && !options.audio && !options.image
+        && !options.textStream && !options.fileType && !options.archive
+        && !options.torrent)
+        return db.execute("SELECT count(*) FROM blobs").oneValue!long;
     auto statement = prepareCatalogQuery(db, "SELECT count(*) FROM blobs b",
         options, false);
     return statement.execute().oneValue!long;
