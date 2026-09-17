@@ -78,7 +78,8 @@ Run the same stage order locally:
 
 - `file` utility
 - MediaInfo library (`libmediainfo`)
-- Archive tools used by `source/dosierarkivo/baseclass.d`:
+- Archive tools used by `source/dosierarkivo/archive.d` and the
+  format-specific archive modules:
   - `unzip`
   - `tar`
   - `unrar`
@@ -86,7 +87,7 @@ Run the same stage order locally:
 
 ## CLI Reference
 
-Current command-line options (from `source/dosierskanilo/cli/commandline.d`):
+Current command-line options (from `source/dosierskanilo_cli/commandline.d`):
 
 - `-p`, `--path`: path to scan
 - `-j`, `--json`: JSON file name for load/store
@@ -170,12 +171,14 @@ Enable archive and torrent analysis:
 Detailed architecture and diagrams:
 
 - `docs/ARCHITECTURE.md`
+- `docs/JSON-FORMAT.md` - current JSON import/export format and migrations
+- `docs/DATABASE.md` - planned normalized SQLite repository architecture
 
 ## Source Map
 
-- `source/dosierskanilo/cli/main.d`: main workflow, scanner orchestration, analysis
-- `source/dosierskanilo/cli/commandline.d`: CLI options and progress rendering
-- `source/dosierskanilo/cli/logging.d`: logging wrapper
+- `source/dosierskanilo_cli/main.d`: main workflow, scanner orchestration, analysis
+- `source/dosierskanilo_cli/commandline.d`: CLI options and progress rendering
+- `source/dosierskanilo_cli/logging.d`: logging wrapper
 - `source/dosierskanilo/service/scanning.d`: directory scanning + job scheduling
 - `source/dosierskanilo/service/analyze.d`: duplicate/missing-file analysis
 - `source/dosierskanilo/service/storageio.d`: JSON storage read/write and backup
@@ -185,4 +188,5 @@ Detailed architecture and diagrams:
 - `source/dosierskanilo/metadata/mediainfosig.d`: MediaInfo mapping
 - `source/dosierskanilo/metadata/fileutilsig.d`: file type extraction via `file`
 - `source/dosierskanilo/metadata/torrentinfo.d`: torrent parser and metadata extraction
-- `source/dosierarkivo/baseclass.d`: archive adapters and extraction logic
+- `source/dosierarkivo/archive.d` and `source/dosierarkivo/*archive.d`: archive
+  adapters and extraction logic
