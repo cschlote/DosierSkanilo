@@ -35,11 +35,11 @@ done
 
 echo "Running markdown lint"
 if command -v markdownlint-cli2 >/dev/null 2>&1; then
-	markdownlint-cli2 README.md docs/ARCHITECTURE.md docs/JSON-FORMAT.md docs/DATABASE.md CHANGELOG.md TODO.md
+	markdownlint-cli2 README.md docs/ARCHITECTURE.md docs/JSON-FORMAT.md docs/DATABASE.md docs/SQLITE-IMPLEMENTATION-PLAN.md CHANGELOG.md TODO.md
 elif command -v markdownlint >/dev/null 2>&1; then
-	markdownlint README.md docs/ARCHITECTURE.md docs/JSON-FORMAT.md docs/DATABASE.md CHANGELOG.md TODO.md
+	markdownlint README.md docs/ARCHITECTURE.md docs/JSON-FORMAT.md docs/DATABASE.md docs/SQLITE-IMPLEMENTATION-PLAN.md CHANGELOG.md TODO.md
 elif command -v mdl >/dev/null 2>&1; then
-	mdl README.md docs/ARCHITECTURE.md docs/JSON-FORMAT.md docs/DATABASE.md CHANGELOG.md TODO.md
+	mdl README.md docs/ARCHITECTURE.md docs/JSON-FORMAT.md docs/DATABASE.md docs/SQLITE-IMPLEMENTATION-PLAN.md CHANGELOG.md TODO.md
 else
 	echo "ERROR: markdownlint-cli2, markdownlint, or mdl is not installed." >&2
 	exit 1

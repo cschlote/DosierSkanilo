@@ -173,6 +173,7 @@ Detailed architecture and diagrams:
 - `docs/ARCHITECTURE.md`
 - `docs/JSON-FORMAT.md` - current JSON import/export format and migrations
 - `docs/DATABASE.md` - planned normalized SQLite repository architecture
+- `docs/SQLITE-IMPLEMENTATION-PLAN.md` - staged implementation checklist
 
 ## Source Map
 

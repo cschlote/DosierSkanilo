@@ -209,6 +209,9 @@ API change must increment the major component.
 
 ## Initial Implementation Phases
 
+The detailed, checkable work breakdown is maintained in
+[SQLITE-IMPLEMENTATION-PLAN.md](SQLITE-IMPLEMENTATION-PLAN.md).
+
 1. Add the SQLite dependency and a private connection/migration module.
 2. Implement `repository` initialization and schema migration handling.
 3. Implement JSON import into the normalized current-state schema.

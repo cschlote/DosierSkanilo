@@ -149,6 +149,9 @@ The planned normalized SQLite repository is described in
 [DATABASE.md](DATABASE.md). JSON remains the import/export boundary rather than
 the query store for large repositories.
 
+The implementation sequence is tracked in
+[SQLITE-IMPLEMENTATION-PLAN.md](SQLITE-IMPLEMENTATION-PLAN.md).
+
 ## 6. Archive Handling
 
 `source/dosierarkivo/archive.d` provides:
