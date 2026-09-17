@@ -119,6 +119,14 @@ Current command-line options (from `source/dosierskanilo_cli/commandline.d`):
 - `--version`: show the application version
 - `--help`: print help
 
+Repository command aliases are also available:
+
+- `init`
+- `scan`
+- `analyse`
+- `import`
+- `export`
+
 Operational notes:
 
 - `--json` currently accepts a filename ending in `.json`; passing a path is

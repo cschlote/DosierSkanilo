@@ -33,6 +33,14 @@ also some analysis functions to find duplicate files, missing files, etc.
 The repository mode stores the current state in a `.dosierskanilo` SQLite
 repository and keeps JSON available for import and export.
 
+Commands:
+
+    init       Initialize a repository
+    scan       Scan a repository or JSON path
+    analyse    Analyze a repository or JSON catalog
+    import     Import JSON into a repository
+    export     Export a repository as JSON
+
 EOS";
 
 /** Parse command-line arguments into an ArgsArray instance.
@@ -48,6 +56,19 @@ EOS";
  */
 bool parseCommandLineArgs(string[] args, ArgsArray* argsarray = &argsArray)
 {
+    string command;
+    if (args.length > 1)
+    {
+        switch (args[1])
+        {
+        case "init", "scan", "analyse", "import", "export":
+            command = args[1];
+            args = args[0 .. 1] ~ args[2 .. $];
+            break;
+        default:
+            break;
+        }
+    }
     if (args.length <= 1)
         args ~= "--help"; // Show help, if no args given.
 
@@ -85,6 +106,27 @@ bool parseCommandLineArgs(string[] args, ArgsArray* argsarray = &argsArray)
         logLine("Invalid command-line arguments: ", ex.msg);
         logLine("Use --help to see the available options.");
         return false;
+    }
+
+    switch (command)
+    {
+    case "init":
+        argsarray.argInitRepository = true;
+        break;
+    case "scan":
+        argsarray.argScanFiles = true;
+        break;
+    case "analyse":
+        argsarray.argRunAnalysis = true;
+        break;
+    case "import":
+        argsarray.argImportJSON = argsarray.argJSONFile;
+        break;
+    case "export":
+        argsarray.argExportJSON = argsarray.argJSONFile;
+        break;
+    default:
+        break;
     }
 
     if (helpInformation.helpWanted)
@@ -262,6 +304,21 @@ unittest
     assert(parseCommandLineArgs(testRepositoryArgs, &repositoryArgs));
     assert(repositoryArgs.argRepositoryPath == testdir);
     assert(repositoryArgs.argInitRepository);
+
+    ArgsArray commandArgs;
+    string[] importCommand = [
+        "programname", "import", "--repository", testdir, "--json", nojsonfile
+    ];
+    assert(parseCommandLineArgs(importCommand, &commandArgs));
+    assert(commandArgs.argImportJSON == nojsonfile);
+
+    commandArgs = ArgsArray();
+    string[] analyseCommand = [
+        "programname", "analyse", "--repository", testdir, "--dropMissing"
+    ];
+    assert(parseCommandLineArgs(analyseCommand, &commandArgs));
+    assert(commandArgs.argRunAnalysis);
+    assert(commandArgs.argDropMissing);
 }
 
 /** Shortens a string `s` to exactly `maxLen` characters.
