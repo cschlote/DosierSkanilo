@@ -595,3 +595,55 @@ unittest
     assert(missing.droppedFiles == 1);
     repository.close();
 }
+
+@("repository archive and torrent metadata persistence")
+unittest
+{
+    import dosierskanilo.model.namedbinaryblob : deserializeDataClassJsonFile;
+    import std.file : copy, exists, mkdirRecurse, remove, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.process : execute;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "repository-rich-persistence-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    auto payload = buildPath(root, "payload.txt");
+    auto archive = buildPath(root, "payload.zip");
+    auto torrent = buildPath(root, "example.torrent");
+    write(payload, "repository archive payload\n");
+    assert(execute(["zip", "-q", "-j", archive, payload]).status == 0);
+    copy("./test/example.torrent", torrent);
+    auto exported = buildPath(root, "export.json");
+    scope (exit)
+    {
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+
+    auto repository = Repository.initialize(root);
+    repository.scan();
+    MetadataScanOptions options;
+    options.scanArchives = true;
+    options.scanTorrents = true;
+    options.deepArchiveScan = true;
+    auto summary = repository.updateMetadata(options);
+    assert(summary.archivesUpdated == 1);
+    assert(summary.torrentsUpdated == 1);
+    assert(summary.failed == 0);
+    repository.exportJson(exported);
+    repository.close();
+
+    auto blobs = deserializeDataClassJsonFile(exported);
+    bool foundArchive;
+    bool foundTorrent;
+    foreach (blob; blobs)
+    {
+        if (blob.archiveSpecs.length > 0)
+            foundArchive = true;
+        if (blob.torrentInfo !is null)
+            foundTorrent = true;
+    }
+    assert(foundArchive);
+    assert(foundTorrent);
+}

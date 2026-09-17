@@ -39,6 +39,7 @@ They represent the functional evolution and are intentionally summarized.
 - Added the initial JSON/SQLite storage benchmark baseline for 1k, 10k and 100k
   synthetic records.
 - Added schema forward-version rejection and empty-directory scan coverage.
+- Added repository archive/torrent relationship persistence coverage.
 - Repository-mode `--threads` now controls parallel metadata workers.
 - Added a library read API for loading repository data into the existing domain
   model, enabling the GUI data-source adapter.

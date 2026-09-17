@@ -328,7 +328,7 @@ Status: `[-]`
 - [ ] Filtered export tests.
 - [x] Duplicate merge and missing-file tests.
 - [x] Directory-tree and empty-directory tests.
-- [ ] Archive and torrent relationship tests.
+- [x] Archive and torrent relationship tests.
 - [x] Concurrent scanner-worker tests.
 - [ ] GUI data-source and pagination tests.
 - [x] Performance tests against the WP-00 datasets.
