@@ -648,3 +648,61 @@ unittest
     assert(foundArchive);
     assert(foundTorrent);
 }
+
+@("repository concurrent readers during metadata write")
+unittest
+{
+    import core.thread : Thread;
+    import std.file : copy, exists, mkdirRecurse, rmdirRecurse, tempDir;
+    import std.path : buildPath;
+    import std.string : format;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "repository-concurrent-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    foreach (index; 0 .. 8)
+        copy("./test/dummy-text-file.txt", buildPath(root,
+            "sample-%d.txt".format(index)));
+    scope (exit)
+    {
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+
+    auto repository = Repository.initialize(root);
+    repository.scan();
+    shared bool failed;
+    Thread[] readers;
+    foreach (_; 0 .. 4)
+    {
+        readers ~= new Thread({
+            try
+            {
+                auto reader = Repository.open(root);
+                foreach (iteration; 0 .. 10)
+                {
+                    auto page = reader.loadCatalogPage(iteration % 4, 2);
+                    assert(page.length <= 2);
+                }
+                reader.close();
+            }
+            catch (Exception)
+            {
+                failed = true;
+            }
+        });
+    }
+    foreach (reader; readers)
+        reader.start();
+
+    MetadataScanOptions options;
+    options.calculateChecksums = true;
+    options.threads = 2;
+    repository.updateMetadata(options);
+
+    foreach (reader; readers)
+        reader.join();
+    assert(!failed);
+    repository.close();
+}

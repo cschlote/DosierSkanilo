@@ -329,7 +329,7 @@ Status: `[-]`
 - [x] Duplicate merge and missing-file tests.
 - [x] Directory-tree and empty-directory tests.
 - [x] Archive and torrent relationship tests.
-- [x] Concurrent scanner-worker tests.
+- [x] Concurrent scanner-worker and reader/writer tests.
 - [x] GUI data-source and populated pagination tests.
 - [x] Performance tests against the WP-00 datasets.
 

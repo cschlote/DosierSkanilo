@@ -40,6 +40,7 @@ They represent the functional evolution and are intentionally summarized.
   synthetic records.
 - Added schema forward-version rejection and empty-directory scan coverage.
 - Added repository archive/torrent relationship persistence coverage.
+- Added concurrent repository reader/writer integration coverage.
 - Added populated GUI repository pagination coverage.
 - Repository-mode `--threads` now controls parallel metadata workers.
 - Added a library read API for loading repository data into the existing domain
