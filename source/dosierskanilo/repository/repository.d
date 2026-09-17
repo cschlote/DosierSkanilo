@@ -8,6 +8,7 @@ import std.exception : enforce;
 import std.file : exists, isDir, mkdirRecurse;
 import std.path : absolutePath, buildNormalizedPath, buildPath, dirName;
 import std.string : empty;
+import std.stdio : File;
 import std.typecons : Nullable;
 
 import dosierskanilo.model.namedbinaryblob : NamedBinaryBlob;
@@ -156,6 +157,23 @@ public:
         return repositoryPaths.databasePath;
     }
 
+    /** Return the structured repository operation log path. */
+    @property string logFilePath()
+    {
+        requireOpen();
+        return repositoryPaths.logFilePath;
+    }
+
+    /** Append one structured operation record to the repository log. */
+    void appendLog(string eventName, string message)
+    {
+        requireOpen();
+        auto file = File(repositoryPaths.logFilePath, "a");
+        file.writeln("{\"timestamp\":\"", currentTimestamp(),
+            "\",\"event\":\"", escapeLogValue(eventName),
+            "\",\"message\":\"", escapeLogValue(message), "\"}");
+    }
+
     /** Return repository metadata. */
     RepositoryInfo info()
     {
@@ -301,6 +319,13 @@ private string canonicalDirectory(string path)
     return resolved;
 }
 
+private string escapeLogValue(string value)
+{
+    import std.string : replace;
+    return value.replace("\\", "\\\\").replace("\"", "\\\"")
+        .replace("\n", "\\n").replace("\r", "\\r");
+}
+
 @("repository initialization and root discovery")
 unittest
 {
@@ -439,6 +464,7 @@ unittest
     MetadataScanOptions options;
     options.calculateChecksums = true;
     options.detectFileTypes = true;
+    options.threads = 2;
     auto metadataSummary = repository.updateMetadata(options);
     assert(metadataSummary.blobsVisited == 1);
     assert(metadataSummary.checksumsUpdated == 1);

@@ -29,6 +29,8 @@ struct RepositoryPaths
     string exportsPath;
     /// Backup directory.
     string backupsPath;
+    /// Structured operational log file.
+    string logFilePath;
 
     /** Construct repository paths from an absolute root directory. */
     static RepositoryPaths fromRoot(string rootPath)
@@ -40,7 +42,8 @@ struct RepositoryPaths
             buildPath(metadataPath, repositoryDatabaseFileName),
             buildPath(metadataPath, "logs"),
             buildPath(metadataPath, "exports"),
-            buildPath(metadataPath, "backups"));
+            buildPath(metadataPath, "backups"),
+            buildPath(metadataPath, "logs", "operations.jsonl"));
     }
 }
 
@@ -120,6 +123,8 @@ struct ScanSummary
 /** Options for metadata extraction after a repository filesystem scan. */
 struct MetadataScanOptions
 {
+    /// Number of metadata workers. One keeps serial execution.
+    size_t threads = 1;
     /// Calculate MD5, SHA1 and XXH64 when a complete set is missing.
     bool calculateChecksums;
     /// Query the `file` utility when no file type is stored.

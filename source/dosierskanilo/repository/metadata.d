@@ -5,6 +5,7 @@ import d2sqlite3;
 
 import std.array : join;
 import std.path : buildPath;
+import std.parallelism : Task, TaskPool, task;
 import std.typecons : Nullable;
 
 import dosierskanilo.metadata.mediainfosig : MediaInfoSig;
@@ -13,10 +14,51 @@ import dosierskanilo.model.archivespec : ArchiveSpec;
 import dosierskanilo.model.namedbinaryblob;
 import dosierskanilo.repository.types;
 
+private class MetadataWorkItem
+{
+    long blobId;
+    NamedBinaryBlob blob;
+    MetadataScanOptions options;
+    bool doChecksums;
+    bool doFileType;
+    bool doMediaInfo;
+    bool doArchives;
+    bool doTorrents;
+    string[string] errors;
+}
+
+private void runMetadataWork(MetadataWorkItem item)
+{
+    void attempt(string kind, void delegate() action)
+    {
+        try
+            action();
+        catch (Exception ex)
+            item.errors[kind] = ex.msg;
+    }
+
+    if (item.doChecksums)
+        attempt("checksums", { updateDigests(item.blob); });
+    if (item.doFileType)
+        attempt("file_type", { updateFileType(item.blob); });
+    if (item.doMediaInfo)
+        attempt("media_info", { updateMediaInfo(item.blob, item.options.rescan); });
+    if (item.doArchives)
+        attempt("archives", {
+            updateArchives(item.blob, item.options.rescan,
+                item.options.deepArchiveScan);
+        });
+    if (item.doTorrents)
+        attempt("torrents", { updateTorrentInfo(item.blob, item.options.rescan); });
+}
+
 /** Run the selected metadata jobs one blob at a time. */
 MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
     MetadataScanOptions options)
 {
+    if (options.threads > 1)
+        return updateRepositoryMetadataParallel(db, rootPath, options);
+
     MetadataSummary summary;
     auto result = db.execute("SELECT id FROM blobs ORDER BY id");
     foreach (row; result)
@@ -120,6 +162,107 @@ MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
         }
     }
     return summary;
+}
+
+private MetadataSummary updateRepositoryMetadataParallel(ref Database db,
+    string rootPath, MetadataScanOptions options)
+{
+    MetadataWorkItem[] items;
+    auto result = db.execute("SELECT id FROM blobs ORDER BY id");
+    foreach (row; result)
+    {
+        auto blobId = row.peek!long(0);
+        auto blob = loadBlob(db, rootPath, blobId);
+        if (blob is null)
+            continue;
+
+        auto item = new MetadataWorkItem();
+        item.blobId = blobId;
+        item.blob = blob;
+        item.options = options;
+        item.doChecksums = options.calculateChecksums && !blob.checkSums.hasDigests;
+        item.doFileType = options.detectFileTypes && blob.fileType.length == 0;
+        item.doMediaInfo = options.extractMediaInfo
+            && (options.rescan || !metadataCompleted(db, blobId, "media_info"));
+        item.doArchives = options.scanArchives
+            && (options.rescan || !metadataCompleted(db, blobId, "archives"));
+        item.doTorrents = options.scanTorrents
+            && (options.rescan || !metadataCompleted(db, blobId, "torrents"));
+        if (!(item.doChecksums || item.doFileType || item.doMediaInfo
+            || item.doArchives || item.doTorrents))
+            continue;
+
+        if (item.doChecksums)
+            setMetadataStatus(db, blobId, "checksums", "pending", "");
+        if (item.doFileType)
+            setMetadataStatus(db, blobId, "file_type", "pending", "");
+        if (item.doMediaInfo)
+            setMetadataStatus(db, blobId, "media_info", "pending", "");
+        if (item.doArchives)
+            setMetadataStatus(db, blobId, "archives", "pending", "");
+        if (item.doTorrents)
+            setMetadataStatus(db, blobId, "torrents", "pending", "");
+        items ~= item;
+    }
+
+    TaskPool pool = new TaskPool(options.threads);
+    Task!(runMetadataWork, MetadataWorkItem)*[] tasks;
+    foreach (item; items)
+    {
+        auto worker = task!runMetadataWork(item);
+        tasks ~= worker;
+        pool.put(worker);
+    }
+
+    MetadataSummary summary;
+    summary.blobsVisited = items.length;
+    foreach (index, item; items)
+    {
+        tasks[index].workForce();
+        persistMetadataWork(db, item, summary);
+    }
+    pool.finish(true);
+    pool.stop();
+    return summary;
+}
+
+private void persistMetadataWork(ref Database db, MetadataWorkItem item,
+    ref MetadataSummary summary)
+{
+    void finish(string kind, bool requested, bool hasData, void delegate() persist)
+    {
+        if (!requested)
+            return;
+        if (kind in item.errors)
+        {
+            setMetadataStatus(db, item.blobId, kind, "failed", item.errors[kind]);
+            summary.failed++;
+            return;
+        }
+        persist();
+        setMetadataStatus(db, item.blobId, kind, "completed", "");
+        if (hasData)
+        {
+            if (kind == "checksums") summary.checksumsUpdated++;
+            else if (kind == "file_type") summary.fileTypesUpdated++;
+            else if (kind == "media_info") summary.mediaInfoUpdated++;
+            else if (kind == "archives") summary.archivesUpdated++;
+            else if (kind == "torrents") summary.torrentsUpdated++;
+        }
+    }
+
+    finish("checksums", item.doChecksums, item.blob.checkSums.hasDigests,
+        { persistChecksums(db, item.blobId, item.blob); });
+    finish("file_type", item.doFileType, item.blob.fileType.length > 0,
+        { db.execute("UPDATE blobs SET file_type = ? WHERE id = ?",
+            item.blob.fileType, item.blobId); });
+    finish("media_info", item.doMediaInfo,
+        item.blob.mediaInfoSig !is null && !item.blob.mediaInfoSig.empty,
+        { persistMediaInfo(db, item.blobId, item.blob.mediaInfoSig); });
+    finish("archives", item.doArchives, item.blob.archiveSpecs !is null,
+        { persistArchives(db, item.blobId, item.blob.archiveSpecs); });
+    finish("torrents", item.doTorrents, item.blob.torrentInfo !is null,
+        { persistTorrentInfo(db, item.blobId, item.blob.torrentInfo); });
 }
 
 private NamedBinaryBlob loadBlob(ref Database db, string rootPath, long blobId)
