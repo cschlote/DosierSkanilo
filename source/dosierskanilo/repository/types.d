@@ -76,6 +76,10 @@ struct JsonImportOptions
 {
     /// Replace the current repository catalog before importing.
     bool replaceExisting = true;
+    /// Require explicit confirmation before replacing non-empty data.
+    bool force;
+    /// Create a SQLite backup before replacing existing data.
+    bool backupExisting = true;
 }
 
 /** Options for exporting repository data as JSON. */

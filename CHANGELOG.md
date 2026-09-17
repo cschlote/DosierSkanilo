@@ -41,6 +41,7 @@ They represent the functional evolution and are intentionally summarized.
 - Added schema forward-version rejection and empty-directory scan coverage.
 - Added repository archive/torrent relationship persistence coverage.
 - Added concurrent repository reader/writer integration coverage.
+- Protected non-empty JSON imports with `--force` and automatic SQLite backups.
 - Added populated GUI repository pagination coverage.
 - Repository-mode `--threads` now controls parallel metadata workers.
 - Added a library read API for loading repository data into the existing domain

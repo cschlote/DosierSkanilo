@@ -123,6 +123,8 @@ Operational notes:
 
 - `--json` currently accepts a filename ending in `.json`; passing a path is
   rejected by argument validation.
+- Importing JSON into a non-empty repository requires `--force` and creates a
+  timestamped SQLite backup under `.dosierskanilo/backups/`.
 - `--rescan-mediasig` forces a media refresh when combined with `--mediasig`
   (single-thread and multi-thread).
 - `-h` is bound to `--pickhidden`; use `--help` for help output to avoid

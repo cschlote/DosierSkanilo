@@ -5,7 +5,7 @@ import d2sqlite3;
 
 import std.datetime.systime : Clock;
 import std.exception : enforce;
-import std.file : exists, isDir, mkdirRecurse;
+import std.file : copy, exists, isDir, mkdirRecurse;
 import std.path : absolutePath, buildNormalizedPath, buildPath, dirName;
 import std.string : empty;
 import std.stdio : File;
@@ -174,6 +174,17 @@ public:
             "\",\"message\":\"", escapeLogValue(message), "\"}");
     }
 
+    private void backupDatabase()
+    {
+        database.execute("PRAGMA wal_checkpoint(TRUNCATE)");
+        import std.string : replace;
+        auto stamp = currentTimestamp().replace(":", "-");
+        auto backupPath = buildPath(repositoryPaths.backupsPath,
+            "catalog-" ~ stamp ~ ".sqlite3");
+        copy(repositoryPaths.databasePath, backupPath);
+        appendLog("repository.backup", backupPath);
+    }
+
     /** Return repository metadata. */
     RepositoryInfo info()
     {
@@ -200,6 +211,14 @@ public:
     void importJson(string jsonFile, JsonImportOptions options = JsonImportOptions())
     {
         requireOpen();
+        if (blobCount > 0)
+        {
+            if (!options.force)
+                throw new RepositoryException(
+                    "Repository is not empty. Use force to replace its catalog.");
+            if (options.backupExisting)
+                backupDatabase();
+        }
         importCatalogJson(database, repositoryPaths.rootPath, jsonFile, options);
     }
 
@@ -418,9 +437,11 @@ unittest
         "./test/json_file_v2_torrent.json"
     ];
     size_t[] expectedCounts = [3, 3, 3, 1, 1];
+    JsonImportOptions importOptions;
+    importOptions.force = true;
     foreach (index, fixture; fixtures)
     {
-        repository.importJson(fixture);
+        repository.importJson(fixture, importOptions);
         assert(repository.blobCount == expectedCounts[index]);
     }
     repository.close();
