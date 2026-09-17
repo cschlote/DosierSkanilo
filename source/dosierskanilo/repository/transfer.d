@@ -63,10 +63,13 @@ NamedBinaryBlob[] loadCatalogFromDatabase(ref Database db, string rootPath,
     JsonExportOptions options)
 {
     NamedBinaryBlob[] blobs;
+    long[] blobIds;
     auto result = db.execute("SELECT id FROM blobs ORDER BY id");
     foreach (row; result)
+        blobIds ~= row.peek!long(0);
+    foreach (blobId; blobIds)
     {
-        auto blob = loadBlobDetailsFromDatabase(db, rootPath, row.peek!long(0), options);
+        auto blob = loadBlobDetailsFromDatabase(db, rootPath, blobId, options);
         if (blob !is null)
             blobs ~= blob;
     }
@@ -78,11 +81,14 @@ NamedBinaryBlob[] loadCatalogPageFromDatabase(ref Database db, string rootPath,
     size_t offset, size_t limit, JsonExportOptions options)
 {
     NamedBinaryBlob[] blobs;
+    long[] blobIds;
     auto result = db.execute("SELECT id FROM blobs ORDER BY id LIMIT ? OFFSET ?",
         cast(long) limit, cast(long) offset);
     foreach (row; result)
+        blobIds ~= row.peek!long(0);
+    foreach (blobId; blobIds)
     {
-        auto blob = loadBlobDetailsFromDatabase(db, rootPath, row.peek!long(0), options);
+        auto blob = loadBlobDetailsFromDatabase(db, rootPath, blobId, options);
         if (blob !is null)
             blobs ~= blob;
     }
@@ -105,10 +111,12 @@ RepositoryBlobPage loadCatalogQueryPageWithIdsFromDatabase(ref Database db,
         true);
 
     RepositoryBlobPage page;
+    long[] blobIds;
     auto result = statement.execute();
     foreach (row; result)
+        blobIds ~= row.peek!long(0);
+    foreach (blobId; blobIds)
     {
-        auto blobId = row.peek!long(0);
         auto blob = loadBlobDetailsFromDatabase(db, rootPath, blobId,
             exportOptions);
         if (blob !is null)
@@ -227,21 +235,33 @@ private Statement prepareCatalogQuery(ref Database db, string selectSql,
 NamedBinaryBlob loadBlobDetailsFromDatabase(ref Database db, string rootPath,
     long blobId, JsonExportOptions options)
 {
-    auto result = db.execute("SELECT file_size, md5, sha1, xxh64, file_type "
-        ~ "FROM blobs WHERE id = ?", blobId);
-    if (result.empty)
-        return null;
-    auto row = result.front;
+    size_t fileSize;
+    string md5sum;
+    string sha1sum;
+    string xxh64sum;
+    string fileType;
+    {
+        auto result = db.execute("SELECT file_size, md5, sha1, xxh64, file_type "
+            ~ "FROM blobs WHERE id = ?", blobId);
+        if (result.empty)
+            return null;
+        auto row = result.front;
+        fileSize = cast(size_t) row.peek!long(0);
+        md5sum = decodeBase64(row.peek!(Nullable!Blob)(1));
+        sha1sum = decodeBase64(row.peek!(Nullable!Blob)(2));
+        xxh64sum = decodeBase64(row.peek!(Nullable!Blob)(3));
+        fileType = decodeNullableString(row.peek!(Nullable!string)(4));
+    }
     auto paths = loadFileSpecs(db, blobId, rootPath, options);
     if (paths.length == 0)
         return null;
 
     auto blob = new NamedBinaryBlob();
-    blob.fileSize = cast(size_t) row.peek!long(0);
-    blob.checkSums.md5sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(1));
-    blob.checkSums.sha1sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(2));
-    blob.checkSums.xxh64sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(3));
-    blob.fileType = decodeNullableString(row.peek!(Nullable!string)(4));
+    blob.fileSize = fileSize;
+    blob.checkSums.md5sum_b64 = md5sum;
+    blob.checkSums.sha1sum_b64 = sha1sum;
+    blob.checkSums.xxh64sum_b64 = xxh64sum;
+    blob.fileType = fileType;
     blob.fileSpecs = paths;
 
     if (options.includeDetails)
@@ -460,9 +480,13 @@ private FileSpec[] loadFileSpecs(ref Database db, long blobId, string rootPath,
 
 private void loadMediaInfo(ref Database db, long blobId, ref NamedBinaryBlob blob)
 {
-    auto signature = db.execute("SELECT blob_id FROM media_signatures "
-        ~ "WHERE blob_id = ?", blobId);
-    if (signature.empty)
+    bool hasSignature;
+    {
+        auto signature = db.execute("SELECT blob_id FROM media_signatures "
+            ~ "WHERE blob_id = ?", blobId);
+        hasSignature = !signature.empty;
+    }
+    if (!hasSignature)
         return;
     auto info = new MediaInfoSig();
     foreach (row; db.execute("SELECT stream_index, format, width, height "
@@ -510,21 +534,23 @@ private void loadArchiveSpecs(ref Database db, long blobId, ref NamedBinaryBlob 
 
 private void loadTorrentInfo(ref Database db, long blobId, ref NamedBinaryBlob blob)
 {
-    auto result = db.execute("SELECT name, magnet_uri, total_size, is_multi_file, "
-        ~ "info_hash_hex, announce, piece_length, pieces_count "
-        ~ "FROM torrent_info WHERE blob_id = ?", blobId);
-    if (result.empty)
-        return;
-    auto row = result.front;
     auto info = new TorrentInfo();
-    info.name = decodeNullableString(row.peek!(Nullable!string)(0));
-    info.magnetURI = decodeNullableString(row.peek!(Nullable!string)(1));
-    info.totalSize = cast(ulong) row.peek!long(2);
-    info.isMultiFile = row.peek!long(3) != 0;
-    info.infoHashHex = decodeNullableString(row.peek!(Nullable!string)(4));
-    info.announce = decodeNullableString(row.peek!(Nullable!string)(5));
-    info.pieceLength = cast(ulong) row.peek!long(6);
-    info.piecesCount = cast(ulong) row.peek!long(7);
+    {
+        auto result = db.execute("SELECT name, magnet_uri, total_size, is_multi_file, "
+            ~ "info_hash_hex, announce, piece_length, pieces_count "
+            ~ "FROM torrent_info WHERE blob_id = ?", blobId);
+        if (result.empty)
+            return;
+        auto row = result.front;
+        info.name = decodeNullableString(row.peek!(Nullable!string)(0));
+        info.magnetURI = decodeNullableString(row.peek!(Nullable!string)(1));
+        info.totalSize = cast(ulong) row.peek!long(2);
+        info.isMultiFile = row.peek!long(3) != 0;
+        info.infoHashHex = decodeNullableString(row.peek!(Nullable!string)(4));
+        info.announce = decodeNullableString(row.peek!(Nullable!string)(5));
+        info.pieceLength = cast(ulong) row.peek!long(6);
+        info.piecesCount = cast(ulong) row.peek!long(7);
+    }
     foreach (fileRow; db.execute("SELECT relative_path, file_size FROM "
         ~ "torrent_files WHERE torrent_blob_id = ? ORDER BY file_index", blobId))
     {

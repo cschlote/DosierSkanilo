@@ -7,7 +7,7 @@ import std.datetime.systime : Clock;
 import std.exception : enforce;
 import std.file : copy, exists, isDir, mkdirRecurse;
 import std.path : absolutePath, buildNormalizedPath, buildPath, dirName;
-import std.string : empty;
+import std.string : empty, toLower;
 import std.stdio : File;
 import std.typecons : Nullable;
 
@@ -65,7 +65,20 @@ private:
         db.execute("PRAGMA foreign_keys = ON");
         db.execute("PRAGMA busy_timeout = 5000");
         if (options.enableWal)
-            db.execute("PRAGMA journal_mode = WAL");
+        {
+            string journalMode;
+            {
+                auto currentJournal = db.execute("PRAGMA journal_mode");
+                if (!currentJournal.empty)
+                    journalMode = currentJournal.front.peek!string(0).toLower;
+            }
+            if (journalMode != "wal")
+            {
+                auto walResult = db.execute("PRAGMA journal_mode = WAL");
+                if (!walResult.empty)
+                    walResult.front.peek!string(0);
+            }
+        }
         db.execute("PRAGMA synchronous = NORMAL");
     }
 

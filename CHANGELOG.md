@@ -7,7 +7,7 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
-## Unreleased
+## Release 26.10.0 - 2026-09-17
 
 - Added the initial public repository API for the planned SQLite backend.
 - Added `.dosierskanilo` repository initialization and parent-directory
@@ -41,6 +41,8 @@ They represent the functional evolution and are intentionally summarized.
 - Added schema forward-version rejection and empty-directory scan coverage.
 - Added repository archive/torrent relationship persistence coverage.
 - Added concurrent repository reader/writer integration coverage.
+- Stabilized WAL initialization and close behavior for concurrent repository
+  readers and writers.
 - Protected non-empty JSON imports with `--force` and automatic SQLite backups.
 - Added populated GUI repository pagination coverage.
 - Repository-mode `--threads` now controls parallel metadata workers.
