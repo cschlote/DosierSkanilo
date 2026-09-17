@@ -36,6 +36,8 @@ They represent the functional evolution and are intentionally summarized.
   extractors are not needlessly rerun.
 - Added a storage benchmark script and JSON compatibility coverage across all
   supported fixture generations.
+- Added the initial JSON/SQLite storage benchmark baseline for 1k, 10k and 100k
+  synthetic records.
 - Repository-mode `--threads` now controls parallel metadata workers.
 - Added a library read API for loading repository data into the existing domain
   model, enabling the GUI data-source adapter.

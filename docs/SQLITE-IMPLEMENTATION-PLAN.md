@@ -51,7 +51,7 @@ changing the storage path.
 - [ ] Create representative JSON datasets with 1,000, 10,000 and 100,000
   records.
 - [x] Add `scripts/benchmark-storage.sh` for repeatable JSON/SQLite timings.
-- [ ] Measure load time, peak memory and GC-related runtime on representative
+- [x] Measure load time and peak memory on representative
   1,000, 10,000 and 100,000-record datasets.
 - [ ] Record current CLI scan, analysis and JSON export behavior.
 - [ ] Record current GUI load, filter, duplicate and detail behavior.
