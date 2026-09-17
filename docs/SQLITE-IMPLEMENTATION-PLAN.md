@@ -209,10 +209,10 @@ Run scans against SQLite without keeping the complete catalog in memory.
   relational results.
 - [ ] Represent all extractor states explicitly: not requested, pending, completed,
   empty or failed.
-- [ ] Refactor worker jobs to return result DTOs instead of mutating a shared
+- [x] Refactor worker jobs to return result DTOs instead of mutating a shared
   global catalog.
-- [ ] Add a single-writer persistence queue or equivalent transaction policy.
-- [ ] Keep scanner computation parallel while serializing SQLite writes safely.
+- [x] Add a single-writer persistence queue or equivalent transaction policy.
+- [x] Keep scanner computation parallel while serializing SQLite writes safely.
 
 ### WP-04 Exit Criteria
 
@@ -270,8 +270,8 @@ dosierskanilo export
 - [x] Add explicit repository and JSON input/output options.
 - [x] Preserve existing JSON invocation behavior during migration.
 - [x] Route scan, analysis and metadata operations through the repository API.
-- [ ] Add progress reporting for database-backed jobs.
-- [ ] Write operational logs to `.dosierskanilo/logs/`.
+- [x] Add phase progress reporting for database-backed jobs.
+- [x] Write operational logs to `.dosierskanilo/logs/`.
 - [x] Add clear errors for missing repositories and schema incompatibility.
 
 ### WP-06 Exit Criteria

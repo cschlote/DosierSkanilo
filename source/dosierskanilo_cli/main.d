@@ -119,15 +119,20 @@ bool executeRepositoryOperation()
 			repository = Repository.initialize(repositoryPath);
 		else
 			repository = Repository.open(repositoryPath);
+		repository.appendLog("repository.open", repositoryPath);
 
 		if (!argsArray.argImportJSON.empty)
 		{
+			logLine("Repository phase: import JSON.");
+			repository.appendLog("json.import", argsArray.argImportJSON);
 			repository.importJson(argsArray.argImportJSON);
 			logFLine("Imported JSON catalog '%s'.", argsArray.argImportJSON);
 		}
 
 		if (argsArray.argScanFiles)
 		{
+			logLine("Repository phase: scan filesystem.");
+			repository.appendLog("scan.start", repository.rootPath);
 			RepositoryScanOptions scanOptions;
 			scanOptions.recursive = argsArray.argRecursive;
 			scanOptions.pickHidden = argsArray.argPickHidden;
@@ -136,10 +141,15 @@ bool executeRepositoryOperation()
 			logFLine("Repository scan: %d files, %d added, %d changed, %d missing.",
 				summary.filesFound, summary.filesAdded, summary.filesChanged,
 				summary.filesMissing);
+			repository.appendLog("scan.complete", format(
+				"files=%d added=%d changed=%d missing=%d", summary.filesFound,
+				summary.filesAdded, summary.filesChanged, summary.filesMissing));
 		}
 
 		if (argsArray.argRunAnalysis)
 		{
+			logLine("Repository phase: SQL analysis.");
+			repository.appendLog("analysis.start", "");
 			RepositoryAnalysisOptions analysisOptions;
 			analysisOptions.dropMissing = argsArray.argDropMissing;
 			auto summary = repository.analyze(analysisOptions);
@@ -148,12 +158,19 @@ bool executeRepositoryOperation()
 				summary.missingFiles, summary.droppedFiles,
 				summary.duplicateGroups, summary.mergedBlobs,
 				summary.orphanedBlobs);
+			repository.appendLog("analysis.complete", format(
+				"missing=%d dropped=%d groups=%d merged=%d orphaned=%d",
+				summary.missingFiles, summary.droppedFiles,
+				summary.duplicateGroups, summary.mergedBlobs,
+				summary.orphanedBlobs));
 		}
 
 		if (argsArray.argDoChecksums || argsArray.argDoFileTypes
 			|| argsArray.argDoMediaSig || argsArray.argScanArchives
 			|| argsArray.argScanTorrents)
 		{
+			logLine("Repository phase: metadata extraction.");
+			repository.appendLog("metadata.start", "");
 			MetadataScanOptions metadataOptions;
 			metadataOptions.calculateChecksums = argsArray.argDoChecksums;
 			metadataOptions.detectFileTypes = argsArray.argDoFileTypes;
@@ -168,6 +185,8 @@ bool executeRepositoryOperation()
 				summary.blobsVisited, summary.checksumsUpdated,
 				summary.fileTypesUpdated, summary.mediaInfoUpdated,
 				summary.archivesUpdated, summary.torrentsUpdated, summary.failed);
+			repository.appendLog("metadata.complete", format(
+				"blobs=%d failed=%d", summary.blobsVisited, summary.failed));
 		}
 
 		auto exportPath = argsArray.argExportJSON;
@@ -175,6 +194,8 @@ bool executeRepositoryOperation()
 			exportPath = argsArray.argJSONFile;
 		if (!exportPath.empty)
 		{
+			logLine("Repository phase: export JSON.");
+			repository.appendLog("json.export", exportPath);
 			repository.exportJson(exportPath);
 			logFLine("Exported repository JSON to '%s'.", exportPath);
 		}

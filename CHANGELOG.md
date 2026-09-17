@@ -30,6 +30,8 @@ They represent the functional evolution and are intentionally summarized.
   updates and JSON import/export while retaining the legacy JSON mode.
 - Added SQL-based repository analysis for duplicate blob merging, missing-file
   handling and orphan cleanup.
+- Added parallel metadata workers with central SQLite persistence and structured
+  repository operation logs.
 - Added a library read API for loading repository data into the existing domain
   model, enabling the GUI data-source adapter.
 - Added bounded repository catalog page reads for upcoming GUI pagination.
