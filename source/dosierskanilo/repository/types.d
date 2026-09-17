@@ -85,6 +85,8 @@ struct JsonExportOptions
     string pathPrefix;
     /// Return absolute filesystem paths for an in-process repository reader.
     bool absolutePaths;
+    /// Include nested MediaInfo, archive and torrent details.
+    bool includeDetails = true;
 }
 
 /** Options controlling a repository filesystem scan. */
@@ -194,7 +196,21 @@ struct RepositoryBlobPage
 {
     NamedBinaryBlob[] blobs;
     long[] blobIds;
+    RepositoryBlobFlags[] flags;
     size_t total;
+}
+
+/** Presence flags for one repository blob summary. */
+struct RepositoryBlobFlags
+{
+    bool hasMedia;
+    bool hasVideo;
+    bool hasAudio;
+    bool hasImage;
+    bool hasText;
+    bool hasFileType;
+    bool hasArchive;
+    bool hasTorrent;
 }
 
 /** Counters returned by repository analysis. */

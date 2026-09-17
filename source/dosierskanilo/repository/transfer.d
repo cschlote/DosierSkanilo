@@ -115,6 +115,7 @@ RepositoryBlobPage loadCatalogQueryPageWithIdsFromDatabase(ref Database db,
         {
             page.blobIds ~= blobId;
             page.blobs ~= blob;
+            page.flags ~= loadBlobFlags(db, blobId);
         }
     }
     return page;
@@ -239,10 +240,35 @@ NamedBinaryBlob loadBlobDetailsFromDatabase(ref Database db, string rootPath,
     blob.fileType = decodeNullableString(row.peek!(Nullable!string)(4));
     blob.fileSpecs = paths;
 
-    loadMediaInfo(db, blobId, blob);
-    loadArchiveSpecs(db, blobId, blob);
-    loadTorrentInfo(db, blobId, blob);
+    if (options.includeDetails)
+    {
+        loadMediaInfo(db, blobId, blob);
+        loadArchiveSpecs(db, blobId, blob);
+        loadTorrentInfo(db, blobId, blob);
+    }
     return blob;
+}
+
+private RepositoryBlobFlags loadBlobFlags(ref Database db, long blobId)
+{
+    RepositoryBlobFlags flags;
+    flags.hasFileType = !db.execute("SELECT 1 FROM blobs WHERE id = ? "
+        ~ "AND file_type IS NOT NULL AND length(file_type) > 0", blobId).empty;
+    flags.hasMedia = !db.execute("SELECT 1 FROM media_signatures "
+        ~ "WHERE blob_id = ?", blobId).empty;
+    flags.hasVideo = !db.execute("SELECT 1 FROM media_video_streams "
+        ~ "WHERE blob_id = ?", blobId).empty;
+    flags.hasAudio = !db.execute("SELECT 1 FROM media_audio_streams "
+        ~ "WHERE blob_id = ?", blobId).empty;
+    flags.hasImage = !db.execute("SELECT 1 FROM media_image_streams "
+        ~ "WHERE blob_id = ?", blobId).empty;
+    flags.hasText = !db.execute("SELECT 1 FROM media_text_streams "
+        ~ "WHERE blob_id = ?", blobId).empty;
+    flags.hasArchive = !db.execute("SELECT 1 FROM archive_entries "
+        ~ "WHERE blob_id = ?", blobId).empty;
+    flags.hasTorrent = !db.execute("SELECT 1 FROM torrent_info "
+        ~ "WHERE blob_id = ?", blobId).empty;
+    return flags;
 }
 
 private void clearCatalog(ref Database db)
