@@ -392,6 +392,39 @@ unittest
             expected[index].toString ~ " != " ~ actual[index].toString);
 }
 
+@("repository imports supported JSON fixture versions")
+unittest
+{
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "repository-json-versions-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+    {
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+
+    auto repository = Repository.initialize(root);
+    string[] fixtures = [
+        "./test/json_file_v0.json",
+        "./test/json_file_v1.json",
+        "./test/json_file_v2.json",
+        "./test/json_file_v2_archive.json",
+        "./test/json_file_v2_torrent.json"
+    ];
+    size_t[] expectedCounts = [3, 3, 3, 1, 1];
+    foreach (index, fixture; fixtures)
+    {
+        repository.importJson(fixture);
+        assert(repository.blobCount == expectedCounts[index]);
+    }
+    repository.close();
+}
+
 @("repository incremental filesystem scan")
 unittest
 {

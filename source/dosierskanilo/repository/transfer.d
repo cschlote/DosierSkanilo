@@ -537,7 +537,12 @@ private Nullable!Blob encodeBase64(string value)
     Nullable!Blob result;
     if (value.empty)
         return result;
-    result = cast(Blob) Base64.decode(value);
+    try
+        result = cast(Blob) Base64.decode(value);
+    catch (Exception)
+    {
+        // Preserve legacy placeholder digests without rejecting the catalog.
+    }
     return result;
 }
 

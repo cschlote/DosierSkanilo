@@ -34,6 +34,8 @@ They represent the functional evolution and are intentionally summarized.
   repository operation logs.
 - Distinguish empty metadata results from completed metadata results so empty
   extractors are not needlessly rerun.
+- Added a storage benchmark script and JSON compatibility coverage across all
+  supported fixture generations.
 - Added a library read API for loading repository data into the existing domain
   model, enabling the GUI data-source adapter.
 - Added bounded repository catalog page reads for upcoming GUI pagination.

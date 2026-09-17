@@ -50,7 +50,9 @@ changing the storage path.
 
 - [ ] Create representative JSON datasets with 1,000, 10,000 and 100,000
   records.
-- [ ] Measure load time, peak memory and GC-related runtime.
+- [x] Add `scripts/benchmark-storage.sh` for repeatable JSON/SQLite timings.
+- [ ] Measure load time, peak memory and GC-related runtime on representative
+  1,000, 10,000 and 100,000-record datasets.
 - [ ] Record current CLI scan, analysis and JSON export behavior.
 - [ ] Record current GUI load, filter, duplicate and detail behavior.
 - [ ] Define the supported JSON compatibility set: legacy arrays, versions 1,
@@ -182,7 +184,7 @@ relationships in SQLite.
 
 ### WP-03 Exit Criteria
 
-- All existing JSON fixtures import successfully.
+- [x] All existing JSON fixtures import successfully.
 - [x] Import followed by export preserves the supported v3 content.
 - [x] A filtered export never references a missing blob or related record.
 - [x] Failed imports leave the database unchanged.

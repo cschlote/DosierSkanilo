@@ -43,6 +43,12 @@ Generate API docs:
 ./scripts/build-docs.sh
 ```
 
+Benchmark JSON and SQLite storage paths:
+
+```bash
+./scripts/benchmark-storage.sh ./test/json_file_v2.json 3
+```
+
 Compiler strategy:
 
 - CI and local helper scripts use `ldc2` as default for `build`, `test`, and `run`.
