@@ -71,7 +71,7 @@ changing the storage path.
 
 ## WP-01: Repository API and DTOs
 
-Status: `[ ]`
+Status: `[-]`
 
 ### WP-01 Objective
 
@@ -91,7 +91,7 @@ source/dosierskanilo/repository/
 
 ### WP-01 Steps
 
-- [ ] Define repository lifecycle operations: initialize, open, close and
+- [x] Define repository lifecycle operations: initialize, open, close and
   discover root.
 - [ ] Define read operations for paginated blob summaries.
 - [ ] Define detail operations for one blob and its related records.
@@ -100,8 +100,8 @@ source/dosierskanilo/repository/
 - [ ] Define typed filters for paths, sizes, checksums, file type, media,
   archives and torrents.
 - [ ] Define read-only result DTOs for GUI use.
-- [ ] Keep `d2sqlite3` types out of public signatures.
-- [ ] Assign an independent initial API version, proposed as `1.0.0`.
+- [x] Keep `d2sqlite3` types out of public signatures.
+- [x] Assign an independent initial API version, proposed as `1.0.0`.
 
 ### WP-01 Deliverables
 
@@ -117,7 +117,7 @@ source/dosierskanilo/repository/
 
 ## WP-02: Repository Layout and SQLite Foundation
 
-Status: `[ ]`
+Status: `[-]`
 
 ### WP-02 Objective
 
@@ -125,15 +125,15 @@ Create and migrate a Git-like `.dosierskanilo` repository.
 
 ### WP-02 Steps
 
-- [ ] Add `d2sqlite3 ~>1.0.0` to `dub.json`.
-- [ ] Implement parent-directory discovery for `.dosierskanilo`.
-- [ ] Implement repository initialization for the current directory.
-- [ ] Create the following directories when needed:
+- [x] Add `d2sqlite3 ~>1.0.0` to `dub.json`.
+- [x] Implement parent-directory discovery for `.dosierskanilo`.
+- [x] Implement repository initialization for the current directory.
+- [x] Create the following directories when needed:
   `.dosierskanilo/logs/`, `exports/` and `backups/`.
-- [ ] Add a SQLite connection factory hidden behind the repository module.
-- [ ] Enable foreign keys and define busy-timeout behavior.
-- [ ] Decide and test WAL-mode behavior.
-- [ ] Add `schema_migrations` and the first schema migration.
+- [x] Add a SQLite connection factory hidden behind the repository module.
+- [x] Enable foreign keys and define busy-timeout behavior.
+- [x] Decide and test WAL-mode behavior.
+- [x] Add `schema_migrations` and the first schema migration.
 
 ### Initial Tables
 

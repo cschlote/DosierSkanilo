@@ -7,6 +7,18 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
+## Unreleased
+
+- Added the initial public repository API for the planned SQLite backend.
+- Added `.dosierskanilo` repository initialization and parent-directory
+  discovery.
+- Added SQLite schema version 1 with repository, directory, blob, file
+  reference, media, archive and torrent tables.
+- Added `d2sqlite3` as the SQLite access dependency while keeping it behind the
+  repository API.
+- Made serialization fixture tests independent of installed `file` and
+  MediaInfo tool versions.
+
 ## Release 26.9.3
 
 - Added the `--version` command-line option.

@@ -172,7 +172,7 @@ or raw SQL. A possible public surface is:
 
 ```text
 Repository.open(path)
-Repository.init(rootPath)
+Repository.initialize(rootPath)
 Repository.scan(options)
 Repository.importJson(path, options)
 Repository.exportJson(path, filter)
