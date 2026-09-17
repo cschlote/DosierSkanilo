@@ -239,3 +239,16 @@ unittest
     }
     assert(expectedTables.length == 0, "Missing repository schema tables.");
 }
+
+@("schema migration rejects newer database versions")
+unittest
+{
+    import std.exception : assertThrown;
+
+    auto db = Database(":memory:");
+    db.execute("CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, "
+        ~ "applied_at TEXT NOT NULL)");
+    db.execute("INSERT INTO schema_migrations (version, applied_at) "
+        ~ "VALUES (99, ?)", "2026-01-01T00:00:00");
+    assertThrown!RepositoryException(migrate(db, "2026-01-01T00:00:00"));
+}

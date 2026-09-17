@@ -434,9 +434,11 @@ unittest
 
     auto root = buildPath(tempDir(), "repository-scan-" ~ randomUUID().toString());
     auto nested = buildPath(root, "nested");
+    auto emptyDirectory = buildPath(root, "empty");
     auto firstFile = buildPath(root, "first.txt");
     auto secondFile = buildPath(nested, "second.txt");
     mkdirRecurse(nested);
+    mkdirRecurse(emptyDirectory);
     write(firstFile, "first");
     write(secondFile, "second");
     scope (exit)
@@ -448,6 +450,7 @@ unittest
     auto repository = Repository.initialize(root);
     auto first = repository.scan();
     assert(first.filesFound == 2);
+    assert(first.directoriesFound >= 2);
     assert(first.filesAdded == 2);
     assert(first.filesChanged == 0);
 

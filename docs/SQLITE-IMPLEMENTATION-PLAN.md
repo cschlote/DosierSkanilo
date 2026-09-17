@@ -322,12 +322,12 @@ Status: `[-]`
 
 ### Tests
 
-- [ ] Schema creation and migration tests.
+- [x] Schema creation and forward-version rejection tests.
 - [x] JSON v0/v1/v2/v3 import tests.
 - [x] JSON round-trip tests.
 - [ ] Filtered export tests.
 - [x] Duplicate merge and missing-file tests.
-- [ ] Directory-tree and empty-directory tests.
+- [x] Directory-tree and empty-directory tests.
 - [ ] Archive and torrent relationship tests.
 - [x] Concurrent scanner-worker tests.
 - [ ] GUI data-source and pagination tests.
