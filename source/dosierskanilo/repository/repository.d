@@ -4,6 +4,7 @@ module dosierskanilo.repository.repository;
 import d2sqlite3;
 
 import std.datetime.systime : Clock;
+import std.exception : enforce;
 import std.file : exists, isDir, mkdirRecurse;
 import std.path : absolutePath, buildNormalizedPath, buildPath, dirName;
 import std.string : empty;
@@ -16,7 +17,7 @@ import dosierskanilo.repository.metadata : updateRepositoryMetadata;
 import dosierskanilo.repository.schema : migrate;
 import dosierskanilo.repository.scanner : scanRepository;
 import dosierskanilo.repository.transfer : exportCatalogJson, importCatalogJson,
-    loadCatalogFromDatabase;
+    loadCatalogFromDatabase, loadCatalogPageFromDatabase;
 import dosierskanilo.repository.types;
 
 /** A connection to one `.dosierskanilo` repository. */
@@ -196,6 +197,24 @@ public:
         return loadCatalogFromDatabase(database, repositoryPaths.rootPath, options);
     }
 
+    /** Return the number of blobs currently stored in the repository. */
+    size_t blobCount()
+    {
+        requireOpen();
+        return cast(size_t) database.execute(
+            "SELECT count(*) FROM blobs").oneValue!long;
+    }
+
+    /** Load a bounded page of repository blobs for UI consumers. */
+    NamedBinaryBlob[] loadCatalogPage(size_t offset, size_t limit = 100,
+        JsonExportOptions options = JsonExportOptions())
+    {
+        requireOpen();
+        enforce(limit > 0, "Repository page size must be greater than zero.");
+        return loadCatalogPageFromDatabase(database, repositoryPaths.rootPath,
+            offset, limit, options);
+    }
+
     /** Scan the repository root and update its filesystem references. */
     ScanSummary scan(RepositoryScanOptions options = RepositoryScanOptions())
     {
@@ -288,6 +307,8 @@ unittest
 
     auto repository = Repository.initialize(root);
     repository.importJson("./test/json_file_v2.json");
+    assert(repository.blobCount == 3);
+    assert(repository.loadCatalogPage(0, 1).length == 1);
     repository.exportJson(exported);
     repository.close();
 

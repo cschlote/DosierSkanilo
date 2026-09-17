@@ -63,29 +63,56 @@ NamedBinaryBlob[] loadCatalogFromDatabase(ref Database db, string rootPath,
     JsonExportOptions options)
 {
     NamedBinaryBlob[] blobs;
-    auto result = db.execute("SELECT id, file_size, md5, sha1, xxh64, file_type "
-        ~ "FROM blobs ORDER BY id");
+    auto result = db.execute("SELECT id FROM blobs ORDER BY id");
     foreach (row; result)
     {
-        auto blobId = row.peek!long(0);
-        auto paths = loadFileSpecs(db, blobId, rootPath, options);
-        if (paths.length == 0)
-            continue;
-
-        auto blob = new NamedBinaryBlob();
-        blob.fileSize = cast(size_t) row.peek!long(1);
-        blob.checkSums.md5sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(2));
-        blob.checkSums.sha1sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(3));
-        blob.checkSums.xxh64sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(4));
-        blob.fileType = decodeNullableString(row.peek!(Nullable!string)(5));
-        blob.fileSpecs = paths;
-
-        loadMediaInfo(db, blobId, blob);
-        loadArchiveSpecs(db, blobId, blob);
-        loadTorrentInfo(db, blobId, blob);
-        blobs ~= blob;
+        auto blob = loadBlobFromDatabase(db, rootPath, row.peek!long(0), options);
+        if (blob !is null)
+            blobs ~= blob;
     }
     return blobs;
+}
+
+/** Load a bounded page of repository blobs for UI consumers. */
+NamedBinaryBlob[] loadCatalogPageFromDatabase(ref Database db, string rootPath,
+    size_t offset, size_t limit, JsonExportOptions options)
+{
+    NamedBinaryBlob[] blobs;
+    auto result = db.execute("SELECT id FROM blobs ORDER BY id LIMIT ? OFFSET ?",
+        cast(long) limit, cast(long) offset);
+    foreach (row; result)
+    {
+        auto blob = loadBlobFromDatabase(db, rootPath, row.peek!long(0), options);
+        if (blob !is null)
+            blobs ~= blob;
+    }
+    return blobs;
+}
+
+private NamedBinaryBlob loadBlobFromDatabase(ref Database db, string rootPath,
+    long blobId, JsonExportOptions options)
+{
+    auto result = db.execute("SELECT file_size, md5, sha1, xxh64, file_type "
+        ~ "FROM blobs WHERE id = ?", blobId);
+    if (result.empty)
+        return null;
+    auto row = result.front;
+    auto paths = loadFileSpecs(db, blobId, rootPath, options);
+    if (paths.length == 0)
+        return null;
+
+    auto blob = new NamedBinaryBlob();
+    blob.fileSize = cast(size_t) row.peek!long(0);
+    blob.checkSums.md5sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(1));
+    blob.checkSums.sha1sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(2));
+    blob.checkSums.xxh64sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(3));
+    blob.fileType = decodeNullableString(row.peek!(Nullable!string)(4));
+    blob.fileSpecs = paths;
+
+    loadMediaInfo(db, blobId, blob);
+    loadArchiveSpecs(db, blobId, blob);
+    loadTorrentInfo(db, blobId, blob);
+    return blob;
 }
 
 private void clearCatalog(ref Database db)
