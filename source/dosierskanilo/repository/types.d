@@ -160,6 +160,33 @@ struct RepositoryAnalysisOptions
     bool mergeDuplicates = true;
 }
 
+/** Query options for bounded repository catalog reads. */
+struct RepositoryQueryOptions
+{
+    /// Zero-based result offset.
+    size_t offset;
+    /// Maximum number of blobs to return.
+    size_t limit = 250;
+    /// Case-insensitive path text filter.
+    string text;
+    /// Require a video media stream.
+    bool video;
+    /// Require an audio media stream.
+    bool audio;
+    /// Require an image media stream.
+    bool image;
+    /// Require a text/subtitle media stream.
+    bool textStream;
+    /// Invert the combined media stream condition.
+    bool mediaNegated;
+    /// Require file type metadata.
+    bool fileType;
+    /// Require archive metadata.
+    bool archive;
+    /// Require torrent metadata.
+    bool torrent;
+}
+
 /** Counters returned by repository analysis. */
 struct AnalysisSummary
 {

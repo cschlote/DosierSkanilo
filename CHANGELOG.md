@@ -33,6 +33,8 @@ They represent the functional evolution and are intentionally summarized.
 - Added a library read API for loading repository data into the existing domain
   model, enabling the GUI data-source adapter.
 - Added bounded repository catalog page reads for upcoming GUI pagination.
+- Added repository-side catalog filtering for path text, SHA1, media streams,
+  file type, archive and torrent metadata.
 
 ## Release 26.9.3
 

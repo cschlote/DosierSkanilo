@@ -17,7 +17,8 @@ import dosierskanilo.repository.metadata : updateRepositoryMetadata;
 import dosierskanilo.repository.schema : migrate;
 import dosierskanilo.repository.scanner : scanRepository;
 import dosierskanilo.repository.transfer : exportCatalogJson, importCatalogJson,
-    loadCatalogFromDatabase, loadCatalogPageFromDatabase;
+    loadCatalogFromDatabase, loadCatalogPageFromDatabase,
+    loadCatalogQueryPageFromDatabase;
 import dosierskanilo.repository.types;
 
 /** A connection to one `.dosierskanilo` repository. */
@@ -215,6 +216,17 @@ public:
             offset, limit, options);
     }
 
+    /** Load a bounded page using repository-side filters. */
+    NamedBinaryBlob[] loadCatalogQueryPage(RepositoryQueryOptions options,
+        JsonExportOptions exportOptions = JsonExportOptions())
+    {
+        requireOpen();
+        enforce(options.limit > 0,
+            "Repository query page size must be greater than zero.");
+        return loadCatalogQueryPageFromDatabase(database, repositoryPaths.rootPath,
+            options, exportOptions);
+    }
+
     /** Scan the repository root and update its filesystem references. */
     ScanSummary scan(RepositoryScanOptions options = RepositoryScanOptions())
     {
@@ -309,6 +321,9 @@ unittest
     repository.importJson("./test/json_file_v2.json");
     assert(repository.blobCount == 3);
     assert(repository.loadCatalogPage(0, 1).length == 1);
+    RepositoryQueryOptions query;
+    query.text = "ala";
+    assert(repository.loadCatalogQueryPage(query).length == 1);
     repository.exportJson(exported);
     repository.close();
 

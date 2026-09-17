@@ -89,6 +89,103 @@ NamedBinaryBlob[] loadCatalogPageFromDatabase(ref Database db, string rootPath,
     return blobs;
 }
 
+/** Load a bounded page using repository-side text and metadata filters. */
+NamedBinaryBlob[] loadCatalogQueryPageFromDatabase(ref Database db, string rootPath,
+    RepositoryQueryOptions options, JsonExportOptions exportOptions)
+{
+    string sql = "SELECT b.id FROM blobs b WHERE 1 = 1";
+    ubyte[] sha1Search;
+    if (!options.text.empty)
+    {
+        try
+        {
+            auto decoded = Base64.decode(options.text);
+            if (decoded.length == 20)
+                sha1Search = decoded;
+        }
+        catch (Exception)
+        {
+        }
+    }
+    if (!options.text.empty)
+    {
+        sql ~= " AND (EXISTS (SELECT 1 FROM file_refs f WHERE f.blob_id = b.id "
+            ~ "AND lower(f.relative_path) LIKE lower(:text))";
+        if (sha1Search.length == 20)
+            sql ~= " OR b.sha1 = :sha1";
+        sql ~= ")";
+    }
+
+    auto hasMediaFilter = options.video || options.audio || options.image
+        || options.textStream;
+    if (hasMediaFilter)
+    {
+        string mediaCondition = "(";
+        bool hasPrevious;
+        void addMediaCondition(string table)
+        {
+            if (hasPrevious)
+                mediaCondition ~= " OR ";
+            mediaCondition ~= "EXISTS (SELECT 1 FROM " ~ table
+                ~ " s WHERE s.blob_id = b.id)";
+            hasPrevious = true;
+        }
+        if (options.video)
+            addMediaCondition("media_video_streams");
+        if (options.audio)
+            addMediaCondition("media_audio_streams");
+        if (options.image)
+            addMediaCondition("media_image_streams");
+        if (options.textStream)
+            addMediaCondition("media_text_streams");
+        mediaCondition ~= ")";
+        sql ~= options.mediaNegated ? " AND NOT " : " AND ";
+        sql ~= mediaCondition;
+    }
+
+    if (options.fileType || options.archive || options.torrent)
+    {
+        sql ~= " AND (";
+        bool hasPrevious;
+        void addOtherCondition(string condition)
+        {
+            if (hasPrevious)
+                sql ~= " OR ";
+            sql ~= condition;
+            hasPrevious = true;
+        }
+        if (options.fileType)
+            addOtherCondition("b.file_type IS NOT NULL AND length(b.file_type) > 0");
+        if (options.archive)
+            addOtherCondition("EXISTS (SELECT 1 FROM archive_entries a "
+                ~ "WHERE a.blob_id = b.id)");
+        if (options.torrent)
+            addOtherCondition("EXISTS (SELECT 1 FROM torrent_info t "
+                ~ "WHERE t.blob_id = b.id)");
+        sql ~= ")";
+    }
+    sql ~= " ORDER BY b.id LIMIT :limit OFFSET :offset";
+
+    auto statement = db.prepare(sql);
+    if (!options.text.empty)
+        statement.bind(":text", "%" ~ options.text ~ "%");
+    if (sha1Search.length == 20)
+        statement.bind(":sha1", cast(Blob) sha1Search);
+    statement.bind(":limit", cast(long) options.limit);
+    statement.bind(":offset", cast(long) options.offset);
+
+    NamedBinaryBlob[] blobs;
+    auto result = statement.execute();
+    foreach (row; result)
+    {
+        auto blob = loadBlobFromDatabase(db, rootPath, row.peek!long(0),
+            exportOptions);
+        if (blob !is null)
+            blobs ~= blob;
+    }
+    return blobs;
+}
+
 private NamedBinaryBlob loadBlobFromDatabase(ref Database db, string rootPath,
     long blobId, JsonExportOptions options)
 {
