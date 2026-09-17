@@ -509,6 +509,9 @@ unittest
     assert(summary.mediaInfoUpdated >= 1);
     assert(summary.torrentsUpdated == 1);
     assert(summary.failed == 0);
+    auto secondSummary = repository.updateMetadata(options);
+    assert(secondSummary.mediaInfoUpdated == 0);
+    assert(secondSummary.torrentsUpdated == 0);
     repository.close();
 }
 

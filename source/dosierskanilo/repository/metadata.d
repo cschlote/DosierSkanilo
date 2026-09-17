@@ -76,7 +76,8 @@ MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
             {
                 updateDigests(blob);
                 persistChecksums(db, blobId, blob);
-                setMetadataStatus(db, blobId, "checksums", "completed", "");
+                setMetadataStatus(db, blobId, "checksums",
+                    metadataState(blob.checkSums.hasDigests), "");
                 summary.checksumsUpdated++;
             }
             catch (Exception ex)
@@ -94,7 +95,8 @@ MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
                 updateFileType(blob);
                 db.execute("UPDATE blobs SET file_type = ? WHERE id = ?",
                     blob.fileType, blobId);
-                setMetadataStatus(db, blobId, "file_type", "completed", "");
+                setMetadataStatus(db, blobId, "file_type",
+                    metadataState(blob.fileType.length > 0), "");
                 summary.fileTypesUpdated++;
             }
             catch (Exception ex)
@@ -112,7 +114,8 @@ MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
             {
                 updateMediaInfo(blob, options.rescan);
                 persistMediaInfo(db, blobId, blob.mediaInfoSig);
-                setMetadataStatus(db, blobId, "media_info", "completed", "");
+                setMetadataStatus(db, blobId, "media_info", metadataState(
+                    blob.mediaInfoSig !is null && !blob.mediaInfoSig.empty), "");
                 if (blob.mediaInfoSig !is null && !blob.mediaInfoSig.empty)
                     summary.mediaInfoUpdated++;
             }
@@ -131,7 +134,8 @@ MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
             {
                 updateArchives(blob, options.rescan, options.deepArchiveScan);
                 persistArchives(db, blobId, blob.archiveSpecs);
-                setMetadataStatus(db, blobId, "archives", "completed", "");
+                setMetadataStatus(db, blobId, "archives",
+                    metadataState(blob.archiveSpecs !is null), "");
                 if (blob.archiveSpecs !is null)
                     summary.archivesUpdated++;
             }
@@ -150,7 +154,8 @@ MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
             {
                 updateTorrentInfo(blob, options.rescan);
                 persistTorrentInfo(db, blobId, blob.torrentInfo);
-                setMetadataStatus(db, blobId, "torrents", "completed", "");
+                setMetadataStatus(db, blobId, "torrents",
+                    metadataState(blob.torrentInfo !is null), "");
                 if (blob.torrentInfo !is null)
                     summary.torrentsUpdated++;
             }
@@ -260,7 +265,7 @@ private void persistMetadataWork(ref Database db, MetadataWorkItem item,
             return;
         }
         persist();
-        setMetadataStatus(db, item.blobId, kind, "completed", "");
+        setMetadataStatus(db, item.blobId, kind, metadataState(hasData), "");
         if (hasData)
         {
             if (kind == "checksums") summary.checksumsUpdated++;
@@ -338,7 +343,15 @@ private bool metadataCompleted(ref Database db, long blobId, string kind)
 {
     auto result = db.execute("SELECT state FROM metadata_status "
         ~ "WHERE blob_id = ? AND metadata_kind = ?", blobId, kind);
-    return !result.empty && result.front.peek!string(0) == "completed";
+    if (result.empty)
+        return false;
+    auto state = result.front.peek!string(0);
+    return state == "completed" || state == "empty";
+}
+
+private string metadataState(bool hasData)
+{
+    return hasData ? "completed" : "empty";
 }
 
 private void persistMediaInfo(ref Database db, long blobId, MediaInfoSig info)

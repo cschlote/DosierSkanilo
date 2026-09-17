@@ -207,8 +207,8 @@ Run scans against SQLite without keeping the complete catalog in memory.
 - [x] Persist checksum and file type results with metadata status.
 - [x] Run MediaInfo, archive and torrent jobs blob-wise and persist their
   relational results.
-- [ ] Represent all extractor states explicitly: not requested, pending, completed,
-  empty or failed.
+- [x] Represent extractor states explicitly: pending, completed, empty and
+  failed; absent rows represent not requested.
 - [x] Refactor worker jobs to return result DTOs instead of mutating a shared
   global catalog.
 - [x] Add a single-writer persistence queue or equivalent transaction policy.
