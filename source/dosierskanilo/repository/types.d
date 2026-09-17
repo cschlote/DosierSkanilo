@@ -148,3 +148,27 @@ struct MetadataSummary
     /// Number of metadata jobs that failed.
     size_t failed;
 }
+
+/** Options controlling SQL-based repository analysis. */
+struct RepositoryAnalysisOptions
+{
+    /// Remove stored file references marked as missing.
+    bool dropMissing;
+    /// Merge blobs with identical size and complete checksums.
+    bool mergeDuplicates = true;
+}
+
+/** Counters returned by repository analysis. */
+struct AnalysisSummary
+{
+    /// Missing file references found before optional cleanup.
+    size_t missingFiles;
+    /// Missing file references removed by `dropMissing`.
+    size_t droppedFiles;
+    /// Duplicate blob groups found.
+    size_t duplicateGroups;
+    /// Blob rows merged into another blob.
+    size_t mergedBlobs;
+    /// Unreferenced blob rows removed after cleanup.
+    size_t orphanedBlobs;
+}

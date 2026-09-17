@@ -223,7 +223,7 @@ Run scans against SQLite without keeping the complete catalog in memory.
 
 ## WP-05: SQL-Based Analysis
 
-Status: `[ ]`
+Status: `[-]`
 
 ### WP-05 Objective
 
@@ -231,20 +231,20 @@ Move duplicate and missing-file analysis from D arrays into repository queries.
 
 ### WP-05 Steps
 
-- [ ] Query complete checksum candidates by file size.
-- [ ] Group candidates by SHA1 in SQL or a bounded result stream.
-- [ ] Merge duplicate blobs by moving `file_refs` to one blob.
-- [ ] Detect missing paths and support keep-versus-drop behavior.
-- [ ] Remove unreferenced blobs and dependent metadata safely.
-- [ ] Add indexes for path, size, SHA1, file type and metadata presence.
-- [ ] Expose analysis results through typed repository DTOs.
+- [x] Query complete checksum candidates by file size.
+- [x] Group candidates by complete checksums in SQL.
+- [x] Merge duplicate blobs by moving `file_refs` to one blob.
+- [x] Detect missing paths and support keep-versus-drop behavior.
+- [x] Remove unreferenced blobs and dependent metadata safely.
+- [x] Add indexes for path, size, SHA1, file type and metadata presence.
+- [x] Expose analysis results through typed repository DTOs.
 
 ### WP-05 Exit Criteria
 
-- Duplicate results match the current `analyse.d` behavior.
-- Missing-file behavior matches `--dropMissing`.
-- Analysis does not require loading all blobs into a D array.
-- Merge and cleanup are atomic transactions.
+- [x] Duplicate results match the current content-identity behavior.
+- [x] Missing-file behavior matches `--dropMissing`.
+- [x] Analysis does not require loading all blobs into a D array.
+- [x] Merge and cleanup are atomic transactions.
 
 ## WP-06: CLI Integration
 
@@ -269,7 +269,7 @@ dosierskanilo export
 - [x] Add repository root discovery to command-line startup.
 - [x] Add explicit repository and JSON input/output options.
 - [x] Preserve existing JSON invocation behavior during migration.
-- [x] Route scan and metadata operations through the repository API.
+- [x] Route scan, analysis and metadata operations through the repository API.
 - [ ] Add progress reporting for database-backed jobs.
 - [ ] Write operational logs to `.dosierskanilo/logs/`.
 - [x] Add clear errors for missing repositories and schema incompatibility.

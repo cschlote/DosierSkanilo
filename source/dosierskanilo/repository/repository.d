@@ -10,6 +10,7 @@ import std.string : empty;
 import std.typecons : Nullable;
 
 import dosierskanilo.repository.errors;
+import dosierskanilo.repository.analysis : analyzeRepository;
 import dosierskanilo.repository.metadata : updateRepositoryMetadata;
 import dosierskanilo.repository.schema : migrate;
 import dosierskanilo.repository.scanner : scanRepository;
@@ -199,6 +200,14 @@ public:
     {
         requireOpen();
         return updateRepositoryMetadata(database, repositoryPaths.rootPath, options);
+    }
+
+    /** Analyze missing references and duplicate blobs in SQL. */
+    AnalysisSummary analyze(
+        RepositoryAnalysisOptions options = RepositoryAnalysisOptions())
+    {
+        requireOpen();
+        return analyzeRepository(database, options);
     }
 
     /** Explicitly close the repository connection. */
@@ -399,5 +408,45 @@ unittest
     assert(summary.mediaInfoUpdated >= 1);
     assert(summary.torrentsUpdated == 1);
     assert(summary.failed == 0);
+    repository.close();
+}
+
+@("repository SQL duplicate and missing-file analysis")
+unittest
+{
+    import std.file : copy, exists, mkdirRecurse, remove, rmdirRecurse, tempDir;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "repository-analysis-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    auto first = buildPath(root, "first.txt");
+    auto second = buildPath(root, "second.txt");
+    copy("./test/dummy-text-file.txt", first);
+    copy("./test/dummy-text-file.txt", second);
+    scope (exit)
+    {
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+
+    auto repository = Repository.initialize(root);
+    repository.scan();
+    MetadataScanOptions metadataOptions;
+    metadataOptions.calculateChecksums = true;
+    repository.updateMetadata(metadataOptions);
+
+    auto duplicates = repository.analyze();
+    assert(duplicates.duplicateGroups == 1);
+    assert(duplicates.mergedBlobs == 1);
+
+    remove(second);
+    repository.scan();
+    RepositoryAnalysisOptions analysisOptions;
+    analysisOptions.dropMissing = true;
+    auto missing = repository.analyze(analysisOptions);
+    assert(missing.missingFiles == 1);
+    assert(missing.droppedFiles == 1);
     repository.close();
 }

@@ -138,6 +138,18 @@ bool executeRepositoryOperation()
 				summary.filesMissing);
 		}
 
+		if (argsArray.argRunAnalysis)
+		{
+			RepositoryAnalysisOptions analysisOptions;
+			analysisOptions.dropMissing = argsArray.argDropMissing;
+			auto summary = repository.analyze(analysisOptions);
+			logFLine("Repository analysis: %d missing, %d dropped, %d duplicate "
+				~ "groups, %d merged blobs, %d orphaned blobs.",
+				summary.missingFiles, summary.droppedFiles,
+				summary.duplicateGroups, summary.mergedBlobs,
+				summary.orphanedBlobs);
+		}
+
 		if (argsArray.argDoChecksums || argsArray.argDoFileTypes
 			|| argsArray.argDoMediaSig || argsArray.argScanArchives
 			|| argsArray.argScanTorrents)

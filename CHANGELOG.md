@@ -28,6 +28,8 @@ They represent the functional evolution and are intentionally summarized.
   metadata, including rescan replacement of related records.
 - Added repository-mode CLI options for initialization, scanning, metadata
   updates and JSON import/export while retaining the legacy JSON mode.
+- Added SQL-based repository analysis for duplicate blob merging, missing-file
+  handling and orphan cleanup.
 
 ## Release 26.9.3
 

@@ -132,12 +132,6 @@ bool parseCommandLineArgs(string[] args, ArgsArray* argsarray = &argsArray)
             logFLine("Export JSON filename '%s' looks invalid.", argsarray.argExportJSON);
             return false;
         }
-        if (argsarray.argRunAnalysis)
-        {
-            logLine("Repository analysis is not available yet."
-                ~ " Use the JSON mode for --analyse.");
-            return false;
-        }
         return true;
     }
 
