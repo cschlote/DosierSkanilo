@@ -95,10 +95,85 @@ int main(string[] args)
 			scope (exit)
 				signal(SIGINT, oldhandler);
 
-			rc = executeFileScannerOperation();
+			if (argsArray.argInitRepository || !argsArray.argRepositoryPath.empty
+				|| !argsArray.argImportJSON.empty || !argsArray.argExportJSON.empty)
+				rc = executeRepositoryOperation();
+			else
+				rc = executeFileScannerOperation();
 		}
 	}
 	return rc ? 0 : 1; // Return a a SHELL (!) exit code here.
+}
+
+/** Execute a SQLite repository operation selected by the CLI options. */
+bool executeRepositoryOperation()
+{
+	try
+	{
+		auto repositoryPath = argsArray.argRepositoryPath;
+		if (repositoryPath.empty)
+			repositoryPath = argsArray.argScanPath;
+
+		Repository repository;
+		if (argsArray.argInitRepository)
+			repository = Repository.initialize(repositoryPath);
+		else
+			repository = Repository.open(repositoryPath);
+
+		if (!argsArray.argImportJSON.empty)
+		{
+			repository.importJson(argsArray.argImportJSON);
+			logFLine("Imported JSON catalog '%s'.", argsArray.argImportJSON);
+		}
+
+		if (argsArray.argScanFiles)
+		{
+			RepositoryScanOptions scanOptions;
+			scanOptions.recursive = argsArray.argRecursive;
+			scanOptions.pickHidden = argsArray.argPickHidden;
+			scanOptions.dropMissing = argsArray.argDropMissing;
+			auto summary = repository.scan(scanOptions);
+			logFLine("Repository scan: %d files, %d added, %d changed, %d missing.",
+				summary.filesFound, summary.filesAdded, summary.filesChanged,
+				summary.filesMissing);
+		}
+
+		if (argsArray.argDoChecksums || argsArray.argDoFileTypes
+			|| argsArray.argDoMediaSig || argsArray.argScanArchives
+			|| argsArray.argScanTorrents)
+		{
+			MetadataScanOptions metadataOptions;
+			metadataOptions.calculateChecksums = argsArray.argDoChecksums;
+			metadataOptions.detectFileTypes = argsArray.argDoFileTypes;
+			metadataOptions.extractMediaInfo = argsArray.argDoMediaSig;
+			metadataOptions.scanArchives = argsArray.argScanArchives != 0;
+			metadataOptions.deepArchiveScan = argsArray.argScanArchives > 1;
+			metadataOptions.scanTorrents = argsArray.argScanTorrents;
+			metadataOptions.rescan = argsArray.argRescanMediaSig;
+			auto summary = repository.updateMetadata(metadataOptions);
+			logFLine("Metadata update: %d blobs, %d checksum, %d file type, "
+				~ "%d media, %d archive, %d torrent updates, %d failures.",
+				summary.blobsVisited, summary.checksumsUpdated,
+				summary.fileTypesUpdated, summary.mediaInfoUpdated,
+				summary.archivesUpdated, summary.torrentsUpdated, summary.failed);
+		}
+
+		auto exportPath = argsArray.argExportJSON;
+		if (exportPath.empty && argsArray.argWriteJSON)
+			exportPath = argsArray.argJSONFile;
+		if (!exportPath.empty)
+		{
+			repository.exportJson(exportPath);
+			logFLine("Exported repository JSON to '%s'.", exportPath);
+		}
+		repository.close();
+		return true;
+	}
+	catch (Exception ex)
+	{
+		logLine("Repository operation failed: ", ex.msg);
+		return false;
+	}
 }
 
 /** A handler for OS signals

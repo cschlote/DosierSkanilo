@@ -16,6 +16,10 @@ struct ArgsArray
 	bool argRecursive; ///< Scan directories recursively.
 	bool argScanFiles; ///< Scan for new files.
 	string argJSONFile; ///< JSON file to read from and write to.
+	string argRepositoryPath; ///< Repository root or path below a repository.
+	string argImportJSON; ///< JSON file to import into a repository.
+	string argExportJSON; ///< JSON file to export from a repository.
+	bool argInitRepository; ///< Initialize a `.dosierskanilo` repository.
 	bool argDoFileTypes; ///< Query file types via the `file` utility.
 	bool argDoChecksums; ///< Calculate checksums for files.
 	bool argDoMediaSig; ///< Calculate media signatures.

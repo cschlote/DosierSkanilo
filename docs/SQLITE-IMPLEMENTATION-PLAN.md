@@ -248,7 +248,7 @@ Move duplicate and missing-file analysis from D arrays into repository queries.
 
 ## WP-06: CLI Integration
 
-Status: `[ ]`
+Status: `[-]`
 
 ### WP-06 Objective
 
@@ -266,13 +266,13 @@ dosierskanilo export
 
 ### WP-06 Steps
 
-- [ ] Add repository root discovery to command-line startup.
-- [ ] Add explicit repository and JSON input/output options.
-- [ ] Preserve existing JSON invocation behavior during migration.
-- [ ] Route scan and analysis operations through the repository API.
+- [x] Add repository root discovery to command-line startup.
+- [x] Add explicit repository and JSON input/output options.
+- [x] Preserve existing JSON invocation behavior during migration.
+- [x] Route scan and metadata operations through the repository API.
 - [ ] Add progress reporting for database-backed jobs.
 - [ ] Write operational logs to `.dosierskanilo/logs/`.
-- [ ] Add clear errors for missing repositories and schema incompatibility.
+- [x] Add clear errors for missing repositories and schema incompatibility.
 
 ### WP-06 Exit Criteria
 

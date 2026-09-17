@@ -26,6 +26,8 @@ They represent the functional evolution and are intentionally summarized.
   persisted metadata status.
 - Added blob-wise repository persistence for MediaInfo, archive and torrent
   metadata, including rescan replacement of related records.
+- Added repository-mode CLI options for initialization, scanning, metadata
+  updates and JSON import/export while retaining the legacy JSON mode.
 
 ## Release 26.9.3
 

@@ -91,6 +91,10 @@ Current command-line options (from `source/dosierskanilo_cli/commandline.d`):
 
 - `-p`, `--path`: path to scan
 - `-j`, `--json`: JSON file name for load/store
+- `--repository`: repository root or path below a `.dosierskanilo` repository
+- `--init-repository`: initialize a repository at `--repository` or `--path`
+- `--import-json`: import a JSON catalog into a repository
+- `--export-json`: export a repository as JSON
 - `-r`, `--recursive`: recurse into subdirectories
 - `-s`, `--scan`: discover files from the scan path
 - `-c`, `--checksum`: calculate digests
@@ -164,6 +168,32 @@ Enable archive and torrent analysis:
   --scanTorrents \
   --writeJSON \
   --force
+```
+
+Initialize and scan a SQLite repository:
+
+```bash
+./build/bin/dosierskanilo \
+  --repository=/data/library \
+  --init-repository \
+  --recursive \
+  --scan \
+  --checksum \
+  --filetypes \
+  --mediasig \
+  --scanTorrents
+```
+
+Import or export JSON through a repository:
+
+```bash
+./build/bin/dosierskanilo \
+  --repository=/data/library \
+  --import-json=library-scan.json
+
+./build/bin/dosierskanilo \
+  --repository=/data/library \
+  --export-json=library-export.json
 ```
 
 ## Architecture
