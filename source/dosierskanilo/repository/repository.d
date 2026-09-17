@@ -482,7 +482,9 @@ unittest
     auto root = buildPath(tempDir(), "repository-metadata-" ~ randomUUID().toString());
     mkdirRecurse(root);
     auto input = buildPath(root, "sample.txt");
+    auto secondInput = buildPath(root, "sample-copy.txt");
     copy("./test/dummy-text-file.txt", input);
+    copy("./test/dummy-text-file.txt", secondInput);
     auto exported = buildPath(root, "metadata.json");
     scope (exit)
     {
@@ -492,16 +494,16 @@ unittest
 
     auto repository = Repository.initialize(root);
     auto scanSummary = repository.scan();
-    assert(scanSummary.filesAdded == 1);
+    assert(scanSummary.filesAdded == 2);
 
     MetadataScanOptions options;
     options.calculateChecksums = true;
     options.detectFileTypes = true;
     options.threads = 2;
     auto metadataSummary = repository.updateMetadata(options);
-    assert(metadataSummary.blobsVisited == 1);
-    assert(metadataSummary.checksumsUpdated == 1);
-    assert(metadataSummary.fileTypesUpdated == 1);
+    assert(metadataSummary.blobsVisited == 2);
+    assert(metadataSummary.checksumsUpdated == 2);
+    assert(metadataSummary.fileTypesUpdated == 2);
     assert(metadataSummary.failed == 0);
 
     repository.exportJson(exported);
@@ -509,9 +511,12 @@ unittest
 
     import dosierskanilo.model.namedbinaryblob : deserializeDataClassJsonFile;
     auto blobs = deserializeDataClassJsonFile(exported);
-    assert(blobs.length == 1);
-    assert(blobs[0].checkSums.hasDigests);
-    assert(blobs[0].fileType.length > 0);
+    assert(blobs.length == 2);
+    foreach (blob; blobs)
+    {
+        assert(blob.checkSums.hasDigests);
+        assert(blob.fileType.length > 0);
+    }
 }
 
 @("repository metadata update for media and torrent data")

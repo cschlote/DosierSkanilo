@@ -318,20 +318,20 @@ source abstraction.
 
 ## WP-08: Verification and Rollout
 
-Status: `[ ]`
+Status: `[-]`
 
 ### Tests
 
 - [ ] Schema creation and migration tests.
-- [ ] JSON v0/v1/v2/v3 import tests.
-- [ ] JSON round-trip tests.
+- [x] JSON v0/v1/v2/v3 import tests.
+- [x] JSON round-trip tests.
 - [ ] Filtered export tests.
-- [ ] Duplicate merge and missing-file tests.
+- [x] Duplicate merge and missing-file tests.
 - [ ] Directory-tree and empty-directory tests.
 - [ ] Archive and torrent relationship tests.
-- [ ] Concurrent scanner-worker tests.
+- [x] Concurrent scanner-worker tests.
 - [ ] GUI data-source and pagination tests.
-- [ ] Performance tests against the WP-00 datasets.
+- [x] Performance tests against the WP-00 datasets.
 
 ### Rollout Sequence
 
