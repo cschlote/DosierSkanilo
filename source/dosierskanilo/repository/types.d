@@ -65,3 +65,20 @@ struct RepositoryInfo
     /// `file` utility version stored by the scanner.
     string fileUtilityVersion;
 }
+
+/** Options for importing a JSON catalog into a repository. */
+struct JsonImportOptions
+{
+    /// Replace the current repository catalog before importing.
+    bool replaceExisting = true;
+}
+
+/** Options for exporting repository data as JSON. */
+struct JsonExportOptions
+{
+    /**
+     * Optional root-relative path prefix. An empty prefix exports all current
+     * file references.
+     */
+    string pathPrefix;
+}

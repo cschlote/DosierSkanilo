@@ -18,6 +18,8 @@ They represent the functional evolution and are intentionally summarized.
   repository API.
 - Made serialization fixture tests independent of installed `file` and
   MediaInfo tool versions.
+- Added transactional JSON v3 import and export for initialized repositories,
+  including path-prefix filtering and relational metadata reconstruction.
 
 ## Release 26.9.3
 

@@ -183,6 +183,8 @@ Detailed architecture and diagrams:
 - `source/dosierskanilo/service/scanning.d`: directory scanning + job scheduling
 - `source/dosierskanilo/service/analyze.d`: duplicate/missing-file analysis
 - `source/dosierskanilo/service/storageio.d`: JSON storage read/write and backup
+- `source/dosierskanilo/repository/*`: SQLite repository, schema and JSON
+  transfer API
 - `source/dosierskanilo/model/namedbinaryblob.d`: core blob model,
   serialization, migrations, update jobs, merge/cleanup
 - `source/dosierskanilo/metadata/digests.d`: digest calculation

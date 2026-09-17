@@ -160,7 +160,7 @@ Create and migrate a Git-like `.dosierskanilo` repository.
 
 ## WP-03: JSON Import and Export
 
-Status: `[ ]`
+Status: `[-]`
 
 ### WP-03 Objective
 
@@ -169,23 +169,23 @@ relationships in SQLite.
 
 ### WP-03 Steps
 
-- [ ] Import legacy root arrays and JSON versions 1, 2 and 3.
-- [ ] Reuse the existing JSON migration logic as the canonical input step.
-- [ ] Map `FileSpec` values to `file_refs`.
-- [ ] Map shared binary content to one `blobs` row.
-- [ ] Store checksums as binary SQLite values.
-- [ ] Import media, archive and torrent relationships transactionally.
-- [ ] Implement complete export of the current repository.
-- [ ] Implement filtered export using a relationship closure.
-- [ ] Preserve version-3 output for existing consumers.
-- [ ] Design an extended JSON version before exporting fields absent from v3.
+- [x] Import legacy root arrays and JSON versions 1, 2 and 3.
+- [x] Reuse the existing JSON migration logic as the canonical input step.
+- [x] Map `FileSpec` values to `file_refs`.
+- [x] Map shared binary content to one `blobs` row.
+- [x] Store checksums as binary SQLite values.
+- [x] Import media, archive and torrent relationships transactionally.
+- [x] Implement complete export of the current repository.
+- [x] Implement filtered export by root-relative path prefix.
+- [x] Preserve version-3 output for existing consumers.
+- [x] Design an extended JSON version before exporting fields absent from v3.
 
 ### WP-03 Exit Criteria
 
 - All existing JSON fixtures import successfully.
-- Import followed by export preserves the supported v3 content.
-- A filtered export never references a missing blob or related record.
-- Failed imports leave the database unchanged.
+- [x] Import followed by export preserves the supported v3 content.
+- [x] A filtered export never references a missing blob or related record.
+- [x] Failed imports leave the database unchanged.
 
 ## WP-04: Scanner Persistence
 

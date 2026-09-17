@@ -11,6 +11,7 @@ import std.typecons : Nullable;
 
 import dosierskanilo.repository.errors;
 import dosierskanilo.repository.schema : migrate;
+import dosierskanilo.repository.transfer : exportCatalogJson, importCatalogJson;
 import dosierskanilo.repository.types;
 
 /** A connection to one `.dosierskanilo` repository. */
@@ -169,6 +170,20 @@ public:
                 ? "" : row.peek!(Nullable!string)(5).get);
     }
 
+    /** Replace the repository catalog with data from a JSON file. */
+    void importJson(string jsonFile, JsonImportOptions options = JsonImportOptions())
+    {
+        requireOpen();
+        importCatalogJson(database, repositoryPaths.rootPath, jsonFile, options);
+    }
+
+    /** Export repository data to a JSON file. */
+    void exportJson(string jsonFile, JsonExportOptions options = JsonExportOptions())
+    {
+        requireOpen();
+        exportCatalogJson(database, jsonFile, options);
+    }
+
     /** Explicitly close the repository connection. */
     void close()
     {
@@ -216,4 +231,37 @@ unittest
     auto reopened = Repository.open(nested);
     assert(reopened.rootPath == buildNormalizedPath(root));
     reopened.close();
+}
+
+@("repository JSON import and export roundtrip")
+unittest
+{
+    import dosierskanilo.model.namedbinaryblob : deserializeDataClassJsonFile,
+        sortDataClassArrayByFileName;
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "repository-json-" ~ randomUUID().toString());
+    mkdirRecurse(root);
+    auto exported = buildPath(root, "roundtrip.json");
+    scope (exit)
+    {
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+
+    auto repository = Repository.initialize(root);
+    repository.importJson("./test/json_file_v2.json");
+    repository.exportJson(exported);
+    repository.close();
+
+    auto imported = deserializeDataClassJsonFile("./test/json_file_v2.json");
+    auto roundtrip = deserializeDataClassJsonFile(exported);
+    auto expected = sortDataClassArrayByFileName(imported);
+    auto actual = sortDataClassArrayByFileName(roundtrip);
+    assert(expected.length == actual.length);
+    foreach (index; 0 .. expected.length)
+        assert(expected[index].toString == actual[index].toString,
+            expected[index].toString ~ " != " ~ actual[index].toString);
 }
