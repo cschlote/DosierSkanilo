@@ -36,6 +36,7 @@ They represent the functional evolution and are intentionally summarized.
   extractors are not needlessly rerun.
 - Added a storage benchmark script and JSON compatibility coverage across all
   supported fixture generations.
+- Repository-mode `--threads` now controls parallel metadata workers.
 - Added a library read API for loading repository data into the existing domain
   model, enabling the GUI data-source adapter.
 - Added bounded repository catalog page reads for upcoming GUI pagination.

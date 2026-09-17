@@ -272,6 +272,7 @@ dosierskanilo export
 - [x] Add explicit repository and JSON input/output options.
 - [x] Preserve existing JSON invocation behavior during migration.
 - [x] Route scan, analysis and metadata operations through the repository API.
+- [x] Pass the CLI worker count through to repository metadata workers.
 - [x] Add phase progress reporting for database-backed jobs.
 - [x] Write operational logs to `.dosierskanilo/logs/`.
 - [x] Add clear errors for missing repositories and schema incompatibility.

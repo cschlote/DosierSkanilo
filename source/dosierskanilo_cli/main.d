@@ -179,6 +179,8 @@ bool executeRepositoryOperation()
 			metadataOptions.deepArchiveScan = argsArray.argScanArchives > 1;
 			metadataOptions.scanTorrents = argsArray.argScanTorrents;
 			metadataOptions.rescan = argsArray.argRescanMediaSig;
+			metadataOptions.threads = argsArray.argNumberOfThreads > 1
+				? cast(size_t) argsArray.argNumberOfThreads : 1;
 			auto summary = repository.updateMetadata(metadataOptions);
 			logFLine("Metadata update: %d blobs, %d checksum, %d file type, "
 				~ "%d media, %d archive, %d torrent updates, %d failures.",
