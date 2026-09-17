@@ -167,11 +167,33 @@ MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
 private MetadataSummary updateRepositoryMetadataParallel(ref Database db,
     string rootPath, MetadataScanOptions options)
 {
-    MetadataWorkItem[] items;
+    MetadataSummary summary;
+    long[] batchIds;
+    auto batchSize = options.threads * 4;
+    if (batchSize == 0)
+        batchSize = 1;
+
     auto result = db.execute("SELECT id FROM blobs ORDER BY id");
     foreach (row; result)
     {
-        auto blobId = row.peek!long(0);
+        batchIds ~= row.peek!long(0);
+        if (batchIds.length >= batchSize)
+        {
+            processMetadataBatch(db, rootPath, options, batchIds, summary);
+            batchIds.length = 0;
+        }
+    }
+    if (batchIds.length > 0)
+        processMetadataBatch(db, rootPath, options, batchIds, summary);
+    return summary;
+}
+
+private void processMetadataBatch(ref Database db, string rootPath,
+    MetadataScanOptions options, long[] blobIds, ref MetadataSummary summary)
+{
+    MetadataWorkItem[] items;
+    foreach (blobId; blobIds)
+    {
         auto blob = loadBlob(db, rootPath, blobId);
         if (blob is null)
             continue;
@@ -214,8 +236,7 @@ private MetadataSummary updateRepositoryMetadataParallel(ref Database db,
         pool.put(worker);
     }
 
-    MetadataSummary summary;
-    summary.blobsVisited = items.length;
+    summary.blobsVisited += items.length;
     foreach (index, item; items)
     {
         tasks[index].workForce();
@@ -223,7 +244,6 @@ private MetadataSummary updateRepositoryMetadataParallel(ref Database db,
     }
     pool.finish(true);
     pool.stop();
-    return summary;
 }
 
 private void persistMetadataWork(ref Database db, MetadataWorkItem item,
