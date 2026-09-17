@@ -18,7 +18,7 @@ import dosierskanilo.repository.schema : migrate;
 import dosierskanilo.repository.scanner : scanRepository;
 import dosierskanilo.repository.transfer : exportCatalogJson, importCatalogJson,
     loadCatalogFromDatabase, loadCatalogPageFromDatabase,
-    loadCatalogQueryPageFromDatabase;
+    loadCatalogQueryPageFromDatabase, countCatalogQueryFromDatabase;
 import dosierskanilo.repository.types;
 
 /** A connection to one `.dosierskanilo` repository. */
@@ -225,6 +225,13 @@ public:
             "Repository query page size must be greater than zero.");
         return loadCatalogQueryPageFromDatabase(database, repositoryPaths.rootPath,
             options, exportOptions);
+    }
+
+    /** Count blobs matching repository-side query filters. */
+    size_t countCatalogQuery(RepositoryQueryOptions options)
+    {
+        requireOpen();
+        return cast(size_t) countCatalogQueryFromDatabase(database, options);
     }
 
     /** Scan the repository root and update its filesystem references. */

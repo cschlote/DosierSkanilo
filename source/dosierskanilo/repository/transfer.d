@@ -93,7 +93,33 @@ NamedBinaryBlob[] loadCatalogPageFromDatabase(ref Database db, string rootPath,
 NamedBinaryBlob[] loadCatalogQueryPageFromDatabase(ref Database db, string rootPath,
     RepositoryQueryOptions options, JsonExportOptions exportOptions)
 {
-    string sql = "SELECT b.id FROM blobs b WHERE 1 = 1";
+    auto statement = prepareCatalogQuery(db, "SELECT b.id FROM blobs b", options,
+        true);
+
+    NamedBinaryBlob[] blobs;
+    auto result = statement.execute();
+    foreach (row; result)
+    {
+        auto blob = loadBlobFromDatabase(db, rootPath, row.peek!long(0),
+            exportOptions);
+        if (blob !is null)
+            blobs ~= blob;
+    }
+    return blobs;
+}
+
+/** Count rows matching repository query filters. */
+long countCatalogQueryFromDatabase(ref Database db, RepositoryQueryOptions options)
+{
+    auto statement = prepareCatalogQuery(db, "SELECT count(*) FROM blobs b",
+        options, false);
+    return statement.execute().oneValue!long;
+}
+
+private Statement prepareCatalogQuery(ref Database db, string selectSql,
+    RepositoryQueryOptions options, bool paged)
+{
+    string sql = selectSql ~ " WHERE 1 = 1";
     ubyte[] sha1Search;
     if (!options.text.empty)
     {
@@ -164,26 +190,20 @@ NamedBinaryBlob[] loadCatalogQueryPageFromDatabase(ref Database db, string rootP
                 ~ "WHERE t.blob_id = b.id)");
         sql ~= ")";
     }
-    sql ~= " ORDER BY b.id LIMIT :limit OFFSET :offset";
+    if (paged)
+        sql ~= " ORDER BY b.id LIMIT :limit OFFSET :offset";
 
     auto statement = db.prepare(sql);
     if (!options.text.empty)
         statement.bind(":text", "%" ~ options.text ~ "%");
     if (sha1Search.length == 20)
         statement.bind(":sha1", cast(Blob) sha1Search);
-    statement.bind(":limit", cast(long) options.limit);
-    statement.bind(":offset", cast(long) options.offset);
-
-    NamedBinaryBlob[] blobs;
-    auto result = statement.execute();
-    foreach (row; result)
+    if (paged)
     {
-        auto blob = loadBlobFromDatabase(db, rootPath, row.peek!long(0),
-            exportOptions);
-        if (blob !is null)
-            blobs ~= blob;
+        statement.bind(":limit", cast(long) options.limit);
+        statement.bind(":offset", cast(long) options.offset);
     }
-    return blobs;
+    return statement;
 }
 
 private NamedBinaryBlob loadBlobFromDatabase(ref Database db, string rootPath,
