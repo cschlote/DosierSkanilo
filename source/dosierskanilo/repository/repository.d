@@ -11,6 +11,7 @@ import std.typecons : Nullable;
 
 import dosierskanilo.repository.errors;
 import dosierskanilo.repository.schema : migrate;
+import dosierskanilo.repository.scanner : scanRepository;
 import dosierskanilo.repository.transfer : exportCatalogJson, importCatalogJson;
 import dosierskanilo.repository.types;
 
@@ -184,6 +185,13 @@ public:
         exportCatalogJson(database, jsonFile, options);
     }
 
+    /** Scan the repository root and update its filesystem references. */
+    ScanSummary scan(RepositoryScanOptions options = RepositoryScanOptions())
+    {
+        requireOpen();
+        return scanRepository(database, repositoryPaths.rootPath, options);
+    }
+
     /** Explicitly close the repository connection. */
     void close()
     {
@@ -264,4 +272,51 @@ unittest
     foreach (index; 0 .. expected.length)
         assert(expected[index].toString == actual[index].toString,
             expected[index].toString ~ " != " ~ actual[index].toString);
+}
+
+@("repository incremental filesystem scan")
+unittest
+{
+    import std.file : exists, mkdirRecurse, remove, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "repository-scan-" ~ randomUUID().toString());
+    auto nested = buildPath(root, "nested");
+    auto firstFile = buildPath(root, "first.txt");
+    auto secondFile = buildPath(nested, "second.txt");
+    mkdirRecurse(nested);
+    write(firstFile, "first");
+    write(secondFile, "second");
+    scope (exit)
+    {
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+
+    auto repository = Repository.initialize(root);
+    auto first = repository.scan();
+    assert(first.filesFound == 2);
+    assert(first.filesAdded == 2);
+    assert(first.filesChanged == 0);
+
+    auto unchanged = repository.scan();
+    assert(unchanged.filesFound == 2);
+    assert(unchanged.filesAdded == 0);
+    assert(unchanged.filesChanged == 0);
+    assert(unchanged.filesMissing == 0);
+
+    write(firstFile, "changed content");
+    auto changed = repository.scan();
+    assert(changed.filesChanged == 1);
+
+    remove(secondFile);
+    auto missing = repository.scan();
+    assert(missing.filesMissing == 1);
+
+    RepositoryScanOptions dropOptions;
+    dropOptions.dropMissing = true;
+    auto dropped = repository.scan(dropOptions);
+    assert(dropped.filesDropped == 1);
+    repository.close();
 }

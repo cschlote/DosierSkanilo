@@ -185,6 +185,7 @@ Detailed architecture and diagrams:
 - `source/dosierskanilo/service/storageio.d`: JSON storage read/write and backup
 - `source/dosierskanilo/repository/*`: SQLite repository, schema and JSON
   transfer API
+- `source/dosierskanilo/repository/scanner.d`: incremental filesystem scan
 - `source/dosierskanilo/model/namedbinaryblob.d`: core blob model,
   serialization, migrations, update jobs, merge/cleanup
 - `source/dosierskanilo/metadata/digests.d`: digest calculation

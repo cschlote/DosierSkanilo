@@ -82,3 +82,31 @@ struct JsonExportOptions
      */
     string pathPrefix;
 }
+
+/** Options controlling a repository filesystem scan. */
+struct RepositoryScanOptions
+{
+    /// Traverse all descendant directories when true.
+    bool recursive = true;
+    /// Include hidden files and directories when true.
+    bool pickHidden;
+    /// Delete file references that are missing after the scan.
+    bool dropMissing;
+}
+
+/** Counters returned by a repository filesystem scan. */
+struct ScanSummary
+{
+    /// Number of directories encountered.
+    size_t directoriesFound;
+    /// Number of files encountered.
+    size_t filesFound;
+    /// Number of new file references inserted.
+    size_t filesAdded;
+    /// Number of file references whose size or timestamp changed.
+    size_t filesChanged;
+    /// Number of existing references not found during this scan.
+    size_t filesMissing;
+    /// Number of missing references removed by `dropMissing`.
+    size_t filesDropped;
+}

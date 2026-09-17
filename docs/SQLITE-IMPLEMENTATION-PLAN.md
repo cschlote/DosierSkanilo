@@ -189,7 +189,7 @@ relationships in SQLite.
 
 ## WP-04: Scanner Persistence
 
-Status: `[ ]`
+Status: `[-]`
 
 ### WP-04 Objective
 
@@ -197,11 +197,12 @@ Run scans against SQLite without keeping the complete catalog in memory.
 
 ### WP-04 Steps
 
-- [ ] Replace absolute or invocation-dependent paths with canonical
+- [x] Replace absolute or invocation-dependent paths with canonical
   root-relative paths in the repository layer.
-- [ ] Persist discovered directories, including empty directories if enabled.
-- [ ] Look up existing `file_refs` by path.
-- [ ] Skip unchanged files based on size and modification time.
+- [x] Persist discovered directories, including empty directories if enabled.
+- [x] Look up existing `file_refs` by path.
+- [x] Skip unchanged files based on size and modification time.
+- [x] Mark missing paths and optionally remove them with `dropMissing`.
 - [ ] Queue only new or changed files for metadata extraction.
 - [ ] Represent extractor state explicitly: not requested, pending, completed,
   empty or failed.

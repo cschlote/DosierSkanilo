@@ -20,6 +20,8 @@ They represent the functional evolution and are intentionally summarized.
   MediaInfo tool versions.
 - Added transactional JSON v3 import and export for initialized repositories,
   including path-prefix filtering and relational metadata reconstruction.
+- Added the first incremental repository filesystem scan with root-relative
+  paths, unchanged-file detection and missing-file cleanup.
 
 ## Release 26.9.3
 
