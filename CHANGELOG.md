@@ -13,6 +13,10 @@ They represent the functional evolution and are intentionally summarized.
   `import` and `export`.
 - Stabilized concurrent SQLite access by avoiding repeated WAL mode switches and
   closing read statements before dependent queries.
+- Fixed JSON backup filenames for filesystems such as exFAT by replacing invalid
+  colon characters in timestamp-based names.
+- Documented `.dosierskanilo` repositories as the normal working mode while
+  retaining direct JSON files as a long-term compatibility workflow.
 
 ## Release 26.10.0 - 2026-09-17
 

@@ -12,3 +12,8 @@
   (`opEquals`, `toHash`, `toString`)
 - [x] Markdown-Linting für `README.md`, `docs/ARCHITECTURE.md`,
   `CHANGELOG.md` und `TODO.md` ergänzen
+
+## P3
+
+- [ ] CIFS/SMB SQLite locking compatibility and safe repository placement
+  decision

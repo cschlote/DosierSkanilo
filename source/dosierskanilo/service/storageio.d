@@ -10,6 +10,7 @@ import std.exception;
 import std.datetime.systime;
 import std.file;
 import std.path;
+import std.string : replace;
 import std.uuid;
 
 import dosierskanilo.logging;
@@ -115,8 +116,9 @@ unittest
     import std.path : buildPath;
 
     auto stamp = "2000-01-01T00:00:00";
-    auto jsonFile = buildPath(tempDir(), "storageio-write-" ~ stamp ~ ".json");
-    auto backupFile = buildPath(getcwd(), "storageio-write-" ~ stamp ~ "-" ~ stamp ~ ".json");
+    auto safeStamp = stamp.replace(":", "-");
+    auto jsonFile = buildPath(tempDir(), "storageio-write-" ~ safeStamp ~ ".json");
+    auto backupFile = buildPath(getcwd(), "storageio-write-" ~ safeStamp ~ "-" ~ safeStamp ~ ".json");
     scope (exit)
     {
         if (exists(jsonFile))
@@ -153,7 +155,7 @@ private string getBackupFileName(string originalFile, string extension, string n
         .currTime.toISOExtString())
 {
     auto basename = originalFile.baseName(extension);
-    return basename ~ "-" ~ nowString ~ extension;
+    return basename ~ "-" ~ nowString.replace(":", "-") ~ extension;
 }
 
 /** Make a backup of the original file if it exists.
@@ -233,7 +235,7 @@ unittest
     auto nowString = Clock.currTime.toISOExtString();
 
     /* Test with local file to trigger rename-based backup and restore. */
-    auto localFile = buildPath(getcwd(), "storageio-backup-test1-" ~ nowString ~ ".json");
+    auto localFile = buildPath(getcwd(), "storageio-backup-test1-" ~ nowString.replace(":", "-") ~ ".json");
     scope (exit)
     {
         if (exists(localFile))
@@ -268,7 +270,7 @@ unittest
     auto nowString = Clock.currTime.toISOExtString();
 
     /* Test with tempDir() path on possibly different filesystem to trigger copy-based backup and restore. */
-    auto tempFile2 = buildPath(tempDir(), "storageio-backup-test-" ~ nowString ~ ".json");
+    auto tempFile2 = buildPath(tempDir(), "storageio-backup-test-" ~ nowString.replace(":", "-") ~ ".json");
     scope (exit)
     {
         if (exists(tempFile2))
@@ -356,7 +358,7 @@ unittest
     auto currtime = Clock.currTime();
     auto currtimestr = currtime.toISOExtString();
 
-    auto tempFile = buildPath(tempDir(), "storageio-test-" ~ currtimestr ~ ".json");
+    auto tempFile = buildPath(tempDir(), "storageio-test-" ~ currtimestr.replace(":", "-") ~ ".json");
     scope (exit)
     {
         if (exists(tempFile))

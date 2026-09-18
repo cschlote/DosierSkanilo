@@ -3,8 +3,10 @@
 
 `DosierSkanilo` scans files (optionally recursive), calculates content digests,
 extracts media metadata, inspects archive contents, and reads torrent metadata.
-All results are persisted in JSON and can be used to detect duplicates by
-binary identity.
+The normal working storage is a local `.dosierskanilo` SQLite repository. JSON
+remains the complete interchange format for structured import and export.
+The direct JSON-file workflow is still supported for compatibility and is
+expected to remain supported for a long time.
 
 The central idea is: one `NamedBinaryBlob` represents one binary payload,
 while multiple file names can reference that same payload.
@@ -20,6 +22,51 @@ while multiple file names can reference that same payload.
 - Torrent inspection (`.torrent`) with info-hash and magnet URI
 - Duplicate detection and merge by size + digest
 - JSON storage with migration/fixup for older schema variants
+- Local `.dosierskanilo` SQLite repositories with JSON import/export
+
+## Storage Modes
+
+Use a `.dosierskanilo` repository as the normal working mode. The repository
+stores the current catalog beside the scanned directory, similar to a `.git`
+directory, and avoids loading the complete catalog for every query:
+
+```bash
+./build/bin/dosierskanilo init --path=/data/library
+./build/bin/dosierskanilo scan --path=/data/library --recursive
+```
+
+JSON is the structured exchange and migration boundary. Import an existing
+catalog or export the current repository state as follows:
+
+```bash
+./build/bin/dosierskanilo import \
+  --path=/data/library \
+  --json=library-scan.json
+
+./build/bin/dosierskanilo export \
+  --path=/data/library \
+  --json=library-export.json
+```
+
+The legacy direct-JSON mode remains available. It loads and updates one JSON
+file directly, without requiring a `.dosierskanilo` directory, and should be
+used when compatibility with existing scripts or catalogs is more important
+than repository queries:
+
+```bash
+./build/bin/dosierskanilo \
+  --path=/data/library \
+  --json=library-scan.json \
+  --recursive \
+  --scan \
+  --checksum \
+  --writeJSON \
+  --force
+```
+
+Both modes use the same catalog concepts. The JSON mode is not deprecated or
+scheduled for removal; it is retained as a supported long-term compatibility
+path and as a practical way to exchange catalog data.
 
 ## Build and Test
 
@@ -218,7 +265,7 @@ Detailed architecture and diagrams:
 
 - `docs/ARCHITECTURE.md`
 - `docs/JSON-FORMAT.md` - current JSON import/export format and migrations
-- `docs/DATABASE.md` - planned normalized SQLite repository architecture
+- `docs/DATABASE.md` - normalized SQLite repository architecture
 - `docs/SQLITE-IMPLEMENTATION-PLAN.md` - staged implementation checklist
 - `docs/BENCHMARKS.md` - JSON/SQLite storage baseline measurements
 
