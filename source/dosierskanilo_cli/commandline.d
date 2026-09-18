@@ -39,6 +39,7 @@ Commands:
     scan       Scan a repository
     metadata   Extract metadata in a repository
     analyze    Analyze a repository
+    info       Show repository information
     import     Import JSON into a repository
     export     Export a repository as JSON
 
@@ -52,6 +53,7 @@ enum CliCommand
     scan,
     metadata,
     analyze,
+    info,
     importJson,
     exportJson
 }
@@ -91,7 +93,7 @@ ParsedCommandLine parseCommandLine(string[] args)
     {
         switch (args[1])
         {
-        case "init", "scan", "metadata", "analyse", "analyze", "import", "export":
+        case "init", "scan", "metadata", "analyse", "analyze", "info", "import", "export":
             command = args[1];
             args = args[0 .. 1] ~ args[2 .. $];
             break;
@@ -150,6 +152,9 @@ ParsedCommandLine parseCommandLine(string[] args)
         break;
     case "metadata":
         argsarray.argRunMetadata = true;
+        break;
+    case "info":
+        argsarray.argShowInfo = true;
         break;
     case "analyse":
     case "analyze":
@@ -284,6 +289,8 @@ private CliCommand commandToCliCommand(string command)
         return CliCommand.scan;
     case "metadata":
         return CliCommand.metadata;
+    case "info":
+        return CliCommand.info;
     case "analyse", "analyze":
         return CliCommand.analyze;
     case "import":
@@ -423,6 +430,11 @@ unittest
     assert(parsedMetadata.command == CliCommand.metadata);
     assert(parsedMetadata.options.argRunMetadata);
     assert(parsedMetadata.options.argDoChecksums);
+
+    auto parsedInfo = parseCommandLine(["programname", "info", "--path", testdir]);
+    assert(parsedInfo.status == ParseStatus.run);
+    assert(parsedInfo.command == CliCommand.info);
+    assert(parsedInfo.options.argShowInfo);
 
     auto missingMetadataOption = parseCommandLine([
         "programname", "metadata", "--path", testdir

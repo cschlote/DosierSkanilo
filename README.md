@@ -172,6 +172,7 @@ Repository command aliases are also available:
 - `scan`
 - `metadata`
 - `analyze` (with `analyse` retained as an alias)
+- `info`
 - `import`
 - `export`
 

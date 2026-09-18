@@ -129,8 +129,14 @@ bool executeRepositoryOperation(ArgsArray options)
 		if (options.argInitRepository)
 			repository = Repository.initialize(repositoryPath);
 		else
-			repository = Repository.open(repositoryPath);
+		repository = Repository.open(repositoryPath);
 		repository.appendLog("repository.open", repositoryPath);
+		if (options.argShowInfo)
+		{
+			executeRepositoryInfo(repository);
+			repository.close();
+			return true;
+		}
 
 		if (!options.argImportJSON.empty)
 		{
@@ -203,6 +209,18 @@ bool executeRepositoryOperation(ArgsArray options)
 		logLine("Repository operation failed: ", ex.msg);
 		return false;
 	}
+}
+
+/** Print repository metadata and current catalog counts. */
+void executeRepositoryInfo(Repository repository)
+{
+	auto info = repository.info;
+	logFLine("Repository root: %s", info.rootPath);
+	logFLine("Database: %s", repository.databasePath);
+	logFLine("Schema version: %d", info.schemaVersion);
+	logFLine("Created: %s", info.createdAt);
+	logFLine("Updated: %s", info.updatedAt);
+	logFLine("Blobs: %d", repository.blobCount);
 }
 
 /** Execute the selected metadata extractors against a repository. */

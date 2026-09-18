@@ -14,6 +14,7 @@ They represent the functional evolution and are intentionally summarized.
   success, parser state is local, and `-h` is reserved for help.
 - Added the `metadata` repository subcommand for explicit checksum, file type,
   MediaInfo, archive, and torrent extraction operations.
+- Added the `info` repository subcommand for repository metadata and blob counts.
 - Fixed Linux dependency installation by including the SQLite development and
   runtime libraries required by `d2sqlite3`.
 
