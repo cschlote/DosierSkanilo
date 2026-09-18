@@ -347,8 +347,8 @@ dosierskanilo export [ROOT] --output OUTPUT.json
 - [x] Return distinct exit codes for success, usage errors, and operation
   failures.
 - [x] Write CLI diagnostics to stderr while keeping command results on stdout.
-- [ ] Make destructive import replacement explicit and separate it from the
-  legacy JSON overwrite `--force` behavior.
+- [x] Make destructive repository import replacement explicit with `--replace`
+  and keep it separate from legacy JSON overwrite `--force` behavior.
 
 ### WP-06 Exit Criteria
 

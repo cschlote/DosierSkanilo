@@ -23,6 +23,8 @@ They represent the functional evolution and are intentionally summarized.
   silently ignoring them.
 - CLI diagnostics are now written to stderr, keeping repository query results
   available on stdout for pipelines.
+- Added `--replace` as the canonical explicit replacement option for repository
+  imports; `--force` remains a compatibility alias.
 - Fixed Linux dependency installation by including the SQLite development and
   runtime libraries required by `d2sqlite3`.
 

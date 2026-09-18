@@ -157,7 +157,7 @@ bool executeRepositoryOperation(ArgsArray options)
 			logLine("Repository phase: import JSON.");
 			repository.appendLog("json.import", options.argImportJSON);
 			JsonImportOptions importOptions;
-			importOptions.force = options.argForceOverwrite;
+			importOptions.force = options.argForceOverwrite || options.argReplaceCatalog;
 			repository.importJson(options.argImportJSON, importOptions);
 			logFLine("Imported JSON catalog '%s'.", options.argImportJSON);
 		}

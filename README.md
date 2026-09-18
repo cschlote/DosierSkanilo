@@ -41,7 +41,8 @@ catalog or export the current repository state as follows:
 ```bash
 ./build/bin/dosierskanilo import \
   --path=/data/library \
-  --json=library-scan.json
+  --json=library-scan.json \
+  --replace
 
 ./build/bin/dosierskanilo export \
   --path=/data/library \
@@ -185,6 +186,8 @@ Operational notes:
   rejected by argument validation.
 - Importing JSON into a non-empty repository requires `--force` and creates a
   timestamped SQLite backup under `.dosierskanilo/backups/`.
+- `--replace` is the canonical explicit replacement option for the repository
+  `import` command; `--force` remains accepted there as a compatibility alias.
 - `--rescan-mediasig` forces a media refresh when combined with `--mediasig`
   (single-thread and multi-thread).
 - `-h` and `--help` print help. Use `-H` or `--hidden` to include hidden files

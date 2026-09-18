@@ -135,6 +135,7 @@ ParsedCommandLine parseCommandLine(string[] args)
             "writeJSON|w", "Write the modified JSON data.", &argsarray.argWriteJSON,
             "threads|t", "Number of worker threads", &argsarray.argNumberOfThreads,
             "force|f", "Force overwriting JSON file", &argsarray.argForceOverwrite,
+            "replace", "Replace an existing repository catalog on import", &argsarray.argReplaceCatalog,
             "pickhidden|H", "Pick hidden files and directories too", &argsarray.argPickHidden,
             "hidden", "Pick hidden files and directories too", &argsarray.argPickHidden,
             "verbose|v", "Be verbose", &argsarray.argVerboseOutputs,
@@ -360,19 +361,21 @@ private bool validateRepositoryCommand(string command, ArgsArray options)
     final switch (command)
     {
     case "info":
-        if (hasStorageAction || hasMetadataAction || options.argDropMissing)
+        if (hasStorageAction || hasMetadataAction || options.argDropMissing
+            || options.argReplaceCatalog)
             return invalidCommandOptions(command);
         break;
     case "list":
     case "duplicates":
-        if (hasStorageAction || hasMetadataAction || options.argDropMissing)
+        if (hasStorageAction || hasMetadataAction || options.argDropMissing
+            || options.argReplaceCatalog)
             return invalidCommandOptions(command);
         break;
     case "metadata":
         if (options.argInitRepository || options.argScanFiles
             || options.argRunAnalysis || !options.argImportJSON.empty
             || !options.argExportJSON.empty || options.argWriteJSON
-            || options.argDropMissing)
+            || options.argDropMissing || options.argReplaceCatalog)
             return invalidCommandOptions(command);
         break;
     case "analyze":
@@ -380,26 +383,35 @@ private bool validateRepositoryCommand(string command, ArgsArray options)
         if (options.argInitRepository || options.argScanFiles
             || options.argRunMetadata || hasMetadataAction
             || !options.argImportJSON.empty || !options.argExportJSON.empty
-            || options.argWriteJSON)
+            || options.argWriteJSON || options.argReplaceCatalog)
             return invalidCommandOptions(command);
         break;
     case "init":
         if (options.argScanFiles || options.argRunMetadata
             || options.argRunAnalysis || !options.argImportJSON.empty
             || !options.argExportJSON.empty || options.argWriteJSON
-            || hasMetadataAction || options.argDropMissing)
+            || hasMetadataAction || options.argDropMissing
+            || options.argReplaceCatalog)
             return invalidCommandOptions(command);
         break;
     case "scan":
         if (options.argInitRepository || options.argRunMetadata
             || options.argRunAnalysis || !options.argImportJSON.empty
-            || !options.argExportJSON.empty || options.argWriteJSON)
+            || !options.argExportJSON.empty || options.argWriteJSON
+            || options.argReplaceCatalog)
             return invalidCommandOptions(command);
         break;
-    case "import", "export":
+    case "import":
         if (options.argInitRepository || options.argScanFiles
             || options.argRunMetadata || options.argRunAnalysis
             || hasMetadataAction || options.argDropMissing || options.argWriteJSON)
+            return invalidCommandOptions(command);
+        break;
+    case "export":
+        if (options.argInitRepository || options.argScanFiles
+            || options.argRunMetadata || options.argRunAnalysis
+            || hasMetadataAction || options.argDropMissing || options.argWriteJSON
+            || options.argReplaceCatalog)
             return invalidCommandOptions(command);
         break;
     case "":
@@ -583,6 +595,18 @@ unittest
     assert(parsedDuplicates.command == CliCommand.duplicates);
     assert(parsedDuplicates.options.argDuplicates);
     assert(parsedDuplicates.options.argDuplicateLimit == 12);
+
+    auto parsedImportReplace = parseCommandLine([
+        "programname", "import", "--path", testdir, "--json", nojsonfile,
+        "--replace"
+    ]);
+    assert(parsedImportReplace.status == ParseStatus.run);
+    assert(parsedImportReplace.options.argReplaceCatalog);
+
+    auto invalidInfoReplace = parseCommandLine([
+        "programname", "info", "--path", testdir, "--replace"
+    ]);
+    assert(invalidInfoReplace.status == ParseStatus.error);
 
     auto missingMetadataOption = parseCommandLine([
         "programname", "metadata", "--path", testdir
