@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Compare the legacy JSON load path with repository import/export timings.
+# Compare direct JSON analysis with repository import/export timings.
 # Usage: ./scripts/benchmark-storage.sh [json-file] [repetitions]
 
 JSON_FILE="${1:-./test/json_file_v2.json}"
@@ -35,21 +35,26 @@ printf 'Repetitions: %s\n' "${REPETITIONS}"
 for run in $(seq 1 "${REPETITIONS}"); do
     repository="${TMP_DIR}/repository-${run}"
     export_file="${repository}/export.json"
+    json_file="${TMP_DIR}/catalog-${run}.json"
     mkdir -p "${repository}"
+    cp "${JSON_FILE}" "${json_file}"
 
     /usr/bin/time -f "run=${run} json-load elapsed=%e memory=%MKB" \
         "${ROOT_DIR}/build/bin/dosierskanilo" \
-        --path="${ROOT_DIR}/test" --json="${JSON_FILE}" --force \
+        json analyze "${json_file}" \
         >/dev/null
 
-    /usr/bin/time -f "run=${run} sqlite-import elapsed=%e memory=%MKB" \
+    /usr/bin/time -f "run=${run} sqlite-init elapsed=%e memory=%MKB" \
         "${ROOT_DIR}/build/bin/dosierskanilo" \
-        --repository="${repository}" --init-repository \
-        --import-json="${JSON_FILE}" \
+        init "${repository}" \
+        >/dev/null
+    /usr/bin/time -f "run=${run} sqlite-import-data elapsed=%e memory=%MKB" \
+        "${ROOT_DIR}/build/bin/dosierskanilo" \
+        import "${repository}" "${JSON_FILE}" \
         >/dev/null
 
     /usr/bin/time -f "run=${run} sqlite-export elapsed=%e memory=%MKB" \
         "${ROOT_DIR}/build/bin/dosierskanilo" \
-        --repository="${repository}" --export-json="${export_file}" \
+        export "${repository}" --output "${export_file}" \
         >/dev/null
 done

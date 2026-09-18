@@ -156,7 +156,12 @@ ParsedCommandLine parseCommandLine(string[] args)
             catalogArgument = args[positionalStart];
             positionalCount = 1;
         }
-        else if (command == "import" || command == "export")
+        else if (command == "export")
+        {
+            rootArgument = args[positionalStart];
+            positionalCount = 1;
+        }
+        else if (command == "import")
         {
             catalogArgument = args[positionalStart];
             positionalCount = 1;
@@ -263,7 +268,8 @@ ParsedCommandLine parseCommandLine(string[] args)
         argsarray.argImportJSON = argsarray.argJSONFile;
         break;
     case "export":
-        argsarray.argExportJSON = argsarray.argJSONFile;
+        if (argsarray.argExportJSON.empty)
+            argsarray.argExportJSON = argsarray.argJSONFile;
         break;
     default:
         break;
