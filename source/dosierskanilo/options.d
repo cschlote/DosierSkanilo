@@ -47,7 +47,6 @@ struct ArgsArray
 	bool argDropMissing; ///< Drop missing files from the database.
 	bool argWriteJSON; ///< Write the resulting JSON file.
 	int argNumberOfThreads = 1; ///< Number of worker threads.
-	bool argForceOverwrite; ///< Overwrite an existing JSON file.
 	bool argReplaceCatalog; ///< Replace an existing repository catalog on import.
 	bool argPickHidden; ///< Include hidden files and directories.
 	bool argVerboseOutputs; ///< Enable verbose logging.

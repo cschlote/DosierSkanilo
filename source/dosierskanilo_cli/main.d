@@ -109,13 +109,8 @@ int main(string[] args)
 			if (parsed.command == CliCommand.jsonScan
 				|| parsed.command == CliCommand.jsonAnalyze)
 				rc = executeFileScannerOperation(options);
-			else if (parsed.command != CliCommand.legacyJson)
-				rc = executeRepositoryOperation(options);
-			else if (options.argInitRepository || !options.argRepositoryPath.empty
-				|| !options.argImportJSON.empty || !options.argExportJSON.empty)
-				rc = executeRepositoryOperation(options);
 			else
-				rc = executeFileScannerOperation(options);
+				rc = executeRepositoryOperation(options);
 			return rc ? 0 : 1;
 		}
 	}
