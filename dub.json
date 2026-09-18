@@ -15,7 +15,7 @@
 		"jsonizer": "~>0",
 		"xxhash3": "~>0"
 	},
-	"systemDependencies": "Install library on debian/ubuntu: apt install -y libmediainfo0v5 libmediainfo-dev",
+	"systemDependencies": "Install libraries on Debian/Ubuntu: apt install -y libmediainfo0v5 libmediainfo-dev libsqlite3-dev",
 	"versions": [
 		"useJSONStorage",
 		"SqliteEnableUnlockNotify"

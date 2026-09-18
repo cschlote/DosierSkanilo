@@ -7,6 +7,11 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
+## Unreleased
+
+- Fixed Linux dependency installation by including the SQLite development and
+  runtime libraries required by `d2sqlite3`.
+
 ## Release 26.10.1 - 2026-09-18
 
 - Added command aliases for repository operations: `init`, `scan`, `analyse`,

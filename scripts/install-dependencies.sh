@@ -110,8 +110,8 @@ install_markdownlint_cli() {
 }
 
 install_alpine() {
-    runtime_pkgs="bash libmediainfo mediainfo file unzip zip tar p7zip rsync"
-    build_pkgs="ca-certificates git bash tar zstd ldc gcc-gdc dub build-base openssl-dev libmediainfo-dev rsync"
+    runtime_pkgs="bash libmediainfo mediainfo sqlite-libs file unzip zip tar p7zip rsync"
+    build_pkgs="ca-certificates git bash tar zstd ldc gcc-gdc dub build-base openssl-dev libmediainfo-dev sqlite-dev rsync"
     lint_pkgs="shellcheck nodejs npm dub ldc build-base ca-certificates wget"
 
     if [ "$MODE" = "build" ]; then
@@ -163,8 +163,8 @@ install_debian_ubuntu() {
 
     run_as_root apt-get update
 
-    runtime_pkgs="bash libmediainfo0v5 libmediainfo-dev file unzip zip tar p7zip-full rsync"
-    build_pkgs="ca-certificates git bash tar zstd ldc gdc dub libssl-dev build-essential rsync"
+    runtime_pkgs="bash libmediainfo0v5 libmediainfo-dev libsqlite3-0 file unzip zip tar p7zip-full rsync"
+    build_pkgs="ca-certificates git bash tar zstd ldc gdc dub libssl-dev libsqlite3-dev build-essential rsync"
     lint_pkgs="shellcheck hadolint markdownlint dub ldc build-essential"
 
     if [ "$MODE" = "build" ]; then
@@ -186,8 +186,8 @@ install_debian_ubuntu() {
 }
 
 install_manjaro() {
-    runtime_pkgs="bash mediainfo file unzip zip tar p7zip rsync"
-    build_pkgs="ca-certificates git bash tar zstd ldc dub openssl base-devel rsync"
+    runtime_pkgs="bash mediainfo sqlite file unzip zip tar p7zip rsync"
+    build_pkgs="ca-certificates git bash tar zstd ldc dub openssl sqlite base-devel rsync"
     lint_pkgs="shellcheck hadolint markdownlint-cli dub ldc base-devel"
 
     run_as_root pacman -Sy --noconfirm --needed
