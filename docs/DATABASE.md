@@ -165,6 +165,23 @@ JSON remains the interchange format:
 The database is therefore not required to mimic the JSON shape. It is allowed
 to normalize relationships and reconstruct JSON at the boundary.
 
+## Filesystem Compatibility
+
+SQLite locking was validated on the local exFAT volume used for development in
+single-process operation. CIFS/SMB mounts are not a supported database location
+yet: the same catalog initialization fails with `database is locked`, including
+when WAL is disabled. SQLite network-filesystem locking must be treated as an
+open compatibility issue rather than bypassed with unsafe lock-disabling flags.
+
+Current options are tracked as low-priority follow-up work:
+
+- Remount the CIFS share with a locking configuration known to support SQLite,
+  with corruption risk evaluated explicitly.
+- Store the SQLite catalog on a local filesystem while retaining NAS paths for
+  media files.
+- Add an explicit external database-root configuration if the second option is
+  selected.
+
 ## Library API Boundary
 
 The GUI should depend on a library-facing repository API, not on `d2sqlite3`
