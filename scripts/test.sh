@@ -30,6 +30,8 @@ dub run -- json scan ./docs/ dosierskanilo.json --recursive
 # Redo, an calc checksums
 dub run -- json scan ./docs/ dosierskanilo.json --recursive --checksums --media-info
 
+./scripts/test-cli.sh
+
 # Calculate coverage percentage for all files. Output the stats for each file.
 # Finally output the total coverage percentage.
 print_coverage() {

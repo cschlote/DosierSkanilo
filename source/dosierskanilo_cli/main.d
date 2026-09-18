@@ -93,8 +93,6 @@ int main(string[] args)
 			return 2;
 		case ParseStatus.run:
 			auto options = parsed.options;
-			if (options.argOutputFormat != "json")
-				logFLine("%s %s", appName, appVersion);
 			if (options.argDoMediaSig)
 			{
 				auto miv = getMediaInfoVersion();

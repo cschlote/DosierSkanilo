@@ -420,13 +420,13 @@ Status: `[-]`
 
 - [ ] Parser tests cover both explicit command groups, invalid combinations,
   and parser state isolation.
-- [ ] CLI integration tests verify help/version exit codes and stderr/stdout
+- [x] CLI integration tests verify help/version exit codes and stderr/stdout
   separation.
-- [ ] CLI integration tests verify SQLite discovery from the root, a nested
+- [x] CLI integration tests verify SQLite discovery from the root, a nested
   directory, and a directory without a repository.
-- [ ] CLI integration tests verify explicit JSON scan and analysis without a
+- [x] CLI integration tests verify explicit JSON scan and analysis without a
   repository directory.
-- [ ] Query tests verify pagination, filters, duplicate output, and stable
+- [x] Query tests verify pagination, filters, duplicate output, and stable
   machine-readable output.
 - [ ] Mode-isolation tests verify JSON commands never create SQLite state and
   SQLite commands never write direct JSON state implicitly.
