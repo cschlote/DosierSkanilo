@@ -16,6 +16,7 @@ import std.range;
 import std.string;
 
 import dosierskanilo;
+import dosierskanilo_cli.logging : errorFLine, errorLine;
 import core.internal.lifetime;
 
 immutable string helpText = q"EOS
@@ -153,8 +154,8 @@ ParsedCommandLine parseCommandLine(string[] args)
     }
     catch (GetOptException ex)
     {
-        logLine("Invalid command-line arguments: ", ex.msg);
-        logLine("Use --help to see the available options.");
+        errorLine("Invalid command-line arguments: ", ex.msg);
+        errorLine("Use --help to see the available options.");
         return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
     }
 
@@ -223,13 +224,13 @@ ParsedCommandLine parseCommandLine(string[] args)
         if (command == "init" && (!exists(argsarray.argRepositoryPath)
             || !isDir(argsarray.argRepositoryPath)))
         {
-            logFLine("Repository path '%s' is not an existing directory.",
+            errorFLine("Repository path '%s' is not an existing directory.",
                 argsarray.argRepositoryPath);
             return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
         }
         if (command == "metadata" && !hasMetadataOptions(argsarray))
         {
-            logLine("Metadata command needs at least one metadata option: "
+            errorLine("Metadata command needs at least one metadata option: "
                 ~ "--checksum, --filetypes, --mediasig, --scanArchives, "
                 ~ "or --scanTorrents.");
             return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
@@ -238,7 +239,7 @@ ParsedCommandLine parseCommandLine(string[] args)
             && argsarray.argOutputFormat != "table"
             && argsarray.argOutputFormat != "json")
         {
-            logLine("Repository query format must be 'table' or 'json'.");
+            errorLine("Repository query format must be 'table' or 'json'.");
             return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
         }
         if (!validateRepositoryCommand(command, argsarray))
@@ -246,13 +247,13 @@ ParsedCommandLine parseCommandLine(string[] args)
         if (!argsarray.argImportJSON.empty
             && !argsarray.argImportJSON.endsWith(jsonFileExtension))
         {
-            logFLine("Import JSON filename '%s' looks invalid.", argsarray.argImportJSON);
+            errorFLine("Import JSON filename '%s' looks invalid.", argsarray.argImportJSON);
             return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
         }
         if (!argsarray.argExportJSON.empty
             && !argsarray.argExportJSON.endsWith(jsonFileExtension))
         {
-            logFLine("Export JSON filename '%s' looks invalid.", argsarray.argExportJSON);
+            errorFLine("Export JSON filename '%s' looks invalid.", argsarray.argExportJSON);
             return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
         }
         return ParsedCommandLine(ParseStatus.run, commandToCliCommand(command), argsarray);
@@ -261,19 +262,19 @@ ParsedCommandLine parseCommandLine(string[] args)
     /* Validate JSON-mode arguments */
     if (argsarray.argScanPath.empty)
     {
-        logLine("We need a scan path. Use -p to specify it.");
+        errorLine("We need a scan path. Use -p to specify it.");
         return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
     }
     /* Test, that we got a directory path passed in */
     if (!exists(argsarray.argScanPath))
     {
-        logFLine("We need a directory for the scan path. '%s' doesn't even exist.",
+        errorFLine("We need a directory for the scan path. '%s' doesn't even exist.",
             argsarray.argScanPath);
         return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
     }
     if (!isDir(argsarray.argScanPath))
     {
-        logFLine("We need a directory for the scan path. '%s' is not a directory.",
+        errorFLine("We need a directory for the scan path. '%s' is not a directory.",
             argsarray.argScanPath);
         return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
     }
@@ -282,25 +283,25 @@ ParsedCommandLine parseCommandLine(string[] args)
          // !argsarray.argJSONFile.isValidFilename ||
         !argsarray.argJSONFile.endsWith(jsonFileExtension))
     {
-        logFLine("JSON filename '%s' looks invalid.", argsarray.argJSONFile);
-        logLine("We expect a filename here, not a path.");
-        logLine("We expect the \"" ~ jsonFileExtension ~ "\" file extension.");
+        errorFLine("JSON filename '%s' looks invalid.", argsarray.argJSONFile);
+        errorLine("We expect a filename here, not a path.");
+        errorLine("We expect the \"" ~ jsonFileExtension ~ "\" file extension.");
         return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
     }
 
     /* Check for existing JSON file */
     if (argsarray.argJSONFile.exists)
     {
-        logLine("JSON file '", argsarray.argJSONFile, "' exists.");
+        errorLine("JSON file '", argsarray.argJSONFile, "' exists.");
         if (argsarray.argWriteJSON)
         {
             if (argsarray.argForceOverwrite)
             {
-                logLine("Force overwriting of existing JSON file.");
+                errorLine("Force overwriting of existing JSON file.");
             }
             else
             {
-                logLine("Abort program. Use -f to force overwriting of output file.");
+                errorLine("Abort program. Use -f to force overwriting of output file.");
                 return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
             }
         }
@@ -410,8 +411,8 @@ private bool validateRepositoryCommand(string command, ArgsArray options)
 /** Print a consistent diagnostic for an invalid command option combination. */
 private bool invalidCommandOptions(string command)
 {
-    logFLine("Options are not valid for the '%s' command.", command);
-    logLine("Use --help to see the options supported by this command.");
+    errorFLine("Options are not valid for the '%s' command.", command);
+    errorLine("Use --help to see the options supported by this command.");
     return false;
 }
 

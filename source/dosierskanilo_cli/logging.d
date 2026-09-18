@@ -11,3 +11,31 @@
 module dosierskanilo_cli.logging;
 
 public import dosierskanilo.logging;
+
+import std.stdio : stderr, writefln, writeln;
+
+/** Write a formatted CLI diagnostic to stderr. */
+void errorFLine(T...)(T args)
+{
+	version (unittest)
+	{
+	}
+	else
+	{
+		stderr.writefln(args);
+		stderr.flush;
+	}
+}
+
+/** Write a CLI diagnostic to stderr. */
+void errorLine(T...)(T args)
+{
+	version (unittest)
+	{
+	}
+	else
+	{
+		stderr.writeln(args);
+		stderr.flush;
+	}
+}

@@ -346,7 +346,7 @@ dosierskanilo export [ROOT] --output OUTPUT.json
   compatibility aliases.
 - [x] Return distinct exit codes for success, usage errors, and operation
   failures.
-- [ ] Write diagnostics to stderr while keeping command results on stdout.
+- [x] Write CLI diagnostics to stderr while keeping command results on stdout.
 - [ ] Make destructive import replacement explicit and separate it from the
   legacy JSON overwrite `--force` behavior.
 

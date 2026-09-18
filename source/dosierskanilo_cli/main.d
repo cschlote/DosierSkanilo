@@ -43,6 +43,7 @@ import dosierskanilo;
 import dosierarkivo;
 
 import dosierskanilo_cli.commandline;
+import dosierskanilo_cli.logging : errorLine;
 
 version (ldc)
 {
@@ -219,7 +220,7 @@ bool executeRepositoryOperation(ArgsArray options)
 	}
 	catch (Exception ex)
 	{
-		logLine("Repository operation failed: ", ex.msg);
+		errorLine("Repository operation failed: ", ex.msg);
 		return false;
 	}
 }
@@ -403,7 +404,7 @@ bool executeFileScannerOperation(ArgsArray options)
 		dynObjectWrapper);
 	if (!rc_load)
 	{
-		logLine("Abort program. Use -f to force overwriting of output file.");
+		errorLine("Abort program. Use -f to force overwriting of output file.");
 		return false;
 	}
 
@@ -418,7 +419,7 @@ bool executeFileScannerOperation(ArgsArray options)
 			scanDirTree(options.argScanPath, options.argPickHidden, dynObjectWrapper.dataArray, gotCtrlC, options);
 		if (!rc_scandirtree)
 		{
-			logLine("Failed to scan the directory tree.");
+			errorLine("Failed to scan the directory tree.");
 			return false;
 		}
 	}
@@ -429,11 +430,11 @@ bool executeFileScannerOperation(ArgsArray options)
 		/* Execute the checksum and MediaInfo jobs for each file. */
 		const bool rc_dojobs = runScannerJobs(dynObjectWrapper.dataArray, gotCtrlC, options);
 		if (!rc_dojobs)
-			logLine("Failed to run all scanner jobs.");
+			errorLine("Failed to run all scanner jobs.");
 	}
 	catch (Exception e)
 	{
-		logLine("Something happened while scanning and an exception was thrown.");
+		errorLine("Something happened while scanning and an exception was thrown.");
 		auto emergencySaveName = buildPath(thisExePath.dirName, ".crash_save.json");
 		logFLine("Serialize Array of Objects to temporary file: %s", emergencySaveName);
 		serializeDataClassWrapperFile(emergencySaveName, dynObjectWrapper);

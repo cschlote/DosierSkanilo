@@ -21,6 +21,8 @@ They represent the functional evolution and are intentionally summarized.
   queries.
 - Repository subcommands now reject incompatible operation options instead of
   silently ignoring them.
+- CLI diagnostics are now written to stderr, keeping repository query results
+  available on stdout for pipelines.
 - Fixed Linux dependency installation by including the SQLite development and
   runtime libraries required by `d2sqlite3`.
 
