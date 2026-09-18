@@ -30,36 +30,46 @@ SQLite implementation remains behind the public repository API.
 
 ## CLI Target Contract
 
-The SQLite repository is the primary storage mode for explicit subcommands.
-The existing option-only invocation remains a supported legacy JSON mode and
-must not be silently reinterpreted as a repository operation.
+The CLI has two explicit, non-overlapping storage modes. The command group
+selects the mode; there is no implicit legacy mode and no requirement to keep
+old option-only invocations or spelling aliases.
 
-The target repository commands are:
+The SQLite repository commands are:
 
 ```text
-dosierskanilo init [ROOT]
-dosierskanilo scan [ROOT] [OPTIONS]
-dosierskanilo metadata [ROOT] [OPTIONS]
-dosierskanilo analyze [ROOT] [OPTIONS]
-dosierskanilo info [ROOT]
-dosierskanilo list [ROOT] [FILTERS]
-dosierskanilo duplicates [ROOT]
-dosierskanilo import [ROOT] INPUT.json
-dosierskanilo export [ROOT] --output OUTPUT.json
+dosierskanilo sqlite init [ROOT]
+dosierskanilo sqlite scan [ROOT] [OPTIONS]
+dosierskanilo sqlite metadata [ROOT] [OPTIONS]
+dosierskanilo sqlite analyze [ROOT] [OPTIONS]
+dosierskanilo sqlite info [ROOT]
+dosierskanilo sqlite list [ROOT] [FILTERS]
+dosierskanilo sqlite duplicates [ROOT]
+dosierskanilo sqlite import [ROOT] INPUT.json [--replace]
+dosierskanilo sqlite export [ROOT] --output OUTPUT.json
 ```
 
-`ROOT` is optional for repository commands. If it is omitted, the CLI starts
-at the current directory and uses the nearest parent containing
+The pure JSON commands are:
+
+```text
+dosierskanilo json scan ROOT CATALOG.json [OPTIONS]
+dosierskanilo json analyze CATALOG.json [OPTIONS]
+```
+
+JSON commands operate only on the specified catalog and filesystem path. They
+must never create or discover a `.dosierskanilo` repository. SQLite commands
+must never silently switch to JSON storage. `ROOT` is optional only for SQLite
+commands; if omitted, the CLI starts at the current directory and uses the
+nearest parent containing
 `.dosierskanilo`. `init` uses the current directory when no root is given.
 Commands that require an existing repository must fail with an actionable
-message when discovery finds none.
+message when discovery finds none. JSON scan output is written to the
+explicitly supplied catalog path.
 
-`analyze` is the canonical spelling; `analyse` remains an alias during the
-compatibility period. The existing option-only JSON workflow remains
-available, including its `--path`, `--json`, and legacy option names. New
-repository commands use canonical kebab-case options such as `--drop-missing`,
-`--file-types`, `--media-info`, and `--output`; existing spellings remain
-aliases until a separate deprecation decision is made.
+`analyze` is the only analysis spelling. New options use canonical kebab-case
+names such as `--drop-missing`, `--file-types`, `--media-info`, and `--output`.
+The CLI does not promise aliases for previous camelCase or short-option names.
+`--replace` is valid only for SQLite imports; JSON overwrite behavior is
+controlled by the JSON command's explicit catalog output policy.
 
 The parser must return a typed action and value options rather than mutating
 process-global state. Help and version are successful actions with exit code
@@ -293,38 +303,42 @@ Status: `[-]`
 
 ### WP-06 Objective
 
-Make the SQLite repository the coherent CLI model while retaining the existing
-JSON mode as an explicit compatibility path. Repository commands must map to
-one operation each and use only the public repository API.
+Define a clean dual-mode CLI: explicit SQLite repository commands and explicit
+direct-JSON commands. Neither mode may fall back to the other. Each command
+maps to one operation and uses only the public repository or JSON service API.
 
 ### Proposed Operations
 
 ```text
-dosierskanilo init [ROOT]
-dosierskanilo scan [ROOT]
-dosierskanilo metadata [ROOT]
-dosierskanilo analyze [ROOT]
-dosierskanilo info [ROOT]
-dosierskanilo list [ROOT]
-dosierskanilo duplicates [ROOT]
-dosierskanilo import [ROOT] INPUT.json
-dosierskanilo export [ROOT] --output OUTPUT.json
+dosierskanilo sqlite init [ROOT]
+dosierskanilo sqlite scan [ROOT]
+dosierskanilo sqlite metadata [ROOT]
+dosierskanilo sqlite analyze [ROOT]
+dosierskanilo sqlite info [ROOT]
+dosierskanilo sqlite list [ROOT]
+dosierskanilo sqlite duplicates [ROOT]
+dosierskanilo sqlite import [ROOT] INPUT.json [--replace]
+dosierskanilo sqlite export [ROOT] --output OUTPUT.json
+dosierskanilo json scan ROOT CATALOG.json
+dosierskanilo json analyze CATALOG.json
 ```
 
 ### WP-06 Steps
 
 - [x] Implement repository root discovery in the repository API.
 - [ ] Resolve an omitted repository root from the current directory and its
-  parent directories for every repository subcommand.
-- [x] Add explicit repository and JSON input/output options.
-- [x] Preserve existing JSON invocation behavior during migration.
+  parent directories for every `sqlite` subcommand.
+- [ ] Parse the explicit `sqlite` and `json` command groups.
+- [ ] Define positional root/catalog arguments for both modes.
+- [ ] Ensure JSON commands never open or create a SQLite repository.
+- [ ] Ensure SQLite commands never fall back to direct JSON storage.
+- [ ] Remove the option-only implicit mode and old spelling aliases.
 - [x] Route scan, analysis and metadata operations through the repository API.
 - [x] Pass the CLI worker count through to repository metadata workers.
 - [x] Add phase progress reporting for database-backed jobs.
 - [x] Write operational logs to `.dosierskanilo/logs/`.
 - [x] Add clear errors for missing repositories and schema incompatibility.
-- [x] Retain the short repository aliases `init`, `scan`, `import`, and
-  `export`, with `analyse` as a compatibility alias for `analyze`.
+- [ ] Use `analyze` as the only analysis spelling.
 - [x] Define a typed parser result containing the selected action, validated
   values, and a structured parse status.
 - [x] Remove the process-global CLI option state from the parser path.
@@ -344,8 +358,7 @@ dosierskanilo export [ROOT] --output OUTPUT.json
 - [x] Add machine-readable JSON output for query and summary commands.
 - [x] Reserve `-h` for help and move hidden-file selection to an unambiguous
   option.
-- [x] Normalize new option names to kebab-case and retain current spellings as
-  compatibility aliases.
+- [x] Define canonical kebab-case option names.
 - [x] Return distinct exit codes for success, usage errors, and operation
   failures.
 - [x] Write CLI diagnostics to stderr while keeping command results on stdout.
@@ -354,11 +367,11 @@ dosierskanilo export [ROOT] --output OUTPUT.json
 
 ### WP-06 Exit Criteria
 
-- Existing JSON command lines still work.
-- Every repository command works from the repository root and a subdirectory
-  without requiring an explicit `--repository` option.
-- A repository subcommand never falls back to JSON mode because of a missing
-  flag.
+- Both explicit command groups work independently and never fall back to the
+  other storage mode.
+- Every SQLite command works from the repository root and a subdirectory
+  without requiring an explicit repository option.
+- JSON scan and analysis work without a `.dosierskanilo` directory.
 - Each repository subcommand has one documented operation and rejects
   incompatible options.
 - Help and version are successful, scriptable commands with exit code 0.
@@ -404,18 +417,18 @@ Status: `[-]`
 
 ### Tests
 
-- [ ] Parser tests cover every repository command, legacy JSON mode, option
-  aliases, invalid combinations, and parser state isolation.
+- [ ] Parser tests cover both explicit command groups, invalid combinations,
+  and parser state isolation.
 - [ ] CLI integration tests verify help/version exit codes and stderr/stdout
   separation.
-- [ ] CLI integration tests verify repository discovery from the root, a
-  nested directory, and a directory without a repository.
-- [ ] CLI integration tests verify that the documented `init` then `scan`
-  workflow uses SQLite without requiring `--repository`.
+- [ ] CLI integration tests verify SQLite discovery from the root, a nested
+  directory, and a directory without a repository.
+- [ ] CLI integration tests verify explicit JSON scan and analysis without a
+  repository directory.
 - [ ] Query tests verify pagination, filters, duplicate output, and stable
   machine-readable output.
-- [ ] Compatibility tests verify existing option-only JSON invocations and
-  existing command aliases.
+- [ ] Mode-isolation tests verify JSON commands never create SQLite state and
+  SQLite commands never write direct JSON state implicitly.
 - [x] Schema creation and forward-version rejection tests.
 - [x] JSON v0/v1/v2/v3 import tests.
 - [x] JSON round-trip tests.
@@ -429,26 +442,23 @@ Status: `[-]`
 
 ### Rollout Sequence
 
-1. Freeze the current option-only JSON behavior and record compatibility cases.
-2. Introduce the typed parser and command dispatcher without changing legacy
-   JSON invocations.
-3. Make explicit subcommands repository-only and enable automatic root
-   discovery from the current directory.
-4. Split scan, metadata, analysis, import, and export into single-purpose
+1. Freeze the explicit SQLite/JSON command contract.
+2. Implement the two command groups and positional path arguments.
+3. Enable automatic SQLite root discovery from the current directory.
+4. Remove the old implicit JSON mode and compatibility aliases.
+5. Split scan, metadata, analysis, import, and export into single-purpose
    handlers with stable exit codes.
-5. Add repository info, list, and duplicate queries through the public API.
-6. Compare JSON and SQLite results on the same input trees.
-7. Make SQLite the default for newly initialized repositories while retaining
-   explicit JSON import and export indefinitely.
+6. Add repository info, list, and duplicate queries through the public API.
+7. Compare JSON and SQLite results on the same input trees.
 8. Enable SQLite browsing in the GUI while retaining JSON support.
 
 ### Final Exit Criteria
 
 - CLI and GUI use the same public repository API.
-- JSON compatibility tests pass.
+- JSON mode tests pass independently of SQLite repositories.
 - SQLite schema migrations are documented and tested.
 - Large-repository benchmarks show bounded GUI memory use.
-- Existing JSON workflows remain available.
+- Both explicit CLI modes remain available.
 
 ## Dependency Order
 

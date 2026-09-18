@@ -5,8 +5,7 @@
 extracts media metadata, inspects archive contents, and reads torrent metadata.
 The normal working storage is a local `.dosierskanilo` SQLite repository. JSON
 remains the complete interchange format for structured import and export.
-The direct JSON-file workflow is still supported for compatibility and is
-expected to remain supported for a long time.
+The CLI exposes SQLite and direct JSON as separate explicit command groups.
 
 The central idea is: one `NamedBinaryBlob` represents one binary payload,
 while multiple file names can reference that same payload.
@@ -26,48 +25,39 @@ while multiple file names can reference that same payload.
 
 ## Storage Modes
 
-Use a `.dosierskanilo` repository as the normal working mode. The repository
-stores the current catalog beside the scanned directory, similar to a `.git`
-directory, and avoids loading the complete catalog for every query:
+The CLI has two explicit storage modes. Use `sqlite` for a normalized
+`.dosierskanilo` repository. It stores the current catalog beside the scanned
+directory, similar to a `.git` directory, and avoids loading the complete
+catalog for every query:
 
 ```bash
-./build/bin/dosierskanilo init --path=/data/library
-./build/bin/dosierskanilo scan --path=/data/library --recursive
+./build/bin/dosierskanilo sqlite init /data/library
+./build/bin/dosierskanilo sqlite scan /data/library --recursive
+./build/bin/dosierskanilo sqlite metadata /data/library --checksums --media-info
+./build/bin/dosierskanilo sqlite list /data/library --video --format=json
 ```
 
-JSON is the structured exchange and migration boundary. Import an existing
-catalog or export the current repository state as follows:
+Use the explicit `json` mode when no SQLite repository should be created. JSON
+mode reads and writes only the supplied catalog file:
 
 ```bash
-./build/bin/dosierskanilo import \
-  --path=/data/library \
-  --json=library-scan.json \
-  --replace
+./build/bin/dosierskanilo json scan \
+  /data/library library-scan.json --recursive --checksums --media-info
 
-./build/bin/dosierskanilo export \
-  --path=/data/library \
-  --json=library-export.json
+./build/bin/dosierskanilo json analyze library-scan.json
 ```
 
-The legacy direct-JSON mode remains available. It loads and updates one JSON
-file directly, without requiring a `.dosierskanilo` directory, and should be
-used when compatibility with existing scripts or catalogs is more important
-than repository queries:
+SQLite and JSON are separate command groups. A JSON command never discovers or
+creates `.dosierskanilo`; a SQLite command never silently falls back to direct
+JSON storage. JSON remains the structured exchange format for explicit SQLite
+import and export:
 
 ```bash
-./build/bin/dosierskanilo \
-  --path=/data/library \
-  --json=library-scan.json \
-  --recursive \
-  --scan \
-  --checksum \
-  --writeJSON \
-  --force
+./build/bin/dosierskanilo sqlite import /data/library library-scan.json --replace
+./build/bin/dosierskanilo sqlite export /data/library --output library-export.json
 ```
 
-Both modes use the same catalog concepts. The JSON mode is not deprecated or
-scheduled for removal; it is retained as a supported long-term compatibility
-path and as a practical way to exchange catalog data.
+Both modes use the same catalog concepts but have independent command contracts.
 
 ## Build and Test
 
@@ -141,130 +131,49 @@ Run the same stage order locally:
 
 ## CLI Reference
 
-Current command-line options (from `source/dosierskanilo_cli/parser.d`):
+The target command groups are:
 
-- `-p`, `--path`: path to scan
-- `-j`, `--json`: JSON file name for load/store
-- `--repository`: repository root or path below a `.dosierskanilo` repository
-- `--init-repository`: initialize a repository at `--repository` or `--path`
-- `--import-json`: import a JSON catalog into a repository
-- `--export-json`: export a repository as JSON
-- `-r`, `--recursive`: recurse into subdirectories
-- `-s`, `--scan`: discover files from the scan path
-- `-c`, `--checksum`: calculate digests
-- `-y`, `--file-types` (`--filetypes`): detect file type via `file`
-- `-m`, `--media-info` (`--mediasig`): extract MediaInfo signatures
-- `--rescan-media-info` (`--rescan-mediasig`): force MediaInfo refresh
-- `-z`, `--scan-archives` (`--scanArchives`): inspect archive contents
-- `-o`, `--scan-torrents` (`--scanTorrents`): inspect torrent metadata
-- `-a`, `--analyze`, `--analyse`: run duplicate/missing-file analysis
-- `-d`, `--drop-missing` (`--dropMissing`): remove non-existing files from DB
-- `-w`, `--write-json` (`--writeJSON`): write updated JSON
-- `-t`, `--threads`: worker-thread count (default: `1`)
-- `-f`, `--force`: allow overwrite/force load behavior
-- `-H`, `--pick-hidden` (`--hidden`, `--pickhidden`): include hidden files/directories
-- `-v`, `--verbose`: verbose output
-- `--version`: show the application version
-- `--help`: print help
-- `--format`: `table` or `json` output for `info`, `list`, and `duplicates`
+```text
+dosierskanilo sqlite init [ROOT]
+dosierskanilo sqlite scan [ROOT] [OPTIONS]
+dosierskanilo sqlite metadata [ROOT] [OPTIONS]
+dosierskanilo sqlite analyze [ROOT] [OPTIONS]
+dosierskanilo sqlite info [ROOT]
+dosierskanilo sqlite list [ROOT] [FILTERS]
+dosierskanilo sqlite duplicates [ROOT]
+dosierskanilo sqlite import [ROOT] INPUT.json --replace
+dosierskanilo sqlite export [ROOT] --output OUTPUT.json
 
-Repository command aliases are also available:
+dosierskanilo json scan ROOT CATALOG.json [OPTIONS]
+dosierskanilo json analyze CATALOG.json [OPTIONS]
+```
 
-- `init`
-- `scan`
-- `metadata`
-- `analyze` (with `analyse` retained as an alias)
-- `info`
-- `list`
-- `duplicates`
-- `import`
-- `export`
+Common options use kebab-case: `--recursive`, `--checksums`, `--file-types`,
+`--media-info`, `--scan-archives`, `--scan-torrents`, `--drop-missing`,
+`--pick-hidden`, `--threads`, `--verbose`, and `--format=table|json` for query
+commands. Help is `--help`; version is `--version`.
 
-Operational notes:
-
-- `--json` currently accepts a filename ending in `.json`; passing a path is
-  rejected by argument validation.
-- Importing JSON into a non-empty repository requires `--force` and creates a
-  timestamped SQLite backup under `.dosierskanilo/backups/`.
-- `--replace` is the canonical explicit replacement option for the repository
-  `import` command; `--force` remains accepted there as a compatibility alias.
-- `--rescan-mediasig` forces a media refresh when combined with `--mediasig`
-  (single-thread and multi-thread).
-- `-h` and `--help` print help. Use `-H` or `--hidden` to include hidden files
-  and directories in a scan.
+SQLite commands may discover `ROOT` from the current directory and its parent
+directories. JSON commands require an explicit catalog path and never create a
+`.dosierskanilo` directory.
 
 ## Typical Usage
-
-Scan recursively, compute checksums, file type, media info, run analysis, and
-write JSON:
-
-```bash
-./build/bin/dosierskanilo \
-  --path=/media/user/films \
-  --json=media-user-films.json \
-  --recursive \
-  --scan \
-  --checksum \
-  --filetypes \
-  --mediasig \
-  --analyse \
-  --writeJSON \
-  --force
-```
-
-Minimal duplicate scan (checksums + analysis only):
-
-```bash
-./build/bin/dosierskanilo \
-  --path=/data/library \
-  --json=library-scan.json \
-  --recursive \
-  --scan \
-  --checksum \
-  --analyse \
-  --writeJSON \
-  --force
-```
-
-Enable archive and torrent analysis:
-
-```bash
-./build/bin/dosierskanilo \
-  --path=/data/incoming \
-  --json=incoming.json \
-  --recursive \
-  --scan \
-  --checksum \
-  --scanArchives \
-  --scanTorrents \
-  --writeJSON \
-  --force
-```
 
 Initialize and scan a SQLite repository:
 
 ```bash
-./build/bin/dosierskanilo \
-  --repository=/data/library \
-  --init-repository \
-  --recursive \
-  --scan \
-  --checksum \
-  --filetypes \
-  --mediasig \
-  --scanTorrents
+./build/bin/dosierskanilo sqlite init /data/library
+./build/bin/dosierskanilo sqlite scan /data/library --recursive
+./build/bin/dosierskanilo sqlite metadata /data/library --checksums --media-info
+./build/bin/dosierskanilo sqlite analyze /data/library --drop-missing
 ```
 
-Import or export JSON through a repository:
+Scan and analyze a direct JSON catalog:
 
 ```bash
-./build/bin/dosierskanilo \
-  --repository=/data/library \
-  --import-json=library-scan.json
-
-./build/bin/dosierskanilo \
-  --repository=/data/library \
-  --export-json=library-export.json
+./build/bin/dosierskanilo json scan /data/library library.json \
+  --recursive --checksums --media-info
+./build/bin/dosierskanilo json analyze library.json
 ```
 
 ## Architecture
