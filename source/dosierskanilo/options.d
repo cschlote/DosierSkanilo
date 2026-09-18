@@ -27,6 +27,7 @@ struct ArgsArray
 	uint argScanArchives; ///< Scan archive contents.
 	bool argScanTorrents; ///< Scan torrent contents.
 	bool argRunAnalysis; ///< Run duplicate and cleanup analysis.
+	bool argRunMetadata; ///< Run repository metadata extraction.
 	bool argDropMissing; ///< Drop missing files from the database.
 	bool argWriteJSON; ///< Write the resulting JSON file.
 	int argNumberOfThreads = 1; ///< Number of worker threads.

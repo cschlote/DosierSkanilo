@@ -12,6 +12,8 @@ They represent the functional evolution and are intentionally summarized.
 - Started the CLI cleanup for SQLite repositories: explicit repository
   subcommands now stay in repository mode, `--help` and `--version` return
   success, parser state is local, and `-h` is reserved for help.
+- Added the `metadata` repository subcommand for explicit checksum, file type,
+  MediaInfo, archive, and torrent extraction operations.
 - Fixed Linux dependency installation by including the SQLite development and
   runtime libraries required by `d2sqlite3`.
 

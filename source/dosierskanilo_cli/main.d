@@ -178,30 +178,11 @@ bool executeRepositoryOperation(ArgsArray options)
 				summary.orphanedBlobs));
 		}
 
-		if (options.argDoChecksums || options.argDoFileTypes
-			|| options.argDoMediaSig || options.argScanArchives
-			|| options.argScanTorrents)
+		if (options.argRunMetadata || options.argDoChecksums
+			|| options.argDoFileTypes || options.argDoMediaSig
+			|| options.argScanArchives || options.argScanTorrents)
 		{
-			logLine("Repository phase: metadata extraction.");
-			repository.appendLog("metadata.start", "");
-			MetadataScanOptions metadataOptions;
-			metadataOptions.calculateChecksums = options.argDoChecksums;
-			metadataOptions.detectFileTypes = options.argDoFileTypes;
-			metadataOptions.extractMediaInfo = options.argDoMediaSig;
-			metadataOptions.scanArchives = options.argScanArchives != 0;
-			metadataOptions.deepArchiveScan = options.argScanArchives > 1;
-			metadataOptions.scanTorrents = options.argScanTorrents;
-			metadataOptions.rescan = options.argRescanMediaSig;
-			metadataOptions.threads = options.argNumberOfThreads > 1
-				? cast(size_t) options.argNumberOfThreads : 1;
-			auto summary = repository.updateMetadata(metadataOptions);
-			logFLine("Metadata update: %d blobs, %d checksum, %d file type, "
-				~ "%d media, %d archive, %d torrent updates, %d failures.",
-				summary.blobsVisited, summary.checksumsUpdated,
-				summary.fileTypesUpdated, summary.mediaInfoUpdated,
-				summary.archivesUpdated, summary.torrentsUpdated, summary.failed);
-			repository.appendLog("metadata.complete", format(
-				"blobs=%d failed=%d", summary.blobsVisited, summary.failed));
+			executeRepositoryMetadata(repository, options);
 		}
 
 		auto exportPath = options.argExportJSON;
@@ -222,6 +203,31 @@ bool executeRepositoryOperation(ArgsArray options)
 		logLine("Repository operation failed: ", ex.msg);
 		return false;
 	}
+}
+
+/** Execute the selected metadata extractors against a repository. */
+void executeRepositoryMetadata(Repository repository, ArgsArray options)
+{
+	logLine("Repository phase: metadata extraction.");
+	repository.appendLog("metadata.start", "");
+	MetadataScanOptions metadataOptions;
+	metadataOptions.calculateChecksums = options.argDoChecksums;
+	metadataOptions.detectFileTypes = options.argDoFileTypes;
+	metadataOptions.extractMediaInfo = options.argDoMediaSig;
+	metadataOptions.scanArchives = options.argScanArchives != 0;
+	metadataOptions.deepArchiveScan = options.argScanArchives > 1;
+	metadataOptions.scanTorrents = options.argScanTorrents;
+	metadataOptions.rescan = options.argRescanMediaSig;
+	metadataOptions.threads = options.argNumberOfThreads > 1
+		? cast(size_t) options.argNumberOfThreads : 1;
+	auto summary = repository.updateMetadata(metadataOptions);
+	logFLine("Metadata update: %d blobs, %d checksum, %d file type, "
+		~ "%d media, %d archive, %d torrent updates, %d failures.",
+		summary.blobsVisited, summary.checksumsUpdated,
+		summary.fileTypesUpdated, summary.mediaInfoUpdated,
+		summary.archivesUpdated, summary.torrentsUpdated, summary.failed);
+	repository.appendLog("metadata.complete", format(
+		"blobs=%d failed=%d", summary.blobsVisited, summary.failed));
 }
 
 /** A handler for OS signals

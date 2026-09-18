@@ -37,6 +37,7 @@ Commands:
 
     init       Initialize a repository
     scan       Scan a repository
+    metadata   Extract metadata in a repository
     analyze    Analyze a repository
     import     Import JSON into a repository
     export     Export a repository as JSON
@@ -49,6 +50,7 @@ enum CliCommand
     legacyJson,
     init,
     scan,
+    metadata,
     analyze,
     importJson,
     exportJson
@@ -89,7 +91,7 @@ ParsedCommandLine parseCommandLine(string[] args)
     {
         switch (args[1])
         {
-        case "init", "scan", "analyse", "analyze", "import", "export":
+        case "init", "scan", "metadata", "analyse", "analyze", "import", "export":
             command = args[1];
             args = args[0 .. 1] ~ args[2 .. $];
             break;
@@ -146,6 +148,9 @@ ParsedCommandLine parseCommandLine(string[] args)
     case "scan":
         argsarray.argScanFiles = true;
         break;
+    case "metadata":
+        argsarray.argRunMetadata = true;
+        break;
     case "analyse":
     case "analyze":
         argsarray.argRunAnalysis = true;
@@ -193,6 +198,13 @@ ParsedCommandLine parseCommandLine(string[] args)
         {
             logFLine("Repository path '%s' is not an existing directory.",
                 argsarray.argRepositoryPath);
+            return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
+        }
+        if (command == "metadata" && !hasMetadataOptions(argsarray))
+        {
+            logLine("Metadata command needs at least one metadata option: "
+                ~ "--checksum, --filetypes, --mediasig, --scanArchives, "
+                ~ "or --scanTorrents.");
             return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
         }
         if (!argsarray.argImportJSON.empty
@@ -270,6 +282,8 @@ private CliCommand commandToCliCommand(string command)
         return CliCommand.init;
     case "scan":
         return CliCommand.scan;
+    case "metadata":
+        return CliCommand.metadata;
     case "analyse", "analyze":
         return CliCommand.analyze;
     case "import":
@@ -279,6 +293,14 @@ private CliCommand commandToCliCommand(string command)
     case "":
         return CliCommand.legacyJson;
     }
+}
+
+/** Return whether at least one repository metadata extractor was selected. */
+private bool hasMetadataOptions(ArgsArray options)
+{
+    return options.argDoChecksums || options.argDoFileTypes
+        || options.argDoMediaSig || options.argScanArchives
+        || options.argScanTorrents;
 }
 
 /** Compatibility wrapper used by the existing parser unit tests. */
@@ -393,6 +415,19 @@ unittest
     assert(parsedScan.command == CliCommand.scan);
     assert(parsedScan.options.argScanFiles);
     assert(parsedScan.options.argRepositoryPath == testdir);
+
+    auto parsedMetadata = parseCommandLine([
+        "programname", "metadata", "--path", testdir, "--checksum"
+    ]);
+    assert(parsedMetadata.status == ParseStatus.run);
+    assert(parsedMetadata.command == CliCommand.metadata);
+    assert(parsedMetadata.options.argRunMetadata);
+    assert(parsedMetadata.options.argDoChecksums);
+
+    auto missingMetadataOption = parseCommandLine([
+        "programname", "metadata", "--path", testdir
+    ]);
+    assert(missingMetadataOption.status == ParseStatus.error);
 }
 
 /** Shortens a string `s` to exactly `maxLen` characters.
