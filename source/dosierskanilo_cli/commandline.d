@@ -41,6 +41,7 @@ Commands:
     analyze    Analyze a repository
     info       Show repository information
     list       List repository blobs
+    duplicates List duplicate blob groups
     import     Import JSON into a repository
     export     Export a repository as JSON
 
@@ -56,6 +57,7 @@ enum CliCommand
     analyze,
     info,
     list,
+    duplicates,
     importJson,
     exportJson
 }
@@ -95,7 +97,7 @@ ParsedCommandLine parseCommandLine(string[] args)
     {
         switch (args[1])
         {
-        case "init", "scan", "metadata", "analyse", "analyze", "info", "list", "import", "export":
+        case "init", "scan", "metadata", "analyse", "analyze", "info", "list", "duplicates", "import", "export":
             command = args[1];
             args = args[0 .. 1] ~ args[2 .. $];
             break;
@@ -145,6 +147,7 @@ ParsedCommandLine parseCommandLine(string[] args)
             "file-type", "Require file type metadata", &argsarray.argQueryFileType,
             "archive", "Require archive metadata", &argsarray.argQueryArchive,
             "torrent", "Require torrent metadata", &argsarray.argQueryTorrent,
+            "duplicate-limit", "Maximum number of duplicate groups", &argsarray.argDuplicateLimit,
             "version", "Show the application version", &argsarray.argVersion);
     }
     catch (GetOptException ex)
@@ -170,6 +173,9 @@ ParsedCommandLine parseCommandLine(string[] args)
         break;
     case "list":
         argsarray.argList = true;
+        break;
+    case "duplicates":
+        argsarray.argDuplicates = true;
         break;
     case "analyse":
     case "analyze":
@@ -308,6 +314,8 @@ private CliCommand commandToCliCommand(string command)
         return CliCommand.info;
     case "list":
         return CliCommand.list;
+    case "duplicates":
+        return CliCommand.duplicates;
     case "analyse", "analyze":
         return CliCommand.analyze;
     case "import":
@@ -464,6 +472,15 @@ unittest
     assert(parsedList.options.argQueryLimit == 10);
     assert(parsedList.options.argQueryOffset == 2);
     assert(parsedList.options.argQueryVideo);
+
+    auto parsedDuplicates = parseCommandLine([
+        "programname", "duplicates", "--path", testdir,
+        "--duplicate-limit", "12"
+    ]);
+    assert(parsedDuplicates.status == ParseStatus.run);
+    assert(parsedDuplicates.command == CliCommand.duplicates);
+    assert(parsedDuplicates.options.argDuplicates);
+    assert(parsedDuplicates.options.argDuplicateLimit == 12);
 
     auto missingMetadataOption = parseCommandLine([
         "programname", "metadata", "--path", testdir

@@ -143,6 +143,12 @@ bool executeRepositoryOperation(ArgsArray options)
 			repository.close();
 			return true;
 		}
+		if (options.argDuplicates)
+		{
+			executeRepositoryDuplicates(repository, options);
+			repository.close();
+			return true;
+		}
 
 		if (!options.argImportJSON.empty)
 		{
@@ -251,6 +257,24 @@ void executeRepositoryList(Repository repository, ArgsArray options)
 	foreach (index, blob; page.blobs)
 		logFLine("%d\t%d\t%s", page.blobIds[index], blob.fileSize,
 			blob.getFirstFileName());
+}
+
+/** Print duplicate groups without modifying repository contents. */
+void executeRepositoryDuplicates(Repository repository, ArgsArray options)
+{
+	auto groups = repository.queryDuplicates(options.argDuplicateLimit);
+	logFLine("Found %d duplicate groups.", groups.length);
+	foreach (groupIndex, group; groups)
+	{
+		logFLine("Group %d: %d bytes, %d blobs", groupIndex + 1,
+			group.fileSize, group.blobIds.length);
+		foreach (blobId; group.blobIds)
+		{
+			auto blob = repository.loadBlobDetails(blobId);
+			logFLine("  %d\t%s", blobId,
+				blob.getFirstFileName());
+		}
+	}
 }
 
 /** Execute the selected metadata extractors against a repository. */

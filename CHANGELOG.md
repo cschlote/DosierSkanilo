@@ -16,6 +16,7 @@ They represent the functional evolution and are intentionally summarized.
   MediaInfo, archive, and torrent extraction operations.
 - Added the `info` repository subcommand for repository metadata and blob counts.
 - Added the `list` repository subcommand with bounded path and metadata filters.
+- Added the read-only `duplicates` repository subcommand for duplicate groups.
 - Fixed Linux dependency installation by including the SQLite development and
   runtime libraries required by `d2sqlite3`.
 

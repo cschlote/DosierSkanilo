@@ -236,3 +236,12 @@ struct AnalysisSummary
     /// Unreferenced blob rows removed after cleanup.
     size_t orphanedBlobs;
 }
+
+/** One read-only group of blobs with identical complete checksums. */
+struct RepositoryDuplicateGroup
+{
+    /// Common payload size for all blobs in the group.
+    size_t fileSize;
+    /// Stable repository blob IDs belonging to the duplicate group.
+    long[] blobIds;
+}

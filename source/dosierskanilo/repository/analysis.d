@@ -8,6 +8,26 @@ import std.string : split;
 
 import dosierskanilo.repository.types;
 
+/** Return duplicate groups without modifying repository state. */
+RepositoryDuplicateGroup[] queryDuplicateGroups(ref Database db, size_t limit = 100)
+{
+    RepositoryDuplicateGroup[] groups;
+    auto result = db.execute("SELECT file_size, group_concat(id) FROM blobs "
+        ~ "WHERE md5 IS NOT NULL AND sha1 IS NOT NULL AND xxh64 IS NOT NULL "
+        ~ "GROUP BY file_size, md5, sha1, xxh64 "
+        ~ "HAVING count(*) > 1 ORDER BY file_size, min(id) LIMIT ?",
+        cast(long) limit);
+    foreach (row; result)
+    {
+        RepositoryDuplicateGroup group;
+        group.fileSize = cast(size_t) row.peek!long(0);
+        foreach (id; row.peek!string(1).split(","))
+            group.blobIds ~= id.to!long;
+        groups ~= group;
+    }
+    return groups;
+}
+
 /** Analyze current repository rows without materializing the catalog. */
 AnalysisSummary analyzeRepository(ref Database db, RepositoryAnalysisOptions options)
 {

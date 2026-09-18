@@ -30,6 +30,8 @@ struct ArgsArray
 	bool argRunMetadata; ///< Run repository metadata extraction.
 	bool argShowInfo; ///< Show repository metadata and catalog counts.
 	bool argList; ///< List repository blobs.
+	bool argDuplicates; ///< List duplicate blob groups.
+	uint argDuplicateLimit = 100; ///< Maximum number of duplicate groups.
 	string argQueryText; ///< Filter repository paths or SHA1 values.
 	uint argQueryLimit = 50; ///< Maximum number of listed blobs.
 	uint argQueryOffset; ///< Number of matching blobs to skip.

@@ -174,6 +174,7 @@ Repository command aliases are also available:
 - `analyze` (with `analyse` retained as an alias)
 - `info`
 - `list`
+- `duplicates`
 - `import`
 - `export`
 

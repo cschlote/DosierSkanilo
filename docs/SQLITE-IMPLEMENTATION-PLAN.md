@@ -334,10 +334,11 @@ dosierskanilo export [ROOT] --output OUTPUT.json
   scanning, metadata extraction, analysis, import, export, and queries.
 - [ ] Make `scan`, `metadata`, `analyze`, `info`, `list`, and `duplicates`
   repository operations independent of legacy JSON validation.
-- [ ] Add `info`, `list`, and `duplicates` commands using the existing typed
+- [x] Add `info`, `list`, and `duplicates` commands using the existing typed
   repository query API, including pagination and filters.
-- [ ] Add stable table and machine-readable output for query and summary
-  commands without exposing SQLite types in the CLI.
+- [x] Add stable human-readable table output for query and summary commands
+  without exposing SQLite types in the CLI.
+- [ ] Add machine-readable output for query and summary commands.
 - [x] Reserve `-h` for help and move hidden-file selection to an unambiguous
   option.
 - [ ] Normalize new option names to kebab-case and retain current spellings as
