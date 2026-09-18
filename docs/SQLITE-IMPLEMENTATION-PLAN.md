@@ -428,7 +428,7 @@ Status: `[-]`
   repository directory.
 - [x] Query tests verify pagination, filters, duplicate output, and stable
   machine-readable output.
-- [ ] Mode-isolation tests verify JSON commands never create SQLite state and
+- [x] Mode-isolation tests verify JSON commands never create SQLite state and
   SQLite commands never write direct JSON state implicitly.
 - [x] Schema creation and forward-version rejection tests.
 - [x] JSON v0/v1/v2/v3 import tests.

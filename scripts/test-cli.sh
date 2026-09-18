@@ -34,6 +34,10 @@ popd >/dev/null
 # Top-level commands use SQLite and discover the root from a nested directory.
 "${BIN}" init "${sqlite_root}"
 "${BIN}" scan "${sqlite_root}" --recursive
+"${BIN}" import "${sqlite_root}" "${ROOT_DIR}/test/json_file_v2.json" --replace
+exported_catalog="${TMP_DIR}/sqlite-export.json"
+"${BIN}" export "${sqlite_root}" --output "${exported_catalog}"
+[[ -s "${exported_catalog}" ]]
 pushd "${sqlite_root}/nested" >/dev/null
 "${BIN}" info --format=json > "${TMP_DIR}/info.json"
 popd >/dev/null

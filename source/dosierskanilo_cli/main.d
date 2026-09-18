@@ -117,13 +117,13 @@ int main(string[] args)
 /** Execute a SQLite repository operation selected by the CLI options. */
 bool executeRepositoryOperation(ArgsArray options)
 {
+	Repository repository;
 	try
 	{
 		auto repositoryPath = options.argRepositoryPath;
 		if (repositoryPath.empty)
 			repositoryPath = options.argScanPath;
 
-		Repository repository;
 		if (options.argInitRepository)
 			repository = Repository.initialize(repositoryPath);
 		else
@@ -170,6 +170,8 @@ bool executeRepositoryOperation(ArgsArray options)
 	}
 	catch (Exception ex)
 	{
+		if (repository !is null)
+			repository.close();
 		errorLine("Repository operation failed: ", ex.msg);
 		return false;
 	}
