@@ -30,22 +30,22 @@ SQLite implementation remains behind the public repository API.
 
 ## CLI Target Contract
 
-The CLI has two explicit, non-overlapping storage modes. The command group
-selects the mode; there is no implicit legacy mode and no requirement to keep
-old option-only invocations or spelling aliases.
+The CLI has two explicit, non-overlapping storage modes. Top-level commands
+use SQLite; the `json` keyword selects direct JSON mode. There is no implicit
+legacy option-only mode and no requirement to keep old spelling aliases.
 
-The SQLite repository commands are:
+SQLite is the default mode for top-level commands. The repository commands are:
 
 ```text
-dosierskanilo sqlite init [ROOT]
-dosierskanilo sqlite scan [ROOT] [OPTIONS]
-dosierskanilo sqlite metadata [ROOT] [OPTIONS]
-dosierskanilo sqlite analyze [ROOT] [OPTIONS]
-dosierskanilo sqlite info [ROOT]
-dosierskanilo sqlite list [ROOT] [FILTERS]
-dosierskanilo sqlite duplicates [ROOT]
-dosierskanilo sqlite import [ROOT] INPUT.json [--replace]
-dosierskanilo sqlite export [ROOT] --output OUTPUT.json
+dosierskanilo init [ROOT]
+dosierskanilo scan [ROOT] [OPTIONS]
+dosierskanilo metadata [ROOT] [OPTIONS]
+dosierskanilo analyze [ROOT] [OPTIONS]
+dosierskanilo info [ROOT]
+dosierskanilo list [ROOT] [FILTERS]
+dosierskanilo duplicates [ROOT]
+dosierskanilo import [ROOT] INPUT.json [--replace]
+dosierskanilo export [ROOT] --output OUTPUT.json
 ```
 
 The pure JSON commands are:
@@ -57,8 +57,8 @@ dosierskanilo json analyze CATALOG.json [OPTIONS]
 
 JSON commands operate only on the specified catalog and filesystem path. They
 must never create or discover a `.dosierskanilo` repository. SQLite commands
-must never silently switch to JSON storage. `ROOT` is optional only for SQLite
-commands; if omitted, the CLI starts at the current directory and uses the
+must never silently switch to JSON storage. `ROOT` is optional for top-level
+SQLite commands; if omitted, the CLI starts at the current directory and uses the
 nearest parent containing
 `.dosierskanilo`. `init` uses the current directory when no root is given.
 Commands that require an existing repository must fail with an actionable
@@ -310,15 +310,15 @@ maps to one operation and uses only the public repository or JSON service API.
 ### Proposed Operations
 
 ```text
-dosierskanilo sqlite init [ROOT]
-dosierskanilo sqlite scan [ROOT]
-dosierskanilo sqlite metadata [ROOT]
-dosierskanilo sqlite analyze [ROOT]
-dosierskanilo sqlite info [ROOT]
-dosierskanilo sqlite list [ROOT]
-dosierskanilo sqlite duplicates [ROOT]
-dosierskanilo sqlite import [ROOT] INPUT.json [--replace]
-dosierskanilo sqlite export [ROOT] --output OUTPUT.json
+dosierskanilo init [ROOT]
+dosierskanilo scan [ROOT]
+dosierskanilo metadata [ROOT]
+dosierskanilo analyze [ROOT]
+dosierskanilo info [ROOT]
+dosierskanilo list [ROOT]
+dosierskanilo duplicates [ROOT]
+dosierskanilo import [ROOT] INPUT.json [--replace]
+dosierskanilo export [ROOT] --output OUTPUT.json
 dosierskanilo json scan ROOT CATALOG.json
 dosierskanilo json analyze CATALOG.json
 ```
@@ -327,8 +327,8 @@ dosierskanilo json analyze CATALOG.json
 
 - [x] Implement repository root discovery in the repository API.
 - [ ] Resolve an omitted repository root from the current directory and its
-  parent directories for every `sqlite` subcommand.
-- [ ] Parse the explicit `sqlite` and `json` command groups.
+  parent directories for every top-level SQLite command.
+- [ ] Parse top-level SQLite commands and the explicit `json` command group.
 - [ ] Define positional root/catalog arguments for both modes.
 - [ ] Ensure JSON commands never open or create a SQLite repository.
 - [ ] Ensure SQLite commands never fall back to direct JSON storage.

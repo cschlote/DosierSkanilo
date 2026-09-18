@@ -25,16 +25,16 @@ while multiple file names can reference that same payload.
 
 ## Storage Modes
 
-The CLI has two explicit storage modes. Use `sqlite` for a normalized
+The CLI has two explicit storage modes. Top-level commands use a normalized
 `.dosierskanilo` repository. It stores the current catalog beside the scanned
 directory, similar to a `.git` directory, and avoids loading the complete
 catalog for every query:
 
 ```bash
-./build/bin/dosierskanilo sqlite init /data/library
-./build/bin/dosierskanilo sqlite scan /data/library --recursive
-./build/bin/dosierskanilo sqlite metadata /data/library --checksums --media-info
-./build/bin/dosierskanilo sqlite list /data/library --video --format=json
+./build/bin/dosierskanilo init /data/library
+./build/bin/dosierskanilo scan /data/library --recursive
+./build/bin/dosierskanilo metadata /data/library --checksums --media-info
+./build/bin/dosierskanilo list /data/library --video --format=json
 ```
 
 Use the explicit `json` mode when no SQLite repository should be created. JSON
@@ -53,8 +53,8 @@ JSON storage. JSON remains the structured exchange format for explicit SQLite
 import and export:
 
 ```bash
-./build/bin/dosierskanilo sqlite import /data/library library-scan.json --replace
-./build/bin/dosierskanilo sqlite export /data/library --output library-export.json
+./build/bin/dosierskanilo import /data/library library-scan.json --replace
+./build/bin/dosierskanilo export /data/library --output library-export.json
 ```
 
 Both modes use the same catalog concepts but have independent command contracts.
@@ -134,15 +134,15 @@ Run the same stage order locally:
 The target command groups are:
 
 ```text
-dosierskanilo sqlite init [ROOT]
-dosierskanilo sqlite scan [ROOT] [OPTIONS]
-dosierskanilo sqlite metadata [ROOT] [OPTIONS]
-dosierskanilo sqlite analyze [ROOT] [OPTIONS]
-dosierskanilo sqlite info [ROOT]
-dosierskanilo sqlite list [ROOT] [FILTERS]
-dosierskanilo sqlite duplicates [ROOT]
-dosierskanilo sqlite import [ROOT] INPUT.json --replace
-dosierskanilo sqlite export [ROOT] --output OUTPUT.json
+dosierskanilo init [ROOT]
+dosierskanilo scan [ROOT] [OPTIONS]
+dosierskanilo metadata [ROOT] [OPTIONS]
+dosierskanilo analyze [ROOT] [OPTIONS]
+dosierskanilo info [ROOT]
+dosierskanilo list [ROOT] [FILTERS]
+dosierskanilo duplicates [ROOT]
+dosierskanilo import [ROOT] INPUT.json --replace
+dosierskanilo export [ROOT] --output OUTPUT.json
 
 dosierskanilo json scan ROOT CATALOG.json [OPTIONS]
 dosierskanilo json analyze CATALOG.json [OPTIONS]
@@ -162,10 +162,10 @@ directories. JSON commands require an explicit catalog path and never create a
 Initialize and scan a SQLite repository:
 
 ```bash
-./build/bin/dosierskanilo sqlite init /data/library
-./build/bin/dosierskanilo sqlite scan /data/library --recursive
-./build/bin/dosierskanilo sqlite metadata /data/library --checksums --media-info
-./build/bin/dosierskanilo sqlite analyze /data/library --drop-missing
+./build/bin/dosierskanilo init /data/library
+./build/bin/dosierskanilo scan /data/library --recursive
+./build/bin/dosierskanilo metadata /data/library --checksums --media-info
+./build/bin/dosierskanilo analyze /data/library --drop-missing
 ```
 
 Scan and analyze a direct JSON catalog:
