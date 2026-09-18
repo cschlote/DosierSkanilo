@@ -25,6 +25,7 @@ struct ArgsArray
 	bool argDoMediaSig; ///< Calculate media signatures.
 	bool argRescanMediaSig; ///< Force media-signature rescans.
 	uint argScanArchives; ///< Scan archive contents.
+	bool argScanArchivesOption; ///< Canonical single archive-scan option.
 	bool argScanTorrents; ///< Scan torrent contents.
 	bool argRunAnalysis; ///< Run duplicate and cleanup analysis.
 	bool argRunMetadata; ///< Run repository metadata extraction.

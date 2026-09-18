@@ -342,7 +342,7 @@ dosierskanilo export [ROOT] --output OUTPUT.json
 - [x] Add machine-readable JSON output for query and summary commands.
 - [x] Reserve `-h` for help and move hidden-file selection to an unambiguous
   option.
-- [ ] Normalize new option names to kebab-case and retain current spellings as
+- [x] Normalize new option names to kebab-case and retain current spellings as
   compatibility aliases.
 - [x] Return distinct exit codes for success, usage errors, and operation
   failures.

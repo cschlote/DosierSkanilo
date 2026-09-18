@@ -25,6 +25,8 @@ They represent the functional evolution and are intentionally summarized.
   available on stdout for pipelines.
 - Added `--replace` as the canonical explicit replacement option for repository
   imports; `--force` remains a compatibility alias.
+- Added canonical kebab-case aliases for metadata, analysis, JSON, and hidden
+  file options while retaining existing spellings.
 - Fixed Linux dependency installation by including the SQLite development and
   runtime libraries required by `d2sqlite3`.
 

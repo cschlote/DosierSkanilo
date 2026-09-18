@@ -152,17 +152,17 @@ Current command-line options (from `source/dosierskanilo_cli/commandline.d`):
 - `-r`, `--recursive`: recurse into subdirectories
 - `-s`, `--scan`: discover files from the scan path
 - `-c`, `--checksum`: calculate digests
-- `-y`, `--filetypes`: detect file type via `file`
-- `-m`, `--mediasig`: extract MediaInfo signatures
-- `--rescan-mediasig`: force MediaInfo refresh (see notes below)
-- `-z`, `--scanArchives`: inspect archive contents
-- `-o`, `--scanTorrents`: inspect torrent metadata
+- `-y`, `--file-types` (`--filetypes`): detect file type via `file`
+- `-m`, `--media-info` (`--mediasig`): extract MediaInfo signatures
+- `--rescan-media-info` (`--rescan-mediasig`): force MediaInfo refresh
+- `-z`, `--scan-archives` (`--scanArchives`): inspect archive contents
+- `-o`, `--scan-torrents` (`--scanTorrents`): inspect torrent metadata
 - `-a`, `--analyze`, `--analyse`: run duplicate/missing-file analysis
-- `-d`, `--dropMissing`: remove non-existing files from DB during analysis
-- `-w`, `--writeJSON`: write updated JSON
+- `-d`, `--drop-missing` (`--dropMissing`): remove non-existing files from DB
+- `-w`, `--write-json` (`--writeJSON`): write updated JSON
 - `-t`, `--threads`: worker-thread count (default: `1`)
 - `-f`, `--force`: allow overwrite/force load behavior
-- `-H`, `--hidden`: include hidden files/directories in scan
+- `-H`, `--pick-hidden` (`--hidden`, `--pickhidden`): include hidden files/directories
 - `-v`, `--verbose`: verbose output
 - `--version`: show the application version
 - `--help`: print help

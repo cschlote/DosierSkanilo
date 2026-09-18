@@ -124,19 +124,27 @@ ParsedCommandLine parseCommandLine(string[] args)
             "recursive|r", "Recursively scan directories", &argsarray.argRecursive,
             "scan|s", "Scan for new files.", &argsarray.argScanFiles,
             "checksum|c", "Calculate the checksums", &argsarray.argDoChecksums,
-            "filetypes|y", "Query file type with 'file' utility", &argsarray.argDoFileTypes,
-            "mediasig|m", "Calculate the media signature", &argsarray.argDoMediaSig,
+            "file-types|y", "Query file type with 'file' utility", &argsarray.argDoFileTypes,
+            "filetypes", "Query file type with 'file' utility", &argsarray.argDoFileTypes,
+            "media-info|m", "Calculate the media signature", &argsarray.argDoMediaSig,
+            "mediasig", "Calculate the media signature", &argsarray.argDoMediaSig,
             "rescan-mediasig", "Rescan all files for media signature", &argsarray.argRescanMediaSig,
+            "rescan-media-info", "Rescan all files for media signature", &argsarray.argRescanMediaSig,
             "scanArchives+|z+", "Get the contents of archives", &argsarray.argScanArchives,
-            "scanTorrents|o", "Get the contents of torrent files", &argsarray.argScanTorrents,
+            "scan-archives", "Get the contents of archives", &argsarray.argScanArchivesOption,
+            "scan-torrents|o", "Get the contents of torrent files", &argsarray.argScanTorrents,
+            "scanTorrents", "Get the contents of torrent files", &argsarray.argScanTorrents,
             "analyse|a", "Analyze database", &argsarray.argRunAnalysis,
             "analyze", "Analyze database", &argsarray.argRunAnalysis,
-            "dropMissing|d", "Drop missing files from database", &argsarray.argDropMissing,
-            "writeJSON|w", "Write the modified JSON data.", &argsarray.argWriteJSON,
+            "drop-missing|d", "Drop missing files from database", &argsarray.argDropMissing,
+            "dropMissing", "Drop missing files from database", &argsarray.argDropMissing,
+            "write-json|w", "Write the modified JSON data.", &argsarray.argWriteJSON,
+            "writeJSON", "Write the modified JSON data.", &argsarray.argWriteJSON,
             "threads|t", "Number of worker threads", &argsarray.argNumberOfThreads,
             "force|f", "Force overwriting JSON file", &argsarray.argForceOverwrite,
             "replace", "Replace an existing repository catalog on import", &argsarray.argReplaceCatalog,
-            "pickhidden|H", "Pick hidden files and directories too", &argsarray.argPickHidden,
+            "pick-hidden|H", "Pick hidden files and directories too", &argsarray.argPickHidden,
+            "pickhidden", "Pick hidden files and directories too", &argsarray.argPickHidden,
             "hidden", "Pick hidden files and directories too", &argsarray.argPickHidden,
             "verbose|v", "Be verbose", &argsarray.argVerboseOutputs,
             "text", "Filter repository paths or SHA1 values", &argsarray.argQueryText,
@@ -193,6 +201,8 @@ ParsedCommandLine parseCommandLine(string[] args)
     default:
         break;
     }
+	if (argsarray.argScanArchivesOption && argsarray.argScanArchives == 0)
+		argsarray.argScanArchives = 1;
 
     if (helpInformation.helpWanted)
     {
@@ -540,6 +550,20 @@ unittest
     assert(parsedScan.command == CliCommand.scan);
     assert(parsedScan.options.argScanFiles);
     assert(parsedScan.options.argRepositoryPath == testdir);
+
+    auto parsedKebabOptions = parseCommandLine([
+        "programname", "scan", "--path", testdir, "--file-types",
+        "--media-info", "--rescan-media-info", "--scan-archives",
+        "--scan-torrents", "--drop-missing", "--pick-hidden"
+    ]);
+    assert(parsedKebabOptions.status == ParseStatus.run);
+    assert(parsedKebabOptions.options.argDoFileTypes);
+    assert(parsedKebabOptions.options.argDoMediaSig);
+    assert(parsedKebabOptions.options.argRescanMediaSig);
+    assert(parsedKebabOptions.options.argScanArchives == 1);
+    assert(parsedKebabOptions.options.argScanTorrents);
+    assert(parsedKebabOptions.options.argDropMissing);
+    assert(parsedKebabOptions.options.argPickHidden);
 
     auto parsedMetadata = parseCommandLine([
         "programname", "metadata", "--path", testdir, "--checksum"
