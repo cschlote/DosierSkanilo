@@ -331,7 +331,7 @@ dosierskanilo export [ROOT] --output OUTPUT.json
 - [ ] Separate repository parsing from legacy JSON parsing into dedicated
   parser modules.
 - [x] Reject options that do not belong to the selected repository subcommand.
-- [ ] Split repository execution into focused handlers for initialization,
+- [x] Split repository execution into focused handlers for initialization,
   scanning, metadata extraction, analysis, import, export, and queries.
 - [ ] Make `scan`, `metadata`, `analyze`, `info`, `list`, and `duplicates`
   repository operations independent of legacy JSON validation.

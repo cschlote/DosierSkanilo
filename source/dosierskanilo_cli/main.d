@@ -153,50 +153,13 @@ bool executeRepositoryOperation(ArgsArray options)
 		}
 
 		if (!options.argImportJSON.empty)
-		{
-			logLine("Repository phase: import JSON.");
-			repository.appendLog("json.import", options.argImportJSON);
-			JsonImportOptions importOptions;
-			importOptions.force = options.argForceOverwrite || options.argReplaceCatalog;
-			repository.importJson(options.argImportJSON, importOptions);
-			logFLine("Imported JSON catalog '%s'.", options.argImportJSON);
-		}
+			executeRepositoryImport(repository, options);
 
 		if (options.argScanFiles)
-		{
-			logLine("Repository phase: scan filesystem.");
-			repository.appendLog("scan.start", repository.rootPath);
-			RepositoryScanOptions scanOptions;
-			scanOptions.recursive = options.argRecursive;
-			scanOptions.pickHidden = options.argPickHidden;
-			scanOptions.dropMissing = options.argDropMissing;
-			auto summary = repository.scan(scanOptions);
-			logFLine("Repository scan: %d files, %d added, %d changed, %d missing.",
-				summary.filesFound, summary.filesAdded, summary.filesChanged,
-				summary.filesMissing);
-			repository.appendLog("scan.complete", format(
-				"files=%d added=%d changed=%d missing=%d", summary.filesFound,
-				summary.filesAdded, summary.filesChanged, summary.filesMissing));
-		}
+			executeRepositoryScan(repository, options);
 
 		if (options.argRunAnalysis)
-		{
-			logLine("Repository phase: SQL analysis.");
-			repository.appendLog("analysis.start", "");
-			RepositoryAnalysisOptions analysisOptions;
-			analysisOptions.dropMissing = options.argDropMissing;
-			auto summary = repository.analyze(analysisOptions);
-			logFLine("Repository analysis: %d missing, %d dropped, %d duplicate "
-				~ "groups, %d merged blobs, %d orphaned blobs.",
-				summary.missingFiles, summary.droppedFiles,
-				summary.duplicateGroups, summary.mergedBlobs,
-				summary.orphanedBlobs);
-			repository.appendLog("analysis.complete", format(
-				"missing=%d dropped=%d groups=%d merged=%d orphaned=%d",
-				summary.missingFiles, summary.droppedFiles,
-				summary.duplicateGroups, summary.mergedBlobs,
-				summary.orphanedBlobs));
-		}
+			executeRepositoryAnalysis(repository, options);
 
 		if (options.argRunMetadata || options.argDoChecksums
 			|| options.argDoFileTypes || options.argDoMediaSig
@@ -205,16 +168,7 @@ bool executeRepositoryOperation(ArgsArray options)
 			executeRepositoryMetadata(repository, options);
 		}
 
-		auto exportPath = options.argExportJSON;
-		if (exportPath.empty && options.argWriteJSON)
-			exportPath = options.argJSONFile;
-		if (!exportPath.empty)
-		{
-			logLine("Repository phase: export JSON.");
-			repository.appendLog("json.export", exportPath);
-			repository.exportJson(exportPath);
-			logFLine("Exported repository JSON to '%s'.", exportPath);
-		}
+		executeRepositoryExport(repository, options);
 		repository.close();
 		return true;
 	}
@@ -223,6 +177,69 @@ bool executeRepositoryOperation(ArgsArray options)
 		errorLine("Repository operation failed: ", ex.msg);
 		return false;
 	}
+}
+
+/** Import a JSON catalog into a repository. */
+void executeRepositoryImport(Repository repository, ArgsArray options)
+{
+	logLine("Repository phase: import JSON.");
+	repository.appendLog("json.import", options.argImportJSON);
+	JsonImportOptions importOptions;
+	importOptions.force = options.argForceOverwrite || options.argReplaceCatalog;
+	repository.importJson(options.argImportJSON, importOptions);
+	logFLine("Imported JSON catalog '%s'.", options.argImportJSON);
+}
+
+/** Scan the repository filesystem and persist changed references. */
+void executeRepositoryScan(Repository repository, ArgsArray options)
+{
+	logLine("Repository phase: scan filesystem.");
+	repository.appendLog("scan.start", repository.rootPath);
+	RepositoryScanOptions scanOptions;
+	scanOptions.recursive = options.argRecursive;
+	scanOptions.pickHidden = options.argPickHidden;
+	scanOptions.dropMissing = options.argDropMissing;
+	auto summary = repository.scan(scanOptions);
+	logFLine("Repository scan: %d files, %d added, %d changed, %d missing.",
+		summary.filesFound, summary.filesAdded, summary.filesChanged,
+		summary.filesMissing);
+	repository.appendLog("scan.complete", format(
+		"files=%d added=%d changed=%d missing=%d", summary.filesFound,
+		summary.filesAdded, summary.filesChanged, summary.filesMissing));
+}
+
+/** Analyze duplicate and missing-file state in the repository. */
+void executeRepositoryAnalysis(Repository repository, ArgsArray options)
+{
+	logLine("Repository phase: SQL analysis.");
+	repository.appendLog("analysis.start", "");
+	RepositoryAnalysisOptions analysisOptions;
+	analysisOptions.dropMissing = options.argDropMissing;
+	auto summary = repository.analyze(analysisOptions);
+	logFLine("Repository analysis: %d missing, %d dropped, %d duplicate "
+		~ "groups, %d merged blobs, %d orphaned blobs.",
+		summary.missingFiles, summary.droppedFiles,
+		summary.duplicateGroups, summary.mergedBlobs,
+		summary.orphanedBlobs);
+	repository.appendLog("analysis.complete", format(
+		"missing=%d dropped=%d groups=%d merged=%d orphaned=%d",
+		summary.missingFiles, summary.droppedFiles,
+		summary.duplicateGroups, summary.mergedBlobs,
+		summary.orphanedBlobs));
+}
+
+/** Export the repository catalog when requested. */
+void executeRepositoryExport(Repository repository, ArgsArray options)
+{
+	auto exportPath = options.argExportJSON;
+	if (exportPath.empty && options.argWriteJSON)
+		exportPath = options.argJSONFile;
+	if (exportPath.empty)
+		return;
+	logLine("Repository phase: export JSON.");
+	repository.appendLog("json.export", exportPath);
+	repository.exportJson(exportPath);
+	logFLine("Exported repository JSON to '%s'.", exportPath);
 }
 
 /** Print repository metadata and current catalog counts. */
