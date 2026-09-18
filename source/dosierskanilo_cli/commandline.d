@@ -148,6 +148,7 @@ ParsedCommandLine parseCommandLine(string[] args)
             "archive", "Require archive metadata", &argsarray.argQueryArchive,
             "torrent", "Require torrent metadata", &argsarray.argQueryTorrent,
             "duplicate-limit", "Maximum number of duplicate groups", &argsarray.argDuplicateLimit,
+            "format", "Repository query output format: table or json", &argsarray.argOutputFormat,
             "version", "Show the application version", &argsarray.argVersion);
     }
     catch (GetOptException ex)
@@ -231,6 +232,13 @@ ParsedCommandLine parseCommandLine(string[] args)
             logLine("Metadata command needs at least one metadata option: "
                 ~ "--checksum, --filetypes, --mediasig, --scanArchives, "
                 ~ "or --scanTorrents.");
+            return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
+        }
+        if ((command == "info" || command == "list" || command == "duplicates")
+            && argsarray.argOutputFormat != "table"
+            && argsarray.argOutputFormat != "json")
+        {
+            logLine("Repository query format must be 'table' or 'json'.");
             return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
         }
         if (!argsarray.argImportJSON.empty
@@ -460,6 +468,17 @@ unittest
     assert(parsedInfo.status == ParseStatus.run);
     assert(parsedInfo.command == CliCommand.info);
     assert(parsedInfo.options.argShowInfo);
+
+    auto parsedInfoJson = parseCommandLine([
+        "programname", "info", "--path", testdir, "--format", "json"
+    ]);
+    assert(parsedInfoJson.status == ParseStatus.run);
+    assert(parsedInfoJson.options.argOutputFormat == "json");
+
+    auto invalidInfoFormat = parseCommandLine([
+        "programname", "info", "--path", testdir, "--format", "xml"
+    ]);
+    assert(invalidInfoFormat.status == ParseStatus.error);
 
     auto parsedList = parseCommandLine([
         "programname", "list", "--path", testdir, "--text", "movie",

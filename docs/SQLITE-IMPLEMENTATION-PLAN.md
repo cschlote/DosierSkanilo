@@ -338,7 +338,7 @@ dosierskanilo export [ROOT] --output OUTPUT.json
   repository query API, including pagination and filters.
 - [x] Add stable human-readable table output for query and summary commands
   without exposing SQLite types in the CLI.
-- [ ] Add machine-readable output for query and summary commands.
+- [x] Add machine-readable JSON output for query and summary commands.
 - [x] Reserve `-h` for help and move hidden-file selection to an unambiguous
   option.
 - [ ] Normalize new option names to kebab-case and retain current spellings as

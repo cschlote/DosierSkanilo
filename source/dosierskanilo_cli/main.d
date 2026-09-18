@@ -92,7 +92,8 @@ int main(string[] args)
 			return 2;
 		case ParseStatus.run:
 			auto options = parsed.options;
-			logFLine("%s %s", appName, appVersion);
+			if (options.argOutputFormat != "json")
+				logFLine("%s %s", appName, appVersion);
 			if (options.argDoMediaSig)
 			{
 				auto miv = getMediaInfoVersion();
@@ -133,7 +134,7 @@ bool executeRepositoryOperation(ArgsArray options)
 		repository.appendLog("repository.open", repositoryPath);
 		if (options.argShowInfo)
 		{
-			executeRepositoryInfo(repository);
+			executeRepositoryInfo(repository, options);
 			repository.close();
 			return true;
 		}
@@ -224,9 +225,18 @@ bool executeRepositoryOperation(ArgsArray options)
 }
 
 /** Print repository metadata and current catalog counts. */
-void executeRepositoryInfo(Repository repository)
+void executeRepositoryInfo(Repository repository, ArgsArray options)
 {
 	auto info = repository.info;
+	if (options.argOutputFormat == "json")
+	{
+		logFLine("{\"root\":%s,\"database\":%s,\"schemaVersion\":%d,"
+			~ "\"createdAt\":%s,\"updatedAt\":%s,\"blobs\":%d}",
+			jsonQuote(info.rootPath), jsonQuote(repository.databasePath),
+			info.schemaVersion, jsonQuote(info.createdAt), jsonQuote(info.updatedAt),
+			repository.blobCount);
+		return;
+	}
 	logFLine("Repository root: %s", info.rootPath);
 	logFLine("Database: %s", repository.databasePath);
 	logFLine("Schema version: %d", info.schemaVersion);
@@ -251,6 +261,21 @@ void executeRepositoryList(Repository repository, ArgsArray options)
 	query.torrent = options.argQueryTorrent;
 
 	auto page = repository.loadCatalogQueryPageWithIds(query);
+	if (options.argOutputFormat == "json")
+	{
+		string output = format("{\"total\":%d,\"offset\":%d,\"items\":[",
+			page.total, query.offset);
+		foreach (index, blob; page.blobs)
+		{
+			if (index > 0)
+				output ~= ",";
+			output ~= format("{\"id\":%d,\"size\":%d,\"path\":%s}",
+				page.blobIds[index], blob.fileSize,
+				jsonQuote(blob.getFirstFileName()));
+		}
+		logLine(output ~ "]}");
+		return;
+	}
 	logFLine("Showing %d of %d matching blobs (offset %d).", page.blobs.length,
 		page.total, query.offset);
 	logLine("ID\tSize\tPath");
@@ -263,6 +288,27 @@ void executeRepositoryList(Repository repository, ArgsArray options)
 void executeRepositoryDuplicates(Repository repository, ArgsArray options)
 {
 	auto groups = repository.queryDuplicates(options.argDuplicateLimit);
+	if (options.argOutputFormat == "json")
+	{
+		string output = "{\"groups\":[";
+		foreach (groupIndex, group; groups)
+		{
+			if (groupIndex > 0)
+				output ~= ",";
+			output ~= format("{\"size\":%d,\"blobs\":[", group.fileSize);
+			foreach (blobIndex, blobId; group.blobIds)
+			{
+				if (blobIndex > 0)
+					output ~= ",";
+				auto blob = repository.loadBlobDetails(blobId);
+				output ~= format("{\"id\":%d,\"path\":%s}", blobId,
+					jsonQuote(blob.getFirstFileName()));
+			}
+			output ~= "]}";
+		}
+		logLine(output ~ "]}");
+		return;
+	}
 	logFLine("Found %d duplicate groups.", groups.length);
 	foreach (groupIndex, group; groups)
 	{
@@ -275,6 +321,13 @@ void executeRepositoryDuplicates(Repository repository, ArgsArray options)
 				blob.getFirstFileName());
 		}
 	}
+}
+
+/** Quote a string for the small, stable CLI JSON result objects. */
+string jsonQuote(string value)
+{
+	return "\"" ~ value.replace("\\", "\\\\").replace("\"", "\\\"")
+		.replace("\n", "\\n").replace("\r", "\\r") ~ "\"";
 }
 
 /** Execute the selected metadata extractors against a repository. */

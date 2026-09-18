@@ -42,6 +42,7 @@ struct ArgsArray
 	bool argQueryFileType; ///< Require file type metadata.
 	bool argQueryArchive; ///< Require archive metadata.
 	bool argQueryTorrent; ///< Require torrent metadata.
+	string argOutputFormat = "table"; ///< Repository query output format.
 	bool argDropMissing; ///< Drop missing files from the database.
 	bool argWriteJSON; ///< Write the resulting JSON file.
 	int argNumberOfThreads = 1; ///< Number of worker threads.

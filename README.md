@@ -165,6 +165,7 @@ Current command-line options (from `source/dosierskanilo_cli/commandline.d`):
 - `-v`, `--verbose`: verbose output
 - `--version`: show the application version
 - `--help`: print help
+- `--format`: `table` or `json` output for `info`, `list`, and `duplicates`
 
 Repository command aliases are also available:
 
