@@ -328,8 +328,9 @@ dosierskanilo export [ROOT] --output OUTPUT.json
 - [x] Define a typed parser result containing the selected action, validated
   values, and a structured parse status.
 - [x] Remove the process-global CLI option state from the parser path.
-- [ ] Separate repository parsing from legacy JSON parsing and reject options
-  that do not belong to the selected subcommand.
+- [ ] Separate repository parsing from legacy JSON parsing into dedicated
+  parser modules.
+- [x] Reject options that do not belong to the selected repository subcommand.
 - [ ] Split repository execution into focused handlers for initialization,
   scanning, metadata extraction, analysis, import, export, and queries.
 - [ ] Make `scan`, `metadata`, `analyze`, `info`, `list`, and `duplicates`

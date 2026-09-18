@@ -241,6 +241,8 @@ ParsedCommandLine parseCommandLine(string[] args)
             logLine("Repository query format must be 'table' or 'json'.");
             return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
         }
+        if (!validateRepositoryCommand(command, argsarray))
+            return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
         if (!argsarray.argImportJSON.empty
             && !argsarray.argImportJSON.endsWith(jsonFileExtension))
         {
@@ -341,6 +343,76 @@ private bool hasMetadataOptions(ArgsArray options)
     return options.argDoChecksums || options.argDoFileTypes
         || options.argDoMediaSig || options.argScanArchives
         || options.argScanTorrents;
+}
+
+/** Reject options that would be silently ignored by an explicit command. */
+private bool validateRepositoryCommand(string command, ArgsArray options)
+{
+    bool hasStorageAction = options.argInitRepository || options.argScanFiles
+        || options.argRunMetadata || options.argRunAnalysis
+        || !options.argImportJSON.empty || !options.argExportJSON.empty
+        || options.argWriteJSON;
+    bool hasMetadataAction = options.argDoChecksums || options.argDoFileTypes
+        || options.argDoMediaSig || options.argScanArchives
+        || options.argScanTorrents;
+
+    final switch (command)
+    {
+    case "info":
+        if (hasStorageAction || hasMetadataAction || options.argDropMissing)
+            return invalidCommandOptions(command);
+        break;
+    case "list":
+    case "duplicates":
+        if (hasStorageAction || hasMetadataAction || options.argDropMissing)
+            return invalidCommandOptions(command);
+        break;
+    case "metadata":
+        if (options.argInitRepository || options.argScanFiles
+            || options.argRunAnalysis || !options.argImportJSON.empty
+            || !options.argExportJSON.empty || options.argWriteJSON
+            || options.argDropMissing)
+            return invalidCommandOptions(command);
+        break;
+    case "analyze":
+    case "analyse":
+        if (options.argInitRepository || options.argScanFiles
+            || options.argRunMetadata || hasMetadataAction
+            || !options.argImportJSON.empty || !options.argExportJSON.empty
+            || options.argWriteJSON)
+            return invalidCommandOptions(command);
+        break;
+    case "init":
+        if (options.argScanFiles || options.argRunMetadata
+            || options.argRunAnalysis || !options.argImportJSON.empty
+            || !options.argExportJSON.empty || options.argWriteJSON
+            || hasMetadataAction || options.argDropMissing)
+            return invalidCommandOptions(command);
+        break;
+    case "scan":
+        if (options.argInitRepository || options.argRunMetadata
+            || options.argRunAnalysis || !options.argImportJSON.empty
+            || !options.argExportJSON.empty || options.argWriteJSON)
+            return invalidCommandOptions(command);
+        break;
+    case "import", "export":
+        if (options.argInitRepository || options.argScanFiles
+            || options.argRunMetadata || options.argRunAnalysis
+            || hasMetadataAction || options.argDropMissing || options.argWriteJSON)
+            return invalidCommandOptions(command);
+        break;
+    case "":
+        break;
+    }
+    return true;
+}
+
+/** Print a consistent diagnostic for an invalid command option combination. */
+private bool invalidCommandOptions(string command)
+{
+    logFLine("Options are not valid for the '%s' command.", command);
+    logLine("Use --help to see the options supported by this command.");
+    return false;
 }
 
 /** Compatibility wrapper used by the existing parser unit tests. */
@@ -480,6 +552,11 @@ unittest
     ]);
     assert(invalidInfoFormat.status == ParseStatus.error);
 
+    auto invalidInfoAction = parseCommandLine([
+        "programname", "info", "--path", testdir, "--checksum"
+    ]);
+    assert(invalidInfoAction.status == ParseStatus.error);
+
     auto parsedList = parseCommandLine([
         "programname", "list", "--path", testdir, "--text", "movie",
         "--limit", "10", "--offset", "2", "--video"
@@ -491,6 +568,11 @@ unittest
     assert(parsedList.options.argQueryLimit == 10);
     assert(parsedList.options.argQueryOffset == 2);
     assert(parsedList.options.argQueryVideo);
+
+    auto invalidListAction = parseCommandLine([
+        "programname", "list", "--path", testdir, "--scan"
+    ]);
+    assert(invalidListAction.status == ParseStatus.error);
 
     auto parsedDuplicates = parseCommandLine([
         "programname", "duplicates", "--path", testdir,

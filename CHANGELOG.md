@@ -19,6 +19,8 @@ They represent the functional evolution and are intentionally summarized.
 - Added the read-only `duplicates` repository subcommand for duplicate groups.
 - Added `--format=json` output for repository information, listing, and duplicate
   queries.
+- Repository subcommands now reject incompatible operation options instead of
+  silently ignoring them.
 - Fixed Linux dependency installation by including the SQLite development and
   runtime libraries required by `d2sqlite3`.
 
