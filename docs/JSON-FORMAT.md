@@ -5,8 +5,10 @@ import and export. It describes version 3, which is the format written by the
 current application.
 
 JSON is a compatibility and exchange format. It is not intended to be the
-primary query store for large repositories. The planned SQLite repository is
-described in [DATABASE.md](DATABASE.md).
+primary query store for large repositories. The `.dosierskanilo` SQLite
+repository is the normal working store and is described in [DATABASE.md](DATABASE.md).
+The direct JSON-file workflow remains supported for existing users, scripts and
+catalogs and is not scheduled for short-term removal.
 
 ## Root Object
 

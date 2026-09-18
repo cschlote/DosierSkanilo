@@ -15,6 +15,8 @@ They represent the functional evolution and are intentionally summarized.
   closing read statements before dependent queries.
 - Fixed JSON backup filenames for filesystems such as exFAT by replacing invalid
   colon characters in timestamp-based names.
+- Documented `.dosierskanilo` repositories as the normal working mode while
+  retaining direct JSON files as a long-term compatibility workflow.
 
 ## Release 26.10.0 - 2026-09-17
 

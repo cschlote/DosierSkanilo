@@ -1,6 +1,6 @@
 # SQLite Repository Architecture
 
-This document describes the planned persistent database backend for
+This document describes the persistent SQLite repository backend for
 DosierSkanilo. The database represents the current state of one directory tree.
 It does not contain scan history in its first version.
 
@@ -151,7 +151,9 @@ does.
 
 ## JSON Import and Export
 
-JSON remains the interchange format:
+The `.dosierskanilo` SQLite repository is the normal working storage for new
+catalogs. JSON remains the complete structured interchange format and the
+compatibility boundary between repository and non-repository workflows:
 
 - Import accepts all currently supported legacy and version-3 forms.
 - Import runs inside one SQLite transaction.
@@ -161,6 +163,11 @@ JSON remains the interchange format:
 - Version-3 export remains available for existing consumers.
 - An extended JSON version is required before fields not representable in
   version 3, such as complete torrent file lists, can be exported losslessly.
+
+The direct JSON-file workflow remains supported independently of SQLite. It can
+load, scan, analyze and write a JSON catalog without creating a repository.
+There is no short-term removal plan for this mode; existing scripts and JSON
+catalogs are long-term compatibility inputs and outputs.
 
 The database is therefore not required to mimic the JSON shape. It is allowed
 to normalize relationships and reconstruct JSON at the boundary.
