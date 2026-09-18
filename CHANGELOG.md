@@ -15,6 +15,7 @@ They represent the functional evolution and are intentionally summarized.
 - Added the `metadata` repository subcommand for explicit checksum, file type,
   MediaInfo, archive, and torrent extraction operations.
 - Added the `info` repository subcommand for repository metadata and blob counts.
+- Added the `list` repository subcommand with bounded path and metadata filters.
 - Fixed Linux dependency installation by including the SQLite development and
   runtime libraries required by `d2sqlite3`.
 

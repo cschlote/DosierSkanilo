@@ -40,6 +40,7 @@ Commands:
     metadata   Extract metadata in a repository
     analyze    Analyze a repository
     info       Show repository information
+    list       List repository blobs
     import     Import JSON into a repository
     export     Export a repository as JSON
 
@@ -54,6 +55,7 @@ enum CliCommand
     metadata,
     analyze,
     info,
+    list,
     importJson,
     exportJson
 }
@@ -93,7 +95,7 @@ ParsedCommandLine parseCommandLine(string[] args)
     {
         switch (args[1])
         {
-        case "init", "scan", "metadata", "analyse", "analyze", "info", "import", "export":
+        case "init", "scan", "metadata", "analyse", "analyze", "info", "list", "import", "export":
             command = args[1];
             args = args[0 .. 1] ~ args[2 .. $];
             break;
@@ -133,6 +135,16 @@ ParsedCommandLine parseCommandLine(string[] args)
             "pickhidden|H", "Pick hidden files and directories too", &argsarray.argPickHidden,
             "hidden", "Pick hidden files and directories too", &argsarray.argPickHidden,
             "verbose|v", "Be verbose", &argsarray.argVerboseOutputs,
+            "text", "Filter repository paths or SHA1 values", &argsarray.argQueryText,
+            "limit", "Maximum number of listed repository blobs", &argsarray.argQueryLimit,
+            "offset", "Number of matching repository blobs to skip", &argsarray.argQueryOffset,
+            "video", "Require video metadata", &argsarray.argQueryVideo,
+            "audio", "Require audio metadata", &argsarray.argQueryAudio,
+            "image", "Require image metadata", &argsarray.argQueryImage,
+            "text-stream", "Require text or subtitle metadata", &argsarray.argQueryTextStream,
+            "file-type", "Require file type metadata", &argsarray.argQueryFileType,
+            "archive", "Require archive metadata", &argsarray.argQueryArchive,
+            "torrent", "Require torrent metadata", &argsarray.argQueryTorrent,
             "version", "Show the application version", &argsarray.argVersion);
     }
     catch (GetOptException ex)
@@ -155,6 +167,9 @@ ParsedCommandLine parseCommandLine(string[] args)
         break;
     case "info":
         argsarray.argShowInfo = true;
+        break;
+    case "list":
+        argsarray.argList = true;
         break;
     case "analyse":
     case "analyze":
@@ -291,6 +306,8 @@ private CliCommand commandToCliCommand(string command)
         return CliCommand.metadata;
     case "info":
         return CliCommand.info;
+    case "list":
+        return CliCommand.list;
     case "analyse", "analyze":
         return CliCommand.analyze;
     case "import":
@@ -435,6 +452,18 @@ unittest
     assert(parsedInfo.status == ParseStatus.run);
     assert(parsedInfo.command == CliCommand.info);
     assert(parsedInfo.options.argShowInfo);
+
+    auto parsedList = parseCommandLine([
+        "programname", "list", "--path", testdir, "--text", "movie",
+        "--limit", "10", "--offset", "2", "--video"
+    ]);
+    assert(parsedList.status == ParseStatus.run);
+    assert(parsedList.command == CliCommand.list);
+    assert(parsedList.options.argList);
+    assert(parsedList.options.argQueryText == "movie");
+    assert(parsedList.options.argQueryLimit == 10);
+    assert(parsedList.options.argQueryOffset == 2);
+    assert(parsedList.options.argQueryVideo);
 
     auto missingMetadataOption = parseCommandLine([
         "programname", "metadata", "--path", testdir

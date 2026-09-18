@@ -173,6 +173,7 @@ Repository command aliases are also available:
 - `metadata`
 - `analyze` (with `analyse` retained as an alias)
 - `info`
+- `list`
 - `import`
 - `export`
 

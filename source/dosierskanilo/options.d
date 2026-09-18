@@ -29,6 +29,17 @@ struct ArgsArray
 	bool argRunAnalysis; ///< Run duplicate and cleanup analysis.
 	bool argRunMetadata; ///< Run repository metadata extraction.
 	bool argShowInfo; ///< Show repository metadata and catalog counts.
+	bool argList; ///< List repository blobs.
+	string argQueryText; ///< Filter repository paths or SHA1 values.
+	uint argQueryLimit = 50; ///< Maximum number of listed blobs.
+	uint argQueryOffset; ///< Number of matching blobs to skip.
+	bool argQueryVideo; ///< Require video metadata.
+	bool argQueryAudio; ///< Require audio metadata.
+	bool argQueryImage; ///< Require image metadata.
+	bool argQueryTextStream; ///< Require text/subtitle metadata.
+	bool argQueryFileType; ///< Require file type metadata.
+	bool argQueryArchive; ///< Require archive metadata.
+	bool argQueryTorrent; ///< Require torrent metadata.
 	bool argDropMissing; ///< Drop missing files from the database.
 	bool argWriteJSON; ///< Write the resulting JSON file.
 	int argNumberOfThreads = 1; ///< Number of worker threads.

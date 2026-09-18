@@ -137,6 +137,12 @@ bool executeRepositoryOperation(ArgsArray options)
 			repository.close();
 			return true;
 		}
+		if (options.argList)
+		{
+			executeRepositoryList(repository, options);
+			repository.close();
+			return true;
+		}
 
 		if (!options.argImportJSON.empty)
 		{
@@ -221,6 +227,30 @@ void executeRepositoryInfo(Repository repository)
 	logFLine("Created: %s", info.createdAt);
 	logFLine("Updated: %s", info.updatedAt);
 	logFLine("Blobs: %d", repository.blobCount);
+}
+
+/** Print one bounded, repository-side filtered page of blobs. */
+void executeRepositoryList(Repository repository, ArgsArray options)
+{
+	RepositoryQueryOptions query;
+	query.offset = options.argQueryOffset;
+	query.limit = options.argQueryLimit;
+	query.text = options.argQueryText;
+	query.video = options.argQueryVideo;
+	query.audio = options.argQueryAudio;
+	query.image = options.argQueryImage;
+	query.textStream = options.argQueryTextStream;
+	query.fileType = options.argQueryFileType;
+	query.archive = options.argQueryArchive;
+	query.torrent = options.argQueryTorrent;
+
+	auto page = repository.loadCatalogQueryPageWithIds(query);
+	logFLine("Showing %d of %d matching blobs (offset %d).", page.blobs.length,
+		page.total, query.offset);
+	logLine("ID\tSize\tPath");
+	foreach (index, blob; page.blobs)
+		logFLine("%d\t%d\t%s", page.blobIds[index], blob.fileSize,
+			blob.getFirstFileName());
 }
 
 /** Execute the selected metadata extractors against a repository. */
