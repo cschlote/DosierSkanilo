@@ -330,8 +330,8 @@ dosierskanilo export [ROOT] --output OUTPUT.json
 - [x] Remove the process-global CLI option state from the parser path.
 - [x] Move CLI parsing behind a dedicated `dosierskanilo_cli.parser` module;
   keep `commandline` as a compatibility facade.
-- [ ] Separate repository parsing from legacy JSON parsing into dedicated
-  parser modules.
+- [x] Separate repository and legacy validation into dedicated
+  `repositoryvalidation` and `legacyvalidation` modules.
 - [x] Reject options that do not belong to the selected repository subcommand.
 - [x] Split repository execution into focused handlers for initialization,
   scanning, metadata extraction, analysis, import, export, and queries.

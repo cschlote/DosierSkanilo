@@ -17,6 +17,8 @@ import std.string;
 
 import dosierskanilo;
 import dosierskanilo_cli.logging : errorFLine, errorLine;
+import dosierskanilo_cli.legacyvalidation : validateLegacyOptions;
+import dosierskanilo_cli.repositoryvalidation : validateRepositoryOptions;
 import core.internal.lifetime;
 
 immutable string helpText = q"EOS
@@ -228,96 +230,13 @@ ParsedCommandLine parseCommandLine(string[] args)
 
     if (repositoryMode)
     {
-        if (argsarray.argRepositoryPath.empty)
-            argsarray.argRepositoryPath = argsarray.argScanPath;
-        if (argsarray.argRepositoryPath.empty)
-            argsarray.argRepositoryPath = ".";
-        if (command == "init" && (!exists(argsarray.argRepositoryPath)
-            || !isDir(argsarray.argRepositoryPath)))
-        {
-            errorFLine("Repository path '%s' is not an existing directory.",
-                argsarray.argRepositoryPath);
+        if (!validateRepositoryOptions(command, argsarray))
             return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
-        }
-        if (command == "metadata" && !hasMetadataOptions(argsarray))
-        {
-            errorLine("Metadata command needs at least one metadata option: "
-                ~ "--checksum, --filetypes, --mediasig, --scanArchives, "
-                ~ "or --scanTorrents.");
-            return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
-        }
-        if ((command == "info" || command == "list" || command == "duplicates")
-            && argsarray.argOutputFormat != "table"
-            && argsarray.argOutputFormat != "json")
-        {
-            errorLine("Repository query format must be 'table' or 'json'.");
-            return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
-        }
-        if (!validateRepositoryCommand(command, argsarray))
-            return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
-        if (!argsarray.argImportJSON.empty
-            && !argsarray.argImportJSON.endsWith(jsonFileExtension))
-        {
-            errorFLine("Import JSON filename '%s' looks invalid.", argsarray.argImportJSON);
-            return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
-        }
-        if (!argsarray.argExportJSON.empty
-            && !argsarray.argExportJSON.endsWith(jsonFileExtension))
-        {
-            errorFLine("Export JSON filename '%s' looks invalid.", argsarray.argExportJSON);
-            return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
-        }
         return ParsedCommandLine(ParseStatus.run, commandToCliCommand(command), argsarray);
     }
 
-    /* Validate JSON-mode arguments */
-    if (argsarray.argScanPath.empty)
-    {
-        errorLine("We need a scan path. Use -p to specify it.");
+    if (!validateLegacyOptions(argsarray))
         return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
-    }
-    /* Test, that we got a directory path passed in */
-    if (!exists(argsarray.argScanPath))
-    {
-        errorFLine("We need a directory for the scan path. '%s' doesn't even exist.",
-            argsarray.argScanPath);
-        return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
-    }
-    if (!isDir(argsarray.argScanPath))
-    {
-        errorFLine("We need a directory for the scan path. '%s' is not a directory.",
-            argsarray.argScanPath);
-        return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
-    }
-
-    if (argsarray.argJSONFile.empty ||
-         // !argsarray.argJSONFile.isValidFilename ||
-        !argsarray.argJSONFile.endsWith(jsonFileExtension))
-    {
-        errorFLine("JSON filename '%s' looks invalid.", argsarray.argJSONFile);
-        errorLine("We expect a filename here, not a path.");
-        errorLine("We expect the \"" ~ jsonFileExtension ~ "\" file extension.");
-        return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
-    }
-
-    /* Check for existing JSON file */
-    if (argsarray.argJSONFile.exists)
-    {
-        errorLine("JSON file '", argsarray.argJSONFile, "' exists.");
-        if (argsarray.argWriteJSON)
-        {
-            if (argsarray.argForceOverwrite)
-            {
-                errorLine("Force overwriting of existing JSON file.");
-            }
-            else
-            {
-                errorLine("Abort program. Use -f to force overwriting of output file.");
-                return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
-            }
-        }
-    }
-
     return ParsedCommandLine(ParseStatus.run, CliCommand.legacyJson, argsarray);
 }
 
@@ -347,95 +266,6 @@ private CliCommand commandToCliCommand(string command)
     case "":
         return CliCommand.legacyJson;
     }
-}
-
-/** Return whether at least one repository metadata extractor was selected. */
-private bool hasMetadataOptions(ArgsArray options)
-{
-    return options.argDoChecksums || options.argDoFileTypes
-        || options.argDoMediaSig || options.argScanArchives
-        || options.argScanTorrents;
-}
-
-/** Reject options that would be silently ignored by an explicit command. */
-private bool validateRepositoryCommand(string command, ArgsArray options)
-{
-    bool hasStorageAction = options.argInitRepository || options.argScanFiles
-        || options.argRunMetadata || options.argRunAnalysis
-        || !options.argImportJSON.empty || !options.argExportJSON.empty
-        || options.argWriteJSON;
-    bool hasMetadataAction = options.argDoChecksums || options.argDoFileTypes
-        || options.argDoMediaSig || options.argScanArchives
-        || options.argScanTorrents;
-
-    final switch (command)
-    {
-    case "info":
-        if (hasStorageAction || hasMetadataAction || options.argDropMissing
-            || options.argReplaceCatalog)
-            return invalidCommandOptions(command);
-        break;
-    case "list":
-    case "duplicates":
-        if (hasStorageAction || hasMetadataAction || options.argDropMissing
-            || options.argReplaceCatalog)
-            return invalidCommandOptions(command);
-        break;
-    case "metadata":
-        if (options.argInitRepository || options.argScanFiles
-            || options.argRunAnalysis || !options.argImportJSON.empty
-            || !options.argExportJSON.empty || options.argWriteJSON
-            || options.argDropMissing || options.argReplaceCatalog)
-            return invalidCommandOptions(command);
-        break;
-    case "analyze":
-    case "analyse":
-        if (options.argInitRepository || options.argScanFiles
-            || options.argRunMetadata || hasMetadataAction
-            || !options.argImportJSON.empty || !options.argExportJSON.empty
-            || options.argWriteJSON || options.argReplaceCatalog)
-            return invalidCommandOptions(command);
-        break;
-    case "init":
-        if (options.argScanFiles || options.argRunMetadata
-            || options.argRunAnalysis || !options.argImportJSON.empty
-            || !options.argExportJSON.empty || options.argWriteJSON
-            || hasMetadataAction || options.argDropMissing
-            || options.argReplaceCatalog)
-            return invalidCommandOptions(command);
-        break;
-    case "scan":
-        if (options.argInitRepository || options.argRunMetadata
-            || options.argRunAnalysis || !options.argImportJSON.empty
-            || !options.argExportJSON.empty || options.argWriteJSON
-            || options.argReplaceCatalog)
-            return invalidCommandOptions(command);
-        break;
-    case "import":
-        if (options.argInitRepository || options.argScanFiles
-            || options.argRunMetadata || options.argRunAnalysis
-            || hasMetadataAction || options.argDropMissing || options.argWriteJSON)
-            return invalidCommandOptions(command);
-        break;
-    case "export":
-        if (options.argInitRepository || options.argScanFiles
-            || options.argRunMetadata || options.argRunAnalysis
-            || hasMetadataAction || options.argDropMissing || options.argWriteJSON
-            || options.argReplaceCatalog)
-            return invalidCommandOptions(command);
-        break;
-    case "":
-        break;
-    }
-    return true;
-}
-
-/** Print a consistent diagnostic for an invalid command option combination. */
-private bool invalidCommandOptions(string command)
-{
-    errorFLine("Options are not valid for the '%s' command.", command);
-    errorLine("Use --help to see the options supported by this command.");
-    return false;
 }
 
 /** Compatibility wrapper used by the existing parser unit tests. */
