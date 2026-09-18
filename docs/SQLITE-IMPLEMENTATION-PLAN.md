@@ -28,6 +28,45 @@ GUI -------------------+--> dosierskanilo.repository API
 The GUI and CLI must not depend on `d2sqlite3` or issue SQL directly. The
 SQLite implementation remains behind the public repository API.
 
+## CLI Target Contract
+
+The SQLite repository is the primary storage mode for explicit subcommands.
+The existing option-only invocation remains a supported legacy JSON mode and
+must not be silently reinterpreted as a repository operation.
+
+The target repository commands are:
+
+```text
+dosierskanilo init [ROOT]
+dosierskanilo scan [ROOT] [OPTIONS]
+dosierskanilo metadata [ROOT] [OPTIONS]
+dosierskanilo analyze [ROOT] [OPTIONS]
+dosierskanilo info [ROOT]
+dosierskanilo list [ROOT] [FILTERS]
+dosierskanilo duplicates [ROOT]
+dosierskanilo import [ROOT] INPUT.json
+dosierskanilo export [ROOT] --output OUTPUT.json
+```
+
+`ROOT` is optional for repository commands. If it is omitted, the CLI starts
+at the current directory and uses the nearest parent containing
+`.dosierskanilo`. `init` uses the current directory when no root is given.
+Commands that require an existing repository must fail with an actionable
+message when discovery finds none.
+
+`analyze` is the canonical spelling; `analyse` remains an alias during the
+compatibility period. The existing option-only JSON workflow remains
+available, including its `--path`, `--json`, and legacy option names. New
+repository commands use canonical kebab-case options such as `--drop-missing`,
+`--file-types`, `--media-info`, and `--output`; existing spellings remain
+aliases until a separate deprecation decision is made.
+
+The parser must return a typed action and value options rather than mutating
+process-global state. Help and version are successful actions with exit code
+0, usage errors use exit code 2, and operation failures use exit code 1.
+Human-readable diagnostics go to stderr; command results go to stdout. Query
+commands additionally support a stable machine-readable format.
+
 ## Status Legend
 
 - `[ ]` not started
@@ -248,27 +287,35 @@ Move duplicate and missing-file analysis from D arrays into repository queries.
 - [x] Analysis does not require loading all blobs into a D array.
 - [x] Merge and cleanup are atomic transactions.
 
-## WP-06: CLI Integration
+## WP-06: CLI Integration and Cleanup
 
 Status: `[-]`
 
 ### WP-06 Objective
 
-Add repository operation to the CLI while retaining the existing JSON mode.
+Make the SQLite repository the coherent CLI model while retaining the existing
+JSON mode as an explicit compatibility path. Repository commands must map to
+one operation each and use only the public repository API.
 
 ### Proposed Operations
 
 ```text
-dosierskanilo init
-dosierskanilo scan
-dosierskanilo analyse
-dosierskanilo import
-dosierskanilo export
+dosierskanilo init [ROOT]
+dosierskanilo scan [ROOT]
+dosierskanilo metadata [ROOT]
+dosierskanilo analyze [ROOT]
+dosierskanilo info [ROOT]
+dosierskanilo list [ROOT]
+dosierskanilo duplicates [ROOT]
+dosierskanilo import [ROOT] INPUT.json
+dosierskanilo export [ROOT] --output OUTPUT.json
 ```
 
 ### WP-06 Steps
 
-- [x] Add repository root discovery to command-line startup.
+- [x] Implement repository root discovery in the repository API.
+- [ ] Resolve an omitted repository root from the current directory and its
+  parent directories for every repository subcommand.
 - [x] Add explicit repository and JSON input/output options.
 - [x] Preserve existing JSON invocation behavior during migration.
 - [x] Route scan, analysis and metadata operations through the repository API.
@@ -276,11 +323,41 @@ dosierskanilo export
 - [x] Add phase progress reporting for database-backed jobs.
 - [x] Write operational logs to `.dosierskanilo/logs/`.
 - [x] Add clear errors for missing repositories and schema incompatibility.
+- [x] Retain the short repository aliases `init`, `scan`, `import`, and
+  `export`, with `analyse` as a compatibility alias for `analyze`.
+- [ ] Define a typed parser result containing the selected action, validated
+  values, and a structured parse status.
+- [ ] Remove the process-global CLI option state from the parser path.
+- [ ] Separate repository parsing from legacy JSON parsing and reject options
+  that do not belong to the selected subcommand.
+- [ ] Split repository execution into focused handlers for initialization,
+  scanning, metadata extraction, analysis, import, export, and queries.
+- [ ] Make `scan`, `metadata`, `analyze`, `info`, `list`, and `duplicates`
+  repository operations independent of legacy JSON validation.
+- [ ] Add `info`, `list`, and `duplicates` commands using the existing typed
+  repository query API, including pagination and filters.
+- [ ] Add stable table and machine-readable output for query and summary
+  commands without exposing SQLite types in the CLI.
+- [ ] Reserve `-h` for help and move hidden-file selection to an unambiguous
+  option.
+- [ ] Normalize new option names to kebab-case and retain current spellings as
+  compatibility aliases.
+- [ ] Return distinct exit codes for success, usage errors, and operation
+  failures; write diagnostics to stderr.
+- [ ] Make destructive import replacement explicit and separate it from the
+  legacy JSON overwrite `--force` behavior.
 
 ### WP-06 Exit Criteria
 
 - Existing JSON command lines still work.
-- New repository commands work from the root and a subdirectory.
+- Every repository command works from the repository root and a subdirectory
+  without requiring an explicit `--repository` option.
+- A repository subcommand never falls back to JSON mode because of a missing
+  flag.
+- Each repository subcommand has one documented operation and rejects
+  incompatible options.
+- Help and version are successful, scriptable commands with exit code 0.
+- Query output supports both human-readable and machine-readable consumers.
 - CLI output distinguishes JSON mode from SQLite repository mode.
 - No CLI module imports the SQLite implementation directly.
 
@@ -322,6 +399,18 @@ Status: `[-]`
 
 ### Tests
 
+- [ ] Parser tests cover every repository command, legacy JSON mode, option
+  aliases, invalid combinations, and parser state isolation.
+- [ ] CLI integration tests verify help/version exit codes and stderr/stdout
+  separation.
+- [ ] CLI integration tests verify repository discovery from the root, a
+  nested directory, and a directory without a repository.
+- [ ] CLI integration tests verify that the documented `init` then `scan`
+  workflow uses SQLite without requiring `--repository`.
+- [ ] Query tests verify pagination, filters, duplicate output, and stable
+  machine-readable output.
+- [ ] Compatibility tests verify existing option-only JSON invocations and
+  existing command aliases.
 - [x] Schema creation and forward-version rejection tests.
 - [x] JSON v0/v1/v2/v3 import tests.
 - [x] JSON round-trip tests.
@@ -335,13 +424,18 @@ Status: `[-]`
 
 ### Rollout Sequence
 
-1. Keep JSON as the default for existing invocations.
-2. Release repository initialization and JSON import.
-3. Enable SQLite-backed scanning behind an explicit option.
-4. Enable SQLite browsing in the GUI while retaining JSON support.
-5. Compare JSON and SQLite results on the same input trees.
-6. Make SQLite the default for newly initialized repositories.
-7. Retain explicit JSON import and export indefinitely.
+1. Freeze the current option-only JSON behavior and record compatibility cases.
+2. Introduce the typed parser and command dispatcher without changing legacy
+   JSON invocations.
+3. Make explicit subcommands repository-only and enable automatic root
+   discovery from the current directory.
+4. Split scan, metadata, analysis, import, and export into single-purpose
+   handlers with stable exit codes.
+5. Add repository info, list, and duplicate queries through the public API.
+6. Compare JSON and SQLite results on the same input trees.
+7. Make SQLite the default for newly initialized repositories while retaining
+   explicit JSON import and export indefinitely.
+8. Enable SQLite browsing in the GUI while retaining JSON support.
 
 ### Final Exit Criteria
 
@@ -363,6 +457,7 @@ WP-00
                   +--> WP-06
 
 WP-01 + WP-02
+  +--> WP-06
   +--> WP-07
 
 WP-03 + WP-04 + WP-05 + WP-06 + WP-07
