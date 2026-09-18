@@ -1,52 +1,34 @@
-/** Validation rules for the compatibility JSON CLI workflow. */
+/** Validation rules for the explicit direct JSON CLI workflow. */
 module dosierskanilo_cli.legacyvalidation;
 
-import std.file : exists, isDir;
+import std.file : exists, isDir, isFile;
 import std.string : empty, endsWith;
 
 import dosierskanilo;
 import dosierskanilo_cli.logging : errorFLine, errorLine;
 
-/** Validate the option-only direct JSON workflow. */
-bool validateLegacyOptions(ref ArgsArray options)
+/** Validate an explicit JSON command. */
+bool validateJsonOptions(string command, ref ArgsArray options)
 {
-    if (options.argScanPath.empty)
+    if (command == "json-scan")
     {
-        errorLine("We need a scan path. Use -p to specify it.");
-        return false;
-    }
-    if (!exists(options.argScanPath))
-    {
-        errorFLine("We need a directory for the scan path. '%s' doesn't even exist.",
-            options.argScanPath);
-        return false;
-    }
-    if (!isDir(options.argScanPath))
-    {
-        errorFLine("We need a directory for the scan path. '%s' is not a directory.",
-            options.argScanPath);
-        return false;
+        if (options.argScanPath.empty || !exists(options.argScanPath)
+            || !isDir(options.argScanPath))
+        {
+            errorLine("JSON scan needs an existing directory ROOT.");
+            return false;
+        }
     }
     if (options.argJSONFile.empty || !options.argJSONFile.endsWith(jsonFileExtension))
     {
-        errorFLine("JSON filename '%s' looks invalid.", options.argJSONFile);
-        errorLine("We expect a filename here, not a path.");
-        errorLine("We expect the \"" ~ jsonFileExtension ~ "\" file extension.");
+        errorFLine("JSON catalog '%s' looks invalid.", options.argJSONFile);
         return false;
     }
-    if (options.argJSONFile.exists)
+    if (command == "json-analyze" && (!exists(options.argJSONFile)
+        || !isFile(options.argJSONFile)))
     {
-        errorLine("JSON file '", options.argJSONFile, "' exists.");
-        if (options.argWriteJSON)
-        {
-            if (options.argForceOverwrite)
-                errorLine("Force overwriting of existing JSON file.");
-            else
-            {
-                errorLine("Abort program. Use -f to force overwriting of output file.");
-                return false;
-            }
-        }
+        errorFLine("JSON catalog '%s' does not exist.", options.argJSONFile);
+        return false;
     }
     return true;
 }

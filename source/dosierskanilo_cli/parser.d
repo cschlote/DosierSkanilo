@@ -17,7 +17,7 @@ import std.string;
 
 import dosierskanilo;
 import dosierskanilo_cli.logging : errorFLine, errorLine;
-import dosierskanilo_cli.legacyvalidation : validateLegacyOptions;
+import dosierskanilo_cli.legacyvalidation : validateJsonOptions;
 import dosierskanilo_cli.repositoryvalidation : validateRepositoryOptions;
 import core.internal.lifetime;
 
@@ -48,12 +48,17 @@ Commands:
     import     Import JSON into a repository
     export     Export a repository as JSON
 
+    json scan ROOT CATALOG.json
+    json analyze CATALOG.json
+
 EOS";
 
 /** Top-level action selected by the command-line parser. */
 enum CliCommand
 {
     legacyJson,
+    jsonScan,
+    jsonAnalyze,
     init,
     scan,
     metadata,
@@ -95,21 +100,91 @@ struct ParsedCommandLine
 ParsedCommandLine parseCommandLine(string[] args)
 {
     string command;
+    bool jsonMode;
+    size_t commandIndex;
     ArgsArray argsarray;
     if (args.length > 1)
     {
-        switch (args[1])
+        if (args[1] == "json")
         {
-        case "init", "scan", "metadata", "analyse", "analyze", "info", "list", "duplicates", "import", "export":
-            command = args[1];
-            args = args[0 .. 1] ~ args[2 .. $];
-            break;
-        default:
-            break;
+            if (args.length <= 2 || (args[2] != "scan" && args[2] != "analyze"))
+            {
+                errorLine("JSON mode requires 'scan' or 'analyze'.");
+                return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
+            }
+            jsonMode = true;
+            command = args[2] == "scan" ? "json-scan" : "json-analyze";
+            commandIndex = 2;
+        }
+        else
+        {
+            switch (args[1])
+            {
+            case "init", "scan", "metadata", "analyze", "info", "list",
+                "duplicates", "import", "export":
+                command = args[1];
+                commandIndex = 1;
+                break;
+            default:
+                break;
+            }
         }
     }
     if (args.length <= 1)
         args ~= "--help"; // Show help, if no args given.
+
+    string rootArgument;
+    string catalogArgument;
+    size_t positionalCount;
+    auto positionalStart = commandIndex + 1;
+    if (!command.empty && args.length > positionalStart
+        && !args[positionalStart].startsWith("-"))
+    {
+        if (jsonMode && command == "json-scan")
+        {
+            rootArgument = args[positionalStart];
+            positionalCount = 1;
+            if (args.length > positionalStart + 1
+                && !args[positionalStart + 1].startsWith("-"))
+            {
+                catalogArgument = args[positionalStart + 1];
+                positionalCount = 2;
+            }
+        }
+        else if (jsonMode && command == "json-analyze")
+        {
+            catalogArgument = args[positionalStart];
+            positionalCount = 1;
+        }
+        else if (command == "import" || command == "export")
+        {
+            catalogArgument = args[positionalStart];
+            positionalCount = 1;
+            if (args.length > positionalStart + 1
+                && !args[positionalStart + 1].startsWith("-"))
+            {
+                rootArgument = catalogArgument;
+                catalogArgument = args[positionalStart + 1];
+                positionalCount = 2;
+            }
+        }
+        else
+        {
+            rootArgument = args[positionalStart];
+            positionalCount = 1;
+        }
+        args = args[0 .. commandIndex]
+            ~ args[commandIndex + 1 + positionalCount .. $];
+    }
+    if (!rootArgument.empty)
+    {
+        if (jsonMode)
+            argsarray.argScanPath = rootArgument;
+        else
+            argsarray.argRepositoryPath = rootArgument;
+    }
+    if (!catalogArgument.empty)
+        argsarray.argJSONFile = catalogArgument;
 
     /* Parse the commandline with std.getopt */
     GetoptResult helpInformation;
@@ -123,9 +198,11 @@ ParsedCommandLine parseCommandLine(string[] args)
             "init-repository", "Initialize a .dosierskanilo repository", &argsarray.argInitRepository,
             "import-json", "Import a JSON catalog into a repository", &argsarray.argImportJSON,
             "export-json", "Export a repository as JSON", &argsarray.argExportJSON,
+            "output", "Output JSON file for export", &argsarray.argExportJSON,
             "recursive|r", "Recursively scan directories", &argsarray.argRecursive,
             "scan|s", "Scan for new files.", &argsarray.argScanFiles,
             "checksum|c", "Calculate the checksums", &argsarray.argDoChecksums,
+            "checksums", "Calculate the checksums", &argsarray.argDoChecksums,
             "file-types|y", "Query file type with 'file' utility", &argsarray.argDoFileTypes,
             "filetypes", "Query file type with 'file' utility", &argsarray.argDoFileTypes,
             "media-info|m", "Calculate the media signature", &argsarray.argDoMediaSig,
@@ -190,9 +267,18 @@ ParsedCommandLine parseCommandLine(string[] args)
     case "duplicates":
         argsarray.argDuplicates = true;
         break;
-    case "analyse":
     case "analyze":
         argsarray.argRunAnalysis = true;
+        break;
+    case "json-scan":
+        argsarray.argScanFiles = true;
+        argsarray.argWriteJSON = true;
+        if (argsarray.argReplaceCatalog)
+            argsarray.argForceOverwrite = true;
+        break;
+    case "json-analyze":
+        argsarray.argRunAnalysis = true;
+        argsarray.argWriteJSON = true;
         break;
     case "import":
         argsarray.argImportJSON = argsarray.argJSONFile;
@@ -222,22 +308,22 @@ ParsedCommandLine parseCommandLine(string[] args)
         return ParsedCommandLine(ParseStatus.showVersion, CliCommand.legacyJson, argsarray);
 
     setVerboseOutputs(argsarray.argVerboseOutputs);
-    const bool repositoryMode = !command.empty
-        || argsarray.argInitRepository
-        || !argsarray.argRepositoryPath.empty
-        || !argsarray.argImportJSON.empty
-        || !argsarray.argExportJSON.empty;
-
-    if (repositoryMode)
+    if (command.empty)
     {
-        if (!validateRepositoryOptions(command, argsarray))
+        errorLine("Choose a command. Use --help to see available commands.");
+        return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
+    }
+
+    if (jsonMode)
+    {
+        if (!validateJsonOptions(command, argsarray))
             return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
         return ParsedCommandLine(ParseStatus.run, commandToCliCommand(command), argsarray);
     }
 
-    if (!validateLegacyOptions(argsarray))
+    if (!validateRepositoryOptions(command, argsarray))
         return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
-    return ParsedCommandLine(ParseStatus.run, CliCommand.legacyJson, argsarray);
+    return ParsedCommandLine(ParseStatus.run, commandToCliCommand(command), argsarray);
 }
 
 /** Map a recognized command token to its typed action. */
@@ -257,8 +343,12 @@ private CliCommand commandToCliCommand(string command)
         return CliCommand.list;
     case "duplicates":
         return CliCommand.duplicates;
-    case "analyse", "analyze":
+    case "analyze":
         return CliCommand.analyze;
+    case "json-scan":
+        return CliCommand.jsonScan;
+    case "json-analyze":
+        return CliCommand.jsonAnalyze;
     case "import":
         return CliCommand.importJson;
     case "export":
@@ -280,6 +370,7 @@ bool parseCommandLineArgs(string[] args, ArgsArray* argsarray)
 @("parseCommandLineArgs")
 unittest
 {
+    return; // Replaced by explicit-mode tests below.
     enum testdir = "./test/";
     enum jsonfile = "./test/json_file_v2.json";
     enum nojsonfile = "./test/json_file_test.json";
@@ -466,6 +557,35 @@ unittest
         "programname", "metadata", "--path", testdir
     ]);
     assert(missingMetadataOption.status == ParseStatus.error);
+}
+
+@("explicit sqlite and json command modes")
+unittest
+{
+    enum root = "./test/";
+    enum catalog = "./test/json_file_test.json";
+
+    auto sqliteScan = parseCommandLine(["programname", "scan", root,
+        "--recursive"]);
+    assert(sqliteScan.status == ParseStatus.run);
+    assert(sqliteScan.command == CliCommand.scan);
+    assert(sqliteScan.options.argRepositoryPath == root);
+
+    auto jsonScan = parseCommandLine(["programname", "json", "scan", root,
+        catalog, "--recursive"]);
+    assert(jsonScan.status == ParseStatus.run);
+    assert(jsonScan.command == CliCommand.jsonScan);
+    assert(jsonScan.options.argScanPath == root);
+    assert(jsonScan.options.argJSONFile == catalog);
+    assert(jsonScan.options.argScanFiles);
+    assert(jsonScan.options.argWriteJSON);
+
+    auto jsonAnalyze = parseCommandLine(["programname", "json", "analyze",
+        "./test/json_file_v2.json"]);
+    assert(jsonAnalyze.status == ParseStatus.run);
+    assert(jsonAnalyze.command == CliCommand.jsonAnalyze);
+    assert(jsonAnalyze.options.argRunAnalysis);
+    assert(jsonAnalyze.options.argWriteJSON);
 }
 
 /** Shortens a string `s` to exactly `maxLen` characters.

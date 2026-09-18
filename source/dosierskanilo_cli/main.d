@@ -106,7 +106,10 @@ int main(string[] args)
 				signal(SIGINT, oldhandler);
 
 			bool rc;
-			if (parsed.command != CliCommand.legacyJson)
+			if (parsed.command == CliCommand.jsonScan
+				|| parsed.command == CliCommand.jsonAnalyze)
+				rc = executeFileScannerOperation(options);
+			else if (parsed.command != CliCommand.legacyJson)
 				rc = executeRepositoryOperation(options);
 			else if (options.argInitRepository || !options.argRepositoryPath.empty
 				|| !options.argImportJSON.empty || !options.argExportJSON.empty)

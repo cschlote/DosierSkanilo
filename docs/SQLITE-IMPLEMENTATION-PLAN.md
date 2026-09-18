@@ -328,11 +328,12 @@ dosierskanilo json analyze CATALOG.json
 - [x] Implement repository root discovery in the repository API.
 - [ ] Resolve an omitted repository root from the current directory and its
   parent directories for every top-level SQLite command.
-- [ ] Parse top-level SQLite commands and the explicit `json` command group.
-- [ ] Define positional root/catalog arguments for both modes.
-- [ ] Ensure JSON commands never open or create a SQLite repository.
-- [ ] Ensure SQLite commands never fall back to direct JSON storage.
-- [ ] Remove the option-only implicit mode and old spelling aliases.
+- [x] Parse top-level SQLite commands and the explicit `json` command group.
+- [x] Define positional root/catalog arguments for both modes.
+- [x] Ensure JSON commands never open or create a SQLite repository.
+- [x] Ensure SQLite commands never fall back to direct JSON storage.
+- [x] Remove the option-only implicit mode.
+- [ ] Remove obsolete spelling aliases from the parser.
 - [x] Route scan, analysis and metadata operations through the repository API.
 - [x] Pass the CLI worker count through to repository metadata workers.
 - [x] Add phase progress reporting for database-backed jobs.
