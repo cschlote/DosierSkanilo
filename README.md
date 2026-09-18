@@ -156,12 +156,12 @@ Current command-line options (from `source/dosierskanilo_cli/commandline.d`):
 - `--rescan-mediasig`: force MediaInfo refresh (see notes below)
 - `-z`, `--scanArchives`: inspect archive contents
 - `-o`, `--scanTorrents`: inspect torrent metadata
-- `-a`, `--analyse`: run duplicate/missing-file analysis
+- `-a`, `--analyze`, `--analyse`: run duplicate/missing-file analysis
 - `-d`, `--dropMissing`: remove non-existing files from DB during analysis
 - `-w`, `--writeJSON`: write updated JSON
 - `-t`, `--threads`: worker-thread count (default: `1`)
 - `-f`, `--force`: allow overwrite/force load behavior
-- `-h`, `--pickhidden`: include hidden files/directories in scan
+- `-H`, `--hidden`: include hidden files/directories in scan
 - `-v`, `--verbose`: verbose output
 - `--version`: show the application version
 - `--help`: print help
@@ -170,7 +170,7 @@ Repository command aliases are also available:
 
 - `init`
 - `scan`
-- `analyse`
+- `analyze` (with `analyse` retained as an alias)
 - `import`
 - `export`
 
@@ -182,8 +182,8 @@ Operational notes:
   timestamped SQLite backup under `.dosierskanilo/backups/`.
 - `--rescan-mediasig` forces a media refresh when combined with `--mediasig`
   (single-thread and multi-thread).
-- `-h` is bound to `--pickhidden`; use `--help` for help output to avoid
-  ambiguity.
+- `-h` and `--help` print help. Use `-H` or `--hidden` to include hidden files
+  and directories in a scan.
 
 ## Typical Usage
 

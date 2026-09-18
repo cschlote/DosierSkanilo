@@ -36,9 +36,6 @@ struct ArgsArray
 	bool argVersion; ///< Show the application version.
 }
 
-/** Process-global command-line state used by the CLI workflow. */
-ArgsArray argsArray;
-
 @("options defaults")
 unittest
 {

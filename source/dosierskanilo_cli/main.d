@@ -73,7 +73,6 @@ immutable string appVersion = import("build/bin/build-version.txt").strip;
  */
 int main(string[] args)
 {
-	bool rc;
 	version (unittest)
 	{
 		logLine("Entered main() in Unittest Mode. Do nothing.");
@@ -81,11 +80,20 @@ int main(string[] args)
 	}
 	else
 	{
-		logFLine("%s %s", appName, appVersion);
-		rc = parseCommandLineArgs(args);
-		if (rc)
+		auto parsed = parseCommandLine(args);
+		final switch (parsed.status)
 		{
-			if (argsArray.argDoMediaSig)
+		case ParseStatus.help:
+			return 0;
+		case ParseStatus.showVersion:
+			logFLine("%s %s", appName, appVersion);
+			return 0;
+		case ParseStatus.error:
+			return 2;
+		case ParseStatus.run:
+			auto options = parsed.options;
+			logFLine("%s %s", appName, appVersion);
+			if (options.argDoMediaSig)
 			{
 				auto miv = getMediaInfoVersion();
 				logLine("Using", miv);
@@ -95,50 +103,53 @@ int main(string[] args)
 			scope (exit)
 				signal(SIGINT, oldhandler);
 
-			if (argsArray.argInitRepository || !argsArray.argRepositoryPath.empty
-				|| !argsArray.argImportJSON.empty || !argsArray.argExportJSON.empty)
-				rc = executeRepositoryOperation();
+			bool rc;
+			if (parsed.command != CliCommand.legacyJson)
+				rc = executeRepositoryOperation(options);
+			else if (options.argInitRepository || !options.argRepositoryPath.empty
+				|| !options.argImportJSON.empty || !options.argExportJSON.empty)
+				rc = executeRepositoryOperation(options);
 			else
-				rc = executeFileScannerOperation();
+				rc = executeFileScannerOperation(options);
+			return rc ? 0 : 1;
 		}
 	}
-	return rc ? 0 : 1; // Return a a SHELL (!) exit code here.
 }
 
 /** Execute a SQLite repository operation selected by the CLI options. */
-bool executeRepositoryOperation()
+bool executeRepositoryOperation(ArgsArray options)
 {
 	try
 	{
-		auto repositoryPath = argsArray.argRepositoryPath;
+		auto repositoryPath = options.argRepositoryPath;
 		if (repositoryPath.empty)
-			repositoryPath = argsArray.argScanPath;
+			repositoryPath = options.argScanPath;
 
 		Repository repository;
-		if (argsArray.argInitRepository)
+		if (options.argInitRepository)
 			repository = Repository.initialize(repositoryPath);
 		else
 			repository = Repository.open(repositoryPath);
 		repository.appendLog("repository.open", repositoryPath);
 
-		if (!argsArray.argImportJSON.empty)
+		if (!options.argImportJSON.empty)
 		{
 			logLine("Repository phase: import JSON.");
-			repository.appendLog("json.import", argsArray.argImportJSON);
+			repository.appendLog("json.import", options.argImportJSON);
 			JsonImportOptions importOptions;
-			importOptions.force = argsArray.argForceOverwrite;
-			repository.importJson(argsArray.argImportJSON, importOptions);
-			logFLine("Imported JSON catalog '%s'.", argsArray.argImportJSON);
+			importOptions.force = options.argForceOverwrite;
+			repository.importJson(options.argImportJSON, importOptions);
+			logFLine("Imported JSON catalog '%s'.", options.argImportJSON);
 		}
 
-		if (argsArray.argScanFiles)
+		if (options.argScanFiles)
 		{
 			logLine("Repository phase: scan filesystem.");
 			repository.appendLog("scan.start", repository.rootPath);
 			RepositoryScanOptions scanOptions;
-			scanOptions.recursive = argsArray.argRecursive;
-			scanOptions.pickHidden = argsArray.argPickHidden;
-			scanOptions.dropMissing = argsArray.argDropMissing;
+			scanOptions.recursive = options.argRecursive;
+			scanOptions.pickHidden = options.argPickHidden;
+			scanOptions.dropMissing = options.argDropMissing;
 			auto summary = repository.scan(scanOptions);
 			logFLine("Repository scan: %d files, %d added, %d changed, %d missing.",
 				summary.filesFound, summary.filesAdded, summary.filesChanged,
@@ -148,12 +159,12 @@ bool executeRepositoryOperation()
 				summary.filesAdded, summary.filesChanged, summary.filesMissing));
 		}
 
-		if (argsArray.argRunAnalysis)
+		if (options.argRunAnalysis)
 		{
 			logLine("Repository phase: SQL analysis.");
 			repository.appendLog("analysis.start", "");
 			RepositoryAnalysisOptions analysisOptions;
-			analysisOptions.dropMissing = argsArray.argDropMissing;
+			analysisOptions.dropMissing = options.argDropMissing;
 			auto summary = repository.analyze(analysisOptions);
 			logFLine("Repository analysis: %d missing, %d dropped, %d duplicate "
 				~ "groups, %d merged blobs, %d orphaned blobs.",
@@ -167,22 +178,22 @@ bool executeRepositoryOperation()
 				summary.orphanedBlobs));
 		}
 
-		if (argsArray.argDoChecksums || argsArray.argDoFileTypes
-			|| argsArray.argDoMediaSig || argsArray.argScanArchives
-			|| argsArray.argScanTorrents)
+		if (options.argDoChecksums || options.argDoFileTypes
+			|| options.argDoMediaSig || options.argScanArchives
+			|| options.argScanTorrents)
 		{
 			logLine("Repository phase: metadata extraction.");
 			repository.appendLog("metadata.start", "");
 			MetadataScanOptions metadataOptions;
-			metadataOptions.calculateChecksums = argsArray.argDoChecksums;
-			metadataOptions.detectFileTypes = argsArray.argDoFileTypes;
-			metadataOptions.extractMediaInfo = argsArray.argDoMediaSig;
-			metadataOptions.scanArchives = argsArray.argScanArchives != 0;
-			metadataOptions.deepArchiveScan = argsArray.argScanArchives > 1;
-			metadataOptions.scanTorrents = argsArray.argScanTorrents;
-			metadataOptions.rescan = argsArray.argRescanMediaSig;
-			metadataOptions.threads = argsArray.argNumberOfThreads > 1
-				? cast(size_t) argsArray.argNumberOfThreads : 1;
+			metadataOptions.calculateChecksums = options.argDoChecksums;
+			metadataOptions.detectFileTypes = options.argDoFileTypes;
+			metadataOptions.extractMediaInfo = options.argDoMediaSig;
+			metadataOptions.scanArchives = options.argScanArchives != 0;
+			metadataOptions.deepArchiveScan = options.argScanArchives > 1;
+			metadataOptions.scanTorrents = options.argScanTorrents;
+			metadataOptions.rescan = options.argRescanMediaSig;
+			metadataOptions.threads = options.argNumberOfThreads > 1
+				? cast(size_t) options.argNumberOfThreads : 1;
 			auto summary = repository.updateMetadata(metadataOptions);
 			logFLine("Metadata update: %d blobs, %d checksum, %d file type, "
 				~ "%d media, %d archive, %d torrent updates, %d failures.",
@@ -193,9 +204,9 @@ bool executeRepositoryOperation()
 				"blobs=%d failed=%d", summary.blobsVisited, summary.failed));
 		}
 
-		auto exportPath = argsArray.argExportJSON;
-		if (exportPath.empty && argsArray.argWriteJSON)
-			exportPath = argsArray.argJSONFile;
+		auto exportPath = options.argExportJSON;
+		if (exportPath.empty && options.argWriteJSON)
+			exportPath = options.argJSONFile;
 		if (!exportPath.empty)
 		{
 			logLine("Repository phase: export JSON.");
@@ -253,11 +264,11 @@ extern (C) nothrow @nogc @system void signalHandler(int sig)
  * Based on the commandline options scan a directory (tree) and calculate a
  * checksum on it.
  */
-bool executeFileScannerOperation()
+bool executeFileScannerOperation(ArgsArray options)
 {
 
 	/* Read the JSON file, if existent */
-	const bool rc_load = readStorageJsonFile(argsArray.argJSONFile, argsArray.argForceOverwrite,
+	const bool rc_load = readStorageJsonFile(options.argJSONFile, options.argForceOverwrite,
 		dynObjectWrapper);
 	if (!rc_load)
 	{
@@ -268,12 +279,12 @@ bool executeFileScannerOperation()
 	/* Scan directory - here we just collect the filenames. Any new name is added
 	   as a new node to the array of object blobs.
 	 */
-	if (argsArray.argScanFiles)
+	if (options.argScanFiles)
 	{
 		import std.algorithm.iteration : fold;
 
 		const bool rc_scandirtree =
-			scanDirTree(argsArray.argScanPath, argsArray.argPickHidden, dynObjectWrapper.dataArray, gotCtrlC, argsArray);
+			scanDirTree(options.argScanPath, options.argPickHidden, dynObjectWrapper.dataArray, gotCtrlC, options);
 		if (!rc_scandirtree)
 		{
 			logLine("Failed to scan the directory tree.");
@@ -285,7 +296,7 @@ bool executeFileScannerOperation()
 	try
 	{
 		/* Execute the checksum and MediaInfo jobs for each file. */
-		const bool rc_dojobs = runScannerJobs(dynObjectWrapper.dataArray, gotCtrlC, argsArray);
+		const bool rc_dojobs = runScannerJobs(dynObjectWrapper.dataArray, gotCtrlC, options);
 		if (!rc_dojobs)
 			logLine("Failed to run all scanner jobs.");
 	}
@@ -304,18 +315,18 @@ bool executeFileScannerOperation()
 	}
 
 	/* Do data analysis on data */
-	if (argsArray.argRunAnalysis)
+	if (options.argRunAnalysis)
 	{
 		/* Do something useful on data */
-		const bool rc_analyse = analyseData(dynObjectWrapper.dataArray, gotCtrlC, argsArray);
+		const bool rc_analyse = analyseData(dynObjectWrapper.dataArray, gotCtrlC, options);
 		if (!rc_analyse)
 			logLine("Data analysis failed.");
 	}
 
 	/* Serialize the data */
-	if (argsArray.argWriteJSON)
+	if (options.argWriteJSON)
 	{
-		const bool rc_write = writeStorageJsonFile(argsArray.argJSONFile, dynObjectWrapper);
+		const bool rc_write = writeStorageJsonFile(options.argJSONFile, dynObjectWrapper);
 		if (!rc_write)
 			logLine("Write to storage file failed! Check data!");
 	}

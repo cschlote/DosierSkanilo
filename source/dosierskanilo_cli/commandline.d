@@ -36,32 +36,60 @@ repository and keeps JSON available for import and export.
 Commands:
 
     init       Initialize a repository
-    scan       Scan a repository or JSON path
-    analyse    Analyze a repository or JSON catalog
+    scan       Scan a repository
+    analyze    Analyze a repository
     import     Import JSON into a repository
     export     Export a repository as JSON
 
 EOS";
 
-/** Parse command-line arguments into an ArgsArray instance.
+/** Top-level action selected by the command-line parser. */
+enum CliCommand
+{
+    legacyJson,
+    init,
+    scan,
+    analyze,
+    importJson,
+    exportJson
+}
+
+/** Result state of command-line parsing. */
+enum ParseStatus
+{
+    run,
+    help,
+    showVersion,
+    error
+}
+
+/** Parsed command-line state passed from the CLI entry point to its handlers. */
+struct ParsedCommandLine
+{
+    ParseStatus status;
+    CliCommand command;
+    ArgsArray options;
+}
+
+/** Parse command-line arguments into a typed command result.
  *
  * This validates the scan path and JSON output file before the rest of the
  * application starts.
  *
  * Params:
  *   args = raw command-line arguments
- *   argsarray = destination struct for parsed values
  * Returns:
- *   `true` if parsing and validation were successful.
+ *   Parsed command state and validation status.
  */
-bool parseCommandLineArgs(string[] args, ArgsArray* argsarray = &argsArray)
+ParsedCommandLine parseCommandLine(string[] args)
 {
     string command;
+    ArgsArray argsarray;
     if (args.length > 1)
     {
         switch (args[1])
         {
-        case "init", "scan", "analyse", "import", "export":
+        case "init", "scan", "analyse", "analyze", "import", "export":
             command = args[1];
             args = args[0 .. 1] ~ args[2 .. $];
             break;
@@ -93,11 +121,13 @@ bool parseCommandLineArgs(string[] args, ArgsArray* argsarray = &argsArray)
             "scanArchives+|z+", "Get the contents of archives", &argsarray.argScanArchives,
             "scanTorrents|o", "Get the contents of torrent files", &argsarray.argScanTorrents,
             "analyse|a", "Analyze database", &argsarray.argRunAnalysis,
+            "analyze", "Analyze database", &argsarray.argRunAnalysis,
             "dropMissing|d", "Drop missing files from database", &argsarray.argDropMissing,
             "writeJSON|w", "Write the modified JSON data.", &argsarray.argWriteJSON,
             "threads|t", "Number of worker threads", &argsarray.argNumberOfThreads,
             "force|f", "Force overwriting JSON file", &argsarray.argForceOverwrite,
-            "pickhidden|h", "Pick hidden files and directories too", &argsarray.argPickHidden,
+            "pickhidden|H", "Pick hidden files and directories too", &argsarray.argPickHidden,
+            "hidden", "Pick hidden files and directories too", &argsarray.argPickHidden,
             "verbose|v", "Be verbose", &argsarray.argVerboseOutputs,
             "version", "Show the application version", &argsarray.argVersion);
     }
@@ -105,7 +135,7 @@ bool parseCommandLineArgs(string[] args, ArgsArray* argsarray = &argsArray)
     {
         logLine("Invalid command-line arguments: ", ex.msg);
         logLine("Use --help to see the available options.");
-        return false;
+        return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
     }
 
     switch (command)
@@ -117,6 +147,7 @@ bool parseCommandLineArgs(string[] args, ArgsArray* argsarray = &argsArray)
         argsarray.argScanFiles = true;
         break;
     case "analyse":
+    case "analyze":
         argsarray.argRunAnalysis = true;
         break;
     case "import":
@@ -139,10 +170,14 @@ bool parseCommandLineArgs(string[] args, ArgsArray* argsarray = &argsArray)
         {
             defaultGetoptPrinter("A file scanner and metadata scraper", helpInformation.options);
         }
-        return false;
+        return ParsedCommandLine(ParseStatus.help, CliCommand.legacyJson, argsarray);
     }
+    if (argsarray.argVersion)
+        return ParsedCommandLine(ParseStatus.showVersion, CliCommand.legacyJson, argsarray);
+
     setVerboseOutputs(argsarray.argVerboseOutputs);
-    const bool repositoryMode = argsarray.argInitRepository
+    const bool repositoryMode = !command.empty
+        || argsarray.argInitRepository
         || !argsarray.argRepositoryPath.empty
         || !argsarray.argImportJSON.empty
         || !argsarray.argExportJSON.empty;
@@ -152,49 +187,47 @@ bool parseCommandLineArgs(string[] args, ArgsArray* argsarray = &argsArray)
         if (argsarray.argRepositoryPath.empty)
             argsarray.argRepositoryPath = argsarray.argScanPath;
         if (argsarray.argRepositoryPath.empty)
-        {
-            logLine("We need a repository path. Use --repository or -p.");
-            return false;
-        }
-        if (!exists(argsarray.argRepositoryPath) || !isDir(argsarray.argRepositoryPath))
+            argsarray.argRepositoryPath = ".";
+        if (command == "init" && (!exists(argsarray.argRepositoryPath)
+            || !isDir(argsarray.argRepositoryPath)))
         {
             logFLine("Repository path '%s' is not an existing directory.",
                 argsarray.argRepositoryPath);
-            return false;
+            return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
         }
         if (!argsarray.argImportJSON.empty
             && !argsarray.argImportJSON.endsWith(jsonFileExtension))
         {
             logFLine("Import JSON filename '%s' looks invalid.", argsarray.argImportJSON);
-            return false;
+            return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
         }
         if (!argsarray.argExportJSON.empty
             && !argsarray.argExportJSON.endsWith(jsonFileExtension))
         {
             logFLine("Export JSON filename '%s' looks invalid.", argsarray.argExportJSON);
-            return false;
+            return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
         }
-        return true;
+        return ParsedCommandLine(ParseStatus.run, commandToCliCommand(command), argsarray);
     }
 
     /* Validate JSON-mode arguments */
     if (argsarray.argScanPath.empty)
     {
         logLine("We need a scan path. Use -p to specify it.");
-        return false;
+        return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
     }
     /* Test, that we got a directory path passed in */
     if (!exists(argsarray.argScanPath))
     {
         logFLine("We need a directory for the scan path. '%s' doesn't even exist.",
             argsarray.argScanPath);
-        return false;
+        return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
     }
     if (!isDir(argsarray.argScanPath))
     {
         logFLine("We need a directory for the scan path. '%s' is not a directory.",
             argsarray.argScanPath);
-        return false;
+        return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
     }
 
     if (argsarray.argJSONFile.empty ||
@@ -204,7 +237,7 @@ bool parseCommandLineArgs(string[] args, ArgsArray* argsarray = &argsArray)
         logFLine("JSON filename '%s' looks invalid.", argsarray.argJSONFile);
         logLine("We expect a filename here, not a path.");
         logLine("We expect the \"" ~ jsonFileExtension ~ "\" file extension.");
-        return false;
+        return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
     }
 
     /* Check for existing JSON file */
@@ -220,12 +253,41 @@ bool parseCommandLineArgs(string[] args, ArgsArray* argsarray = &argsArray)
             else
             {
                 logLine("Abort program. Use -f to force overwriting of output file.");
-                return false;
+                return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
             }
         }
     }
 
-    return true;
+    return ParsedCommandLine(ParseStatus.run, CliCommand.legacyJson, argsarray);
+}
+
+/** Map a recognized command token to its typed action. */
+private CliCommand commandToCliCommand(string command)
+{
+    final switch (command)
+    {
+    case "init":
+        return CliCommand.init;
+    case "scan":
+        return CliCommand.scan;
+    case "analyse", "analyze":
+        return CliCommand.analyze;
+    case "import":
+        return CliCommand.importJson;
+    case "export":
+        return CliCommand.exportJson;
+    case "":
+        return CliCommand.legacyJson;
+    }
+}
+
+/** Compatibility wrapper used by the existing parser unit tests. */
+bool parseCommandLineArgs(string[] args, ArgsArray* argsarray)
+{
+    *argsarray = ArgsArray();
+    auto parsed = parseCommandLine(args);
+    *argsarray = parsed.options;
+    return parsed.status == ParseStatus.run;
 }
 
 @("parseCommandLineArgs")
@@ -276,7 +338,7 @@ unittest
     /* All args set */
     string[] testArgs = [
         "programname", "-p", testdir, "-j", jsonfile, "-r", "-s",
-        "-c", "-y", "-m", "-a", "-w", "-t", "4", "-f", "-h", "-v",
+        "-c", "-y", "-m", "-a", "-w", "-t", "4", "-f", "-H", "-v",
         "-z", "-z", "-o"
     ];
     bool res = parseCommandLineArgs(testArgs, &args);
@@ -319,6 +381,18 @@ unittest
     assert(parseCommandLineArgs(analyseCommand, &commandArgs));
     assert(commandArgs.argRunAnalysis);
     assert(commandArgs.argDropMissing);
+
+    auto parsedHelp = parseCommandLine(["programname", "--help"]);
+    assert(parsedHelp.status == ParseStatus.help);
+
+    auto parsedVersion = parseCommandLine(["programname", "--version"]);
+    assert(parsedVersion.status == ParseStatus.showVersion);
+
+    auto parsedScan = parseCommandLine(["programname", "scan", "--path", testdir]);
+    assert(parsedScan.status == ParseStatus.run);
+    assert(parsedScan.command == CliCommand.scan);
+    assert(parsedScan.options.argScanFiles);
+    assert(parsedScan.options.argRepositoryPath == testdir);
 }
 
 /** Shortens a string `s` to exactly `maxLen` characters.

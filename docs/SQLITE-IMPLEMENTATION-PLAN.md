@@ -325,9 +325,9 @@ dosierskanilo export [ROOT] --output OUTPUT.json
 - [x] Add clear errors for missing repositories and schema incompatibility.
 - [x] Retain the short repository aliases `init`, `scan`, `import`, and
   `export`, with `analyse` as a compatibility alias for `analyze`.
-- [ ] Define a typed parser result containing the selected action, validated
+- [x] Define a typed parser result containing the selected action, validated
   values, and a structured parse status.
-- [ ] Remove the process-global CLI option state from the parser path.
+- [x] Remove the process-global CLI option state from the parser path.
 - [ ] Separate repository parsing from legacy JSON parsing and reject options
   that do not belong to the selected subcommand.
 - [ ] Split repository execution into focused handlers for initialization,
@@ -338,12 +338,13 @@ dosierskanilo export [ROOT] --output OUTPUT.json
   repository query API, including pagination and filters.
 - [ ] Add stable table and machine-readable output for query and summary
   commands without exposing SQLite types in the CLI.
-- [ ] Reserve `-h` for help and move hidden-file selection to an unambiguous
+- [x] Reserve `-h` for help and move hidden-file selection to an unambiguous
   option.
 - [ ] Normalize new option names to kebab-case and retain current spellings as
   compatibility aliases.
-- [ ] Return distinct exit codes for success, usage errors, and operation
-  failures; write diagnostics to stderr.
+- [x] Return distinct exit codes for success, usage errors, and operation
+  failures.
+- [ ] Write diagnostics to stderr while keeping command results on stdout.
 - [ ] Make destructive import replacement explicit and separate it from the
   legacy JSON overwrite `--force` behavior.
 
