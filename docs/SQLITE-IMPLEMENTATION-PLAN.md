@@ -333,7 +333,7 @@ dosierskanilo json analyze CATALOG.json
 - [x] Ensure JSON commands never open or create a SQLite repository.
 - [x] Ensure SQLite commands never fall back to direct JSON storage.
 - [x] Remove the option-only implicit mode.
-- [ ] Remove obsolete spelling aliases from the parser.
+- [x] Remove obsolete spelling aliases from the parser.
 - [x] Route scan, analysis and metadata operations through the repository API.
 - [x] Pass the CLI worker count through to repository metadata workers.
 - [x] Add phase progress reporting for database-backed jobs.

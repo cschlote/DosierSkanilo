@@ -11,6 +11,7 @@ They represent the functional evolution and are intentionally summarized.
 
 - Switched the CLI to explicit storage modes: top-level commands use SQLite,
   while `json scan` and `json analyze` use direct JSON storage.
+- Removed the old option-only JSON invocation and legacy CLI option aliases.
 - Started the CLI cleanup for SQLite repositories: explicit repository
   subcommands now stay in repository mode, `--help` and `--version` return
   success, parser state is local, and `-h` is reserved for help.

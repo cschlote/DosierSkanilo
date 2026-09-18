@@ -188,7 +188,7 @@ void executeRepositoryImport(Repository repository, ArgsArray options)
 	logLine("Repository phase: import JSON.");
 	repository.appendLog("json.import", options.argImportJSON);
 	JsonImportOptions importOptions;
-	importOptions.force = options.argForceOverwrite || options.argReplaceCatalog;
+	importOptions.force = options.argReplaceCatalog;
 	repository.importJson(options.argImportJSON, importOptions);
 	logFLine("Imported JSON catalog '%s'.", options.argImportJSON);
 }
@@ -420,7 +420,7 @@ bool executeFileScannerOperation(ArgsArray options)
 {
 
 	/* Read the JSON file, if existent */
-	const bool rc_load = readStorageJsonFile(options.argJSONFile, options.argForceOverwrite,
+	const bool rc_load = readStorageJsonFile(options.argJSONFile, options.argReplaceCatalog,
 		dynObjectWrapper);
 	if (!rc_load)
 	{
