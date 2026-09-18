@@ -42,7 +42,7 @@ import std.utf;
 import dosierskanilo;
 import dosierarkivo;
 
-import dosierskanilo_cli.commandline;
+import dosierskanilo_cli.parser;
 import dosierskanilo_cli.logging : errorLine;
 
 version (ldc)

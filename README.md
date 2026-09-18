@@ -141,7 +141,7 @@ Run the same stage order locally:
 
 ## CLI Reference
 
-Current command-line options (from `source/dosierskanilo_cli/commandline.d`):
+Current command-line options (from `source/dosierskanilo_cli/parser.d`):
 
 - `-p`, `--path`: path to scan
 - `-j`, `--json`: JSON file name for load/store
@@ -280,7 +280,8 @@ Detailed architecture and diagrams:
 ## Source Map
 
 - `source/dosierskanilo_cli/main.d`: main workflow, scanner orchestration, analysis
-- `source/dosierskanilo_cli/commandline.d`: CLI options and progress rendering
+- `source/dosierskanilo_cli/parser.d`: CLI parsing and progress rendering
+- `source/dosierskanilo_cli/commandline.d`: compatibility facade for the parser
 - `source/dosierskanilo_cli/logging.d`: logging wrapper
 - `source/dosierskanilo/service/scanning.d`: directory scanning + job scheduling
 - `source/dosierskanilo/service/analyze.d`: duplicate/missing-file analysis

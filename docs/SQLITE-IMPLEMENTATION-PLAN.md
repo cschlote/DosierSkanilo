@@ -328,6 +328,8 @@ dosierskanilo export [ROOT] --output OUTPUT.json
 - [x] Define a typed parser result containing the selected action, validated
   values, and a structured parse status.
 - [x] Remove the process-global CLI option state from the parser path.
+- [x] Move CLI parsing behind a dedicated `dosierskanilo_cli.parser` module;
+  keep `commandline` as a compatibility facade.
 - [ ] Separate repository parsing from legacy JSON parsing into dedicated
   parser modules.
 - [x] Reject options that do not belong to the selected repository subcommand.
