@@ -125,9 +125,17 @@ bool executeRepositoryOperation(ArgsArray options)
 			repositoryPath = options.argScanPath;
 
 		if (options.argInitRepository)
+		{
+			auto databaseAlreadyExists = exists(buildPath(repositoryPath,
+				repositoryDirectoryName, repositoryDatabaseFileName));
 			repository = Repository.initialize(repositoryPath);
+			if (databaseAlreadyExists)
+				logFLine("Opened existing repository at '%s'.", repository.rootPath);
+			else
+				logFLine("Initialized new repository at '%s'.", repository.rootPath);
+		}
 		else
-		repository = Repository.open(repositoryPath);
+			repository = Repository.open(repositoryPath);
 		repository.appendLog("repository.open", repositoryPath);
 		if (options.argShowInfo)
 		{
