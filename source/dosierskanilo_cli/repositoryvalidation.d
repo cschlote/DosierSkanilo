@@ -29,6 +29,16 @@ bool validateRepositoryOptions(string command, ref ArgsArray options)
             ~ "or --scanTorrents.");
         return false;
     }
+    if (command == "import" && options.argImportJSON.empty)
+    {
+        errorLine("Import requires a JSON catalog filename.");
+        return false;
+    }
+    if (command == "export" && options.argExportJSON.empty)
+    {
+        errorLine("Export requires an output JSON filename.");
+        return false;
+    }
     if ((command == "info" || command == "list" || command == "duplicates")
         && options.argOutputFormat != "table"
         && options.argOutputFormat != "json")

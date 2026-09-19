@@ -32,8 +32,21 @@ pushd "${TMP_DIR}" >/dev/null
 popd >/dev/null
 
 # Top-level commands use SQLite and discover the root from a nested directory.
-"${BIN}" init "${sqlite_root}"
-"${BIN}" scan "${sqlite_root}" --recursive
+init_output=$("${BIN}" init "${sqlite_root}")
+[[ "${init_output}" == *"Initialized new repository at"* ]]
+mkdir -p "${TMP_DIR}/second-sqlite-library"
+init_output=$("${BIN}" init "${TMP_DIR}/second-sqlite-library")
+[[ "${init_output}" == *"Initialized new repository at"* ]]
+existing_init_output=$("${BIN}" init "${sqlite_root}")
+[[ "${existing_init_output}" == *"Opened existing repository at"* ]]
+scan_output=$("${BIN}" scan "${sqlite_root}" --recursive)
+[[ "${scan_output}" == *"Repository scan:"* ]]
+analysis_output=$("${BIN}" analyze "${sqlite_root}")
+[[ "${analysis_output}" == *"Repository analysis:"* ]]
+metadata_output=$("${BIN}" metadata "${sqlite_root}" --file-types)
+[[ "${metadata_output}" == *"Metadata update:"* ]]
+duplicates_output=$("${BIN}" duplicates "${sqlite_root}")
+[[ "${duplicates_output}" == *"Found "*" duplicate groups."* ]]
 "${BIN}" import "${sqlite_root}" "${ROOT_DIR}/test/json_file_v2.json" --replace
 exported_catalog="${TMP_DIR}/sqlite-export.json"
 "${BIN}" export "${sqlite_root}" --output "${exported_catalog}"
@@ -45,7 +58,21 @@ popd >/dev/null
 "${BIN}" list "${sqlite_root}" --format=json > "${TMP_DIR}/list.json"
 [[ -s "${TMP_DIR}/list.json" ]]
 
-# Help/version are successful and command errors do not pollute stdout.
+# Missing command arguments and command errors do not pollute stdout.
+if "${BIN}" import > "${TMP_DIR}/import-stdout" 2> "${TMP_DIR}/import-stderr"; then
+    printf '%s\n' "Expected import without a catalog to fail." >&2
+    exit 1
+fi
+[[ ! -s "${TMP_DIR}/import-stdout" ]]
+[[ "$(<"${TMP_DIR}/import-stderr")" == *"Import requires a JSON catalog filename."* ]]
+if "${BIN}" export "${sqlite_root}" > "${TMP_DIR}/export-stdout" 2> "${TMP_DIR}/export-stderr"; then
+    printf '%s\n' "Expected export without an output file to fail." >&2
+    exit 1
+fi
+[[ ! -s "${TMP_DIR}/export-stdout" ]]
+[[ "$(<"${TMP_DIR}/export-stderr")" == *"Export requires an output JSON filename."* ]]
+
+# Help/version are successful.
 "${BIN}" --help >/dev/null
 "${BIN}" --version >/dev/null
 if "${BIN}" info "${TMP_DIR}" > "${TMP_DIR}/stdout" 2> "${TMP_DIR}/stderr"; then

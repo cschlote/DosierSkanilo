@@ -7,6 +7,14 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
+## Unreleased
+
+- The `init` command now reports the initialized repository path by default;
+  existing repositories are reported as opened instead of newly initialized;
+  verbose mode remains available for additional output.
+- `import` and `export` now report missing required JSON filenames instead of
+  silently completing without an operation.
+
 ## Release 26.10.2 - 2026-09-19
 
 - Switched the CLI to explicit storage modes: top-level commands use SQLite,
