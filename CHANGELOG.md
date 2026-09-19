@@ -7,7 +7,7 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
-## Unreleased
+## Release 26.10.2 - 2026-09-19
 
 - Switched the CLI to explicit storage modes: top-level commands use SQLite,
   while `json scan` and `json analyze` use direct JSON storage.
