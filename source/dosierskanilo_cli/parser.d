@@ -17,7 +17,7 @@ import std.string;
 
 import dosierskanilo;
 import dosierskanilo_cli.logging : errorFLine, errorLine;
-import dosierskanilo_cli.legacyvalidation : validateJsonOptions;
+import dosierskanilo_cli.jsonvalidation : validateJsonOptions;
 import dosierskanilo_cli.repositoryvalidation : validateRepositoryOptions;
 import core.internal.lifetime;
 
@@ -56,7 +56,7 @@ EOS";
 /** Top-level action selected by the command-line parser. */
 enum CliCommand
 {
-    legacyJson,
+    noCommand,
     jsonScan,
     jsonAnalyze,
     init,
@@ -110,7 +110,7 @@ ParsedCommandLine parseCommandLine(string[] args)
             if (args.length <= 2 || (args[2] != "scan" && args[2] != "analyze"))
             {
                 errorLine("JSON mode requires 'scan' or 'analyze'.");
-                return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
+                return ParsedCommandLine(ParseStatus.error, CliCommand.noCommand, argsarray);
             }
             jsonMode = true;
             command = args[2] == "scan" ? "json-scan" : "json-analyze";
@@ -228,7 +228,7 @@ ParsedCommandLine parseCommandLine(string[] args)
     {
         errorLine("Invalid command-line arguments: ", ex.msg);
         errorLine("Use --help to see the available options.");
-        return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
+        return ParsedCommandLine(ParseStatus.error, CliCommand.noCommand, argsarray);
     }
 
     switch (command)
@@ -285,27 +285,27 @@ ParsedCommandLine parseCommandLine(string[] args)
         {
             defaultGetoptPrinter("A file scanner and metadata scraper", helpInformation.options);
         }
-        return ParsedCommandLine(ParseStatus.help, CliCommand.legacyJson, argsarray);
+        return ParsedCommandLine(ParseStatus.help, CliCommand.noCommand, argsarray);
     }
     if (argsarray.argVersion)
-        return ParsedCommandLine(ParseStatus.showVersion, CliCommand.legacyJson, argsarray);
+        return ParsedCommandLine(ParseStatus.showVersion, CliCommand.noCommand, argsarray);
 
     setVerboseOutputs(argsarray.argVerboseOutputs);
     if (command.empty)
     {
         errorLine("Choose a command. Use --help to see available commands.");
-        return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
+        return ParsedCommandLine(ParseStatus.error, CliCommand.noCommand, argsarray);
     }
 
     if (jsonMode)
     {
         if (!validateJsonOptions(command, argsarray))
-            return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
+            return ParsedCommandLine(ParseStatus.error, CliCommand.noCommand, argsarray);
         return ParsedCommandLine(ParseStatus.run, commandToCliCommand(command), argsarray);
     }
 
     if (!validateRepositoryOptions(command, argsarray))
-        return ParsedCommandLine(ParseStatus.error, CliCommand.legacyJson, argsarray);
+        return ParsedCommandLine(ParseStatus.error, CliCommand.noCommand, argsarray);
     return ParsedCommandLine(ParseStatus.run, commandToCliCommand(command), argsarray);
 }
 
@@ -337,7 +337,7 @@ private CliCommand commandToCliCommand(string command)
     case "export":
         return CliCommand.exportJson;
     case "":
-        return CliCommand.legacyJson;
+        return CliCommand.noCommand;
     }
 }
 

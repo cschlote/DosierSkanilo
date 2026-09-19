@@ -191,8 +191,7 @@ Detailed architecture and diagrams:
 - `source/dosierskanilo_cli/main.d`: main workflow, scanner orchestration, analysis
 - `source/dosierskanilo_cli/parser.d`: CLI parsing and progress rendering
 - `source/dosierskanilo_cli/repositoryvalidation.d` and
-  `source/dosierskanilo_cli/legacyvalidation.d`: storage-mode validation
-- `source/dosierskanilo_cli/commandline.d`: compatibility facade for the parser
+  `source/dosierskanilo_cli/jsonvalidation.d`: storage-mode validation
 - `source/dosierskanilo_cli/logging.d`: logging wrapper
 - `source/dosierskanilo/service/scanning.d`: directory scanning + job scheduling
 - `source/dosierskanilo/service/analyze.d`: duplicate/missing-file analysis

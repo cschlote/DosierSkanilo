@@ -343,10 +343,9 @@ dosierskanilo json analyze CATALOG.json
 - [x] Define a typed parser result containing the selected action, validated
   values, and a structured parse status.
 - [x] Remove the process-global CLI option state from the parser path.
-- [x] Move CLI parsing behind a dedicated `dosierskanilo_cli.parser` module;
-  keep `commandline` as a compatibility facade.
-- [x] Separate repository and legacy validation into dedicated
-  `repositoryvalidation` and `legacyvalidation` modules.
+- [x] Move CLI parsing behind a dedicated `dosierskanilo_cli.parser` module.
+- [x] Separate repository and JSON validation into dedicated
+  `repositoryvalidation` and `jsonvalidation` modules.
 - [x] Reject options that do not belong to the selected repository subcommand.
 - [x] Split repository execution into focused handlers for initialization,
   scanning, metadata extraction, analysis, import, export, and queries.

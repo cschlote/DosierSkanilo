@@ -1,5 +1,5 @@
 /** Validation rules for the explicit direct JSON CLI workflow. */
-module dosierskanilo_cli.legacyvalidation;
+module dosierskanilo_cli.jsonvalidation;
 
 import std.file : exists, isDir, isFile;
 import std.string : empty, endsWith;
