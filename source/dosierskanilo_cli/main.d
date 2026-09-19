@@ -42,7 +42,8 @@ import std.utf;
 import dosierskanilo;
 import dosierarkivo;
 
-import dosierskanilo_cli.commandline;
+import dosierskanilo_cli.parser;
+import dosierskanilo_cli.logging : errorLine;
 
 version (ldc)
 {
@@ -73,7 +74,6 @@ immutable string appVersion = import("build/bin/build-version.txt").strip;
  */
 int main(string[] args)
 {
-	bool rc;
 	version (unittest)
 	{
 		logLine("Entered main() in Unittest Mode. Do nothing.");
@@ -81,11 +81,19 @@ int main(string[] args)
 	}
 	else
 	{
-		logFLine("%s %s", appName, appVersion);
-		rc = parseCommandLineArgs(args);
-		if (rc)
+		auto parsed = parseCommandLine(args);
+		final switch (parsed.status)
 		{
-			if (argsArray.argDoMediaSig)
+		case ParseStatus.help:
+			return 0;
+		case ParseStatus.showVersion:
+			logFLine("%s %s", appName, appVersion);
+			return 0;
+		case ParseStatus.error:
+			return 2;
+		case ParseStatus.run:
+			auto options = parsed.options;
+			if (options.argDoMediaSig)
 			{
 				auto miv = getMediaInfoVersion();
 				logLine("Using", miv);
@@ -95,122 +103,272 @@ int main(string[] args)
 			scope (exit)
 				signal(SIGINT, oldhandler);
 
-			if (argsArray.argInitRepository || !argsArray.argRepositoryPath.empty
-				|| !argsArray.argImportJSON.empty || !argsArray.argExportJSON.empty)
-				rc = executeRepositoryOperation();
+			bool rc;
+			if (parsed.command == CliCommand.jsonScan
+				|| parsed.command == CliCommand.jsonAnalyze)
+				rc = executeFileScannerOperation(options);
 			else
-				rc = executeFileScannerOperation();
+				rc = executeRepositoryOperation(options);
+			return rc ? 0 : 1;
 		}
 	}
-	return rc ? 0 : 1; // Return a a SHELL (!) exit code here.
 }
 
 /** Execute a SQLite repository operation selected by the CLI options. */
-bool executeRepositoryOperation()
+bool executeRepositoryOperation(ArgsArray options)
 {
+	Repository repository;
 	try
 	{
-		auto repositoryPath = argsArray.argRepositoryPath;
+		auto repositoryPath = options.argRepositoryPath;
 		if (repositoryPath.empty)
-			repositoryPath = argsArray.argScanPath;
+			repositoryPath = options.argScanPath;
 
-		Repository repository;
-		if (argsArray.argInitRepository)
+		if (options.argInitRepository)
 			repository = Repository.initialize(repositoryPath);
 		else
-			repository = Repository.open(repositoryPath);
+		repository = Repository.open(repositoryPath);
 		repository.appendLog("repository.open", repositoryPath);
-
-		if (!argsArray.argImportJSON.empty)
+		if (options.argShowInfo)
 		{
-			logLine("Repository phase: import JSON.");
-			repository.appendLog("json.import", argsArray.argImportJSON);
-			JsonImportOptions importOptions;
-			importOptions.force = argsArray.argForceOverwrite;
-			repository.importJson(argsArray.argImportJSON, importOptions);
-			logFLine("Imported JSON catalog '%s'.", argsArray.argImportJSON);
+			executeRepositoryInfo(repository, options);
+			repository.close();
+			return true;
+		}
+		if (options.argList)
+		{
+			executeRepositoryList(repository, options);
+			repository.close();
+			return true;
+		}
+		if (options.argDuplicates)
+		{
+			executeRepositoryDuplicates(repository, options);
+			repository.close();
+			return true;
 		}
 
-		if (argsArray.argScanFiles)
+		if (!options.argImportJSON.empty)
+			executeRepositoryImport(repository, options);
+
+		if (options.argScanFiles)
+			executeRepositoryScan(repository, options);
+
+		if (options.argRunAnalysis)
+			executeRepositoryAnalysis(repository, options);
+
+		if (options.argRunMetadata || options.argDoChecksums
+			|| options.argDoFileTypes || options.argDoMediaSig
+			|| options.argScanArchives || options.argScanTorrents)
 		{
-			logLine("Repository phase: scan filesystem.");
-			repository.appendLog("scan.start", repository.rootPath);
-			RepositoryScanOptions scanOptions;
-			scanOptions.recursive = argsArray.argRecursive;
-			scanOptions.pickHidden = argsArray.argPickHidden;
-			scanOptions.dropMissing = argsArray.argDropMissing;
-			auto summary = repository.scan(scanOptions);
-			logFLine("Repository scan: %d files, %d added, %d changed, %d missing.",
-				summary.filesFound, summary.filesAdded, summary.filesChanged,
-				summary.filesMissing);
-			repository.appendLog("scan.complete", format(
-				"files=%d added=%d changed=%d missing=%d", summary.filesFound,
-				summary.filesAdded, summary.filesChanged, summary.filesMissing));
+			executeRepositoryMetadata(repository, options);
 		}
 
-		if (argsArray.argRunAnalysis)
-		{
-			logLine("Repository phase: SQL analysis.");
-			repository.appendLog("analysis.start", "");
-			RepositoryAnalysisOptions analysisOptions;
-			analysisOptions.dropMissing = argsArray.argDropMissing;
-			auto summary = repository.analyze(analysisOptions);
-			logFLine("Repository analysis: %d missing, %d dropped, %d duplicate "
-				~ "groups, %d merged blobs, %d orphaned blobs.",
-				summary.missingFiles, summary.droppedFiles,
-				summary.duplicateGroups, summary.mergedBlobs,
-				summary.orphanedBlobs);
-			repository.appendLog("analysis.complete", format(
-				"missing=%d dropped=%d groups=%d merged=%d orphaned=%d",
-				summary.missingFiles, summary.droppedFiles,
-				summary.duplicateGroups, summary.mergedBlobs,
-				summary.orphanedBlobs));
-		}
-
-		if (argsArray.argDoChecksums || argsArray.argDoFileTypes
-			|| argsArray.argDoMediaSig || argsArray.argScanArchives
-			|| argsArray.argScanTorrents)
-		{
-			logLine("Repository phase: metadata extraction.");
-			repository.appendLog("metadata.start", "");
-			MetadataScanOptions metadataOptions;
-			metadataOptions.calculateChecksums = argsArray.argDoChecksums;
-			metadataOptions.detectFileTypes = argsArray.argDoFileTypes;
-			metadataOptions.extractMediaInfo = argsArray.argDoMediaSig;
-			metadataOptions.scanArchives = argsArray.argScanArchives != 0;
-			metadataOptions.deepArchiveScan = argsArray.argScanArchives > 1;
-			metadataOptions.scanTorrents = argsArray.argScanTorrents;
-			metadataOptions.rescan = argsArray.argRescanMediaSig;
-			metadataOptions.threads = argsArray.argNumberOfThreads > 1
-				? cast(size_t) argsArray.argNumberOfThreads : 1;
-			auto summary = repository.updateMetadata(metadataOptions);
-			logFLine("Metadata update: %d blobs, %d checksum, %d file type, "
-				~ "%d media, %d archive, %d torrent updates, %d failures.",
-				summary.blobsVisited, summary.checksumsUpdated,
-				summary.fileTypesUpdated, summary.mediaInfoUpdated,
-				summary.archivesUpdated, summary.torrentsUpdated, summary.failed);
-			repository.appendLog("metadata.complete", format(
-				"blobs=%d failed=%d", summary.blobsVisited, summary.failed));
-		}
-
-		auto exportPath = argsArray.argExportJSON;
-		if (exportPath.empty && argsArray.argWriteJSON)
-			exportPath = argsArray.argJSONFile;
-		if (!exportPath.empty)
-		{
-			logLine("Repository phase: export JSON.");
-			repository.appendLog("json.export", exportPath);
-			repository.exportJson(exportPath);
-			logFLine("Exported repository JSON to '%s'.", exportPath);
-		}
+		executeRepositoryExport(repository, options);
 		repository.close();
 		return true;
 	}
 	catch (Exception ex)
 	{
-		logLine("Repository operation failed: ", ex.msg);
+		if (repository !is null)
+			repository.close();
+		errorLine("Repository operation failed: ", ex.msg);
 		return false;
 	}
+}
+
+/** Import a JSON catalog into a repository. */
+void executeRepositoryImport(Repository repository, ArgsArray options)
+{
+	logLine("Repository phase: import JSON.");
+	repository.appendLog("json.import", options.argImportJSON);
+	JsonImportOptions importOptions;
+	importOptions.force = options.argReplaceCatalog;
+	repository.importJson(options.argImportJSON, importOptions);
+	logFLine("Imported JSON catalog '%s'.", options.argImportJSON);
+}
+
+/** Scan the repository filesystem and persist changed references. */
+void executeRepositoryScan(Repository repository, ArgsArray options)
+{
+	logLine("Repository phase: scan filesystem.");
+	repository.appendLog("scan.start", repository.rootPath);
+	RepositoryScanOptions scanOptions;
+	scanOptions.recursive = options.argRecursive;
+	scanOptions.pickHidden = options.argPickHidden;
+	scanOptions.dropMissing = options.argDropMissing;
+	auto summary = repository.scan(scanOptions);
+	logFLine("Repository scan: %d files, %d added, %d changed, %d missing.",
+		summary.filesFound, summary.filesAdded, summary.filesChanged,
+		summary.filesMissing);
+	repository.appendLog("scan.complete", format(
+		"files=%d added=%d changed=%d missing=%d", summary.filesFound,
+		summary.filesAdded, summary.filesChanged, summary.filesMissing));
+}
+
+/** Analyze duplicate and missing-file state in the repository. */
+void executeRepositoryAnalysis(Repository repository, ArgsArray options)
+{
+	logLine("Repository phase: SQL analysis.");
+	repository.appendLog("analysis.start", "");
+	RepositoryAnalysisOptions analysisOptions;
+	analysisOptions.dropMissing = options.argDropMissing;
+	auto summary = repository.analyze(analysisOptions);
+	logFLine("Repository analysis: %d missing, %d dropped, %d duplicate "
+		~ "groups, %d merged blobs, %d orphaned blobs.",
+		summary.missingFiles, summary.droppedFiles,
+		summary.duplicateGroups, summary.mergedBlobs,
+		summary.orphanedBlobs);
+	repository.appendLog("analysis.complete", format(
+		"missing=%d dropped=%d groups=%d merged=%d orphaned=%d",
+		summary.missingFiles, summary.droppedFiles,
+		summary.duplicateGroups, summary.mergedBlobs,
+		summary.orphanedBlobs));
+}
+
+/** Export the repository catalog when requested. */
+void executeRepositoryExport(Repository repository, ArgsArray options)
+{
+	auto exportPath = options.argExportJSON;
+	if (exportPath.empty && options.argWriteJSON)
+		exportPath = options.argJSONFile;
+	if (exportPath.empty)
+		return;
+	logLine("Repository phase: export JSON.");
+	repository.appendLog("json.export", exportPath);
+	repository.exportJson(exportPath);
+	logFLine("Exported repository JSON to '%s'.", exportPath);
+}
+
+/** Print repository metadata and current catalog counts. */
+void executeRepositoryInfo(Repository repository, ArgsArray options)
+{
+	auto info = repository.info;
+	if (options.argOutputFormat == "json")
+	{
+		logFLine("{\"root\":%s,\"database\":%s,\"schemaVersion\":%d,"
+			~ "\"createdAt\":%s,\"updatedAt\":%s,\"blobs\":%d}",
+			jsonQuote(info.rootPath), jsonQuote(repository.databasePath),
+			info.schemaVersion, jsonQuote(info.createdAt), jsonQuote(info.updatedAt),
+			repository.blobCount);
+		return;
+	}
+	logFLine("Repository root: %s", info.rootPath);
+	logFLine("Database: %s", repository.databasePath);
+	logFLine("Schema version: %d", info.schemaVersion);
+	logFLine("Created: %s", info.createdAt);
+	logFLine("Updated: %s", info.updatedAt);
+	logFLine("Blobs: %d", repository.blobCount);
+}
+
+/** Print one bounded, repository-side filtered page of blobs. */
+void executeRepositoryList(Repository repository, ArgsArray options)
+{
+	RepositoryQueryOptions query;
+	query.offset = options.argQueryOffset;
+	query.limit = options.argQueryLimit;
+	query.text = options.argQueryText;
+	query.video = options.argQueryVideo;
+	query.audio = options.argQueryAudio;
+	query.image = options.argQueryImage;
+	query.textStream = options.argQueryTextStream;
+	query.fileType = options.argQueryFileType;
+	query.archive = options.argQueryArchive;
+	query.torrent = options.argQueryTorrent;
+
+	auto page = repository.loadCatalogQueryPageWithIds(query);
+	if (options.argOutputFormat == "json")
+	{
+		string output = format("{\"total\":%d,\"offset\":%d,\"items\":[",
+			page.total, query.offset);
+		foreach (index, blob; page.blobs)
+		{
+			if (index > 0)
+				output ~= ",";
+			output ~= format("{\"id\":%d,\"size\":%d,\"path\":%s}",
+				page.blobIds[index], blob.fileSize,
+				jsonQuote(blob.getFirstFileName()));
+		}
+		logLine(output ~ "]}");
+		return;
+	}
+	logFLine("Showing %d of %d matching blobs (offset %d).", page.blobs.length,
+		page.total, query.offset);
+	logLine("ID\tSize\tPath");
+	foreach (index, blob; page.blobs)
+		logFLine("%d\t%d\t%s", page.blobIds[index], blob.fileSize,
+			blob.getFirstFileName());
+}
+
+/** Print duplicate groups without modifying repository contents. */
+void executeRepositoryDuplicates(Repository repository, ArgsArray options)
+{
+	auto groups = repository.queryDuplicates(options.argDuplicateLimit);
+	if (options.argOutputFormat == "json")
+	{
+		string output = "{\"groups\":[";
+		foreach (groupIndex, group; groups)
+		{
+			if (groupIndex > 0)
+				output ~= ",";
+			output ~= format("{\"size\":%d,\"blobs\":[", group.fileSize);
+			foreach (blobIndex, blobId; group.blobIds)
+			{
+				if (blobIndex > 0)
+					output ~= ",";
+				auto blob = repository.loadBlobDetails(blobId);
+				output ~= format("{\"id\":%d,\"path\":%s}", blobId,
+					jsonQuote(blob.getFirstFileName()));
+			}
+			output ~= "]}";
+		}
+		logLine(output ~ "]}");
+		return;
+	}
+	logFLine("Found %d duplicate groups.", groups.length);
+	foreach (groupIndex, group; groups)
+	{
+		logFLine("Group %d: %d bytes, %d blobs", groupIndex + 1,
+			group.fileSize, group.blobIds.length);
+		foreach (blobId; group.blobIds)
+		{
+			auto blob = repository.loadBlobDetails(blobId);
+			logFLine("  %d\t%s", blobId,
+				blob.getFirstFileName());
+		}
+	}
+}
+
+/** Quote a string for the small, stable CLI JSON result objects. */
+string jsonQuote(string value)
+{
+	return "\"" ~ value.replace("\\", "\\\\").replace("\"", "\\\"")
+		.replace("\n", "\\n").replace("\r", "\\r") ~ "\"";
+}
+
+/** Execute the selected metadata extractors against a repository. */
+void executeRepositoryMetadata(Repository repository, ArgsArray options)
+{
+	logLine("Repository phase: metadata extraction.");
+	repository.appendLog("metadata.start", "");
+	MetadataScanOptions metadataOptions;
+	metadataOptions.calculateChecksums = options.argDoChecksums;
+	metadataOptions.detectFileTypes = options.argDoFileTypes;
+	metadataOptions.extractMediaInfo = options.argDoMediaSig;
+	metadataOptions.scanArchives = options.argScanArchives != 0;
+	metadataOptions.deepArchiveScan = options.argScanArchives > 1;
+	metadataOptions.scanTorrents = options.argScanTorrents;
+	metadataOptions.rescan = options.argRescanMediaSig;
+	metadataOptions.threads = options.argNumberOfThreads > 1
+		? cast(size_t) options.argNumberOfThreads : 1;
+	auto summary = repository.updateMetadata(metadataOptions);
+	logFLine("Metadata update: %d blobs, %d checksum, %d file type, "
+		~ "%d media, %d archive, %d torrent updates, %d failures.",
+		summary.blobsVisited, summary.checksumsUpdated,
+		summary.fileTypesUpdated, summary.mediaInfoUpdated,
+		summary.archivesUpdated, summary.torrentsUpdated, summary.failed);
+	repository.appendLog("metadata.complete", format(
+		"blobs=%d failed=%d", summary.blobsVisited, summary.failed));
 }
 
 /** A handler for OS signals
@@ -253,30 +411,30 @@ extern (C) nothrow @nogc @system void signalHandler(int sig)
  * Based on the commandline options scan a directory (tree) and calculate a
  * checksum on it.
  */
-bool executeFileScannerOperation()
+bool executeFileScannerOperation(ArgsArray options)
 {
 
 	/* Read the JSON file, if existent */
-	const bool rc_load = readStorageJsonFile(argsArray.argJSONFile, argsArray.argForceOverwrite,
+	const bool rc_load = readStorageJsonFile(options.argJSONFile, options.argReplaceCatalog,
 		dynObjectWrapper);
 	if (!rc_load)
 	{
-		logLine("Abort program. Use -f to force overwriting of output file.");
+		errorLine("Abort program. Use -f to force overwriting of output file.");
 		return false;
 	}
 
 	/* Scan directory - here we just collect the filenames. Any new name is added
 	   as a new node to the array of object blobs.
 	 */
-	if (argsArray.argScanFiles)
+	if (options.argScanFiles)
 	{
 		import std.algorithm.iteration : fold;
 
 		const bool rc_scandirtree =
-			scanDirTree(argsArray.argScanPath, argsArray.argPickHidden, dynObjectWrapper.dataArray, gotCtrlC, argsArray);
+			scanDirTree(options.argScanPath, options.argPickHidden, dynObjectWrapper.dataArray, gotCtrlC, options);
 		if (!rc_scandirtree)
 		{
-			logLine("Failed to scan the directory tree.");
+			errorLine("Failed to scan the directory tree.");
 			return false;
 		}
 	}
@@ -285,13 +443,13 @@ bool executeFileScannerOperation()
 	try
 	{
 		/* Execute the checksum and MediaInfo jobs for each file. */
-		const bool rc_dojobs = runScannerJobs(dynObjectWrapper.dataArray, gotCtrlC, argsArray);
+		const bool rc_dojobs = runScannerJobs(dynObjectWrapper.dataArray, gotCtrlC, options);
 		if (!rc_dojobs)
-			logLine("Failed to run all scanner jobs.");
+			errorLine("Failed to run all scanner jobs.");
 	}
 	catch (Exception e)
 	{
-		logLine("Something happened while scanning and an exception was thrown.");
+		errorLine("Something happened while scanning and an exception was thrown.");
 		auto emergencySaveName = buildPath(thisExePath.dirName, ".crash_save.json");
 		logFLine("Serialize Array of Objects to temporary file: %s", emergencySaveName);
 		serializeDataClassWrapperFile(emergencySaveName, dynObjectWrapper);
@@ -304,18 +462,18 @@ bool executeFileScannerOperation()
 	}
 
 	/* Do data analysis on data */
-	if (argsArray.argRunAnalysis)
+	if (options.argRunAnalysis)
 	{
 		/* Do something useful on data */
-		const bool rc_analyse = analyseData(dynObjectWrapper.dataArray, gotCtrlC, argsArray);
+		const bool rc_analyse = analyseData(dynObjectWrapper.dataArray, gotCtrlC, options);
 		if (!rc_analyse)
 			logLine("Data analysis failed.");
 	}
 
 	/* Serialize the data */
-	if (argsArray.argWriteJSON)
+	if (options.argWriteJSON)
 	{
-		const bool rc_write = writeStorageJsonFile(argsArray.argJSONFile, dynObjectWrapper);
+		const bool rc_write = writeStorageJsonFile(options.argJSONFile, dynObjectWrapper);
 		if (!rc_write)
 			logLine("Write to storage file failed! Check data!");
 	}

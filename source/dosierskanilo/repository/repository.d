@@ -14,6 +14,7 @@ import std.typecons : Nullable;
 import dosierskanilo.model.namedbinaryblob : NamedBinaryBlob;
 import dosierskanilo.repository.errors;
 import dosierskanilo.repository.analysis : analyzeRepository;
+import dosierskanilo.repository.analysis : queryDuplicateGroups;
 import dosierskanilo.repository.metadata : updateRepositoryMetadata;
 import dosierskanilo.repository.schema : migrate;
 import dosierskanilo.repository.scanner : scanRepository;
@@ -330,6 +331,14 @@ public:
         return analyzeRepository(database, options);
     }
 
+    /** Return duplicate groups without changing repository data. */
+    RepositoryDuplicateGroup[] queryDuplicates(size_t limit = 100)
+    {
+        requireOpen();
+        enforce(limit > 0, "Duplicate query limit must be greater than zero.");
+        return queryDuplicateGroups(database, limit);
+    }
+
     /** Explicitly close the repository connection. */
     void close()
     {
@@ -616,6 +625,10 @@ unittest
     MetadataScanOptions metadataOptions;
     metadataOptions.calculateChecksums = true;
     repository.updateMetadata(metadataOptions);
+
+    auto duplicateGroups = repository.queryDuplicates();
+    assert(duplicateGroups.length == 1);
+    assert(duplicateGroups[0].blobIds.length == 2);
 
     auto duplicates = repository.analyze();
     assert(duplicates.duplicateGroups == 1);

@@ -25,19 +25,33 @@ struct ArgsArray
 	bool argDoMediaSig; ///< Calculate media signatures.
 	bool argRescanMediaSig; ///< Force media-signature rescans.
 	uint argScanArchives; ///< Scan archive contents.
+	bool argScanArchivesOption; ///< Canonical single archive-scan option.
 	bool argScanTorrents; ///< Scan torrent contents.
 	bool argRunAnalysis; ///< Run duplicate and cleanup analysis.
+	bool argRunMetadata; ///< Run repository metadata extraction.
+	bool argShowInfo; ///< Show repository metadata and catalog counts.
+	bool argList; ///< List repository blobs.
+	bool argDuplicates; ///< List duplicate blob groups.
+	uint argDuplicateLimit = 100; ///< Maximum number of duplicate groups.
+	string argQueryText; ///< Filter repository paths or SHA1 values.
+	uint argQueryLimit = 50; ///< Maximum number of listed blobs.
+	uint argQueryOffset; ///< Number of matching blobs to skip.
+	bool argQueryVideo; ///< Require video metadata.
+	bool argQueryAudio; ///< Require audio metadata.
+	bool argQueryImage; ///< Require image metadata.
+	bool argQueryTextStream; ///< Require text/subtitle metadata.
+	bool argQueryFileType; ///< Require file type metadata.
+	bool argQueryArchive; ///< Require archive metadata.
+	bool argQueryTorrent; ///< Require torrent metadata.
+	string argOutputFormat = "table"; ///< Repository query output format.
 	bool argDropMissing; ///< Drop missing files from the database.
 	bool argWriteJSON; ///< Write the resulting JSON file.
 	int argNumberOfThreads = 1; ///< Number of worker threads.
-	bool argForceOverwrite; ///< Overwrite an existing JSON file.
+	bool argReplaceCatalog; ///< Replace an existing repository catalog on import.
 	bool argPickHidden; ///< Include hidden files and directories.
 	bool argVerboseOutputs; ///< Enable verbose logging.
 	bool argVersion; ///< Show the application version.
 }
-
-/** Process-global command-line state used by the CLI workflow. */
-ArgsArray argsArray;
 
 @("options defaults")
 unittest

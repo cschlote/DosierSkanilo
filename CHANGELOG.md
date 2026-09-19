@@ -9,6 +9,30 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- Switched the CLI to explicit storage modes: top-level commands use SQLite,
+  while `json scan` and `json analyze` use direct JSON storage.
+- Removed the old option-only JSON invocation and legacy CLI option aliases.
+- Normal command execution no longer prints a version banner; use `--version`
+  when the version is requested.
+- Refactored the CLI around explicit SQLite and JSON command modes with typed
+  parsing, stable exit codes, and separated storage validation.
+- Added the `metadata` repository subcommand for explicit checksum, file type,
+  MediaInfo, archive, and torrent extraction operations.
+- Added the `info` repository subcommand for repository metadata and blob counts.
+- Added the `list` repository subcommand with bounded path and metadata filters.
+- Added the read-only `duplicates` repository subcommand for duplicate groups.
+- Added `--format=json` output for repository information, listing, and duplicate
+  queries.
+- Repository subcommands now reject incompatible operation options instead of
+  silently ignoring them.
+- CLI diagnostics are now written to stderr, keeping repository query results
+  available on stdout for pipelines.
+- Added `--replace` as the canonical explicit replacement option for repository
+  imports.
+- Standardized metadata, analysis, JSON, and hidden-file options on kebab-case
+  names.
+- Added CLI integration smoke tests for mode isolation, repository discovery,
+  JSON queries, and SQLite JSON import/export.
 - Fixed Linux dependency installation by including the SQLite development and
   runtime libraries required by `d2sqlite3`.
 

@@ -153,7 +153,7 @@ does.
 
 The `.dosierskanilo` SQLite repository is the normal working storage for new
 catalogs. JSON remains the complete structured interchange format and the
-compatibility boundary between repository and non-repository workflows:
+interchange boundary between repository and non-repository workflows:
 
 - Import accepts all currently supported legacy and version-3 forms.
 - Import runs inside one SQLite transaction.
@@ -164,10 +164,9 @@ compatibility boundary between repository and non-repository workflows:
 - An extended JSON version is required before fields not representable in
   version 3, such as complete torrent file lists, can be exported losslessly.
 
-The direct JSON-file workflow remains supported independently of SQLite. It can
-load, scan, analyze and write a JSON catalog without creating a repository.
-There is no short-term removal plan for this mode; existing scripts and JSON
-catalogs are long-term compatibility inputs and outputs.
+The direct JSON mode is an explicit CLI command group. It can load, scan,
+analyze and write a JSON catalog without creating or discovering a repository.
+SQLite commands never silently switch to this mode.
 
 The database is therefore not required to mimic the JSON shape. It is allowed
 to normalize relationships and reconstruct JSON at the boundary.
