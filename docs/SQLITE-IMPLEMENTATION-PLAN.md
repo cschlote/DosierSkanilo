@@ -32,7 +32,7 @@ SQLite implementation remains behind the public repository API.
 
 The CLI has two explicit, non-overlapping storage modes. Top-level commands
 use SQLite; the `json` keyword selects direct JSON mode. There is no implicit
-legacy option-only mode and no requirement to keep old spelling aliases.
+option-only mode and no requirement to keep old spelling aliases.
 
 SQLite is the default mode for top-level commands. The repository commands are:
 
@@ -326,7 +326,7 @@ dosierskanilo json analyze CATALOG.json
 ### WP-06 Steps
 
 - [x] Implement repository root discovery in the repository API.
-- [ ] Resolve an omitted repository root from the current directory and its
+- [x] Resolve an omitted repository root from the current directory and its
   parent directories for every top-level SQLite command.
 - [x] Parse top-level SQLite commands and the explicit `json` command group.
 - [x] Define positional root/catalog arguments for both modes.
@@ -339,7 +339,7 @@ dosierskanilo json analyze CATALOG.json
 - [x] Add phase progress reporting for database-backed jobs.
 - [x] Write operational logs to `.dosierskanilo/logs/`.
 - [x] Add clear errors for missing repositories and schema incompatibility.
-- [ ] Use `analyze` as the only analysis spelling.
+- [x] Use `analyze` as the only analysis spelling.
 - [x] Define a typed parser result containing the selected action, validated
   values, and a structured parse status.
 - [x] Remove the process-global CLI option state from the parser path.
@@ -349,8 +349,8 @@ dosierskanilo json analyze CATALOG.json
 - [x] Reject options that do not belong to the selected repository subcommand.
 - [x] Split repository execution into focused handlers for initialization,
   scanning, metadata extraction, analysis, import, export, and queries.
-- [ ] Make `scan`, `metadata`, `analyze`, `info`, `list`, and `duplicates`
-  repository operations independent of legacy JSON validation.
+- [x] Make `scan`, `metadata`, `analyze`, `info`, `list`, and `duplicates`
+  repository operations independent of JSON-mode validation.
 - [x] Add `info`, `list`, and `duplicates` commands using the existing typed
   repository query API, including pagination and filters.
 - [x] Add stable human-readable table output for query and summary commands
@@ -363,7 +363,7 @@ dosierskanilo json analyze CATALOG.json
   failures.
 - [x] Write CLI diagnostics to stderr while keeping command results on stdout.
 - [x] Make destructive repository import replacement explicit with `--replace`
-  and keep it separate from legacy JSON overwrite `--force` behavior.
+  and keep it separate from JSON-mode catalog handling.
 
 ### WP-06 Exit Criteria
 

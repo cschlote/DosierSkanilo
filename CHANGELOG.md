@@ -14,9 +14,8 @@ They represent the functional evolution and are intentionally summarized.
 - Removed the old option-only JSON invocation and legacy CLI option aliases.
 - Normal command execution no longer prints a version banner; use `--version`
   when the version is requested.
-- Started the CLI cleanup for SQLite repositories: explicit repository
-  subcommands now stay in repository mode, `--help` and `--version` return
-  success, parser state is local, and `-h` is reserved for help.
+- Refactored the CLI around explicit SQLite and JSON command modes with typed
+  parsing, stable exit codes, and separated storage validation.
 - Added the `metadata` repository subcommand for explicit checksum, file type,
   MediaInfo, archive, and torrent extraction operations.
 - Added the `info` repository subcommand for repository metadata and blob counts.
@@ -32,6 +31,8 @@ They represent the functional evolution and are intentionally summarized.
   imports.
 - Standardized metadata, analysis, JSON, and hidden-file options on kebab-case
   names.
+- Added CLI integration smoke tests for mode isolation, repository discovery,
+  JSON queries, and SQLite JSON import/export.
 - Fixed Linux dependency installation by including the SQLite development and
   runtime libraries required by `d2sqlite3`.
 

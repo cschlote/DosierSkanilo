@@ -7,18 +7,20 @@ blob-centric storage model.
 
 ```mermaid
 flowchart TD
-    A[CLI args] --> B[Load JSON storage]
-    B --> C[Scan directories and files]
-    C --> D[Map files to NamedBinaryBlob]
-    D --> E[Run scanner jobs]
-    E --> E1[Checksums MD5/SHA1/XXH64]
-    E --> E2[File type via file utility]
-    E --> E3[MediaInfo extraction]
-    E --> E4[Archive entry extraction + hashes]
-    E --> E5[Torrent metadata parsing]
-    E --> F[Analyse duplicates]
-    F --> G[Merge identical blobs]
-    G --> H[Write JSON storage]
+    A[CLI command] --> B{Storage mode}
+    B -->|JSON| C[Load JSON catalog]
+    B -->|SQLite| D[Open repository]
+    C --> E[Scan directories and files]
+    D --> E
+    E --> F[Map files to NamedBinaryBlob]
+    F --> G[Run scanner jobs]
+    G --> G1[Checksums MD5/SHA1/XXH64]
+    G --> G2[File type via file utility]
+    G --> G3[MediaInfo extraction]
+    G --> G4[Archive entry extraction + hashes]
+    G --> G5[Torrent metadata parsing]
+    G --> H[Analyse duplicates]
+    H --> I[Persist current state]
 ```
 
 ## 2. Core Domain Model (UML)
@@ -106,7 +108,7 @@ Scheduling policy details:
 
 - Most jobs are queued only when target metadata is missing.
 - Media rescan semantics are consistent across execution modes:
-  - `--mediasig --rescan-mediasig` forces refresh in single-thread and
+  - `--media-info --rescan-media-info` forces refresh in single-thread and
     multi-thread mode
 
 ## 4. Duplicate Detection Strategy
@@ -145,7 +147,7 @@ Relevant code:
 - `deserializeDataClassJsonFile`
 - `serializeDataClassWrapperFile`
 
-The planned normalized SQLite repository is described in
+The normalized SQLite repository is described in
 [DATABASE.md](DATABASE.md). JSON remains the import/export boundary rather than
 the query store for large repositories.
 
@@ -178,16 +180,16 @@ Output is stored in `TorrentInfo` per blob.
 
 ```mermaid
 flowchart LR
-  main --> commandline
+  main --> parser
   main --> logging
   main --> scanning
   main --> storageio
   main --> analyze
   main --> namedbinaryblob
 
-    scanning --> commandline
+    scanning --> progress
     scanning --> logging
-    analyze --> commandline
+    analyze --> progress
     analyze --> logging
     storageio --> logging
 
@@ -207,5 +209,5 @@ flowchart LR
 - Archive and torrent support allows deeper content intelligence than plain file
   tree scans.
 - JSON persistence plus fixups protects compatibility across schema evolution.
-- SQLite is planned as the normalized current-state store for repository-scale
-  scans and GUI queries.
+- SQLite is the normalized current-state store for repository-scale scans and
+  GUI queries; direct JSON is an explicit standalone mode and interchange path.
