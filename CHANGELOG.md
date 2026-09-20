@@ -14,6 +14,9 @@ They represent the functional evolution and are intentionally summarized.
   verbose mode remains available for additional output.
 - `import` and `export` now report missing required JSON filenames instead of
   silently completing without an operation.
+- Added bounded repository APIs for listing immediate directories and file
+  references, including stable IDs, relative paths, aggregate directory sizes,
+  timestamps, and presence flags.
 
 ## Release 26.10.2 - 2026-09-19
 

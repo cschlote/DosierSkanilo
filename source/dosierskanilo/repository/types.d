@@ -173,6 +173,50 @@ struct RepositoryAnalysisOptions
     bool mergeDuplicates = true;
 }
 
+/** Directory projection returned by the repository tree API. */
+struct RepositoryDirectory
+{
+    long id;
+    long parentId;
+    string name;
+    string relativePath;
+    size_t childDirectoryCount;
+    size_t fileCount;
+    ulong aggregateSize;
+}
+
+/** File projection returned by the repository tree API. */
+struct RepositoryFile
+{
+    long id;
+    long directoryId;
+    long blobId;
+    string name;
+    string relativePath;
+    ulong size;
+    string modifiedAt;
+    bool present;
+}
+
+/** Query options for bounded directory children reads. */
+struct RepositoryDirectoryQuery
+{
+    /// Parent directory ID; zero denotes the repository root.
+    long parentId;
+    size_t offset;
+    size_t limit = 250;
+}
+
+/** Query options for bounded file children reads. */
+struct RepositoryFileQuery
+{
+    /// Directory ID; zero denotes files directly below the repository root.
+    long directoryId;
+    size_t offset;
+    size_t limit = 250;
+    string text;
+}
+
 /** Query options for bounded repository catalog reads. */
 struct RepositoryQueryOptions
 {

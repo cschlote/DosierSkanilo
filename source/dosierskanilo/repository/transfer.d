@@ -6,7 +6,7 @@ import d2sqlite3;
 import std.algorithm : startsWith;
 import std.array : join;
 import std.base64 : Base64;
-import std.path : buildNormalizedPath, dirName, isAbsolute;
+import std.path : baseName, buildNormalizedPath, dirName, isAbsolute;
 import std.string : empty, replace, split;
 import std.typecons : Nullable;
 
@@ -101,6 +101,65 @@ NamedBinaryBlob[] loadCatalogQueryPageFromDatabase(ref Database db, string rootP
 {
     return loadCatalogQueryPageWithIdsFromDatabase(db, rootPath, options,
         exportOptions).blobs;
+}
+
+/** List immediate child directories without materializing the catalog. */
+RepositoryDirectory[] listDirectoriesFromDatabase(ref Database db,
+    RepositoryDirectoryQuery options)
+{
+    auto statement = db.prepare(
+        "SELECT d.id, d.parent_id, d.name, d.relative_path, "
+        ~ "(SELECT count(*) FROM directories child WHERE child.parent_id = d.id), "
+        ~ "(SELECT count(*) FROM file_refs f WHERE f.directory_id = d.id), "
+        ~ "COALESCE((SELECT sum(b.file_size) FROM file_refs f "
+        ~ "JOIN blobs b ON b.id = f.blob_id WHERE f.relative_path = d.relative_path "
+        ~ "OR f.relative_path LIKE d.relative_path || '/%'), 0) "
+        ~ "FROM directories d WHERE "
+        ~ (options.parentId == 0 ? "d.parent_id IS NULL" : "d.parent_id = :parent_id")
+        ~ " ORDER BY d.relative_path LIMIT :limit OFFSET :offset");
+    if (options.parentId != 0)
+        statement.bind(":parent_id", options.parentId);
+    statement.bind(":limit", cast(long) options.limit);
+    statement.bind(":offset", cast(long) options.offset);
+
+    RepositoryDirectory[] result;
+    foreach (row; statement.execute())
+    {
+        auto parent = row.peek!(Nullable!long)(1);
+        result ~= RepositoryDirectory(row.peek!long(0), parent.isNull ? 0 : parent.get,
+            row.peek!string(2), row.peek!string(3), cast(size_t) row.peek!long(4),
+            cast(size_t) row.peek!long(5), cast(ulong) row.peek!long(6));
+    }
+    return result;
+}
+
+/** List immediate file references without materializing blob details. */
+RepositoryFile[] listFilesFromDatabase(ref Database db, RepositoryFileQuery options)
+{
+    auto sql = "SELECT f.id, COALESCE(f.directory_id, 0), f.blob_id, "
+        ~ "f.relative_path, f.time_last_modified, f.exists_on_disk, b.file_size "
+        ~ "FROM file_refs f JOIN blobs b ON b.id = f.blob_id WHERE "
+        ~ (options.directoryId == 0 ? "f.directory_id IS NULL" : "f.directory_id = :directory_id");
+    if (!options.text.empty)
+        sql ~= " AND lower(f.relative_path) LIKE lower(:text)";
+    sql ~= " ORDER BY f.relative_path LIMIT :limit OFFSET :offset";
+    auto statement = db.prepare(sql);
+    if (options.directoryId != 0)
+        statement.bind(":directory_id", options.directoryId);
+    if (!options.text.empty)
+        statement.bind(":text", "%" ~ options.text ~ "%");
+    statement.bind(":limit", cast(long) options.limit);
+    statement.bind(":offset", cast(long) options.offset);
+
+    RepositoryFile[] result;
+    foreach (row; statement.execute())
+    {
+        auto modified = row.peek!(Nullable!string)(4);
+        result ~= RepositoryFile(row.peek!long(0), row.peek!long(1), row.peek!long(2),
+            baseName(row.peek!string(3)), row.peek!string(3), cast(ulong) row.peek!long(6),
+            modified.isNull ? "" : modified.get, row.peek!long(5) != 0);
+    }
+    return result;
 }
 
 /** Load a bounded filtered page and retain its blob IDs. */

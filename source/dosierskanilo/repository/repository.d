@@ -21,7 +21,8 @@ import dosierskanilo.repository.scanner : scanRepository;
 import dosierskanilo.repository.transfer : exportCatalogJson, importCatalogJson,
     loadCatalogFromDatabase, loadCatalogPageFromDatabase,
     loadCatalogQueryPageFromDatabase, loadCatalogQueryPageWithIdsFromDatabase,
-    loadBlobDetailsFromDatabase, countCatalogQueryFromDatabase;
+    loadBlobDetailsFromDatabase, countCatalogQueryFromDatabase,
+    listDirectoriesFromDatabase, listFilesFromDatabase;
 import dosierskanilo.repository.types;
 
 /** A connection to one `.dosierskanilo` repository. */
@@ -308,6 +309,22 @@ public:
         return cast(size_t) countCatalogQueryFromDatabase(database, options);
     }
 
+    /** List immediate child directories using bounded SQL queries. */
+    RepositoryDirectory[] listDirectories(RepositoryDirectoryQuery options = RepositoryDirectoryQuery())
+    {
+        requireOpen();
+        enforce(options.limit > 0, "Directory page size must be greater than zero.");
+        return listDirectoriesFromDatabase(database, options);
+    }
+
+    /** List immediate file references using bounded SQL queries. */
+    RepositoryFile[] listFiles(RepositoryFileQuery options = RepositoryFileQuery())
+    {
+        requireOpen();
+        enforce(options.limit > 0, "File page size must be greater than zero.");
+        return listFilesFromDatabase(database, options);
+    }
+
     /** Scan the repository root and update its filesystem references. */
     ScanSummary scan(RepositoryScanOptions options = RepositoryScanOptions())
     {
@@ -516,6 +533,22 @@ unittest
     dropOptions.dropMissing = true;
     auto dropped = repository.scan(dropOptions);
     assert(dropped.filesDropped == 1);
+
+    RepositoryDirectoryQuery directoryQuery;
+    directoryQuery.limit = 10;
+    auto rootDirectories = repository.listDirectories(directoryQuery);
+    assert(rootDirectories.length >= 2);
+    auto nestedDirectory = rootDirectories[0].name == "nested"
+        ? rootDirectories[0] : rootDirectories[1];
+    assert(nestedDirectory.name == "nested");
+    assert(nestedDirectory.fileCount == 0,
+        "missing file should no longer be counted");
+
+    RepositoryFileQuery fileQuery;
+    fileQuery.limit = 10;
+    auto rootFiles = repository.listFiles(fileQuery);
+    assert(rootFiles.length == 1);
+    assert(rootFiles[0].name == "first.txt");
     repository.close();
 }
 
