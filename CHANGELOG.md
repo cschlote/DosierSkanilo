@@ -17,6 +17,8 @@ They represent the functional evolution and are intentionally summarized.
 - Added bounded repository APIs for listing immediate directories and file
   references, including stable IDs, relative paths, aggregate directory sizes,
   timestamps, and presence flags.
+- Added bounded repository APIs for listing archive entries and torrent files by
+  blob ID for lazy nested detail views.
 
 ## Release 26.10.2 - 2026-09-19
 

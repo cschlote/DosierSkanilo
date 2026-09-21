@@ -22,7 +22,8 @@ import dosierskanilo.repository.transfer : exportCatalogJson, importCatalogJson,
     loadCatalogFromDatabase, loadCatalogPageFromDatabase,
     loadCatalogQueryPageFromDatabase, loadCatalogQueryPageWithIdsFromDatabase,
     loadBlobDetailsFromDatabase, countCatalogQueryFromDatabase,
-    listDirectoriesFromDatabase, listFilesFromDatabase;
+    listDirectoriesFromDatabase, listFilesFromDatabase,
+    listArchiveEntriesFromDatabase, listTorrentFilesFromDatabase;
 import dosierskanilo.repository.types;
 
 /** A connection to one `.dosierskanilo` repository. */
@@ -323,6 +324,22 @@ public:
         requireOpen();
         enforce(options.limit > 0, "File page size must be greater than zero.");
         return listFilesFromDatabase(database, options);
+    }
+
+    /** List archive entries for one blob using bounded SQL queries. */
+    RepositoryArchiveEntry[] listArchiveEntries(RepositoryArchiveQuery options)
+    {
+        requireOpen();
+        enforce(options.limit > 0, "Archive entry page size must be greater than zero.");
+        return listArchiveEntriesFromDatabase(database, options);
+    }
+
+    /** List torrent files for one blob using bounded SQL queries. */
+    RepositoryTorrentFile[] listTorrentFiles(RepositoryTorrentQuery options)
+    {
+        requireOpen();
+        enforce(options.limit > 0, "Torrent file page size must be greater than zero.");
+        return listTorrentFilesFromDatabase(database, options);
     }
 
     /** Scan the repository root and update its filesystem references. */

@@ -162,6 +162,43 @@ RepositoryFile[] listFilesFromDatabase(ref Database db, RepositoryFileQuery opti
     return result;
 }
 
+/** List archive entries for one blob without loading the complete blob. */
+RepositoryArchiveEntry[] listArchiveEntriesFromDatabase(ref Database db,
+    RepositoryArchiveQuery options)
+{
+    auto statement = db.prepare("SELECT id, file_name, file_size, time_last_modified "
+        ~ "FROM archive_entries WHERE blob_id = ? ORDER BY file_name "
+        ~ "LIMIT ? OFFSET ?");
+    statement.bind(1, options.blobId);
+    statement.bind(2, cast(long) options.limit);
+    statement.bind(3, cast(long) options.offset);
+    RepositoryArchiveEntry[] result;
+    foreach (row; statement.execute())
+    {
+        auto modified = row.peek!(Nullable!string)(3);
+        result ~= RepositoryArchiveEntry(row.peek!long(0), row.peek!string(1),
+            cast(ulong) row.peek!long(2), modified.isNull ? "" : modified.get);
+    }
+    return result;
+}
+
+/** List torrent files for one blob without loading torrent metadata. */
+RepositoryTorrentFile[] listTorrentFilesFromDatabase(ref Database db,
+    RepositoryTorrentQuery options)
+{
+    auto statement = db.prepare("SELECT id, relative_path, file_size "
+        ~ "FROM torrent_files WHERE torrent_blob_id = ? ORDER BY file_index "
+        ~ "LIMIT ? OFFSET ?");
+    statement.bind(1, options.blobId);
+    statement.bind(2, cast(long) options.limit);
+    statement.bind(3, cast(long) options.offset);
+    RepositoryTorrentFile[] result;
+    foreach (row; statement.execute())
+        result ~= RepositoryTorrentFile(row.peek!long(0), row.peek!string(1),
+            cast(ulong) row.peek!long(2));
+    return result;
+}
+
 /** Load a bounded filtered page and retain its blob IDs. */
 RepositoryBlobPage loadCatalogQueryPageWithIdsFromDatabase(ref Database db,
     string rootPath, RepositoryQueryOptions options, JsonExportOptions exportOptions)

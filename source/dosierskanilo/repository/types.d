@@ -207,6 +207,39 @@ struct RepositoryDirectoryQuery
     size_t limit = 250;
 }
 
+/** Archive entry projection for lazy detail views. */
+struct RepositoryArchiveEntry
+{
+    long id;
+    string name;
+    ulong size;
+    string modifiedAt;
+}
+
+/** Torrent file projection for lazy detail views. */
+struct RepositoryTorrentFile
+{
+    long id;
+    string relativePath;
+    ulong size;
+}
+
+/** Bounded archive-entry query. */
+struct RepositoryArchiveQuery
+{
+    long blobId;
+    size_t offset;
+    size_t limit = 250;
+}
+
+/** Bounded torrent-file query. */
+struct RepositoryTorrentQuery
+{
+    long blobId;
+    size_t offset;
+    size_t limit = 250;
+}
+
 /** Query options for bounded file children reads. */
 struct RepositoryFileQuery
 {
