@@ -59,6 +59,18 @@ import and export:
 
 Both modes use the same catalog concepts but have independent command contracts.
 
+## Shared Query Vision
+
+Library consumers such as the GUI or a web UI should not need to know whether a
+source is JSON or SQLite. The repository API is evolving toward common
+read-only projection DTOs, typed filters, explicit stable sorting, and cursors
+for internal chunking. A consumer sees one logical filtered result sequence;
+SQLite keyset queries or JSON in-memory indexes are implementation details.
+
+Internal chunks must not be exposed as storage-specific page navigation. Stable
+file/blob IDs provide `next` and `previous` navigation over the active filter
+and sort state while keeping large SQLite catalogs bounded in memory.
+
 ## Build and Test
 
 Build:

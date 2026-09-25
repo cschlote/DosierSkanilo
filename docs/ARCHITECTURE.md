@@ -151,6 +151,18 @@ The normalized SQLite repository is described in
 [DATABASE.md](DATABASE.md). JSON remains the import/export boundary rather than
 the query store for large repositories.
 
+### Shared Read API Vision
+
+JSON and SQLite are storage implementations behind one read-only consumer API.
+The common API returns directory/file projection DTOs and accepts the same
+filter and sort state. It may expose an internal cursor with `nextCursor` and
+`hasMore`, but consumers see one logical result sequence rather than
+storage-specific pages. Stable IDs support `next` and `previous` navigation
+within the active filtered/sorted sequence.
+
+JSON may keep its complete index in memory. SQLite should use bounded keyset or
+cursor queries so large repositories do not materialize their complete catalog.
+
 The implementation sequence is tracked in
 [SQLITE-IMPLEMENTATION-PLAN.md](SQLITE-IMPLEMENTATION-PLAN.md).
 

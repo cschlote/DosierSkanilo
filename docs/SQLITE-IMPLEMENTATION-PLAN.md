@@ -28,6 +28,29 @@ GUI -------------------+--> dosierskanilo.repository API
 The GUI and CLI must not depend on `d2sqlite3` or issue SQL directly. The
 SQLite implementation remains behind the public repository API.
 
+## Shared Query Contract
+
+The public read API must be opaque across JSON and SQLite. The logical consumer
+contract is:
+
+```text
+open(path)
+root(filterState, sortOrder)
+listDirectories(parentId, filterState, sortOrder)
+listFiles(directoryId, filterState, sortOrder, cursor)
+loadFileDetails(fileId)
+loadArchiveDetails(fileId)
+loadTorrentDetails(fileId)
+next(fileId, filterState, sortOrder)
+previous(fileId, filterState, sortOrder)
+close()
+```
+
+The API may use internal chunks, `nextCursor`, and `hasMore`. These are memory
+and transport controls, not user-visible SQL pages. JSON can use an in-memory
+index; SQLite should use stable keyset/cursor queries. Both sources must expose
+the same DTOs, filter semantics, sort order, stable IDs, and logical navigation.
+
 ## CLI Target Contract
 
 The CLI has two explicit, non-overlapping storage modes. Top-level commands
@@ -144,13 +167,16 @@ source/dosierskanilo/repository/
 
 - [x] Define repository lifecycle operations: initialize, open, close and
   discover root.
-- [ ] Define read operations for paginated blob summaries.
+- [ ] Define read operations for logical blob summaries backed by internal
+  cursors rather than user-visible pages.
 - [ ] Define detail operations for one blob and its related records.
 - [ ] Define scan write operations and transaction boundaries.
 - [ ] Define JSON import and export options.
 - [ ] Define typed filters for paths, sizes, checksums, file type, media,
   archives and torrents.
-- [ ] Define read-only result DTOs for GUI use.
+- [x] Define initial read-only directory/file DTOs for GUI use.
+- [ ] Complete shared JSON/SQLite DTOs, cursor contracts, and `next`/`previous`
+  navigation.
 - [x] Keep `d2sqlite3` types out of public signatures.
 - [x] Assign an independent initial API version, proposed as `1.0.0`.
 
@@ -395,8 +421,9 @@ source abstraction.
 - [x] Introduce a `DocumentSource` abstraction for JSON and SQLite sources.
 - [x] Keep the current JSON loader as the first adapter implementation.
 - [x] Add SQLite source opening and repository-root discovery.
-- [ ] Replace complete `loadedRows` loading with paginated summaries.
-- [ ] Move text, media, archive and torrent filters to repository queries.
+- [ ] Replace visible SQL paging and complete `loadedRows` loading with one
+  logical source sequence backed by internal cursors/chunks.
+- [ ] Move text, media, archive and torrent filters to the shared source query.
 - [ ] Refactor `BlobRow` so it does not require a complete `NamedBinaryBlob`.
 - [ ] Load details and file references only for the selected row.
 - [ ] Keep preview paths and media details available through the detail API.
@@ -437,7 +464,9 @@ Status: `[-]`
 - [x] Directory-tree and empty-directory tests.
 - [x] Archive and torrent relationship tests.
 - [x] Concurrent scanner-worker and reader/writer tests.
-- [x] GUI data-source and populated pagination tests.
+- [x] GUI data-source and populated bounded-query tests.
+- [ ] Add cross-source tests proving identical filtered/sorted logical sequence
+  and `next`/`previous` behavior for JSON and SQLite.
 - [x] Performance tests against the WP-00 datasets.
 
 ### Rollout Sequence
@@ -457,7 +486,8 @@ Status: `[-]`
 - CLI and GUI use the same public repository API.
 - JSON mode tests pass independently of SQLite repositories.
 - SQLite schema migrations are documented and tested.
-- Large-repository benchmarks show bounded GUI memory use.
+- Large-repository benchmarks show bounded GUI memory use while the logical
+  result set remains fully navigable.
 - Both explicit CLI modes remain available.
 
 ## Dependency Order
