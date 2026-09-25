@@ -248,6 +248,24 @@ struct RepositoryFileQuery
     size_t offset;
     size_t limit = 250;
     string text;
+    /// Keyset cursor: return rows after this stable path/id pair.
+    string afterPath;
+    long afterId;
+}
+
+/** Opaque position in a stable repository file sequence. */
+struct RepositoryFileCursor
+{
+    string relativePath;
+    long id;
+}
+
+/** One bounded file result chunk and its continuation state. */
+struct RepositoryFilePage
+{
+    RepositoryFile[] files;
+    RepositoryFileCursor nextCursor;
+    bool hasMore;
 }
 
 /** Query options for bounded repository catalog reads. */

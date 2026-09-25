@@ -23,7 +23,8 @@ import dosierskanilo.repository.transfer : exportCatalogJson, importCatalogJson,
     loadCatalogQueryPageFromDatabase, loadCatalogQueryPageWithIdsFromDatabase,
     loadBlobDetailsFromDatabase, countCatalogQueryFromDatabase,
     listDirectoriesFromDatabase, listFilesFromDatabase,
-    listArchiveEntriesFromDatabase, listTorrentFilesFromDatabase;
+    listFilesPageFromDatabase, listArchiveEntriesFromDatabase,
+    listTorrentFilesFromDatabase;
 import dosierskanilo.repository.types;
 
 /** A connection to one `.dosierskanilo` repository. */
@@ -326,6 +327,14 @@ public:
         return listFilesFromDatabase(database, options);
     }
 
+    /** List one keyset-paged file chunk without exposing SQL pagination details. */
+    RepositoryFilePage listFilesPage(RepositoryFileQuery options = RepositoryFileQuery())
+    {
+        requireOpen();
+        enforce(options.limit > 0, "File page size must be greater than zero.");
+        return listFilesPageFromDatabase(database, options);
+    }
+
     /** List archive entries for one blob using bounded SQL queries. */
     RepositoryArchiveEntry[] listArchiveEntries(RepositoryArchiveQuery options)
     {
@@ -514,10 +523,12 @@ unittest
     auto nested = buildPath(root, "nested");
     auto emptyDirectory = buildPath(root, "empty");
     auto firstFile = buildPath(root, "first.txt");
+    auto thirdFile = buildPath(root, "third.txt");
     auto secondFile = buildPath(nested, "second.txt");
     mkdirRecurse(nested);
     mkdirRecurse(emptyDirectory);
     write(firstFile, "first");
+    write(thirdFile, "third");
     write(secondFile, "second");
     scope (exit)
     {
@@ -527,13 +538,13 @@ unittest
 
     auto repository = Repository.initialize(root);
     auto first = repository.scan();
-    assert(first.filesFound == 2);
+    assert(first.filesFound == 3);
     assert(first.directoriesFound >= 2);
-    assert(first.filesAdded == 2);
+    assert(first.filesAdded == 3);
     assert(first.filesChanged == 0);
 
     auto unchanged = repository.scan();
-    assert(unchanged.filesFound == 2);
+    assert(unchanged.filesFound == 3);
     assert(unchanged.filesAdded == 0);
     assert(unchanged.filesChanged == 0);
     assert(unchanged.filesMissing == 0);
@@ -564,8 +575,18 @@ unittest
     RepositoryFileQuery fileQuery;
     fileQuery.limit = 10;
     auto rootFiles = repository.listFiles(fileQuery);
-    assert(rootFiles.length == 1);
+    assert(rootFiles.length == 2);
     assert(rootFiles[0].name == "first.txt");
+    RepositoryFileQuery cursorQuery;
+    cursorQuery.limit = 1;
+    auto firstPage = repository.listFilesPage(cursorQuery);
+    assert(firstPage.files.length == 1);
+    assert(firstPage.hasMore);
+    cursorQuery.afterPath = firstPage.nextCursor.relativePath;
+    cursorQuery.afterId = firstPage.nextCursor.id;
+    auto secondPage = repository.listFilesPage(cursorQuery);
+    assert(secondPage.files.length == 1);
+    assert(!secondPage.hasMore);
     repository.close();
 }
 

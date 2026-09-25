@@ -136,30 +136,51 @@ RepositoryDirectory[] listDirectoriesFromDatabase(ref Database db,
 /** List immediate file references without materializing blob details. */
 RepositoryFile[] listFilesFromDatabase(ref Database db, RepositoryFileQuery options)
 {
+    return listFilesPageFromDatabase(db, options).files;
+}
+
+/** List one keyset-paged file chunk and report continuation state. */
+RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuery options)
+{
     auto sql = "SELECT f.id, COALESCE(f.directory_id, 0), f.blob_id, "
         ~ "f.relative_path, f.time_last_modified, f.exists_on_disk, b.file_size "
         ~ "FROM file_refs f JOIN blobs b ON b.id = f.blob_id WHERE "
         ~ (options.directoryId == 0 ? "f.directory_id IS NULL" : "f.directory_id = :directory_id");
     if (!options.text.empty)
         sql ~= " AND lower(f.relative_path) LIKE lower(:text)";
-    sql ~= " ORDER BY f.relative_path LIMIT :limit OFFSET :offset";
+    if (!options.afterPath.empty)
+        sql ~= " AND (f.relative_path > :after_path OR (f.relative_path = :after_path "
+            ~ "AND f.id > :after_id))";
+    sql ~= " ORDER BY f.relative_path, f.id LIMIT :limit";
     auto statement = db.prepare(sql);
     if (options.directoryId != 0)
         statement.bind(":directory_id", options.directoryId);
     if (!options.text.empty)
         statement.bind(":text", "%" ~ options.text ~ "%");
-    statement.bind(":limit", cast(long) options.limit);
-    statement.bind(":offset", cast(long) options.offset);
+    if (!options.afterPath.empty)
+    {
+        statement.bind(":after_path", options.afterPath);
+        statement.bind(":after_id", options.afterId);
+    }
+    auto sqlLimit = options.limit == size_t.max ? -1L : cast(long) options.limit + 1;
+    statement.bind(":limit", sqlLimit);
 
-    RepositoryFile[] result;
+    RepositoryFilePage page;
     foreach (row; statement.execute())
     {
         auto modified = row.peek!(Nullable!string)(4);
-        result ~= RepositoryFile(row.peek!long(0), row.peek!long(1), row.peek!long(2),
+        page.files ~= RepositoryFile(row.peek!long(0), row.peek!long(1), row.peek!long(2),
             baseName(row.peek!string(3)), row.peek!string(3), cast(ulong) row.peek!long(6),
             modified.isNull ? "" : modified.get, row.peek!long(5) != 0);
     }
-    return result;
+    if (page.files.length > options.limit)
+    {
+        page.hasMore = true;
+        auto last = page.files[options.limit - 1];
+        page.nextCursor = RepositoryFileCursor(last.relativePath, last.id);
+        page.files = page.files[0 .. options.limit];
+    }
+    return page;
 }
 
 /** List archive entries for one blob without loading the complete blob. */

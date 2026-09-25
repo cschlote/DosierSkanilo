@@ -19,6 +19,8 @@ They represent the functional evolution and are intentionally summarized.
   timestamps, and presence flags.
 - Added bounded repository APIs for listing archive entries and torrent files by
   blob ID for lazy nested detail views.
+- Added a keyset-cursor file query API with `hasMore` and stable continuation
+  cursors for bounded repository result chunks.
 
 ## Release 26.10.2 - 2026-09-19
 
