@@ -260,6 +260,7 @@ struct RepositoryFileQuery
     bool audio;
     bool image;
     bool textStream;
+    bool mediaNegated;
     bool fileType;
     bool archive;
     bool torrent;

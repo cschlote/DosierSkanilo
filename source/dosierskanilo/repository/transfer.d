@@ -156,20 +156,28 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
         ~ (options.directoryId == 0 ? "f.directory_id IS NULL" : "f.directory_id = :directory_id");
     if (!options.text.empty)
         sql ~= " AND lower(f.relative_path) LIKE lower(:text)";
+    string[] mediaConditions;
     if (options.video)
-        sql ~= " AND EXISTS (SELECT 1 FROM media_video_streams mv WHERE mv.blob_id = b.id)";
+        mediaConditions ~= "EXISTS (SELECT 1 FROM media_video_streams mv WHERE mv.blob_id = b.id)";
     if (options.audio)
-        sql ~= " AND EXISTS (SELECT 1 FROM media_audio_streams ma WHERE ma.blob_id = b.id)";
+        mediaConditions ~= "EXISTS (SELECT 1 FROM media_audio_streams ma WHERE ma.blob_id = b.id)";
     if (options.image)
-        sql ~= " AND EXISTS (SELECT 1 FROM media_image_streams mi WHERE mi.blob_id = b.id)";
+        mediaConditions ~= "EXISTS (SELECT 1 FROM media_image_streams mi WHERE mi.blob_id = b.id)";
     if (options.textStream)
-        sql ~= " AND EXISTS (SELECT 1 FROM media_text_streams mt WHERE mt.blob_id = b.id)";
+        mediaConditions ~= "EXISTS (SELECT 1 FROM media_text_streams mt WHERE mt.blob_id = b.id)";
+    if (mediaConditions.length > 0)
+        sql ~= options.mediaNegated ? " AND NOT (" ~ mediaConditions.join(" OR ") ~ ")"
+            : " AND (" ~ mediaConditions.join(" OR ") ~ ")";
+
+    string[] otherConditions;
     if (options.fileType)
-        sql ~= " AND b.file_type IS NOT NULL AND length(b.file_type) > 0";
+        otherConditions ~= "(b.file_type IS NOT NULL AND length(b.file_type) > 0)";
     if (options.archive)
-        sql ~= " AND EXISTS (SELECT 1 FROM archive_entries ar WHERE ar.blob_id = b.id)";
+        otherConditions ~= "EXISTS (SELECT 1 FROM archive_entries ar WHERE ar.blob_id = b.id)";
     if (options.torrent)
-        sql ~= " AND EXISTS (SELECT 1 FROM torrent_info ti WHERE ti.blob_id = b.id)";
+        otherConditions ~= "EXISTS (SELECT 1 FROM torrent_info ti WHERE ti.blob_id = b.id)";
+    if (otherConditions.length > 0)
+        sql ~= " AND (" ~ otherConditions.join(" OR ") ~ ")";
     if (!options.afterPath.empty)
         sql ~= " AND (f.relative_path > :after_path OR (f.relative_path = :after_path "
             ~ "AND f.id > :after_id))";
