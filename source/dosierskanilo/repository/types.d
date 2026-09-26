@@ -286,6 +286,7 @@ struct RepositoryFileQuery
     string afterPath;
     long afterId;
     ulong afterSize;
+    bool beforeCursor;
 }
 
 /** Opaque position in a stable repository file sequence. */

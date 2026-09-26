@@ -32,6 +32,8 @@ They represent the functional evolution and are intentionally summarized.
   no matching file references.
 - Repository file cursors now preserve a selected path/size sort order across
   chunk boundaries using stable path and ID tie-breakers.
+- Added explicit `nextFilesPage()` and `previousFilesPage()` operations over the
+  same filtered and sorted repository sequence.
 
 ## Release 26.10.2 - 2026-09-19
 

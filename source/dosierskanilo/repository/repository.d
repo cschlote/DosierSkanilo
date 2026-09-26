@@ -335,6 +335,28 @@ public:
         return listFilesPageFromDatabase(database, options);
     }
 
+    /** Continue forward from a stable file cursor in the query's sorted result. */
+    RepositoryFilePage nextFilesPage(RepositoryFileQuery options,
+        RepositoryFileCursor cursor)
+    {
+        options.afterPath = cursor.relativePath;
+        options.afterId = cursor.id;
+        options.afterSize = cursor.size;
+        options.beforeCursor = false;
+        return listFilesPage(options);
+    }
+
+    /** Continue backward from a stable file cursor, returning rows in display order. */
+    RepositoryFilePage previousFilesPage(RepositoryFileQuery options,
+        RepositoryFileCursor cursor)
+    {
+        options.afterPath = cursor.relativePath;
+        options.afterId = cursor.id;
+        options.afterSize = cursor.size;
+        options.beforeCursor = true;
+        return listFilesPage(options);
+    }
+
     /** List archive entries for one blob using bounded SQL queries. */
     RepositoryArchiveEntry[] listArchiveEntries(RepositoryArchiveQuery options)
     {
@@ -596,6 +618,11 @@ unittest
     auto secondPage = repository.listFilesPage(cursorQuery);
     assert(secondPage.files.length == 1);
     assert(!secondPage.hasMore);
+    auto previousPage = repository.previousFilesPage(cursorQuery,
+        RepositoryFileCursor(secondPage.files[0].relativePath, secondPage.files[0].id,
+            secondPage.files[0].size));
+    assert(previousPage.files.length == 1);
+    assert(previousPage.files[0].id == firstPage.files[0].id);
 
     RepositoryFileQuery sizeQuery;
     sizeQuery.limit = 1;
@@ -608,6 +635,11 @@ unittest
     auto nextSizePage = repository.listFilesPage(sizeQuery);
     assert(nextSizePage.files.length == 1);
     assert(nextSizePage.files[0].size >= smallestPage.files[0].size);
+    auto previousSizePage = repository.previousFilesPage(sizeQuery,
+        RepositoryFileCursor(nextSizePage.files[0].relativePath, nextSizePage.files[0].id,
+            nextSizePage.files[0].size));
+    assert(previousSizePage.files.length == 1);
+    assert(previousSizePage.files[0].id == smallestPage.files[0].id);
     repository.close();
 }
 

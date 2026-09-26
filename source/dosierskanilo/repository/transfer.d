@@ -3,7 +3,7 @@ module dosierskanilo.repository.transfer;
 
 import d2sqlite3;
 
-import std.algorithm : startsWith;
+import std.algorithm : reverse, startsWith;
 import std.array : join;
 import std.base64 : Base64;
 import std.path : baseName, buildNormalizedPath, dirName, isAbsolute;
@@ -219,37 +219,49 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
         sql ~= " AND (" ~ otherConditions.join(" OR ") ~ ")";
     if (!options.afterPath.empty)
     {
+        auto pathOperator = options.beforeCursor ? "<" : ">";
+        auto sizeOperator = options.beforeCursor ? "<" : ">";
         final switch (options.sortOrder)
         {
         case RepositoryFileSortOrder.pathAscending:
-            sql ~= " AND (f.relative_path > :after_path OR (f.relative_path = :after_path AND f.id > :after_id))";
+            sql ~= " AND (f.relative_path " ~ pathOperator ~ " :after_path OR (f.relative_path = :after_path AND f.id "
+                ~ (options.beforeCursor ? "<" : ">") ~ " :after_id))";
             break;
         case RepositoryFileSortOrder.pathDescending:
-            sql ~= " AND (f.relative_path < :after_path OR (f.relative_path = :after_path AND f.id < :after_id))";
+            sql ~= " AND (f.relative_path " ~ (options.beforeCursor ? ">" : "<")
+                ~ " :after_path OR (f.relative_path = :after_path AND f.id "
+                ~ (options.beforeCursor ? ">" : "<") ~ " :after_id))";
             break;
         case RepositoryFileSortOrder.sizeAscending:
-            sql ~= " AND (b.file_size > :after_size OR (b.file_size = :after_size AND "
-                ~ "(f.relative_path > :after_path OR (f.relative_path = :after_path AND f.id > :after_id))))";
+            sql ~= " AND (b.file_size " ~ sizeOperator ~ " :after_size OR (b.file_size = :after_size AND "
+                ~ "(f.relative_path " ~ pathOperator ~ " :after_path OR (f.relative_path = :after_path AND f.id "
+                ~ (options.beforeCursor ? "<" : ">") ~ " :after_id))))";
             break;
         case RepositoryFileSortOrder.sizeDescending:
-            sql ~= " AND (b.file_size < :after_size OR (b.file_size = :after_size AND "
-                ~ "(f.relative_path > :after_path OR (f.relative_path = :after_path AND f.id > :after_id))))";
+            sql ~= " AND (b.file_size " ~ (options.beforeCursor ? ">" : "<") ~ " :after_size OR "
+                ~ "(b.file_size = :after_size AND (f.relative_path " ~ pathOperator
+                ~ " :after_path OR (f.relative_path = :after_path AND f.id "
+                ~ (options.beforeCursor ? "<" : ">") ~ " :after_id))))";
             break;
         }
     }
     final switch (options.sortOrder)
     {
     case RepositoryFileSortOrder.pathAscending:
-        sql ~= " ORDER BY f.relative_path ASC, f.id ASC";
+        sql ~= options.beforeCursor ? " ORDER BY f.relative_path DESC, f.id DESC"
+            : " ORDER BY f.relative_path ASC, f.id ASC";
         break;
     case RepositoryFileSortOrder.pathDescending:
-        sql ~= " ORDER BY f.relative_path DESC, f.id DESC";
+        sql ~= options.beforeCursor ? " ORDER BY f.relative_path ASC, f.id ASC"
+            : " ORDER BY f.relative_path DESC, f.id DESC";
         break;
     case RepositoryFileSortOrder.sizeAscending:
-        sql ~= " ORDER BY b.file_size ASC, f.relative_path ASC, f.id ASC";
+        sql ~= options.beforeCursor ? " ORDER BY b.file_size DESC, f.relative_path DESC, f.id DESC"
+            : " ORDER BY b.file_size ASC, f.relative_path ASC, f.id ASC";
         break;
     case RepositoryFileSortOrder.sizeDescending:
-        sql ~= " ORDER BY b.file_size DESC, f.relative_path ASC, f.id ASC";
+        sql ~= options.beforeCursor ? " ORDER BY b.file_size ASC, f.relative_path DESC, f.id DESC"
+            : " ORDER BY b.file_size DESC, f.relative_path ASC, f.id ASC";
         break;
     }
     sql ~= " LIMIT :limit";
@@ -283,9 +295,15 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
     if (page.files.length > options.limit)
     {
         page.hasMore = true;
-        auto last = page.files[options.limit - 1];
-        page.nextCursor = RepositoryFileCursor(last.relativePath, last.id, last.size);
         page.files = page.files[0 .. options.limit];
+    }
+    if (options.beforeCursor)
+        reverse(page.files);
+    if (page.hasMore && page.files.length > 0)
+    {
+        auto cursorFile = options.beforeCursor ? page.files[0] : page.files[$ - 1];
+        page.nextCursor = RepositoryFileCursor(cursorFile.relativePath,
+            cursorFile.id, cursorFile.size);
     }
     return page;
 }
