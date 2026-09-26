@@ -28,6 +28,8 @@ They represent the functional evolution and are intentionally summarized.
 - Repository media filters now use OR semantics within the selected media
   types, support negation, and combine with the other presence filters like the
   GUI's shared filter state.
+- Filtered directory queries now omit directories whose descendant subtree has
+  no matching file references.
 
 ## Release 26.10.2 - 2026-09-19
 

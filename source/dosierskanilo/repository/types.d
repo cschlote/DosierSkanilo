@@ -213,6 +213,15 @@ struct RepositoryDirectoryQuery
     long parentId;
     size_t offset;
     size_t limit = 250;
+    string text;
+    bool video;
+    bool audio;
+    bool image;
+    bool textStream;
+    bool mediaNegated;
+    bool fileType;
+    bool archive;
+    bool torrent;
 }
 
 /** Archive entry projection for lazy detail views. */

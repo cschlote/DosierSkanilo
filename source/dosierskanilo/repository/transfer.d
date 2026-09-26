@@ -116,9 +116,11 @@ RepositoryDirectory[] listDirectoriesFromDatabase(ref Database db,
         ~ "OR f.relative_path LIKE d.relative_path || '/%'), 0) "
         ~ "FROM directories d WHERE "
         ~ (options.parentId == 0 ? "d.parent_id IS NULL" : "d.parent_id = :parent_id")
+        ~ directoryFilterSql(options)
         ~ " ORDER BY d.relative_path LIMIT :limit OFFSET :offset");
     if (options.parentId != 0)
         statement.bind(":parent_id", options.parentId);
+    bindDirectoryFilter(statement, options);
     statement.bind(":limit", cast(long) options.limit);
     statement.bind(":offset", cast(long) options.offset);
 
@@ -131,6 +133,43 @@ RepositoryDirectory[] listDirectoriesFromDatabase(ref Database db,
             cast(size_t) row.peek!long(5), cast(ulong) row.peek!long(6));
     }
     return result;
+}
+
+private string directoryFilterSql(RepositoryDirectoryQuery options)
+{
+    if (options.text.empty && !options.video && !options.audio && !options.image
+        && !options.textStream && !options.fileType && !options.archive && !options.torrent)
+        return "";
+
+    string sql = " AND EXISTS (WITH RECURSIVE subtree(id) AS (SELECT d.id UNION ALL "
+        ~ "SELECT child.id FROM directories child JOIN subtree s ON child.parent_id = s.id) "
+        ~ "SELECT 1 FROM file_refs f JOIN blobs b ON b.id = f.blob_id "
+        ~ "WHERE f.directory_id IN (SELECT id FROM subtree)";
+    if (!options.text.empty)
+        sql ~= " AND lower(f.relative_path) LIKE lower(:directory_text)";
+
+    string[] media;
+    if (options.video) media ~= "EXISTS (SELECT 1 FROM media_video_streams x WHERE x.blob_id = b.id)";
+    if (options.audio) media ~= "EXISTS (SELECT 1 FROM media_audio_streams x WHERE x.blob_id = b.id)";
+    if (options.image) media ~= "EXISTS (SELECT 1 FROM media_image_streams x WHERE x.blob_id = b.id)";
+    if (options.textStream) media ~= "EXISTS (SELECT 1 FROM media_text_streams x WHERE x.blob_id = b.id)";
+    if (media.length > 0)
+        sql ~= options.mediaNegated ? " AND NOT (" ~ media.join(" OR ") ~ ")"
+            : " AND (" ~ media.join(" OR ") ~ ")";
+
+    string[] other;
+    if (options.fileType) other ~= "(b.file_type IS NOT NULL AND length(b.file_type) > 0)";
+    if (options.archive) other ~= "EXISTS (SELECT 1 FROM archive_entries a WHERE a.blob_id = b.id)";
+    if (options.torrent) other ~= "EXISTS (SELECT 1 FROM torrent_info t WHERE t.blob_id = b.id)";
+    if (other.length > 0)
+        sql ~= " AND (" ~ other.join(" OR ") ~ ")";
+    return sql ~ ")";
+}
+
+private void bindDirectoryFilter(ref Statement statement, RepositoryDirectoryQuery options)
+{
+    if (!options.text.empty)
+        statement.bind(":directory_text", "%" ~ options.text ~ "%");
 }
 
 /** List immediate file references without materializing blob details. */

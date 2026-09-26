@@ -543,6 +543,15 @@ unittest
     assert(first.filesAdded == 3);
     assert(first.filesChanged == 0);
 
+    RepositoryDirectoryQuery matchingDirectoryQuery;
+    matchingDirectoryQuery.limit = 10;
+    matchingDirectoryQuery.text = "second.txt";
+    auto matchingDirectories = repository.listDirectories(matchingDirectoryQuery);
+    assert(matchingDirectories.length == 1);
+    assert(matchingDirectories[0].name == "nested");
+    matchingDirectoryQuery.text = "not-present";
+    assert(repository.listDirectories(matchingDirectoryQuery).length == 0);
+
     auto unchanged = repository.scan();
     assert(unchanged.filesFound == 3);
     assert(unchanged.filesAdded == 0);
