@@ -571,6 +571,10 @@ unittest
     auto matchingDirectories = repository.listDirectories(matchingDirectoryQuery);
     assert(matchingDirectories.length == 1);
     assert(matchingDirectories[0].name == "nested");
+    matchingDirectoryQuery.text = "SECOND.TXT";
+    assert(repository.listDirectories(matchingDirectoryQuery).length == 1);
+    matchingDirectoryQuery.caseSensitive = true;
+    assert(repository.listDirectories(matchingDirectoryQuery).length == 0);
     matchingDirectoryQuery.text = "not-present";
     assert(repository.listDirectories(matchingDirectoryQuery).length == 0);
 

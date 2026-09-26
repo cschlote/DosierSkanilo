@@ -214,6 +214,7 @@ struct RepositoryDirectoryQuery
     size_t offset;
     size_t limit = 250;
     string text;
+    bool caseSensitive;
     bool video;
     bool audio;
     bool image;
@@ -273,6 +274,7 @@ struct RepositoryFileQuery
     size_t offset;
     size_t limit = 250;
     string text;
+    bool caseSensitive;
     bool video;
     bool audio;
     bool image;

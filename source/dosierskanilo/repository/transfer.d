@@ -146,7 +146,9 @@ private string directoryFilterSql(RepositoryDirectoryQuery options)
         ~ "SELECT 1 FROM file_refs f JOIN blobs b ON b.id = f.blob_id "
         ~ "WHERE f.directory_id IN (SELECT id FROM subtree)";
     if (!options.text.empty)
-        sql ~= " AND lower(f.relative_path) LIKE lower(:directory_text)";
+        sql ~= options.caseSensitive
+            ? " AND instr(f.relative_path, :directory_text) > 0"
+            : " AND lower(f.relative_path) LIKE lower(:directory_text)";
 
     string[] media;
     if (options.video) media ~= "EXISTS (SELECT 1 FROM media_video_streams x WHERE x.blob_id = b.id)";
@@ -169,7 +171,8 @@ private string directoryFilterSql(RepositoryDirectoryQuery options)
 private void bindDirectoryFilter(ref Statement statement, RepositoryDirectoryQuery options)
 {
     if (!options.text.empty)
-        statement.bind(":directory_text", "%" ~ options.text ~ "%");
+        statement.bind(":directory_text", options.caseSensitive
+            ? options.text : "%" ~ options.text ~ "%");
 }
 
 /** List immediate file references without materializing blob details. */
@@ -194,7 +197,8 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
         ~ "FROM file_refs f JOIN blobs b ON b.id = f.blob_id WHERE "
         ~ (options.directoryId == 0 ? "f.directory_id IS NULL" : "f.directory_id = :directory_id");
     if (!options.text.empty)
-        sql ~= " AND lower(f.relative_path) LIKE lower(:text)";
+        sql ~= options.caseSensitive ? " AND instr(f.relative_path, :text) > 0"
+            : " AND lower(f.relative_path) LIKE lower(:text)";
     string[] mediaConditions;
     if (options.video)
         mediaConditions ~= "EXISTS (SELECT 1 FROM media_video_streams mv WHERE mv.blob_id = b.id)";
@@ -269,7 +273,7 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
     if (options.directoryId != 0)
         statement.bind(":directory_id", options.directoryId);
     if (!options.text.empty)
-        statement.bind(":text", "%" ~ options.text ~ "%");
+        statement.bind(":text", options.caseSensitive ? options.text : "%" ~ options.text ~ "%");
     if (!options.afterPath.empty)
     {
         statement.bind(":after_path", options.afterPath);

@@ -30,6 +30,8 @@ They represent the functional evolution and are intentionally summarized.
   GUI's shared filter state.
 - Filtered directory queries now omit directories whose descendant subtree has
   no matching file references.
+- Repository path-text filters now support an explicit case-sensitive mode in
+  both file and descendant-directory queries.
 - Repository file cursors now preserve a selected path/size sort order across
   chunk boundaries using stable path and ID tie-breakers.
 - Added explicit `nextFilesPage()` and `previousFilesPage()` operations over the
