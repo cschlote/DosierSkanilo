@@ -144,6 +144,14 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
 {
     auto sql = "SELECT f.id, COALESCE(f.directory_id, 0), f.blob_id, "
         ~ "f.relative_path, f.time_last_modified, f.exists_on_disk, b.file_size "
+        ~ ", (b.file_type IS NOT NULL AND length(b.file_type) > 0) "
+        ~ ", EXISTS (SELECT 1 FROM media_signatures ms WHERE ms.blob_id = b.id) "
+        ~ ", EXISTS (SELECT 1 FROM media_video_streams mv WHERE mv.blob_id = b.id) "
+        ~ ", EXISTS (SELECT 1 FROM media_audio_streams ma WHERE ma.blob_id = b.id) "
+        ~ ", EXISTS (SELECT 1 FROM media_image_streams mi WHERE mi.blob_id = b.id) "
+        ~ ", EXISTS (SELECT 1 FROM media_text_streams mt WHERE mt.blob_id = b.id) "
+        ~ ", EXISTS (SELECT 1 FROM archive_entries ar WHERE ar.blob_id = b.id) "
+        ~ ", EXISTS (SELECT 1 FROM torrent_info ti WHERE ti.blob_id = b.id) "
         ~ "FROM file_refs f JOIN blobs b ON b.id = f.blob_id WHERE "
         ~ (options.directoryId == 0 ? "f.directory_id IS NULL" : "f.directory_id = :directory_id");
     if (!options.text.empty)
@@ -171,7 +179,10 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
         auto modified = row.peek!(Nullable!string)(4);
         page.files ~= RepositoryFile(row.peek!long(0), row.peek!long(1), row.peek!long(2),
             baseName(row.peek!string(3)), row.peek!string(3), cast(ulong) row.peek!long(6),
-            modified.isNull ? "" : modified.get, row.peek!long(5) != 0);
+            modified.isNull ? "" : modified.get, row.peek!long(5) != 0,
+            row.peek!long(7) != 0, row.peek!long(8) != 0, row.peek!long(9) != 0,
+            row.peek!long(10) != 0, row.peek!long(11) != 0, row.peek!long(12) != 0,
+            row.peek!long(13) != 0, row.peek!long(14) != 0);
     }
     if (page.files.length > options.limit)
     {

@@ -21,6 +21,8 @@ They represent the functional evolution and are intentionally summarized.
   blob ID for lazy nested detail views.
 - Added a keyset-cursor file query API with `hasMore` and stable continuation
   cursors for bounded repository result chunks.
+- Repository file DTOs now expose metadata-presence flags needed for shared
+  media, type, archive, and torrent filtering in consumer UIs.
 
 ## Release 26.10.2 - 2026-09-19
 

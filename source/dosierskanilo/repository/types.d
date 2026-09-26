@@ -196,6 +196,14 @@ struct RepositoryFile
     ulong size;
     string modifiedAt;
     bool present;
+    bool hasFileType;
+    bool hasMedia;
+    bool hasVideo;
+    bool hasAudio;
+    bool hasImage;
+    bool hasText;
+    bool hasArchive;
+    bool hasTorrent;
 }
 
 /** Query options for bounded directory children reads. */
