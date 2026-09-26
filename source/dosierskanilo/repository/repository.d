@@ -847,12 +847,27 @@ unittest
     auto archiveFiles = repository.listFiles(archiveQuery);
     assert(archiveFiles.length == 1);
     assert(archiveFiles[0].hasArchive);
+    JsonExportOptions lazyDetails;
+    lazyDetails.includeArchiveEntries = false;
+    lazyDetails.includeTorrentFiles = false;
+    auto archiveBlob = repository.loadBlobDetails(archiveFiles[0].blobId, lazyDetails);
+    assert(archiveBlob !is null);
+    assert(archiveBlob.archiveSpecs.length == 0);
+    RepositoryArchiveQuery archiveEntriesQuery;
+    archiveEntriesQuery.blobId = archiveFiles[0].blobId;
+    assert(repository.listArchiveEntries(archiveEntriesQuery).length > 0);
     RepositoryFileQuery torrentQuery;
     torrentQuery.torrent = true;
     torrentQuery.limit = 10;
     auto torrentFiles = repository.listFiles(torrentQuery);
     assert(torrentFiles.length == 1);
     assert(torrentFiles[0].hasTorrent);
+    auto torrentBlob = repository.loadBlobDetails(torrentFiles[0].blobId, lazyDetails);
+    assert(torrentBlob !is null && torrentBlob.torrentInfo !is null);
+    assert(torrentBlob.torrentInfo.files.length == 0);
+    RepositoryTorrentQuery torrentEntriesQuery;
+    torrentEntriesQuery.blobId = torrentFiles[0].blobId;
+    assert(repository.listTorrentFiles(torrentEntriesQuery).length > 0);
     repository.exportJson(exported);
     repository.close();
 
