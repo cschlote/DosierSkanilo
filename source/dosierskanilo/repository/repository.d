@@ -718,6 +718,16 @@ unittest
     assert(summary.mediaInfoUpdated >= 1);
     assert(summary.torrentsUpdated == 1);
     assert(summary.failed == 0);
+    RepositoryFileQuery imageQuery;
+    imageQuery.limit = size_t.max;
+    imageQuery.image = true;
+    auto imagePage = repository.listFilesPage(imageQuery);
+    assert(imagePage.files.length == 1);
+    assert(imagePage.files[0].hasImage);
+    imageQuery.mediaNegated = true;
+    auto nonImagePage = repository.listFilesPage(imageQuery);
+    assert(nonImagePage.files.length == 1);
+    assert(!nonImagePage.files[0].hasImage);
     auto secondSummary = repository.updateMetadata(options);
     assert(secondSummary.mediaInfoUpdated == 0);
     assert(secondSummary.torrentsUpdated == 0);
@@ -803,6 +813,18 @@ unittest
     assert(summary.archivesUpdated == 1);
     assert(summary.torrentsUpdated == 1);
     assert(summary.failed == 0);
+    RepositoryFileQuery archiveQuery;
+    archiveQuery.archive = true;
+    archiveQuery.limit = 10;
+    auto archiveFiles = repository.listFiles(archiveQuery);
+    assert(archiveFiles.length == 1);
+    assert(archiveFiles[0].hasArchive);
+    RepositoryFileQuery torrentQuery;
+    torrentQuery.torrent = true;
+    torrentQuery.limit = 10;
+    auto torrentFiles = repository.listFiles(torrentQuery);
+    assert(torrentFiles.length == 1);
+    assert(torrentFiles[0].hasTorrent);
     repository.exportJson(exported);
     repository.close();
 
