@@ -94,6 +94,10 @@ struct JsonExportOptions
     bool absolutePaths;
     /// Include nested MediaInfo, archive and torrent details.
     bool includeDetails = true;
+    /// Include archive entry rows as part of blob details.
+    bool includeArchiveEntries = true;
+    /// Include torrent file rows as part of blob details.
+    bool includeTorrentFiles = true;
 }
 
 /** Options controlling a repository filesystem scan. */
@@ -332,6 +336,9 @@ struct RepositoryQueryOptions
     bool archive;
     /// Require torrent metadata.
     bool torrent;
+    /// Stable keyset position for forward-only catalog iteration.
+    long afterBlobId;
+    bool useCursor;
 }
 
 /** A bounded repository page with stable blob identities. */
@@ -341,6 +348,8 @@ struct RepositoryBlobPage
     long[] blobIds;
     RepositoryBlobFlags[] flags;
     size_t total;
+    long nextCursor;
+    bool hasMore;
 }
 
 /** Presence flags for one repository blob summary. */

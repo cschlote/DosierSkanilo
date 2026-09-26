@@ -361,6 +361,12 @@ RepositoryBlobPage loadCatalogQueryPageWithIdsFromDatabase(ref Database db,
     auto result = statement.execute();
     foreach (row; result)
         blobIds ~= row.peek!long(0);
+    if (options.useCursor && blobIds.length > options.limit)
+    {
+        page.hasMore = true;
+        page.nextCursor = blobIds[options.limit - 1];
+        blobIds = blobIds[0 .. options.limit];
+    }
     foreach (blobId; blobIds)
     {
         auto blob = loadBlobDetailsFromDatabase(db, rootPath, blobId,
@@ -462,7 +468,13 @@ private Statement prepareCatalogQuery(ref Database db, string selectSql,
         sql ~= ")";
     }
     if (paged)
-        sql ~= " ORDER BY b.id LIMIT :limit OFFSET :offset";
+    {
+        if (options.useCursor && options.afterBlobId > 0)
+            sql ~= " AND b.id > :after_blob_id";
+        sql ~= " ORDER BY b.id LIMIT :limit";
+        if (!options.useCursor)
+            sql ~= " OFFSET :offset";
+    }
 
     auto statement = db.prepare(sql);
     if (!options.text.empty)
@@ -471,8 +483,14 @@ private Statement prepareCatalogQuery(ref Database db, string selectSql,
         statement.bind(":sha1", cast(Blob) sha1Search);
     if (paged)
     {
-        statement.bind(":limit", cast(long) options.limit);
-        statement.bind(":offset", cast(long) options.offset);
+        auto limit = options.useCursor && options.limit < size_t.max
+            ? cast(long) options.limit + 1
+            : options.limit == size_t.max ? -1L : cast(long) options.limit;
+        statement.bind(":limit", limit);
+        if (options.useCursor && options.afterBlobId > 0)
+            statement.bind(":after_blob_id", options.afterBlobId);
+        else if (!options.useCursor)
+            statement.bind(":offset", cast(long) options.offset);
     }
     return statement;
 }
@@ -513,8 +531,9 @@ NamedBinaryBlob loadBlobDetailsFromDatabase(ref Database db, string rootPath,
     if (options.includeDetails)
     {
         loadMediaInfo(db, blobId, blob);
-        loadArchiveSpecs(db, blobId, blob);
-        loadTorrentInfo(db, blobId, blob);
+        if (options.includeArchiveEntries)
+            loadArchiveSpecs(db, blobId, blob);
+        loadTorrentInfo(db, blobId, blob, options.includeTorrentFiles);
     }
     return blob;
 }
@@ -778,7 +797,8 @@ private void loadArchiveSpecs(ref Database db, long blobId, ref NamedBinaryBlob 
     }
 }
 
-private void loadTorrentInfo(ref Database db, long blobId, ref NamedBinaryBlob blob)
+private void loadTorrentInfo(ref Database db, long blobId, ref NamedBinaryBlob blob,
+    bool includeFiles = true)
 {
     auto info = new TorrentInfo();
     {
@@ -797,6 +817,7 @@ private void loadTorrentInfo(ref Database db, long blobId, ref NamedBinaryBlob b
         info.pieceLength = cast(ulong) row.peek!long(6);
         info.piecesCount = cast(ulong) row.peek!long(7);
     }
+    if (includeFiles)
     foreach (fileRow; db.execute("SELECT relative_path, file_size FROM "
         ~ "torrent_files WHERE torrent_blob_id = ? ORDER BY file_index", blobId))
     {

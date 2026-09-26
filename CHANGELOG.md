@@ -34,6 +34,10 @@ They represent the functional evolution and are intentionally summarized.
   both file and descendant-directory queries.
 - Repository file cursors now preserve a selected path/size sort order across
   chunk boundaries using stable path and ID tie-breakers.
+- Added bounded blob-catalog keyset iteration with stable blob-ID cursors and
+  continuation state for large repository result sets.
+- Blob detail export options can now omit archive-entry and torrent-file arrays
+  while retaining lightweight detail metadata.
 - Added explicit `nextFilesPage()` and `previousFilesPage()` operations over the
   same filtered and sorted repository sequence.
 

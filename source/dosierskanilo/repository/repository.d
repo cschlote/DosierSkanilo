@@ -295,6 +295,19 @@ public:
         return page;
     }
 
+    /** Iterate the filtered catalog by stable blob ID using internal chunks. */
+    RepositoryBlobPage loadCatalogQueryCursorPage(RepositoryQueryOptions options,
+        JsonExportOptions exportOptions = JsonExportOptions())
+    {
+        requireOpen();
+        enforce(options.limit > 0, "Repository cursor chunk size must be greater than zero.");
+        options.useCursor = true;
+        auto page = loadCatalogQueryPageWithIdsFromDatabase(database,
+            repositoryPaths.rootPath, options, exportOptions);
+        page.total = countCatalogQuery(options);
+        return page;
+    }
+
     /** Load one blob and its related details by stable repository ID. */
     NamedBinaryBlob loadBlobDetails(long blobId,
         JsonExportOptions options = JsonExportOptions())
@@ -564,6 +577,17 @@ unittest
     assert(first.directoriesFound >= 2);
     assert(first.filesAdded == 3);
     assert(first.filesChanged == 0);
+
+    RepositoryQueryOptions catalogCursorQuery;
+    catalogCursorQuery.limit = 1;
+    auto catalogFirstChunk = repository.loadCatalogQueryCursorPage(catalogCursorQuery);
+    assert(catalogFirstChunk.blobIds.length == 1);
+    assert(catalogFirstChunk.hasMore);
+    catalogCursorQuery.afterBlobId = catalogFirstChunk.nextCursor;
+    auto catalogSecondChunk = repository.loadCatalogQueryCursorPage(catalogCursorQuery);
+    assert(catalogSecondChunk.blobIds.length == 1);
+    assert(catalogSecondChunk.blobIds[0] > catalogFirstChunk.blobIds[0]);
+    assert(catalogSecondChunk.hasMore);
 
     RepositoryDirectoryQuery matchingDirectoryQuery;
     matchingDirectoryQuery.limit = 10;
