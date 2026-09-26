@@ -256,6 +256,13 @@ struct RepositoryFileQuery
     size_t offset;
     size_t limit = 250;
     string text;
+    bool video;
+    bool audio;
+    bool image;
+    bool textStream;
+    bool fileType;
+    bool archive;
+    bool torrent;
     /// Keyset cursor: return rows after this stable path/id pair.
     string afterPath;
     long afterId;

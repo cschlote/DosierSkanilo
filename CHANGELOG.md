@@ -23,6 +23,8 @@ They represent the functional evolution and are intentionally summarized.
   cursors for bounded repository result chunks.
 - Repository file DTOs now expose metadata-presence flags needed for shared
   media, type, archive, and torrent filtering in consumer UIs.
+- Repository file queries now accept typed media, file-type, archive, and
+  torrent presence filters.
 
 ## Release 26.10.2 - 2026-09-19
 
