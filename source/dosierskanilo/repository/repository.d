@@ -596,6 +596,18 @@ unittest
     auto secondPage = repository.listFilesPage(cursorQuery);
     assert(secondPage.files.length == 1);
     assert(!secondPage.hasMore);
+
+    RepositoryFileQuery sizeQuery;
+    sizeQuery.limit = 1;
+    sizeQuery.sortOrder = RepositoryFileSortOrder.sizeAscending;
+    auto smallestPage = repository.listFilesPage(sizeQuery);
+    assert(smallestPage.files.length == 1);
+    sizeQuery.afterPath = smallestPage.nextCursor.relativePath;
+    sizeQuery.afterId = smallestPage.nextCursor.id;
+    sizeQuery.afterSize = smallestPage.nextCursor.size;
+    auto nextSizePage = repository.listFilesPage(sizeQuery);
+    assert(nextSizePage.files.length == 1);
+    assert(nextSizePage.files[0].size >= smallestPage.files[0].size);
     repository.close();
 }
 

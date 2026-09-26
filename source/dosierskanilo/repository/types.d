@@ -257,6 +257,14 @@ struct RepositoryTorrentQuery
     size_t limit = 250;
 }
 
+enum RepositoryFileSortOrder : int
+{
+    pathAscending = 0,
+    pathDescending = 1,
+    sizeAscending = 2,
+    sizeDescending = 3,
+}
+
 /** Query options for bounded file children reads. */
 struct RepositoryFileQuery
 {
@@ -273,9 +281,11 @@ struct RepositoryFileQuery
     bool fileType;
     bool archive;
     bool torrent;
-    /// Keyset cursor: return rows after this stable path/id pair.
+    RepositoryFileSortOrder sortOrder = RepositoryFileSortOrder.pathAscending;
+    /// Keyset cursor, interpreted using sortOrder.
     string afterPath;
     long afterId;
+    ulong afterSize;
 }
 
 /** Opaque position in a stable repository file sequence. */
@@ -283,6 +293,7 @@ struct RepositoryFileCursor
 {
     string relativePath;
     long id;
+    ulong size;
 }
 
 /** One bounded file result chunk and its continuation state. */

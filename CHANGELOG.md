@@ -30,6 +30,8 @@ They represent the functional evolution and are intentionally summarized.
   GUI's shared filter state.
 - Filtered directory queries now omit directories whose descendant subtree has
   no matching file references.
+- Repository file cursors now preserve a selected path/size sort order across
+  chunk boundaries using stable path and ID tie-breakers.
 
 ## Release 26.10.2 - 2026-09-19
 

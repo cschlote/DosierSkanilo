@@ -218,9 +218,41 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
     if (otherConditions.length > 0)
         sql ~= " AND (" ~ otherConditions.join(" OR ") ~ ")";
     if (!options.afterPath.empty)
-        sql ~= " AND (f.relative_path > :after_path OR (f.relative_path = :after_path "
-            ~ "AND f.id > :after_id))";
-    sql ~= " ORDER BY f.relative_path, f.id LIMIT :limit";
+    {
+        final switch (options.sortOrder)
+        {
+        case RepositoryFileSortOrder.pathAscending:
+            sql ~= " AND (f.relative_path > :after_path OR (f.relative_path = :after_path AND f.id > :after_id))";
+            break;
+        case RepositoryFileSortOrder.pathDescending:
+            sql ~= " AND (f.relative_path < :after_path OR (f.relative_path = :after_path AND f.id < :after_id))";
+            break;
+        case RepositoryFileSortOrder.sizeAscending:
+            sql ~= " AND (b.file_size > :after_size OR (b.file_size = :after_size AND "
+                ~ "(f.relative_path > :after_path OR (f.relative_path = :after_path AND f.id > :after_id))))";
+            break;
+        case RepositoryFileSortOrder.sizeDescending:
+            sql ~= " AND (b.file_size < :after_size OR (b.file_size = :after_size AND "
+                ~ "(f.relative_path > :after_path OR (f.relative_path = :after_path AND f.id > :after_id))))";
+            break;
+        }
+    }
+    final switch (options.sortOrder)
+    {
+    case RepositoryFileSortOrder.pathAscending:
+        sql ~= " ORDER BY f.relative_path ASC, f.id ASC";
+        break;
+    case RepositoryFileSortOrder.pathDescending:
+        sql ~= " ORDER BY f.relative_path DESC, f.id DESC";
+        break;
+    case RepositoryFileSortOrder.sizeAscending:
+        sql ~= " ORDER BY b.file_size ASC, f.relative_path ASC, f.id ASC";
+        break;
+    case RepositoryFileSortOrder.sizeDescending:
+        sql ~= " ORDER BY b.file_size DESC, f.relative_path ASC, f.id ASC";
+        break;
+    }
+    sql ~= " LIMIT :limit";
     auto statement = db.prepare(sql);
     if (options.directoryId != 0)
         statement.bind(":directory_id", options.directoryId);
@@ -230,6 +262,9 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
     {
         statement.bind(":after_path", options.afterPath);
         statement.bind(":after_id", options.afterId);
+        if (options.sortOrder == RepositoryFileSortOrder.sizeAscending
+            || options.sortOrder == RepositoryFileSortOrder.sizeDescending)
+            statement.bind(":after_size", cast(long) options.afterSize);
     }
     auto sqlLimit = options.limit == size_t.max ? -1L : cast(long) options.limit + 1;
     statement.bind(":limit", sqlLimit);
@@ -249,7 +284,7 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
     {
         page.hasMore = true;
         auto last = page.files[options.limit - 1];
-        page.nextCursor = RepositoryFileCursor(last.relativePath, last.id);
+        page.nextCursor = RepositoryFileCursor(last.relativePath, last.id, last.size);
         page.files = page.files[0 .. options.limit];
     }
     return page;
