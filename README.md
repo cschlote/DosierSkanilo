@@ -62,14 +62,15 @@ Both modes use the same catalog concepts but have independent command contracts.
 ## Shared Query Vision
 
 Library consumers such as the GUI or a web UI should not need to know whether a
-source is JSON or SQLite. The repository API is evolving toward common
-read-only projection DTOs, typed filters, explicit stable sorting, and cursors
-for internal chunking. A consumer sees one logical filtered result sequence;
-SQLite keyset queries or JSON in-memory indexes are implementation details.
+source is JSON or SQLite. The repository API currently provides typed directory
+and file projections, typed filters, stable file-reference sorting, forward
+blob-catalog cursors, and next/previous file-reference cursors. Archive and
+torrent details can be queried separately in bounded chunks.
 
-Internal chunks must not be exposed as storage-specific page navigation. Stable
-file/blob IDs provide `next` and `previous` navigation over the active filter
-and sort state while keeping large SQLite catalogs bounded in memory.
+The GUI keeps database chunks internal and presents one logical filtered
+sequence. Full JSON/SQLite parity tests and bounded directory-root summaries
+remain open; see `docs/SQLITE-IMPLEMENTATION-PLAN.md` and `TODO.md` for the
+current work list.
 
 ## Build and Test
 

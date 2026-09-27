@@ -51,6 +51,40 @@ and transport controls, not user-visible SQL pages. JSON can use an in-memory
 index; SQLite should use stable keyset/cursor queries. Both sources must expose
 the same DTOs, filter semantics, sort order, stable IDs, and logical navigation.
 
+## Current Implementation Snapshot (2026-09-27)
+
+Implemented in the backend:
+
+- The repository lifecycle, normalized SQLite schema, JSON v0-v3 import/export,
+  scanner persistence core, SQL-based analysis, and explicit SQLite/JSON CLI
+  modes.
+- Typed directory, file, blob-summary, archive-entry, and torrent-file DTOs.
+- Bounded directory/file, blob-cursor, archive-entry, and torrent-file queries.
+- Stable forward blob cursors and stable next/previous file cursors, including
+  sort-aware keyset queries.
+- Lazy blob-detail options that omit archive-entry and torrent-file arrays when
+  the GUI uses separate bounded queries.
+
+The companion `DosierSkanilo-Gui` repository uses cursor-backed virtual blob
+rows, lazy archive/torrent trees, and source-level typed filters. The
+cross-source contract and bounded-memory migration are not fully complete yet:
+the GUI's repository directory-source setup still materializes all file
+references to calculate its root summary, and background operations need
+independent read connections. These are tracked under WP-07 and in the backend
+`TODO.md`.
+
+The backend library tests and GUI tests/build are separate checks. GUI-specific
+status, test commands, and remaining UI integration tests are maintained in
+`../DosierSkanilo-Gui/docs/GUI-REDESIGN.md`.
+
+Last verified on this snapshot:
+
+- Backend: `dub test --config=library --compiler=ldc2` — 81 passed;
+  `dub build --config=library --compiler=ldc2` passed.
+- GUI: `dub test --compiler=ldc2` — 22 passed; `dub build --compiler=ldc2`
+  passed. The GUI self-test also passed under `G_DEBUG=fatal-warnings` with
+  audio, archive, torrent, and large-repository inputs.
+
 ## CLI Target Contract
 
 The CLI has two explicit, non-overlapping storage modes. Top-level commands
@@ -111,7 +145,7 @@ committed in small, reviewable steps.
 
 ## WP-00: Baseline and Contracts
 
-Status: `[ ]`
+Status: `[-]`
 
 ### WP-00 Objective
 
@@ -167,16 +201,17 @@ source/dosierskanilo/repository/
 
 - [x] Define repository lifecycle operations: initialize, open, close and
   discover root.
-- [ ] Define read operations for logical blob summaries backed by internal
-  cursors rather than user-visible pages.
-- [ ] Define detail operations for one blob and its related records.
-- [ ] Define scan write operations and transaction boundaries.
-- [ ] Define JSON import and export options.
-- [ ] Define typed filters for paths, sizes, checksums, file type, media,
+- [x] Define bounded read operations for logical blob summaries and stable blob
+  cursors; do not expose those internal chunks as user-visible SQL pages.
+- [x] Define detail operations for one blob and separate bounded archive/torrent
+  entry reads.
+- [x] Define scan write operations and transaction boundaries.
+- [x] Define JSON import and export options.
+- [x] Define typed filters for paths, sizes, checksums, file type, media,
   archives and torrents.
 - [x] Define initial read-only directory/file DTOs for GUI use.
-- [ ] Complete shared JSON/SQLite DTOs, cursor contracts, and `next`/`previous`
-  navigation.
+- [ ] Prove identical JSON/SQLite DTOs, filter/sort ordering, and logical
+  `next`/`previous` behavior with cross-source integration tests.
 - [x] Keep `d2sqlite3` types out of public signatures.
 - [x] Assign an independent initial API version, proposed as `1.0.0`.
 
@@ -194,7 +229,7 @@ source/dosierskanilo/repository/
 
 ## WP-02: Repository Layout and SQLite Foundation
 
-Status: `[-]`
+Status: `[x]`
 
 ### WP-02 Objective
 
@@ -237,7 +272,7 @@ Create and migrate a Git-like `.dosierskanilo` repository.
 
 ## WP-03: JSON Import and Export
 
-Status: `[-]`
+Status: `[x]`
 
 ### WP-03 Objective
 
@@ -266,7 +301,7 @@ relationships in SQLite.
 
 ## WP-04: Scanner Persistence
 
-Status: `[-]`
+Status: `[x]`
 
 ### WP-04 Objective
 
@@ -280,7 +315,8 @@ Run scans against SQLite without keeping the complete catalog in memory.
 - [x] Look up existing `file_refs` by path.
 - [x] Skip unchanged files based on size and modification time.
 - [x] Mark missing paths and optionally remove them with `dropMissing`.
-- [ ] Queue only new or changed files for metadata extraction.
+- [x] Queue metadata jobs only when requested results are missing or a rescan
+  is requested; changed files receive fresh blob metadata.
 - [x] Persist checksum and file type results with metadata status.
 - [x] Run MediaInfo, archive and torrent jobs blob-wise and persist their
   relational results.
@@ -300,7 +336,7 @@ Run scans against SQLite without keeping the complete catalog in memory.
 
 ## WP-05: SQL-Based Analysis
 
-Status: `[-]`
+Status: `[x]`
 
 ### WP-05 Objective
 
@@ -325,7 +361,7 @@ Move duplicate and missing-file analysis from D arrays into repository queries.
 
 ## WP-06: CLI Integration and Cleanup
 
-Status: `[-]`
+Status: `[x]`
 
 ### WP-06 Objective
 
@@ -418,25 +454,36 @@ source abstraction.
 
 ### WP-07 Steps
 
-- [x] Introduce a `DocumentSource` abstraction for JSON and SQLite sources.
+- [x] Introduce the GUI `DirectorySource` and source-query/page adapters for
+  JSON and SQLite sources.
 - [x] Keep the current JSON loader as the first adapter implementation.
 - [x] Add SQLite source opening and repository-root discovery.
-- [ ] Replace visible SQL paging and complete `loadedRows` loading with one
-  logical source sequence backed by internal cursors/chunks.
-- [ ] Move text, media, archive and torrent filters to the shared source query.
-- [ ] Refactor `BlobRow` so it does not require a complete `NamedBinaryBlob`.
-- [ ] Load details and file references only for the selected row.
-- [ ] Keep preview paths and media details available through the detail API.
-- [ ] Preserve the GUI's own preference JSON separately from repository data.
+- [x] Replace repository Blob-table materialization with virtual cursor-backed
+  rows and use source cursors for tree-file navigation. Remaining large-scroll
+  interaction testing is listed under WP-08.
+- [x] Move text, media, file-type, archive, and torrent filters into typed source
+  query state for repository results.
+- [x] Use summary `BlobRow`s without a full `NamedBinaryBlob` until a repository
+  row is selected.
+- [x] Load per-blob repository details and known-file references only for the
+  selected row; query archive and torrent entries separately.
+- [x] Keep preview paths and media details available through the detail API.
+- [x] Preserve the GUI's preference JSON separately from repository data.
+- [ ] Replace eager root file-reference enumeration in `RepositoryDirectorySource`
+  with bounded root summary/count queries.
 - [ ] Give each background operation its own repository read connection.
+- [ ] Add cross-source integration tests for identical filtered/sorted sequences
+  and backward/forward navigation.
 
 ### WP-07 Exit Criteria
 
-- GUI can open both a JSON file and `.dosierskanilo`.
-- Opening a large repository does not load all metadata into memory.
-- Filtering does not scan all GUI rows locally.
-- Existing detail widgets and previews work with SQLite data.
-- JSON remains usable when no repository is present.
+- [x] GUI can open both a JSON file and `.dosierskanilo`.
+- [ ] Opening a large repository does not load all file references into memory;
+  the directory-source root summary still enumerates them eagerly.
+- [x] Repository filtering uses typed source-side queries.
+- [x] Existing detail widgets and image/audio/video previews work with SQLite
+  data.
+- [x] JSON remains usable when no repository is present.
 
 ## WP-08: Verification and Rollout
 
@@ -467,6 +514,12 @@ Status: `[-]`
 - [x] GUI data-source and populated bounded-query tests.
 - [ ] Add cross-source tests proving identical filtered/sorted logical sequence
   and `next`/`previous` behavior for JSON and SQLite.
+- [ ] Add a GUI integration fixture with over 250 archive/torrent entries to
+  cover continuation, stale responses, and path selection across chunks.
+- [ ] Rework `RepositoryDirectorySource` root summary construction so it uses
+  bounded summary/count queries rather than `listFiles(limit = size_t.max)`.
+- [ ] Use an independent repository read connection per asynchronous GUI query
+  and verify concurrent tree/detail requests.
 - [x] Performance tests against the WP-00 datasets.
 
 ### Rollout Sequence
