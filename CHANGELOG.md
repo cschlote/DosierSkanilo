@@ -42,6 +42,8 @@ They represent the functional evolution and are intentionally summarized.
   same filtered and sorted repository sequence.
 - Added a bounded root-summary query for child-directory counts, root-file
   counts, and aggregate repository size.
+- Changed the project license to GPL-3.0-only and aligned DUB, source headers,
+  and packaging metadata.
 
 ## Release 26.10.2 - 2026-09-19
 
