@@ -13,10 +13,9 @@ The GUI is packaged separately in `DosierSkanilo-Gui` as `dosierskanilo-gui`
 and `dosierskanilo-gui-git`. There is intentionally no umbrella package.
 
 The current stable release is `26.10.0` (`v26.10.0`). Replace `SKIP` and other
-placeholders in distribution recipes before publishing packages. The project
-license is `CC-BY-NC-SA 4.0`; package recipes must install the repository's
-license file is not currently present, so maintainers must add and install the
-canonical license text before publishing binary packages.
+placeholders in distribution recipes before publishing packages. The project is
+licensed under `GPL-3.0-only`; package recipes should install the repository's
+`LICENSE.md`.
 
 The scanner depends on MediaInfo and archive tools at runtime. Debian/Fedora
 recipes below are drafts and should be built in their native clean-build tools.

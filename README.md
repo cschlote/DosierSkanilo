@@ -204,6 +204,10 @@ Detailed architecture and diagrams:
 - `docs/SQLITE-IMPLEMENTATION-PLAN.md` - staged implementation checklist
 - `docs/BENCHMARKS.md` - JSON/SQLite storage baseline measurements
 
+## License
+
+DosierSkanilo is licensed under [GPL-3.0-only](LICENSE.md).
+
 ## Source Map
 
 - `source/dosierskanilo_cli/main.d`: main workflow, scanner orchestration, analysis

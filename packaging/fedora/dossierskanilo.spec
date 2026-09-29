@@ -2,7 +2,7 @@ Name:           dosierskanilo
 Version:        26.9.2
 Release:        1%{?dist}
 Summary:        Blob-centric media and archive file scanner
-License:        CC-BY-NC-SA
+License:        GPL-3.0-only
 URL:            https://github.com/cschlote/DosierSkanilo
 Source0:        %{url}/archive/refs/tags/v%{version}.tar.gz
 
@@ -28,6 +28,8 @@ DC=ldc2 dub build --build=release --compiler=ldc2 --config=cli
 
 %install
 install -Dpm0755 build/bin/dosierskanilo %{buildroot}%{_bindir}/dosierskanilo
+install -Dpm0644 LICENSE.md %{buildroot}%{_licensedir}/%{name}/LICENSE.md
 
 %files
 %{_bindir}/dosierskanilo
+%license %{_licensedir}/%{name}/LICENSE.md

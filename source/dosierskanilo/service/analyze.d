@@ -1,7 +1,7 @@
 /** Duplicate and missing-file analysis service.
  * Authors: Carsten Schlote, schlote@vahanus.net
- * Copyright: Carsten Schlote, Released under CC-BY-NC-SA 4.0 license, 2018
- * License: CC-BY-NC-SA 4.0
+ * Copyright: Carsten Schlote, licensed under GPL-3.0-only
+ * License: GPL-3.0-only
  */
 module dosierskanilo.service.analyze;
 

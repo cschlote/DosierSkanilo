@@ -1,0 +1,10 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: DosierSkanilo
+Source: https://github.com/cschlote/DosierSkanilo
+
+Files: *
+Copyright: 2018-2026 Carsten Schlote
+License: GPL-3.0-only
+ This project is licensed under GNU GPL version 3 only. The full license text
+ is available in the upstream LICENSE.md file and at
+ https://www.gnu.org/licenses/gpl-3.0.txt.
