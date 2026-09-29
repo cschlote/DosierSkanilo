@@ -22,7 +22,7 @@ import dosierskanilo.repository.transfer : exportCatalogJson, importCatalogJson,
     loadCatalogFromDatabase, loadCatalogPageFromDatabase,
     loadCatalogQueryPageFromDatabase, loadCatalogQueryPageWithIdsFromDatabase,
     loadBlobDetailsFromDatabase, countCatalogQueryFromDatabase,
-    listDirectoriesFromDatabase, listFilesFromDatabase,
+    listDirectoriesFromDatabase, loadRootSummaryFromDatabase, listFilesFromDatabase,
     listFilesPageFromDatabase, listArchiveEntriesFromDatabase,
     listTorrentFilesFromDatabase;
 import dosierskanilo.repository.types;
@@ -332,6 +332,13 @@ public:
         return listDirectoriesFromDatabase(database, options);
     }
 
+    /** Return bounded aggregate values for the repository's root node. */
+    RepositoryRootSummary rootSummary()
+    {
+        requireOpen();
+        return loadRootSummaryFromDatabase(database);
+    }
+
     /** List immediate file references using bounded SQL queries. */
     RepositoryFile[] listFiles(RepositoryFileQuery options = RepositoryFileQuery())
     {
@@ -577,6 +584,11 @@ unittest
     assert(first.directoriesFound >= 2);
     assert(first.filesAdded == 3);
     assert(first.filesChanged == 0);
+
+    auto rootSummary = repository.rootSummary();
+    assert(rootSummary.childDirectoryCount == 2);
+    assert(rootSummary.fileCount == 2);
+    assert(rootSummary.aggregateSize == 16);
 
     RepositoryQueryOptions catalogCursorQuery;
     catalogCursorQuery.limit = 1;

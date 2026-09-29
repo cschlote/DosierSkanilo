@@ -135,6 +135,19 @@ RepositoryDirectory[] listDirectoriesFromDatabase(ref Database db,
     return result;
 }
 
+/** Count root children and aggregate repository size without loading file rows. */
+RepositoryRootSummary loadRootSummaryFromDatabase(ref Database db)
+{
+    auto result = db.execute("SELECT "
+        ~ "(SELECT count(*) FROM directories WHERE parent_id IS NULL), "
+        ~ "(SELECT count(*) FROM file_refs WHERE directory_id IS NULL), "
+        ~ "COALESCE((SELECT sum(b.file_size) FROM file_refs f "
+        ~ "JOIN blobs b ON b.id = f.blob_id), 0)");
+    auto row = result.front;
+    return RepositoryRootSummary(cast(size_t) row.peek!long(0),
+        cast(size_t) row.peek!long(1), cast(ulong) row.peek!long(2));
+}
+
 private string directoryFilterSql(RepositoryDirectoryQuery options)
 {
     if (options.text.empty && !options.video && !options.audio && !options.image

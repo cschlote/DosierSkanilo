@@ -191,25 +191,34 @@ Current options are tracked as low-priority follow-up work:
 ## Library API Boundary
 
 The GUI should depend on a library-facing repository API, not on `d2sqlite3`
-or raw SQL. A possible public surface is:
+or raw SQL. The current public surface is defined in the shared query contract
+in [SQLITE-IMPLEMENTATION-PLAN.md](SQLITE-IMPLEMENTATION-PLAN.md) (lines 38–47):
 
 ```text
-Repository.open(path)
-Repository.initialize(rootPath)
-Repository.scan(options)
-Repository.importJson(path, options)
-Repository.exportJson(path, filter)
-Repository.loadCatalog(options)
-Repository.loadCatalogPage(offset, limit, options)
-Repository.queryFiles(filter)
-Repository.queryDuplicates(filter)
-Repository.queryMedia(filter)
-Repository.close()
+open(path)
+root(filterState, sortOrder)
+listDirectories(parentId, filterState, sortOrder)
+listFiles(directoryId, filterState, sortOrder, cursor)
+loadFileDetails(fileId)
+loadArchiveDetails(fileId)
+loadTorrentDetails(fileId)
+next(fileId, filterState, sortOrder)
+previous(fileId, filterState, sortOrder)
+close()
 ```
 
 The exact D types are to be designed separately. Query results should be
 read-only value types or DTOs so the GUI cannot accidentally mutate database
 state outside a transaction.
+
+The old API surface documented here has been superseded by the shared query
+contract above: `Repository.initialize()` was replaced by `open()`,
+`Repository.loadCatalog()` and `Repository.queryFiles()` were replaced by
+`root()` / `listDirectories()` / `listFiles()`, and `Repository.scan()`,
+`Repository.importJson()`, `Repository.exportJson()`, `Repository.queryDuplicates()`,
+and `Repository.queryMedia()` are now either implementation details or part of
+the operation contract (WP-09). Any external references to the old methods need
+to be updated to the current shared contract.
 
 The implementation can use `d2sqlite3`, already used by
 `eterna-kosmo-server` as `d2sqlite3 ~>1.0.0`, but this dependency should remain

@@ -40,6 +40,8 @@ They represent the functional evolution and are intentionally summarized.
   while retaining lightweight detail metadata.
 - Added explicit `nextFilesPage()` and `previousFilesPage()` operations over the
   same filtered and sorted repository sequence.
+- Added a bounded root-summary query for child-directory counts, root-file
+  counts, and aggregate repository size.
 
 ## Release 26.10.2 - 2026-09-19
 

@@ -189,6 +189,14 @@ struct RepositoryDirectory
     ulong aggregateSize;
 }
 
+/** Bounded aggregate values used to construct the repository root node. */
+struct RepositoryRootSummary
+{
+    size_t childDirectoryCount;
+    size_t fileCount;
+    ulong aggregateSize;
+}
+
 /** File projection returned by the repository tree API. */
 struct RepositoryFile
 {

@@ -68,9 +68,14 @@ blob-catalog cursors, and next/previous file-reference cursors. Archive and
 torrent details can be queried separately in bounded chunks.
 
 The GUI keeps database chunks internal and presents one logical filtered
-sequence. Full JSON/SQLite parity tests and bounded directory-root summaries
-remain open; see `docs/SQLITE-IMPLEMENTATION-PLAN.md` and `TODO.md` for the
-current work list.
+sequence. Initial JSON/SQLite parity tests cover case-sensitive filtering,
+size sorting, and forward/backward paging; broader interaction and large-detail
+coverage remain tracked in `docs/SQLITE-IMPLEMENTATION-PLAN.md` and `TODO.md`.
+
+The current GUI remains a browser. The CLI and GUI operation-parity plan covers
+shared scan, metadata, and analysis requests, asynchronous progress/cancellation,
+and explicit support for both SQLite repositories and JSON catalogs; see WP-09
+in `docs/SQLITE-IMPLEMENTATION-PLAN.md`.
 
 ## Build and Test
 

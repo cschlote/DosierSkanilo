@@ -66,24 +66,35 @@ Implemented in the backend:
   the GUI uses separate bounded queries.
 
 The companion `DosierSkanilo-Gui` repository uses cursor-backed virtual blob
-rows, lazy archive/torrent trees, and source-level typed filters. The
-cross-source contract and bounded-memory migration are not fully complete yet:
-the GUI's repository directory-source setup still materializes all file
-references to calculate its root summary, and background operations need
-independent read connections. These are tracked under WP-07 and in the backend
-`TODO.md`.
+rows, lazy archive/torrent trees, source-level typed filters, bounded root
+summary queries, and independent repository connections per directory-source
+operation. Initial JSON/SQLite parity tests, adapter-level continuation tests
+for 251 archive/torrent entries, and GTK model/signal checks for continuation,
+stale replies, and later-page path copying are in place.
+
+The CLI and GUI operation parity is not implemented yet. SQLite `scan`,
+`updateMetadata`, and `analyze` already share the public `Repository` methods,
+but those methods are synchronous and do not accept progress or cancellation
+callbacks. The SQLite CLI reports phase start and completion summaries; the GUI
+does not expose these mutating operations. The JSON CLI scanner uses the older
+service path, whose cancellation flag and progress callback are tied to
+`ArgsArray`/console progress. WP-09 plans one operation contract and adapters
+for both explicit storage modes and both clients.
 
 The backend library tests and GUI tests/build are separate checks. GUI-specific
 status, test commands, and remaining UI integration tests are maintained in
-`../DosierSkanilo-Gui/docs/GUI-REDESIGN.md`.
+the GUI plan at `https://gitlab.vahanus.net/dlang/dosierskanilo-gui/blob/main/docs/GUI-REDESIGN.md`.
 
 Last verified on this snapshot:
 
 - Backend: `dub test --config=library --compiler=ldc2` — 81 passed;
   `dub build --config=library --compiler=ldc2` passed.
-- GUI: `dub test --compiler=ldc2` — 22 passed; `dub build --compiler=ldc2`
-  passed. The GUI self-test also passed under `G_DEBUG=fatal-warnings` with
-  audio, archive, torrent, and large-repository inputs.
+- GUI: `dub test --compiler=ldc2` — 35 tests; `dub build
+  --compiler=ldc2` passed.
+- GTK: opt-in TreeView continuation and leaf activation tests passed with a
+  display available.
+- GUI self-test under `G_DEBUG=fatal-warnings` passed with audio, archive,
+  torrent, and large-repository inputs.
 
 ## CLI Target Contract
 
@@ -210,7 +221,7 @@ source/dosierskanilo/repository/
 - [x] Define typed filters for paths, sizes, checksums, file type, media,
   archives and torrents.
 - [x] Define initial read-only directory/file DTOs for GUI use.
-- [ ] Prove identical JSON/SQLite DTOs, filter/sort ordering, and logical
+- [x] Prove identical JSON/SQLite DTOs, filter/sort ordering, and logical
   `next`/`previous` behavior with cross-source integration tests.
 - [x] Keep `d2sqlite3` types out of public signatures.
 - [x] Assign an independent initial API version, proposed as `1.0.0`.
@@ -443,7 +454,7 @@ dosierskanilo json analyze CATALOG.json
 
 ## WP-07: GUI Data-Source Integration
 
-Status: `[-]`
+Status: `[x]`
 
 Repository: `DosierSkanilo-Gui`.
 
@@ -469,17 +480,17 @@ source abstraction.
   selected row; query archive and torrent entries separately.
 - [x] Keep preview paths and media details available through the detail API.
 - [x] Preserve the GUI's preference JSON separately from repository data.
-- [ ] Replace eager root file-reference enumeration in `RepositoryDirectorySource`
+- [x] Replace eager root file-reference enumeration in `RepositoryDirectorySource`
   with bounded root summary/count queries.
-- [ ] Give each background operation its own repository read connection.
-- [ ] Add cross-source integration tests for identical filtered/sorted sequences
-  and backward/forward navigation.
+- [x] Give each background operation its own repository read connection.
+- [x] Add cross-source integration tests for filtered/sorted sequences and
+  backward/forward navigation.
 
 ### WP-07 Exit Criteria
 
 - [x] GUI can open both a JSON file and `.dosierskanilo`.
-- [ ] Opening a large repository does not load all file references into memory;
-  the directory-source root summary still enumerates them eagerly.
+- [x] Opening a large repository does not load all file references into memory
+  for the root summary.
 - [x] Repository filtering uses typed source-side queries.
 - [x] Existing detail widgets and image/audio/video previews work with SQLite
   data.
@@ -504,23 +515,45 @@ Status: `[-]`
 - [x] Mode-isolation tests verify JSON commands never create SQLite state and
   SQLite commands never write direct JSON state implicitly.
 - [x] Schema creation and forward-version rejection tests.
-- [x] JSON v0/v1/v2/v3 import tests.
+- [x] Import tests for the legacy root array and checked-in version-1/version-3
+  JSON fixtures (`repository imports supported JSON fixture versions`).
+- [ ] Add an explicit wrapper `dataVersion: 2` import test; no checked-in
+  fixture currently declares version 2.
 - [x] JSON round-trip tests.
 - [ ] Filtered export tests.
 - [x] Duplicate merge and missing-file tests.
 - [x] Directory-tree and empty-directory tests.
 - [x] Archive and torrent relationship tests.
 - [x] Concurrent scanner-worker and reader/writer tests.
-- [x] GUI data-source and populated bounded-query tests.
-- [ ] Add cross-source tests proving identical filtered/sorted logical sequence
-  and `next`/`previous` behavior for JSON and SQLite.
-- [ ] Add a GUI integration fixture with over 250 archive/torrent entries to
-  cover continuation, stale responses, and path selection across chunks.
-- [ ] Rework `RepositoryDirectorySource` root summary construction so it uses
-  bounded summary/count queries rather than `listFiles(limit = size_t.max)`.
-- [ ] Use an independent repository read connection per asynchronous GUI query
-  and verify concurrent tree/detail requests.
-- [x] Performance tests against the WP-00 datasets.
+- [x] GUI cross-source filtering/navigation parity: `JSON and repository
+  sources preserve filtered sorted navigation parity` in the GUI's
+  `source/model/datasource.d`.
+- [x] GUI concurrent tree/detail reads: `repository tree and detail queries
+  use independent concurrent connections` in the GUI's
+  `source/model/datasource.d`.
+- [x] GUI archive/torrent continuation beyond 250 entries: `archive and
+  torrent detail adapters continue beyond 250 entries` in the GUI's
+  `source/model/datasource.d`.
+- [x] GUI filtered export values and row parity: tests in the GUI's
+  `source/ui/dataexport.d`.
+- [x] GTK continuation offsets and stale-reply rejection: opt-in test
+  `GTK continuation activation preserves offsets and rejects stale selection
+  replies` in the GUI's `source/ui/nestedentrysignals.d`.
+- [x] Virtual-table eviction and bidirectional scrolling: test
+  `Virtual blob model scrolls through evicted chunks in both directions` in
+  the GUI's `source/ui/virtualblobtable.d`.
+
+GUI fixture descriptions and opt-in test commands are maintained in the GUI
+repository's [`docs/TEST_FIXTURES.md`](https://gitlab.vahanus.net/dlang/dosierskanilo-gui/blob/main/docs/TEST_FIXTURES.md)
+and [`docs/GUI-REDESIGN.md`](https://gitlab.vahanus.net/dlang/dosierskanilo-gui/blob/main/docs/GUI-REDESIGN.md#verification-baseline).
+
+The bounded root summary and independent read-connection requirements are
+implementation milestones tracked under WP-07, not test cases. Performance
+measurements are recorded separately in [BENCHMARKS.md](BENCHMARKS.md).
+
+The WP-08 checklist remains in progress while parser coverage, explicit
+version-2 wrapper import coverage, and backend filtered-export
+relationship-closure tests remain outstanding.
 
 ### Rollout Sequence
 
@@ -543,6 +576,154 @@ Status: `[-]`
   result set remains fully navigable.
 - Both explicit CLI modes remain available.
 
+## WP-09: Shared Long-Running Operations for CLI and GUI
+
+Status: `[ ]`
+
+### WP-09 Objective
+
+Allow the CLI and GTK UI to start the same scan, metadata-scrape, and analysis
+operations through library APIs, with consistent options/results, live progress,
+and cooperative cancellation. Operation logic must remain outside GTK and CLI
+presentation code.
+
+### WP-09 Current State
+
+- SQLite already exposes `Repository.scan()`, `Repository.updateMetadata()`,
+  and `Repository.analyze()`; they synchronously return typed summaries.
+- The SQLite CLI calls those methods and logs start/completion summaries but
+  cannot report operation progress or cancel work inside them.
+- Direct JSON scan/analyze uses `service.scanning` and `service.analyze`, with
+  `ArgsArray`, a shared Ctrl-C flag, and console-oriented progress callbacks.
+- The GUI currently supports browsing/filtering and its cancel button only
+  invalidates a pending UI load result; it does not stop backend work.
+
+### WP-09 Planned Contract
+
+Introduce reusable operation requests and a run-control channel independent of
+`ArgsArray` and GTK. The control channel should carry:
+
+- operation identity and phase (`scan`, each metadata extractor, `analyze`,
+  import/export where applicable)
+- current/total work and an optional path/blob description
+- a cooperative cancellation request checked at safe transaction/worker
+  boundaries
+- a typed completion result, cancellation result, or error
+
+The shared requests should cover the existing CLI capabilities rather than a
+smaller GUI-only subset:
+
+- scan: recursion, hidden paths, and drop-missing behavior
+- metadata: checksums, file type, MediaInfo, archive depth, torrents, rescan,
+  and worker count
+- analyze: duplicate merge and missing-file cleanup options
+
+The task lifecycle should distinguish queued, running, cancelling, completed,
+cancelled, and failed work. Progress events should identify the current
+operation phase; metadata progress should include blob/extractor work and may
+include nested archive-entry progress. Final typed summaries should match the
+existing `ScanSummary`, `MetadataSummary`, and `AnalysisSummary` results.
+
+The GUI should offer separate actions in a `Tools` menu and an options dialog for
+each operation. It should run work off the GTK thread, show the active operation
+and current phase in status/progress feedback, disable conflicting writes to the
+same repository, and refresh the affected tab after completion. Existing
+read-only browsing and independent tree/detail reads should remain available
+when they do not conflict with a repository write.
+
+The API must define callback threading and ownership. GUI callbacks must marshal
+progress onto the GTK main loop; CLI callbacks retain their existing textual
+output contract. Mutating operations for one repository must be serialized, and
+workers must be joined before their repository connection is closed.
+
+Cancellation must respect operation boundaries. A cancelled filesystem scan must
+roll back its active transaction or follow a documented checkpoint policy.
+Metadata work should stop scheduling new blobs, signal active workers, join them,
+and persist only completed worker results. SQL analysis should stop between
+atomic phases/transactions and report which phases completed. Filesystem scans
+may have an indeterminate total until discovery finishes, so progress events
+must support phase/status text without a percentage.
+
+### WP-09 Stepwise Migration
+
+#### WP-09.1: Freeze shared request and control contracts
+
+- [ ] Map every CLI operation and option to a typed library request and result.
+- [ ] Define progress events, cancellation token semantics, task identity, and
+  callback/thread ownership without depending on GTK or `ArgsArray`.
+- [ ] Define safe cancellation points and partial-result semantics for scan,
+  metadata, and analysis.
+
+Exit: backend API types can be constructed by either frontend; cancellation and
+progress callbacks are safe to invoke from workers.
+
+#### WP-09.2: Add operation control to backend services
+
+- [ ] Add progress and cancellation checkpoints to the SQLite repository scan.
+- [ ] Add per-blob/extractor progress and stop-scheduling/drain behavior to
+  parallel metadata batches.
+- [ ] Add phase progress and safe transaction boundaries to SQL analysis.
+- [ ] Adapt JSON scan/analyze services to the same control contract, replacing
+  service dependencies on CLI `ArgsArray` and the global console callback.
+- [ ] Keep synchronous convenience wrappers for existing library callers if
+  they can be implemented over the same operation functions.
+
+Exit: repository and JSON operations return the existing typed summaries plus
+consistent progress/cancel/error outcomes; cancelled writes leave valid state.
+
+#### WP-09.3: Make the CLI a console adapter
+
+- [ ] Route SQLite and JSON command handlers through the shared operation
+  request/control API.
+- [ ] Adapt Ctrl-C into a cancellation request and wait for safe worker shutdown.
+- [ ] Render progress to the terminal while preserving command names, options,
+  stdout/stderr ownership, exit codes, and final summaries.
+
+Exit: existing CLI scripts and command contracts pass unchanged apart from
+additional progress output for long-running operations.
+
+#### WP-09.4: Add the GTK operation task manager
+
+- [ ] Add explicit `Tools` actions and operation-specific options for scan,
+  metadata extraction, and analysis.
+- [ ] Resolve an explicit target mode: repository root or JSON catalog plus
+  filesystem root where required; never implicitly convert storage modes.
+- [ ] Run shared operations off the GTK thread and marshal progress events to
+  GTK's main loop.
+- [ ] Show queued/running/cancelling/completed/cancelled/failed states and
+  operation summaries in the owning tab/status UI.
+- [ ] Implement cooperative cancellation, serialize conflicting writes to one
+  repository, and refresh the affected document after successful mutations.
+- [ ] Keep tree/detail readers on independent connections and define behavior
+  when an operation and browsing target the same repository.
+
+Exit: GUI actions construct the same operation requests as CLI commands; GTK
+remains responsive, progress is visible, cancellation is observed by backend
+work, and repository/JSON views refresh from returned summaries.
+
+#### WP-09.5: Verify CLI/GUI operation parity
+
+- [ ] Compare scan, metadata, and analysis results and state changes between CLI
+  and GUI for identical repository requests.
+- [ ] Compare explicit JSON scan/analyze behavior for both frontends.
+- [ ] Test cancellation before work, during scan, during metadata batches, and
+  between analysis transactions; verify worker shutdown and repository validity.
+- [ ] Test progress phase ordering, error propagation, source refresh, and
+  conflicting same-repository operation policy.
+
+Exit: shared operation behavior and user-visible status are covered by backend,
+CLI integration, and GTK integration tests.
+
+### WP-09 Exit Criteria
+
+- CLI and GUI invoke the same public operation logic for the same storage mode.
+- GUI work runs off the GTK thread and all UI progress updates run on the main
+  loop.
+- Cancellation is observed by backend work rather than merely discarding its
+  eventual result.
+- Progress, final summaries, failures, and cancellation are consistent across
+  clients; storage modes remain explicit.
+
 ## Dependency Order
 
 ```text
@@ -560,11 +741,18 @@ WP-01 + WP-02
 
 WP-03 + WP-04 + WP-05 + WP-06 + WP-07
   +--> WP-08
+
+WP-04 + WP-05 + WP-06
+  +--> WP-09.1 --> WP-09.2 --> WP-09.3
+                       +--> WP-09.4 <-- WP-07
+                               +--> WP-09.5
 ```
 
 WP-01 and WP-02 can proceed in parallel after WP-00. WP-03 through WP-05
 depend on the schema. WP-07 can begin API integration before the scanner is
 fully migrated, provided the JSON adapter remains available.
+WP-09 can start after the repository/CLI contracts exist; final shared-operation
+rollout depends on WP-09.5 parity and cancellation tests.
 
 ## Definition of Done for Each Package
 
