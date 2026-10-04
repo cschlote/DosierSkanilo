@@ -9,6 +9,9 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- Added frontend-neutral scan, metadata, and analysis request, progress,
+  cancellation-control, validation, and result types as the first WP-09 API
+  contract. Existing operations remain synchronous until subsequent WP-09 slices.
 - The `init` command now reports the initialized repository path by default;
   existing repositories are reported as opened instead of newly initialized;
   verbose mode remains available for additional output.

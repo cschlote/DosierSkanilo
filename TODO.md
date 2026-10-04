@@ -54,7 +54,7 @@ The backend plan in `docs/SQLITE-IMPLEMENTATION-PLAN.md`, section WP-09, is the
 source of truth for the request contract, safe cancellation semantics, and
 acceptance criteria.
 
-- [ ] WP-09.1: Freeze frontend-neutral requests/results, progress and
+- [x] WP-09.1: Freeze frontend-neutral requests/results, progress and
   cancellation semantics, threading/ownership, storage-mode mapping, and safe
   partial-result boundaries. Add contract tests and API documentation.
 - [ ] WP-09.2a: Add controlled SQLite scan and deterministic cancellation tests.

@@ -612,7 +612,7 @@ until its request and cancellation contract is frozen.
 
 ## WP-09: Shared Long-Running Operations for CLI and GUI
 
-Status: `[ ]`
+Status: `[-]`
 
 ### WP-09 Objective
 
@@ -631,6 +631,9 @@ presentation code.
   `ArgsArray`, a shared Ctrl-C flag, and console-oriented progress callbacks.
 - The GUI currently supports browsing/filtering and its cancel button only
   invalidates a pending UI load result; it does not stop backend work.
+- WP-09.1 is complete: frontend-neutral request, progress, control, validation,
+  and result types are public in `dosierskanilo.operations`. Execution methods
+  remain synchronous pending WP-09.2.
 
 WP-09 changes operation control and frontend wiring; it does not replace the
 existing scanner, repository, or JSON data model. Keep each subpackage narrow so
@@ -638,13 +641,12 @@ the public contract can be reviewed before service and UI implementations rely
 on it. The same request must reach the same backend operation regardless of
 whether CLI or GTK submitted it.
 
-### WP-09 Planned Contract
+### WP-09 Frozen Contract
 
-Introduce reusable operation requests and a run-control channel independent of
-`ArgsArray` and GTK. The control channel should carry:
+WP-09.1 freezes reusable operation requests and a run-control channel independent
+of `ArgsArray` and GTK. The control channel carries:
 
-- operation identity and phase (`scan`, each metadata extractor, `analyze`,
-  import/export where applicable)
+- operation identity and phase (`scan`, each metadata extractor, `analyze`)
 - current/total work and an optional path/blob description
 - a cooperative cancellation request checked at safe transaction/worker
   boundaries
@@ -654,7 +656,7 @@ The shared requests should cover the existing CLI capabilities rather than a
 smaller GUI-only subset:
 
 - scan: recursion, hidden paths, and drop-missing behavior
-- metadata: checksums, file type, MediaInfo, archive depth, torrents, rescan,
+- metadata: checksums, file type, MediaInfo, archive scanning, torrents, rescan,
   and worker count
 - analyze: duplicate merge and missing-file cleanup options
 
@@ -676,13 +678,12 @@ progress onto the GTK main loop; CLI callbacks retain their existing textual
 output contract. Mutating operations for one repository must be serialized, and
 workers must be joined before their repository connection is closed.
 
-Cancellation must respect operation boundaries. A cancelled filesystem scan must
-roll back its active transaction or follow a documented checkpoint policy.
-Metadata work should stop scheduling new blobs, signal active workers, join them,
-and persist only completed worker results. SQL analysis should stop between
-atomic phases/transactions and report which phases completed. Filesystem scans
-may have an indeterminate total until discovery finishes, so progress events
-must support phase/status text without a percentage.
+Cancellation and partial-result semantics are frozen in
+[`OPERATION-API.md`](OPERATION-API.md): SQLite scan and analysis roll back their
+single transaction when cancellation is observed; metadata stops scheduling,
+drains workers, and commits completed blobs as atomic units; JSON scan/analyze do
+not replace the catalog if cancellation arrives before the write phase. Progress
+supports status-only events while totals are unknown.
 
 The package should explicitly distinguish the supported targets and existing
 operation surface:
@@ -697,42 +698,43 @@ operation surface:
   frontend-only. If an operation/option is not supported for one mode, return a
   clear validation error rather than pretending the modes are interchangeable.
 
-WP-09.1 must decide and document any unresolved API choices (for example,
-whether cancellation is represented as a typed terminal result or a distinct
-error, how callback exceptions are handled, and which partial results are
-committed). Later packages should implement that recorded contract rather than
-make local, incompatible choices.
+WP-09.1 freezes these decisions in
+[`OPERATION-API.md`](OPERATION-API.md): operation-specific commit units,
+terminal states/results, callback behavior, target mapping, and cross-process
+write serialization. Later packages implement that contract rather than make
+local, incompatible choices.
 
 ### WP-09 Stepwise Migration
 
 #### WP-09.1: Freeze shared request and control contracts
 
-- [ ] Inventory the current SQLite and JSON command handlers and map each
+- [x] Inventory the current SQLite and JSON command handlers and map each
   operation, positional target, and option to a typed library request/result.
   Record unsupported combinations and preserve existing CLI validation.
-- [ ] Define operation identity and lifecycle states; progress events must
+- [x] Define operation identity and lifecycle states; progress events must
   include phase, optional current/total work, and descriptive context without
   requiring a percentage when totals are unknown.
-- [ ] Define cancellation request/token semantics, terminal outcome shape,
+- [x] Define cancellation request/token semantics, terminal outcome shape,
   error propagation, callback invocation/thread guarantees, and ownership/lifetime
   of request data and callbacks.
-- [ ] Define the serialization scope for competing mutations: tasks within one
-  frontend process versus separate CLI/GUI processes targeting the same
-  repository/catalog. Record which layer enforces each scope and how conflicts
-  are reported.
-- [ ] Specify safe cancellation/commit boundaries separately for filesystem
+- [x] Define the serialization scope for competing mutations: the backend
+  operation coordinator owns one cross-process write lease per canonical target;
+  conflicting direct callers receive a typed busy failure and GUI queues remain
+  frontend-local.
+- [x] Specify safe cancellation/commit boundaries separately for filesystem
   scan, metadata worker batches, JSON file writes, and analysis transaction
   phases. Define what partial results a cancelled operation may retain.
-- [ ] Define how operations with no work, failed work, cancellation before
+- [x] Define how operations with no work, failed work, cancellation before
   start, and cancellation arriving after the final checkpoint are reported.
-- [ ] Add API-level tests for request validation, lifecycle/event invariants, and
+- [x] Add API-level tests for request validation, lifecycle/event invariants, and
   cancellation state semantics that do not need GTK or CLI process setup.
-- [ ] Document the contract and examples in the public library API; update the
+- [x] Document the contract and examples in the public library API; update the
   CLI/GUI plans only after the request and event shapes are stable.
 
 **Deliverable:** a public, frontend-neutral operation API with documented
 requests, results, progress/cancel control, threading/ownership, storage-mode
-mapping, and safe-boundary policy.
+mapping, and safe-boundary policy in `source/dosierskanilo/operations.d`,
+re-exported by `dosierskanilo`, with examples in `docs/OPERATION-API.md`.
 
 **Exit:** both clients can construct the same request types; deterministic tests
 cover lifecycle and cancellation semantics; no API type depends on GTK,
@@ -748,14 +750,14 @@ for progress, cancellation boundaries, and resulting storage state.
 ##### WP-09.2a: SQLite filesystem scan
 
 - [ ] Route repository scan through the shared operation request/control types;
-  report discovery and persistence phases and observe cancellation only at the
-  WP-09.1-approved transaction boundary.
-- [ ] Define whether scan cancellation rolls back the whole scan transaction or
-  commits a documented checkpoint; do not add checkpoints that expose a
-  half-updated missing-file/drop-missing state.
+  report discovery and persistence phases and check cancellation during traversal
+  and before commit.
+- [ ] On observed cancellation, roll back the whole scan transaction, including
+  missing-file reconciliation and `dropMissing`; do not commit partial directory
+  or file-reference state.
 - [ ] Test cancellation before iteration, during traversal, before missing-file
-  reconciliation, and after the final safe checkpoint. Verify summaries and
-  repository state for every case.
+  reconciliation, and after the last cancellation checkpoint. Verify summaries
+  and unchanged repository state after rollback.
 - [ ] Preserve `Repository.scan()` as a synchronous convenience wrapper over the
   controlled operation unless WP-09.1 documents a compatibility reason not to.
 
@@ -768,11 +770,14 @@ rollback outcome.
 - [ ] Add phase and per-blob progress for checksums, file type, MediaInfo,
   archives, and torrents; report unknown totals as status-only progress until
   work discovery establishes a total.
-- [ ] Stop scheduling new blobs after cancellation; define whether active
-  extractors are interruptible, drain all workers before closing resources, and
-  persist only results permitted by the WP-09.1 partial-result policy.
+- [ ] Stop scheduling new blobs after cancellation; let active extractor calls
+  finish, drain all workers before closing resources, and persist only results
+  permitted by the WP-09.1 partial-result policy.
+- [ ] Persist all requested metadata for one blob as one atomic commit unit. On
+  cancellation, keep completed blob commits, leave unfinished work retryable,
+  and never leave partially inserted child metadata for a blob.
 - [ ] Exercise cancellation before a batch, while workers are active, between
-  persisted results, and after the final batch. Cover worker failure and no-work
+  committed blobs, and after the final batch. Cover worker failure and no-work
   cases as well as successful extraction.
 - [ ] Preserve `Repository.updateMetadata()` as a synchronous convenience
   wrapper where possible; prove its summary and state semantics remain compatible.
@@ -784,10 +789,10 @@ tests leave a usable repository.
 ##### WP-09.2c: SQLite analysis
 
 - [ ] Add progress for the analysis phases (missing-file handling, duplicate
-  grouping/merge, and orphan cleanup) and permit cancellation only between
-  atomic transaction phases.
-- [ ] Return which phases completed if earlier phase commits survive a later
-  cancellation; otherwise roll back according to the frozen contract.
+  grouping/merge, and orphan cleanup) and check cancellation at safe points
+  while preserving one transaction for the full analysis operation.
+- [ ] Roll back all analysis changes if cancellation is observed before commit;
+  report cancellation with no phase reported as persistently completed.
 - [ ] Test cancellation between each phase, duplicate-heavy input, missing-file
   cleanup, and a no-op analysis; verify relationships and foreign-key integrity.
 - [ ] Preserve `Repository.analyze()` as a synchronous convenience wrapper where
@@ -805,8 +810,9 @@ successful, failed, and cancelled outcomes.
   cancellation state, and console-formatted progress while preserving current
   JSON migration, backup, and write policy.
 - [ ] Test cancellation before work, at each safe checkpoint, and during file
-  replacement; prove the catalog is either valid old state, valid committed new
-  state, or the documented valid checkpoint state.
+  processing before write; prove cancellation leaves the original catalog
+  untouched. Once backup/replacement begins, defer cancellation until the write
+  and restore policy has completed, then report completed or failed.
 - [ ] Keep CLI compatibility wrappers until WP-09.3 has switched to the shared
   operation API.
 
@@ -819,9 +825,14 @@ failure, or cancellation.
 - [ ] Test worker joining, connection/handle lifetime, and callback completion
   for all operation families; no callback may access a destroyed request,
   result sink, database, or JSON output.
-- [ ] Enforce one mutating operation at a time per repository/catalog according
-  to the WP-09.1 ownership decision; test two attempted writes and error/report
-  behavior for the rejected or queued operation.
+- [ ] Implement the backend operation coordinator's cross-process exclusive
+  target lease using the canonical repository root or JSON catalog path as its
+  lock key. A conflicting direct call returns `OperationErrorCode.targetBusy`;
+  GUI queues remain local to the frontend.
+- [ ] Test competing writes from two callers in one process and from separate
+  processes targeting the same repository/catalog. Verify the rejected call
+  cannot change state and the lease releases after success, cancellation, or
+  failure.
 - [ ] Verify independent read connections remain usable and define what readers
   may observe while a write is active.
 

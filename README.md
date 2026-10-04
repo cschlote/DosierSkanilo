@@ -203,6 +203,7 @@ Detailed architecture and diagrams:
 - `docs/JSON-FORMAT.md` - current JSON import/export format and migrations
 - `docs/DATABASE.md` - normalized SQLite repository architecture
 - `docs/SQLITE-IMPLEMENTATION-PLAN.md` - staged implementation checklist
+- `docs/OPERATION-API.md` - shared CLI/GTK operation request and control contract
 - `docs/BENCHMARKS.md` - JSON/SQLite storage baseline measurements
 
 ## License
@@ -219,6 +220,9 @@ DosierSkanilo is licensed under [GPL-3.0-only](LICENSE.md).
 - `source/dosierskanilo/service/scanning.d`: directory scanning + job scheduling
 - `source/dosierskanilo/service/analyze.d`: duplicate/missing-file analysis
 - `source/dosierskanilo/service/storageio.d`: JSON storage read/write and backup
+- `source/dosierskanilo/operations.d`: frontend-neutral long-running operation
+  requests, progress, cancellation control, validation, and results (execution is
+  being added in WP-09.2)
 - `source/dosierskanilo/repository/*`: SQLite repository, schema and JSON
   transfer API
 - `source/dosierskanilo/repository/scanner.d`: incremental filesystem scan

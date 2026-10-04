@@ -25,3 +25,4 @@ public import dosierskanilo.service.analyze;
 public import dosierskanilo.service.scanning;
 public import dosierskanilo.service.storageio;
 public import dosierskanilo.repository;
+public import dosierskanilo.operations;
