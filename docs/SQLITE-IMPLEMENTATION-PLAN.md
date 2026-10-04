@@ -538,6 +538,9 @@ passes.
   successfully.
 - [ ] Export the imported repository as current version-3 JSON and verify the
   expected migrated values and relationships are preserved.
+- [ ] Rename or clarify the broad existing test name
+  `repository imports supported JSON fixture versions` so it does not imply
+  version-2 coverage before the new fixture is added.
 
 **Exit:** the test proves the declared version-2 input is accepted and migrated
 to the current representation; unsupported versions remain rejected.
@@ -589,9 +592,16 @@ For the current DUB layout, verify with `dub test --config=library
 --compiler=ldc2` and `dub build --config=library --compiler=ldc2` in the backend,
 then `dub test --compiler=ldc2` and `dub build --compiler=ldc2` in the GUI.
 
-These tests are a recommended closeout before the larger operation-control
-series, not a prerequisite in the dependency graph: WP-09.1 can be designed
-independently, but should not silently absorb or delete WP-08 coverage.
+WP-08 contains compatibility and parser tests only. Review-discovered behavior
+fixes are tracked separately in WP-10 so their implementation is not hidden in
+test-closeout work.
+
+The GUI's current asynchronous-filter work and the case-sensitivity parity fix
+are tracked in the GUI backlog and WP-10.1 respectively. Recommended execution
+order is: verify the current GUI P0, close WP-10.1 through WP-10.3 and WP-08.1
+through WP-08.3, then start backend operation implementation. WP-09.1 contract
+design may proceed in parallel with those bounded fixes; WP-09.2 must wait until
+the scan and query semantics it will control are stable.
 
 ### Final Exit Criteria
 
@@ -708,6 +718,10 @@ make local, incompatible choices.
 - [ ] Define cancellation request/token semantics, terminal outcome shape,
   error propagation, callback invocation/thread guarantees, and ownership/lifetime
   of request data and callbacks.
+- [ ] Define the serialization scope for competing mutations: tasks within one
+  frontend process versus separate CLI/GUI processes targeting the same
+  repository/catalog. Record which layer enforces each scope and how conflicts
+  are reported.
 - [ ] Specify safe cancellation/commit boundaries separately for filesystem
   scan, metadata worker batches, JSON file writes, and analysis transaction
   phases. Define what partial results a cancelled operation may retain.
@@ -728,35 +742,140 @@ cover lifecycle and cancellation semantics; no API type depends on GTK,
 
 #### WP-09.2: Add operation control to backend services
 
-- [ ] Implement controlled SQLite scan using the WP-09.1 request/control types;
-  report discovery and persistence phases and observe cancellation at the agreed
-  transaction boundary.
-- [ ] Implement controlled SQLite metadata batches with per-phase/per-blob
-  progress, stop-scheduling behavior, active-worker cancellation where safe,
-  worker draining, and persistence only for results allowed by the contract.
-- [ ] Implement controlled SQLite analysis with phase progress and cancellation
-  only between atomic transaction phases; include completed phases in the
-  terminal summary if cancellation leaves earlier phases committed.
-- [ ] Adapt JSON scan and analysis services to the same operation contract.
-  Remove their service-layer dependency on CLI `ArgsArray`, process-global
-  cancellation state, and console-formatted progress while preserving the
-  established JSON catalog write/backup policy.
-- [ ] Add deterministic service tests for cancellation before work, at each safe
-  checkpoint, and after work; assert repository/catalog validity and documented
-  partial state after each cancellation case.
-- [ ] Keep synchronous convenience methods for existing library callers by
-  implementing them over the controlled operations, where practical; verify
-  their existing signatures and successful behavior remain compatible.
-- [ ] Verify concurrent readers remain safe and mutation serialization follows
-  the per-repository policy; do not close a repository or JSON output while
-  workers/callbacks can still use it.
+This is an umbrella package, not one implementation change. Complete and verify
+each vertical slice independently. A slice must use WP-09.1 types, retain the
+existing synchronous entry point where required, and have deterministic tests
+for progress, cancellation boundaries, and resulting storage state.
 
-**Exit:** every supported operation can run with or without callbacks; progress
-and cancellation follow WP-09.1; cancelled writes leave valid repository/catalog
-state and have tested, documented partial-result behavior; existing summary
-types and synchronous callers continue to work.
+##### WP-09.2a: SQLite filesystem scan
+
+- [ ] Route repository scan through the shared operation request/control types;
+  report discovery and persistence phases and observe cancellation only at the
+  WP-09.1-approved transaction boundary.
+- [ ] Define whether scan cancellation rolls back the whole scan transaction or
+  commits a documented checkpoint; do not add checkpoints that expose a
+  half-updated missing-file/drop-missing state.
+- [ ] Test cancellation before iteration, during traversal, before missing-file
+  reconciliation, and after the final safe checkpoint. Verify summaries and
+  repository state for every case.
+- [ ] Preserve `Repository.scan()` as a synchronous convenience wrapper over the
+  controlled operation unless WP-09.1 documents a compatibility reason not to.
+
+**Exit:** scan emits ordered phase events, observes cancellation at safe points,
+and tests prove the repository is valid with exactly the documented commit or
+rollback outcome.
+
+##### WP-09.2b: SQLite metadata extraction
+
+- [ ] Add phase and per-blob progress for checksums, file type, MediaInfo,
+  archives, and torrents; report unknown totals as status-only progress until
+  work discovery establishes a total.
+- [ ] Stop scheduling new blobs after cancellation; define whether active
+  extractors are interruptible, drain all workers before closing resources, and
+  persist only results permitted by the WP-09.1 partial-result policy.
+- [ ] Exercise cancellation before a batch, while workers are active, between
+  persisted results, and after the final batch. Cover worker failure and no-work
+  cases as well as successful extraction.
+- [ ] Preserve `Repository.updateMetadata()` as a synchronous convenience
+  wrapper where possible; prove its summary and state semantics remain compatible.
+
+**Exit:** no worker or callback outlives the operation; completed/failed metadata
+states and summaries match the documented partial-result policy; cancellation
+tests leave a usable repository.
+
+##### WP-09.2c: SQLite analysis
+
+- [ ] Add progress for the analysis phases (missing-file handling, duplicate
+  grouping/merge, and orphan cleanup) and permit cancellation only between
+  atomic transaction phases.
+- [ ] Return which phases completed if earlier phase commits survive a later
+  cancellation; otherwise roll back according to the frozen contract.
+- [ ] Test cancellation between each phase, duplicate-heavy input, missing-file
+  cleanup, and a no-op analysis; verify relationships and foreign-key integrity.
+- [ ] Preserve `Repository.analyze()` as a synchronous convenience wrapper where
+  possible.
+
+**Exit:** each phase has a defined atomic boundary and repeatable tests for
+successful, failed, and cancelled outcomes.
+
+##### WP-09.2d: Direct JSON scan and analysis services
+
+- [ ] Adapt the existing JSON `scan` and `analyze` operations to the same
+  frontend-neutral control contract; do not add a new JSON command solely for
+  symmetry with SQLite metadata operations.
+- [ ] Remove service-layer dependence on CLI `ArgsArray`, process-global
+  cancellation state, and console-formatted progress while preserving current
+  JSON migration, backup, and write policy.
+- [ ] Test cancellation before work, at each safe checkpoint, and during file
+  replacement; prove the catalog is either valid old state, valid committed new
+  state, or the documented valid checkpoint state.
+- [ ] Keep CLI compatibility wrappers until WP-09.3 has switched to the shared
+  operation API.
+
+**Exit:** existing JSON commands use the same control types, maintain their
+explicit catalog/filesystem targets, and leave a valid catalog after success,
+failure, or cancellation.
+
+##### WP-09.2e: Cross-operation lifecycle and serialization
+
+- [ ] Test worker joining, connection/handle lifetime, and callback completion
+  for all operation families; no callback may access a destroyed request,
+  result sink, database, or JSON output.
+- [ ] Enforce one mutating operation at a time per repository/catalog according
+  to the WP-09.1 ownership decision; test two attempted writes and error/report
+  behavior for the rejected or queued operation.
+- [ ] Verify independent read connections remain usable and define what readers
+  may observe while a write is active.
+
+**Umbrella exit:** all supported SQLite and JSON operation families have
+controlled and legacy synchronous entry points, deterministic progress/cancel
+tests, documented partial-state semantics, and valid storage after termination.
 
 #### WP-09.3: Make the CLI a console adapter
+
+Implement and verify the CLI adapter incrementally with each backend vertical
+slice; do not wait until all operation backends are changed before exercising
+the shared contract from a real client. The following adapter slices are ordered.
+
+##### WP-09.3a: SQLite scan CLI adapter
+
+- [ ] Implement after WP-09.2a; build the same scan request the GTK client will
+  later use and render phase events in the existing CLI output style.
+- [ ] Verify Ctrl-C requests cancellation, waits for safe worker shutdown, and
+  reports the terminal outcome without labeling an incomplete scan successful.
+- [ ] Add process-level coverage for successful scan, progress, cancellation,
+  exit status, and valid repository state.
+
+##### WP-09.3b: SQLite metadata CLI adapter
+
+- [ ] Implement after WP-09.2b; map every existing `metadata` option to the
+  shared request without changing defaults or validation.
+- [ ] Verify worker progress, Ctrl-C/drain behavior, final `MetadataSummary`,
+  stderr/stdout ownership, and repository validity after cancellation.
+
+##### WP-09.3c: SQLite analysis CLI adapter
+
+- [ ] Implement after WP-09.2c; map analyze/missing-file/duplicate behavior to
+  the shared request while preserving existing options and result output.
+- [ ] Verify phase progress and cancellation outcomes against the transaction
+  boundary/partial-state contract.
+
+##### WP-09.3d: JSON CLI adapters
+
+- [ ] Implement after WP-09.2d; route the existing JSON `scan` and `analyze`
+  commands through the shared operation API without changing their explicit
+  catalog and filesystem targets.
+- [ ] Verify Ctrl-C, progress, catalog backup/write behavior, exit results, and
+  storage-mode isolation.
+
+##### WP-09.3e: CLI lifecycle and compatibility closeout
+
+- [ ] Verify cross-operation write serialization and worker shutdown from the
+  process boundary after WP-09.2e.
+- [ ] Preserve command names, option meanings, defaults, validation, log paths,
+  exit codes, final typed summaries, and stdout/stderr separation.
+- [ ] Run parser, mode-isolation, command integration, progress, and cancellation
+  tests for all supported CLI operation families.
 
 - [ ] Replace direct service/repository orchestration in SQLite and JSON command
   handlers with request construction and calls to the shared operation API.
@@ -776,6 +895,11 @@ commands/options remain compatible; Ctrl-C stops work at a safe boundary and
 the process exits only after workers have stopped.
 
 #### WP-09.4: Add the GTK operation task manager
+
+Start operation integration after the supported CLI operation families have
+become working references. The GUI may prepare presentation widgets earlier, but
+must not define separate progress, cancellation, exit-state, or partial-result
+semantics.
 
 - [ ] Add explicit Tools menu entries and operation-specific option dialogs for
   supported scan, metadata, and analysis requests; map each control to the same
@@ -844,38 +968,179 @@ mode isolation for every supported request family.
 - Progress, final summaries, failures, and cancellation are consistent across
   clients; storage modes remain explicit.
 
+## WP-10: Review-Driven Query and Scanner Correctness
+
+Status: `[ ]`
+
+This package records concrete consistency/correctness concerns found in the
+2026-10-04 reviews. For each suspected defect, add a regression test that
+demonstrates the required behavior before changing the implementation. Do not
+assume a suspected SQLite cursor issue is a reproduced failure; the test should
+establish whether rows can be skipped under the supported driver/runtime.
+
+### WP-10.1: Preserve case-sensitive matching in catalog queries
+
+- [ ] Add an explicit `caseSensitive` option to `RepositoryQueryOptions` and
+  propagate it from the GUI `SourceQuery` through offset and cursor catalog
+  queries.
+- [ ] Update catalog SQL to apply the requested case rule to file-path matching;
+  preserve checksum/SHA1 matching semantics independently of path case.
+- [ ] Test upper/lower-case path queries through `RepositoryQueryOptions`, both
+  offset and cursor pagination, and the GUI Blob table. Compare JSON and SQLite
+  results with the tree/file path for case-sensitive and insensitive settings.
+- [ ] Update public query docs and README parity claims to match the tested
+  contract.
+
+**Exit:** the same case preference yields the same matching path sequence in
+JSON and SQLite tree and Blob-table views; SHA1 lookups still work regardless of
+hex letter case; cursor continuation does not change the result set.
+
+### WP-10.2: Make missing-file reconciliation safe while updating rows
+
+- [ ] Add a repository scan regression fixture with multiple existing,
+  non-hidden file references that become missing in the same scan, plus present
+  and hidden-path controls.
+- [ ] Confirm the scan marks every eligible missing row exactly once and does
+  not skip rows while changing `exists_on_disk` during iteration.
+- [ ] If the test demonstrates unsafe live-cursor mutation, materialize the
+  required IDs/paths or use a two-phase update so the result set is stable before
+  writes occur.
+- [ ] Verify `dropMissing` still removes the intended references and orphan
+  blobs transactionally, while hidden-file policy remains unchanged.
+
+**Exit:** the regression test passes on supported SQLite/D2-SQLite builds and
+proves all eligible missing references are reconciled without omissions or
+duplicate summary counts.
+
+### WP-10.3: Define changed-file blob cleanup and scan summary semantics
+
+- [ ] Extend the incremental-scan test to change a file's contents/size or mtime
+  more than once and inspect blob/reference counts after each scan.
+- [ ] When a file changes, remove the old blob only if no remaining file
+  reference points to it; cover the shared-blob case and verify foreign-key
+  dependent metadata is handled correctly.
+- [ ] Define and document `ScanSummary.filesMissing` (references newly detected
+  as missing during this run) and `filesDropped` (references actually removed
+  by this run), or choose clearer field semantics/names if existing behavior is
+  inconsistent.
+- [ ] Test `dropMissing` after missing references were detected by an earlier
+  scan, including multiple missing references, to pin down the summary contract.
+- [ ] Verify repeated scans of changed files do not accumulate unreferenced
+  blobs; retain the existing unchanged-scan idempotence checks.
+
+**Exit:** changed and removed files leave no unintended orphan blobs, shared
+content remains intact while referenced, summaries have documented per-run
+meaning, and repeat-scan tests prove the behavior.
+
+### WP-10 Exit Criteria
+
+- Catalog and tree query filter semantics agree for the supported case rules.
+- Missing-file scan behavior is regression-tested against multi-row mutation.
+- Changed-file updates have a tested orphan-retention/removal policy and stable
+  `ScanSummary` semantics.
+- All changes preserve transaction integrity and pass backend plus GUI tests.
+
+## WP-11: Read-Path Cost and API-Boundary Review
+
+Status: `[ ]` (investigation first; implementation only where measurements or
+contract needs justify it).
+
+The 2026-10-04 review raised concerns about per-query repository opens,
+materialization, JSON parsing, and the GUI's dependency on `NamedBinaryBlob`.
+Some are potential costs or intentional transitional behavior rather than
+confirmed defects. Measure and inspect actual call paths before optimizing.
+
+### WP-11.1: Measure repository connection-open overhead
+
+- [ ] Measure steady-state directory expansion/query cost separately from
+  repository initialization and schema migration, using a representative large
+  directory tree and repeated independent source operations.
+- [ ] Inspect which statements on `Repository.open()` write on an already
+  initialized/current repository; distinguish first-open/migration writes from
+  repeated-read behavior.
+- [ ] If the measured overhead or write-capable open path is material, design a
+  validated read-only open mode or another connection-lifetime policy that keeps
+  concurrent operations independent and does not run migrations on readers.
+- [ ] Re-run source concurrency tests and benchmark before/after; retain bounded
+  root summaries and do not share a non-thread-safe connection between workers.
+
+**Exit:** record measured baseline and a decision. If code changes are
+unnecessary, document why; if needed, tests prove read-only opens cannot mutate
+repository state and independent query behavior remains correct.
+
+### WP-11.2: Audit JSON paging and virtual-table materialization
+
+- [ ] Trace every production caller of `loadDocumentPage()` and
+  `loadDocumentCursorPage()` for JSON sources. The normal JSON document load
+  currently uses `loadDocumentSource()`; distinguish that one-time full load from
+  helpers that may deserialize again.
+- [ ] Verify whether `loadAllRows` remains reachable in normal UI operation and
+  whether it is an explicit user choice or an accidental path around bounded
+  loading.
+- [ ] Measure JSON open/filter memory and latency and repository virtual-table
+  cache memory at representative sizes; include large directory counts as well
+  as blob counts.
+- [ ] If repeated JSON parsing or unbounded materialization occurs in a normal
+  workflow, cache/reuse the parsed source or remove that call path without
+  changing legacy JSON compatibility. Keep explicit full-materialization modes
+  documented if they remain available.
+
+**Exit:** production call paths and costs are documented; any optimization is
+justified by a reproducible measurement and tested for result parity and bounded
+repository cache behavior.
+
+### WP-11.3: Decide the long-term Blob DTO boundary
+
+- [ ] Document the current boundary: directory/file browsing uses typed
+  repository projections, while the transitional Blob table and JSON loader use
+  `NamedBinaryBlob`.
+- [ ] Decide whether the Blob table should migrate to source-neutral summary and
+  detail DTOs, or remain explicitly coupled to the canonical JSON model until
+  that view is removed.
+- [ ] If decoupling is selected, define stable IDs, summary flags, lazy detail
+  retrieval, JSON/SQLite parity, and migration compatibility before changing the
+  public API.
+- [ ] Keep the JSON serializer's canonical model separate from GTK widgets and
+  do not expose SQLite implementation types to the GUI.
+
+**Exit:** an explicit architecture decision with consequences and follow-up
+work; implementation is a separate package if it would be larger than a focused
+API change.
+
+### WP-11.4: Reconcile architecture and baseline documentation
+
+- [ ] Update the backend module dependency diagram to include the public
+  repository facade and its internal schema/transfer/scanner/metadata/analysis
+  modules.
+- [ ] Clarify why WP-00 remains in progress, list its still-open baseline
+  deliverables, and state whether each is a gate for future work packages.
+- [ ] Keep README, architecture, benchmark scope, WP-08/WP-09 status, and the
+  GUI's cross-repository links consistent with the implemented paths.
+
+**Exit:** a new contributor can trace the actual API/module boundary and tell
+which unfinished baseline work is intentional versus forgotten.
+
 ## Dependency Order
 
-```text
-WP-00
-  +--> WP-01
-  +--> WP-02
-          +--> WP-03
-          +--> WP-04
-          +--> WP-05
-                  +--> WP-06
-
-WP-01 + WP-02
-  +--> WP-06
-  +--> WP-07
-
-WP-03 + WP-04 + WP-05 + WP-06 + WP-07
-  +--> WP-08
-
-WP-04 + WP-05 + WP-06 --> WP-09.1 --> WP-09.2 --+--> WP-09.3 --+
-                                                   +--> WP-09.4 --+--> WP-09.5
-WP-07 -----------------------------------------------> WP-09.4
-```
-
-WP-01 and WP-02 can proceed in parallel after WP-00. WP-03 through WP-05
-depend on the schema. WP-07 can begin API integration before the scanner is
-fully migrated, provided the JSON adapter remains available.
-WP-08.1 through WP-08.3 are independent verification tasks. Recommended
-closeout is WP-08 first, followed by WP-09.1; the test gaps do not block contract
-design. WP-09.2 depends on the frozen contract. CLI and GTK adapters (WP-09.3
-and WP-09.4) can proceed independently after WP-09.2, with GTK also depending on
-the existing WP-07 source integration. WP-09.5 requires both adapters and the
-backend operation implementation.
+- **Repository foundation:** WP-00 precedes WP-01/WP-02; WP-03/WP-04/WP-05
+  depend on the repository API/schema work; WP-06 uses those backend packages;
+  WP-07 integrates the GUI against the public API.
+- **Review correctness:** WP-10.1 depends on WP-07's query adapters. WP-10.2 and
+  WP-10.3 depend on WP-04's scanner. Complete the missing-file/blob correctness
+  fixes before WP-09.2a changes scan transaction behavior.
+- **Operation contract:** WP-09.1 depends on the existing repository and service
+  operations (WP-04/WP-05/WP-06), but its design may proceed while WP-08/WP-10
+  tasks are active. WP-09.2 operation slices depend on WP-09.1.
+- **Vertical CLI slices:** implement in this order:
+  `WP-09.2a -> WP-09.3a -> WP-09.2b -> WP-09.3b -> WP-09.2c -> WP-09.3c ->
+  WP-09.2d -> WP-09.3d -> WP-09.2e -> WP-09.3e`.
+- **GTK and parity:** WP-09.4 depends on WP-07 and the CLI reference in
+  WP-09.3e. WP-09.5 requires both CLI and GTK adapters; WP-10.1's query parity
+  fix must also be complete before declaring full source parity.
+- **Independent closeout:** WP-08.1/WP-08.2/WP-08.3 are independent test tasks;
+  complete them before WP-09 parity closeout, but they do not block WP-09.1
+  contract design. WP-11 is investigation-first and does not gate WP-09 unless it
+  discovers a correctness blocker.
 
 ## Definition of Done for Each Package
 
