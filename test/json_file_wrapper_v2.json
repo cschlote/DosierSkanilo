@@ -1,0 +1,29 @@
+{
+  "dataArray": [
+    {
+      "archiveSpecs": [
+        {
+          "checkSums": {
+            "md5sum_b64": "CJDSa/B3y0CdbYM+kidLhg==",
+            "sha1sum_b64": "K8ByyTS7PbXAvLXGiMJ9LnR+UF4=",
+            "xxh64sum_b64": "KiyG+pLPliI="
+          },
+          "fileName": "payload.bin",
+          "fileSize": 12,
+          "timeLastModified": "2024-01-02T03:04:05"
+        }
+      ],
+      "checkSums": {
+        "md5sum_b64": "CJDSa/B3y0CdbYM+kidLhg==",
+        "sha1sum_b64": "K8ByyTS7PbXAvLXGiMJ9LnR+UF4=",
+        "xxh64sum_b64": "KiyG+pLPliI="
+      },
+      "fileName": "v2/sample.rar",
+      "fileSize": 4096,
+      "fileType": "RAR archive data",
+      "timeLastModified": "2024-01-02T03:04:05"
+    }
+  ],
+  "dataVersion": 2,
+  "mediaInfoVersion": "fixture-media-info"
+}

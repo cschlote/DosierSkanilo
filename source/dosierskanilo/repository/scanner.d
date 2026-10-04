@@ -101,6 +101,7 @@ private void upsertFileReference(ref Database db, string relativePath,
 
     auto row = result.front;
     auto fileId = row.peek!long(0);
+    auto oldBlobId = row.peek!long(1);
     auto oldSize = cast(ulong) row.peek!long(2);
     auto oldModified = row.peek!string(3);
     if (oldSize != entry.size || oldModified != modified)
@@ -111,6 +112,8 @@ private void upsertFileReference(ref Database db, string relativePath,
         db.execute("UPDATE file_refs SET blob_id = ?, "
             ~ "time_last_modified = ?, exists_on_disk = 1, last_seen_at = ? "
             ~ "WHERE id = ?", newBlobId, modified, now, fileId);
+        db.execute("DELETE FROM blobs WHERE id = ? AND NOT EXISTS "
+            ~ "(SELECT 1 FROM file_refs WHERE blob_id = ?)", oldBlobId, oldBlobId);
         summary.filesChanged++;
     }
     else

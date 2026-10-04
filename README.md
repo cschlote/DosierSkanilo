@@ -68,10 +68,9 @@ blob-catalog cursors, and next/previous file-reference cursors. Archive and
 torrent details can be queried separately in bounded chunks.
 
 The GUI keeps database chunks internal and presents one logical filtered
-sequence. Current JSON/SQLite parity tests cover case-sensitive directory/file
-filtering, size sorting, and forward/backward paging. Case-sensitive matching in
-the Blob/catalog query path remains open as WP-10.1; broader interaction and
-large-detail coverage remain tracked in
+sequence. JSON/SQLite parity coverage includes case-sensitive path filtering in
+the directory tree and Blob/catalog view, size sorting, and forward/backward
+paging. Broader interaction and large-detail coverage remain tracked in
 `docs/SQLITE-IMPLEMENTATION-PLAN.md` and `TODO.md`.
 
 The current GUI remains a browser. The CLI and GUI operation-parity plan covers

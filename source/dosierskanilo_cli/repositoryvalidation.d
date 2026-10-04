@@ -61,6 +61,21 @@ bool validateRepositoryOptions(string command, ref ArgsArray options)
     return true;
 }
 
+private bool hasRepositoryListFilters(ArgsArray options)
+{
+    return !options.argQueryText.empty || options.argQueryOffset != 0
+        || options.argQueryLimit != 50 || options.argQueryVideo
+        || options.argQueryAudio || options.argQueryImage
+        || options.argQueryTextStream || options.argQueryFileType
+        || options.argQueryArchive || options.argQueryTorrent;
+}
+
+private bool hasRepositoryQueryOptions(ArgsArray options)
+{
+    return hasRepositoryListFilters(options) || options.argDuplicateLimit != 100
+        || options.argOutputFormat != "table";
+}
+
 private bool hasMetadataOptions(ArgsArray options)
 {
     return options.argDoChecksums || options.argDoFileTypes
@@ -82,26 +97,34 @@ private bool validateRepositoryCommand(string command, ArgsArray options)
     {
     case "info":
         if (hasStorageAction || hasMetadataAction || options.argDropMissing
-            || options.argReplaceCatalog)
+            || options.argReplaceCatalog || hasRepositoryListFilters(options)
+            || options.argDuplicateLimit != 100)
             return invalidCommandOptions(command);
         break;
-    case "list", "duplicates":
+    case "list":
         if (hasStorageAction || hasMetadataAction || options.argDropMissing
-            || options.argReplaceCatalog)
+            || options.argReplaceCatalog || options.argDuplicateLimit != 100)
+            return invalidCommandOptions(command);
+        break;
+    case "duplicates":
+        if (hasStorageAction || hasMetadataAction || options.argDropMissing
+            || options.argReplaceCatalog || hasRepositoryListFilters(options))
             return invalidCommandOptions(command);
         break;
     case "metadata":
         if (options.argInitRepository || options.argScanFiles
             || options.argRunAnalysis || !options.argImportJSON.empty
             || !options.argExportJSON.empty || options.argWriteJSON
-            || options.argDropMissing || options.argReplaceCatalog)
+            || options.argDropMissing || options.argReplaceCatalog
+            || hasRepositoryQueryOptions(options))
             return invalidCommandOptions(command);
         break;
     case "analyze", "analyse":
         if (options.argInitRepository || options.argScanFiles
             || options.argRunMetadata || hasMetadataAction
             || !options.argImportJSON.empty || !options.argExportJSON.empty
-            || options.argWriteJSON || options.argReplaceCatalog)
+            || options.argWriteJSON || options.argReplaceCatalog
+            || hasRepositoryQueryOptions(options))
             return invalidCommandOptions(command);
         break;
     case "init":
@@ -116,20 +139,21 @@ private bool validateRepositoryCommand(string command, ArgsArray options)
         if (options.argInitRepository || options.argRunMetadata
             || options.argRunAnalysis || !options.argImportJSON.empty
             || !options.argExportJSON.empty || options.argWriteJSON
-            || options.argReplaceCatalog)
+            || options.argReplaceCatalog || hasRepositoryQueryOptions(options))
             return invalidCommandOptions(command);
         break;
     case "import":
         if (options.argInitRepository || options.argScanFiles
             || options.argRunMetadata || options.argRunAnalysis
-            || hasMetadataAction || options.argDropMissing || options.argWriteJSON)
+            || hasMetadataAction || options.argDropMissing || options.argWriteJSON
+            || hasRepositoryQueryOptions(options))
             return invalidCommandOptions(command);
         break;
     case "export":
         if (options.argInitRepository || options.argScanFiles
             || options.argRunMetadata || options.argRunAnalysis
             || hasMetadataAction || options.argDropMissing || options.argWriteJSON
-            || options.argReplaceCatalog)
+            || options.argReplaceCatalog || hasRepositoryQueryOptions(options))
             return invalidCommandOptions(command);
         break;
     case "":

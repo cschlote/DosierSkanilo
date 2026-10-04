@@ -33,7 +33,7 @@ version (unittest)
         "test/example.torrent", "test/json_file_v0.json", "test/json_file_v1.json",
         "test/json_file_v1_wrongversion.json", "test/json_file_v2.json",
         "test/json_file_v2_archive.json", "test/json_file_v2_torrent.json",
-        "test/test-multifile.torrent"
+        "test/json_file_wrapper_v2.json", "test/test-multifile.torrent"
     ];
 
     /** Extract files from archive and compare with expected files. The expected files are in the test directory

@@ -31,7 +31,13 @@ They represent the functional evolution and are intentionally summarized.
 - Filtered directory queries now omit directories whose descendant subtree has
   no matching file references.
 - Repository path-text filters now support an explicit case-sensitive mode in
-  both file and descendant-directory queries.
+  file, descendant-directory, and blob-catalog queries.
+- Changed-file scans remove old blob rows only when no file references remain;
+  per-run `filesMissing` and `filesDropped` counters are documented and covered
+  for deferred drops.
+- Repository CLI validation now rejects query and transfer options on commands
+  that do not support them, rejects extra positional arguments, and JSON mode
+  rejects repository-only query options.
 - Repository file cursors now preserve a selected path/size sort order across
   chunk boundaries using stable path and ID tie-breakers.
 - Added bounded blob-catalog keyset iteration with stable blob-ID cursors and

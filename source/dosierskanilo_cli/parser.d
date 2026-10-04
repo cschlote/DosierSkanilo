@@ -178,9 +178,9 @@ ParsedCommandLine parseCommandLine(string[] args)
             rootArgument = args[positionalStart];
             positionalCount = 1;
         }
-        args = args[0 .. commandIndex]
-            ~ args[commandIndex + 1 + positionalCount .. $];
     }
+    if (!command.empty)
+        args = args[0 .. 1] ~ args[commandIndex + 1 + positionalCount .. $];
     if (!rootArgument.empty)
     {
         if (jsonMode)
@@ -290,6 +290,12 @@ ParsedCommandLine parseCommandLine(string[] args)
     if (argsarray.argVersion)
         return ParsedCommandLine(ParseStatus.showVersion, CliCommand.noCommand, argsarray);
 
+    if (args.length > 1)
+    {
+        errorLine("Unexpected positional argument: ", args[1]);
+        return ParsedCommandLine(ParseStatus.error, CliCommand.noCommand, argsarray);
+    }
+
     setVerboseOutputs(argsarray.argVerboseOutputs);
     if (command.empty)
     {
@@ -368,6 +374,110 @@ unittest
     assert(jsonAnalyze.command == CliCommand.jsonAnalyze);
     assert(jsonAnalyze.options.argRunAnalysis);
     assert(jsonAnalyze.options.argWriteJSON);
+}
+
+@("parser validates command boundaries and isolates consecutive parses")
+unittest
+{
+    auto init = parseCommandLine(["program", "init", "./test"]);
+    assert(init.status == ParseStatus.run && init.command == CliCommand.init);
+
+    auto metadata = parseCommandLine(["program", "metadata", "./test",
+        "--checksums"]);
+    assert(metadata.status == ParseStatus.run
+        && metadata.command == CliCommand.metadata);
+    assert(metadata.options.argDoChecksums);
+
+    auto analysis = parseCommandLine(["program", "analyze", "./test",
+        "--drop-missing"]);
+    assert(analysis.status == ParseStatus.run
+        && analysis.command == CliCommand.analyze);
+    assert(analysis.options.argDropMissing);
+
+    auto info = parseCommandLine(["program", "info", "./test", "--format=json"]);
+    assert(info.status == ParseStatus.run && info.command == CliCommand.info);
+    assert(info.options.argOutputFormat == "json");
+
+    auto list = parseCommandLine(["program", "list", "./test", "--text=needle",
+        "--limit=10", "--offset=1", "--video", "--format=json"]);
+    assert(list.status == ParseStatus.run && list.command == CliCommand.list);
+    assert(list.options.argQueryText == "needle");
+    assert(list.options.argQueryLimit == 10 && list.options.argQueryOffset == 1);
+    assert(list.options.argQueryVideo && list.options.argOutputFormat == "json");
+
+    auto duplicates = parseCommandLine(["program", "duplicates", "./test",
+        "--duplicate-limit=5", "--format=json"]);
+    assert(duplicates.status == ParseStatus.run
+        && duplicates.command == CliCommand.duplicates);
+    assert(duplicates.options.argDuplicateLimit == 5);
+
+    auto imported = parseCommandLine(["program", "import", "./test",
+        "./test/json_file_v1.json", "--replace"]);
+    assert(imported.status == ParseStatus.run
+        && imported.command == CliCommand.importJson);
+    assert(imported.options.argRepositoryPath == "./test");
+    assert(imported.options.argImportJSON == "./test/json_file_v1.json");
+    assert(imported.options.argReplaceCatalog);
+
+    auto exported = parseCommandLine(["program", "export", "./test",
+        "--output=./test/export.json"]);
+    assert(exported.status == ParseStatus.run
+        && exported.command == CliCommand.exportJson);
+    assert(exported.options.argExportJSON == "./test/export.json");
+
+    auto jsonScan = parseCommandLine(["program", "json", "scan", "./test",
+        "./test/out.json", "--recursive", "--checksums"]);
+    assert(jsonScan.status == ParseStatus.run
+        && jsonScan.command == CliCommand.jsonScan);
+
+    auto jsonAnalyze = parseCommandLine(["program", "json", "analyze",
+        "./test/json_file_v1.json", "--drop-missing"]);
+    assert(jsonAnalyze.status == ParseStatus.run
+        && jsonAnalyze.command == CliCommand.jsonAnalyze);
+
+    auto invalidSqliteOption = parseCommandLine(["program", "scan", "./test",
+        "--limit=5"]);
+    assert(invalidSqliteOption.status == ParseStatus.error);
+
+    auto extraPosition = parseCommandLine(["program", "scan", "./test",
+        "./test/unexpected.json"]);
+    assert(extraPosition.status == ParseStatus.error);
+
+    auto invalidFormat = parseCommandLine(["program", "list", "./test",
+        "--format=xml"]);
+    assert(invalidFormat.status == ParseStatus.error);
+
+    auto invalidJsonQuery = parseCommandLine(["program", "json", "scan", "./test",
+        "./test/out.json", "--text=needle"]);
+    assert(invalidJsonQuery.status == ParseStatus.error);
+
+    auto missingJsonCatalog = parseCommandLine(["program", "json", "scan",
+        "./test"]);
+    assert(missingJsonCatalog.status == ParseStatus.error);
+
+    auto invalidJsonScanOption = parseCommandLine(["program", "json", "scan",
+        "./test", "./test/out.json", "--drop-missing"]);
+    assert(invalidJsonScanOption.status == ParseStatus.error);
+
+    auto unsupported = parseCommandLine(["program", "metadata", "./test"]);
+    assert(unsupported.status == ParseStatus.error);
+
+    auto first = parseCommandLine(["program", "scan", "./test", "--recursive",
+        "--checksums"]);
+    assert(first.status == ParseStatus.run);
+    auto second = parseCommandLine(["program", "info", "./test"]);
+    assert(second.status == ParseStatus.run);
+    assert(!second.options.argRecursive);
+    assert(!second.options.argDoChecksums);
+    assert(second.options.argQueryText.length == 0);
+    assert(second.options.argOutputFormat == "table");
+
+    auto help = parseCommandLine(["program", "--help"]);
+    assert(help.status == ParseStatus.help);
+    auto helpWithTrailingArgument = parseCommandLine(["program", "--help", "scan"]);
+    assert(helpWithTrailingArgument.status == ParseStatus.help);
+    auto versionResult = parseCommandLine(["program", "--version"]);
+    assert(versionResult.status == ParseStatus.showVersion);
 }
 
 /** Shortens a string `s` to exactly `maxLen` characters.

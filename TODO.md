@@ -13,12 +13,12 @@ Completed small maintenance items retained for context:
 Detailed scope and acceptance criteria are in
 `docs/SQLITE-IMPLEMENTATION-PLAN.md`, section WP-08.
 
-- [ ] WP-08.1: Test valid and invalid SQLite/JSON parser inputs, option
+- [x] WP-08.1: Test valid and invalid SQLite/JSON parser inputs, option
   boundaries, help/version behavior, and parser state isolation.
-- [ ] WP-08.2: Add a genuine `dataVersion: 2` fixture and verify import,
+- [x] WP-08.2: Add a genuine `dataVersion: 2` fixture and verify import,
   migration, and version-3 export; correct the broad existing test name that
   currently implies version-2 coverage.
-- [ ] WP-08.3: Verify filtered export is relationship-closed, preserves selected
+- [x] WP-08.3: Verify filtered export is relationship-closed, preserves selected
   shared-blob references, and excludes references outside the requested scope.
 
 These are independent test-closeout tasks. They do not block WP-09.1 contract
@@ -29,17 +29,24 @@ design, but should be complete before WP-09 parity closeout.
 Detailed regression requirements are in `docs/SQLITE-IMPLEMENTATION-PLAN.md`,
 section WP-10. Confirm each suspected issue with a test before changing code.
 
-- [ ] WP-10.1: Restore case-sensitive path matching parity in blob/catalog
-  queries and the GUI Blob table; retain case-insensitive SHA1 lookup.
-- [ ] WP-10.2: Test multi-row missing-file reconciliation and make
-  `markMissing` iteration stable if live-cursor mutation can skip rows.
-- [ ] WP-10.3: Define changed-file orphan cleanup and per-run
+- [x] WP-10.1: Restore case-sensitive path matching parity in blob/catalog
+  queries and the GUI Blob table; keep exact SHA1 matching independent of path
+  case and document the accepted digest representation.
+- [x] WP-10.2: Verify `markMissing` reconciles 40 simultaneous missing rows
+  with present/hidden controls; the configured SQLite/D2-SQLite test showed no
+  skipped rows, so no iteration rewrite was needed.
+- [x] WP-10.3: Define changed-file orphan cleanup and per-run
   `filesMissing`/`filesDropped` summary semantics; test shared blobs and repeated
   file changes.
 
 WP-10.1 depends on the GUI source/query integration (WP-07); WP-10.2 and WP-10.3
 depend on the repository scanner (WP-04). These correctness fixes should land
 before the affected operation slices, especially WP-09.2a.
+
+The multi-row `markMissing` regression passed for 40 vanished references on the
+configured SQLite/D2-SQLite target; no skipped-row defect was reproduced, so no
+scanner iteration rewrite was made. Changed-file scans now remove an old blob
+only after its final reference moves away.
 
 ## P1 — Shared CLI/GTK operations (WP-09)
 

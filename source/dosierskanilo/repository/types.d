@@ -122,9 +122,9 @@ struct ScanSummary
     size_t filesAdded;
     /// Number of file references whose size or timestamp changed.
     size_t filesChanged;
-    /// Number of existing references not found during this scan.
+    /// Number of references newly detected as missing during this scan.
     size_t filesMissing;
-    /// Number of missing references removed by `dropMissing`.
+    /// Number of missing references physically removed by `dropMissing` this run.
     size_t filesDropped;
 }
 
@@ -326,8 +326,9 @@ struct RepositoryQueryOptions
     size_t offset;
     /// Maximum number of blobs to return.
     size_t limit = 250;
-    /// Case-insensitive path text filter.
+    /// Path text filter; caseSensitive affects paths, not binary SHA1 equality.
     string text;
+    bool caseSensitive;
     /// Require a video media stream.
     bool video;
     /// Require an audio media stream.

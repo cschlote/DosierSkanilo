@@ -519,7 +519,7 @@ unittest
             expected[index].toString ~ " != " ~ actual[index].toString);
 }
 
-@("repository imports supported JSON fixture versions")
+@("repository imports legacy array and version-1/version-3 fixtures")
 unittest
 {
     import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir;
@@ -552,6 +552,207 @@ unittest
         assert(repository.blobCount == expectedCounts[index]);
     }
     repository.close();
+}
+
+@("repository imports an actual version-2 wrapper and exports migrated version-3 data")
+unittest
+{
+    import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION3,
+        deserializeDataClassJsonWrapperFile;
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    auto fixture = buildPath(tempDir(), "repository-json-v2-roundtrip-"
+        ~ randomUUID().toString());
+    auto root = buildPath(fixture, "repository");
+    auto exported = buildPath(fixture, "exported-v3.json");
+    mkdirRecurse(root);
+    scope (exit)
+    {
+        if (exists(fixture))
+            rmdirRecurse(fixture);
+    }
+
+    auto input = deserializeDataClassJsonWrapperFile(
+        "./test/json_file_wrapper_v2.json");
+    assert(input.dataVersion == 2);
+    assert(input.dataArray.length == 1);
+
+    auto repository = Repository.initialize(root);
+    scope (exit)
+        repository.close();
+    repository.importJson("./test/json_file_wrapper_v2.json");
+
+    auto imported = repository.loadCatalog();
+    assert(imported.length == 1);
+    auto blob = imported[0];
+    assert(blob.fileSize == 4096);
+    assert(blob.getFirstFileName == "v2/sample.rar");
+    assert(blob.checkSums.md5sum_b64 == "CJDSa/B3y0CdbYM+kidLhg==");
+    assert(blob.checkSums.sha1sum_b64 == "K8ByyTS7PbXAvLXGiMJ9LnR+UF4=");
+    assert(blob.fileType == "RAR archive data");
+    assert(blob.archiveSpecs.length == 1);
+    assert(blob.archiveSpecs[0].fileName == "payload.bin");
+    assert(blob.archiveSpecs[0].checkSums.sha1sum_b64
+        == "K8ByyTS7PbXAvLXGiMJ9LnR+UF4=");
+
+    repository.exportJson(exported);
+    auto roundtrip = deserializeDataClassJsonWrapperFile(exported);
+    assert(roundtrip.dataVersion == DATA_CLASS_VERSION3);
+    assert(roundtrip.dataArray.length == 1);
+    assert(roundtrip.dataArray[0].fileSize == blob.fileSize);
+    assert(roundtrip.dataArray[0].getFirstFileName == "v2/sample.rar");
+    assert(roundtrip.dataArray[0].archiveSpecs.length == 1);
+    assert(roundtrip.dataArray[0].archiveSpecs[0].fileName == "payload.bin");
+}
+
+@("filtered JSON export preserves selected blob relationship closure")
+unittest
+{
+    import std.algorithm.searching : startsWith;
+    import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION3,
+        deserializeDataClassJsonWrapperFile;
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    auto fixture = buildPath(tempDir(), "repository-filtered-export-closure-"
+        ~ randomUUID().toString());
+    auto root = buildPath(fixture, "source");
+    auto roundtripRoot = buildPath(fixture, "roundtrip");
+    auto exported = buildPath(fixture, "selected-export.json");
+    mkdirRecurse(buildPath(root, "wanted"));
+    mkdirRecurse(buildPath(root, "excluded"));
+    mkdirRecurse(roundtripRoot);
+    scope (exit)
+    {
+        if (exists(fixture))
+            rmdirRecurse(fixture);
+    }
+
+    write(buildPath(root, "wanted", "selected-one.bin"), "same selected content");
+    write(buildPath(root, "wanted", "selected-two.bin"), "same selected content");
+    write(buildPath(root, "excluded", "shared-outside.bin"), "same selected content");
+    write(buildPath(root, "excluded", "outside-only.bin"), "not selected");
+
+    auto repository = Repository.initialize(root);
+    scope (exit)
+        repository.close();
+    repository.scan();
+    MetadataScanOptions metadataOptions;
+    metadataOptions.calculateChecksums = true;
+    repository.updateMetadata(metadataOptions);
+    auto analysis = repository.analyze();
+    assert(analysis.duplicateGroups == 1);
+    assert(analysis.mergedBlobs == 2);
+    assert(repository.blobCount == 2);
+
+    JsonExportOptions exportOptions;
+    exportOptions.pathPrefix = "wanted";
+    repository.exportJson(exported, exportOptions);
+
+    auto exportedCatalog = deserializeDataClassJsonWrapperFile(exported);
+    assert(exportedCatalog.dataVersion == DATA_CLASS_VERSION3);
+    assert(exportedCatalog.dataArray.length == 1,
+        "only the blob referenced by the selected paths should be exported");
+    auto selectedBlob = exportedCatalog.dataArray[0];
+    assert(selectedBlob.fileSpecs.length == 2);
+    assert(selectedBlob.checkSums.hasDigests);
+    bool sawFirst;
+    bool sawSecond;
+    foreach (spec; selectedBlob.fileSpecs)
+    {
+        assert(spec !is null);
+        assert(spec.fileName.startsWith("wanted/"));
+        sawFirst = sawFirst || spec.fileName == "wanted/selected-one.bin";
+        sawSecond = sawSecond || spec.fileName == "wanted/selected-two.bin";
+    }
+    assert(sawFirst && sawSecond);
+
+    auto roundtrip = Repository.initialize(roundtripRoot);
+    scope (exit)
+        roundtrip.close();
+    roundtrip.importJson(exported);
+    auto imported = roundtrip.loadCatalog();
+    assert(imported.length == 1);
+    assert(imported[0].fileSpecs.length == 2);
+    assert(imported[0].checkSums.hasDigests);
+    foreach (spec; imported[0].fileSpecs)
+        assert(spec.fileName.startsWith("wanted/"));
+}
+
+@("catalog queries apply case sensitivity to paths for offset and cursor pages")
+unittest
+{
+    import std.algorithm.searching : endsWith;
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "repository-catalog-case-filter-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+    {
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+
+    write(buildPath(root, "UPPER-NEEDLE.txt"), "upper path");
+    write(buildPath(root, "lower-Needle.txt"), "mixed path");
+    write(buildPath(root, "plain.txt"), "control");
+
+    auto repository = Repository.initialize(root);
+    scope (exit)
+        repository.close();
+    repository.scan();
+
+    RepositoryQueryOptions query;
+    query.text = "NEEDLE";
+    query.caseSensitive = true;
+    query.limit = 10;
+    auto sensitive = repository.loadCatalogQueryPageWithIds(query);
+    assert(sensitive.total == 1);
+    assert(sensitive.blobs.length == 1);
+    assert(sensitive.blobs[0].getFirstFileName.endsWith("UPPER-NEEDLE.txt"));
+
+    query.text = "needle";
+    query.caseSensitive = false;
+    query.limit = 1;
+    auto insensitive = repository.loadCatalogQueryPageWithIds(query);
+    assert(insensitive.total == 2);
+    assert(insensitive.blobs.length == 1);
+
+    query.useCursor = true;
+    auto firstCursorPage = repository.loadCatalogQueryCursorPage(query);
+    assert(firstCursorPage.blobs.length == 1);
+    assert(firstCursorPage.total == 2);
+    assert(firstCursorPage.hasMore);
+    query.afterBlobId = firstCursorPage.nextCursor;
+    auto secondCursorPage = repository.loadCatalogQueryCursorPage(query);
+    assert(secondCursorPage.blobs.length == 1);
+    assert(secondCursorPage.total == 2);
+    assert(!secondCursorPage.hasMore);
+    assert(firstCursorPage.blobIds[0] != secondCursorPage.blobIds[0]);
+
+    MetadataScanOptions checksumOptions;
+    checksumOptions.calculateChecksums = true;
+    repository.updateMetadata(checksumOptions);
+    string encodedSha1;
+    foreach (blob; repository.loadCatalog())
+    {
+        if (blob.getFirstFileName.endsWith("UPPER-NEEDLE.txt"))
+            encodedSha1 = blob.checkSums.sha1sum_b64;
+    }
+    assert(encodedSha1.length > 0);
+    query.text = encodedSha1;
+    query.caseSensitive = true;
+    query.useCursor = false;
+    query.afterBlobId = 0;
+    auto checksumMatch = repository.loadCatalogQueryPageWithIds(query);
+    assert(checksumMatch.total == 1,
+        "path case sensitivity must not alter exact binary SHA1 matching");
 }
 
 @("repository incremental filesystem scan")
@@ -953,4 +1154,114 @@ unittest
         reader.join();
     assert(!failed);
     repository.close();
+}
+
+@("repository missing-file reconciliation and drop counters cover all references")
+unittest
+{
+    import std.file : exists, mkdirRecurse, remove, rmdirRecurse, tempDir, write;
+    import std.format : format;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "repository-missing-reconcile-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+    {
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+
+    string[] missingPaths;
+    foreach (index; 0 .. 40)
+    {
+        auto path = buildPath(root, format("gone-%02d.txt", index));
+        write(path, format("payload-%02d", index));
+        missingPaths ~= path;
+    }
+    auto keepPath = buildPath(root, "keep.txt");
+    write(keepPath, "still here");
+    write(buildPath(root, ".hidden-control.txt"), "hidden and ignored");
+
+    auto repository = Repository.initialize(root);
+    scope (exit)
+        repository.close();
+    assert(repository.scan().filesAdded == 41);
+
+    foreach (path; missingPaths)
+        remove(path);
+    auto missing = repository.scan();
+    assert(missing.filesMissing == missingPaths.length);
+    assert(missing.filesDropped == 0);
+
+    RepositoryScanOptions dropOptions;
+    dropOptions.dropMissing = true;
+    auto dropped = repository.scan(dropOptions);
+    assert(dropped.filesMissing == 0,
+        "filesMissing counts references newly observed missing in this run");
+    assert(dropped.filesDropped == missingPaths.length,
+        "filesDropped counts missing references physically removed in this run");
+    assert(repository.blobCount == 1);
+}
+
+@("repository changed-file scans clean only unreferenced old blobs")
+unittest
+{
+    import std.file : copy, exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "repository-changed-file-orphans-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+    {
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+
+    auto firstPath = buildPath(root, "first.torrent");
+    auto secondPath = buildPath(root, "second.torrent");
+    copy("./test/example.torrent", firstPath);
+    copy("./test/example.torrent", secondPath);
+
+    auto repository = Repository.initialize(root);
+    scope (exit)
+        repository.close();
+    repository.scan();
+    MetadataScanOptions metadataOptions;
+    metadataOptions.calculateChecksums = true;
+    metadataOptions.scanTorrents = true;
+    repository.updateMetadata(metadataOptions);
+    auto merged = repository.analyze();
+    assert(merged.mergedBlobs == 1);
+    assert(repository.blobCount == 1,
+        "identical file contents should share one blob before change checks");
+    auto original = repository.loadCatalog();
+    assert(original.length == 1 && original[0].torrentInfo !is null,
+        "shared original blob has dependent torrent metadata");
+
+    write(firstPath, "first file changed to a larger payload");
+    auto firstChange = repository.scan();
+    assert(firstChange.filesChanged == 1);
+    assert(repository.blobCount == 2,
+        "the old blob remains while second.torrent still references it");
+
+    write(secondPath, "second file changed to another payload");
+    auto secondChange = repository.scan();
+    assert(secondChange.filesChanged == 1);
+    assert(repository.blobCount == 2,
+        "the shared original blob is removed after its final reference moves");
+
+    write(firstPath, "first file changed again to another size");
+    auto thirdChange = repository.scan();
+    assert(thirdChange.filesChanged == 1);
+    assert(repository.blobCount == 2,
+        "the unreferenced intermediate blob must be cleaned after reassignment");
+
+    auto unchanged = repository.scan();
+    assert(unchanged.filesChanged == 0);
+    assert(repository.blobCount == 2,
+        "an unchanged scan must not accumulate additional blobs");
 }

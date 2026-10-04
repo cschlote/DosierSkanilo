@@ -426,7 +426,8 @@ private Statement prepareCatalogQuery(ref Database db, string selectSql,
     if (!options.text.empty)
     {
         sql ~= " AND (EXISTS (SELECT 1 FROM file_refs f WHERE f.blob_id = b.id "
-            ~ "AND lower(f.relative_path) LIKE lower(:text))";
+            ~ (options.caseSensitive ? "AND instr(f.relative_path, :text) > 0)"
+                : "AND lower(f.relative_path) LIKE lower(:text))");
         if (sha1Search.length == 20)
             sql ~= " OR b.sha1 = :sha1";
         sql ~= ")";
@@ -491,7 +492,8 @@ private Statement prepareCatalogQuery(ref Database db, string selectSql,
 
     auto statement = db.prepare(sql);
     if (!options.text.empty)
-        statement.bind(":text", "%" ~ options.text ~ "%");
+        statement.bind(":text", options.caseSensitive ? options.text
+            : "%" ~ options.text ~ "%");
     if (sha1Search.length == 20)
         statement.bind(":sha1", cast(Blob) sha1Search);
     if (paged)

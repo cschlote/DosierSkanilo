@@ -501,24 +501,24 @@ source abstraction.
 Status: `[-]`
 
 WP-08 closes the verification gaps left after the SQLite/JSON repository and GUI
-integration work. Three backend tests remain. They test different contracts and
-can be implemented independently; each should use a fixture that would fail if
-the behavior under test were accidentally bypassed.
+integration work. The three backend test packages below are complete. The WP-08
+umbrella remains in progress only for its broader rollout/performance exit
+criteria, which are tracked under WP-11.2.
 
 ### WP-08.1: Complete CLI parser contract tests
 
-- [ ] Exercise the SQLite command group (`init`, `scan`, `metadata`, `analyze`,
+- [x] Exercise the SQLite command group (`init`, `scan`, `metadata`, `analyze`,
   `info`, `list`, `duplicates`, `import`, and `export`) and the explicit `json`
   group with representative valid inputs.
-- [ ] Exercise invalid combinations: missing positional paths, extra positional
+- [x] Exercise invalid combinations: missing positional paths, extra positional
   arguments, options attached to the wrong command, invalid option values, and
   attempts to use SQLite-only options in JSON mode or vice versa.
-- [ ] Verify help/version parse as successful actions and malformed input
+- [x] Verify help/version parse as successful actions and malformed input
   produces the documented usage status without starting an operation.
-- [ ] Verify parser state isolation: parse two different argument vectors
+- [x] Verify parser state isolation: parse two different argument vectors
   sequentially in one process and prove values/options from the first parse do
   not leak into the second.
-- [ ] Keep parser tests at the typed parser boundary where possible; retain CLI
+- [x] Keep parser tests at the typed parser boundary where possible; retain CLI
   process integration tests for exit codes and stdout/stderr behavior.
 
 **Exit:** every command group and its rejected option boundaries are covered;
@@ -527,18 +527,18 @@ passes.
 
 ### WP-08.2: Cover an actual version-2 JSON wrapper
 
-- [ ] Add a small valid JSON fixture whose wrapper literally declares
+- [x] Add a small valid JSON fixture whose wrapper literally declares
   `dataVersion: 2`; do not treat a version-3 fixture with a historical `v2` file
   name as version-2 coverage.
-- [ ] Include representative version-2 fields that exercise migration/fixup,
+- [x] Include representative version-2 fields that exercise migration/fixup,
   including file references and at least one optional metadata relationship where
   the version-2 schema supports it.
-- [ ] Import the fixture through the public repository transfer API and verify
+- [x] Import the fixture through the public repository transfer API and verify
   the resulting catalog's semantic content, not only that import returns
   successfully.
-- [ ] Export the imported repository as current version-3 JSON and verify the
+- [x] Export the imported repository as current version-3 JSON and verify the
   expected migrated values and relationships are preserved.
-- [ ] Rename or clarify the broad existing test name
+- [x] Rename or clarify the broad existing test name
   `repository imports supported JSON fixture versions` so it does not imply
   version-2 coverage before the new fixture is added.
 
@@ -547,15 +547,15 @@ to the current representation; unsupported versions remain rejected.
 
 ### WP-08.3: Verify filtered-export relationship closure
 
-- [ ] Build a repository fixture where the selected path subset contains a
+- [x] Build a repository fixture where the selected path subset contains a
   shared blob reference and at least one populated relationship such as media,
   archive, or torrent metadata; include unselected paths/blobs as controls.
-- [ ] Export the subset through the public filtered-export API, re-import or
+- [x] Export the subset through the public filtered-export API, re-import or
   deserialize the result, and verify every selected file reference resolves to
   its blob and selected blob metadata is complete.
-- [ ] Verify references outside the selected path scope and metadata belonging
+- [x] Verify references outside the selected path scope and metadata belonging
   only to excluded blobs are not accidentally included.
-- [ ] Cover the edge case where multiple selected paths reference the same blob:
+- [x] Cover the edge case where multiple selected paths reference the same blob:
   preserve one content record and all selected references without dangling or
   duplicated relationship rows.
 
@@ -568,25 +568,25 @@ unselected references; it round-trips through the public import path.
   separation; repository discovery from root/nested/no-repository directories;
   explicit JSON scan and analysis; query pagination/filtering/output; and
   storage-mode isolation.
+- [x] Typed parser tests cover both command groups, option boundaries, help and
+  version, extra positional arguments, invalid values, and state isolation.
 - [x] Schema creation and forward-version rejection; legacy-array and
-  version-1/version-3 imports; JSON round trips; duplicate merge and missing-file
-  analysis; directory and empty-directory queries; archive/torrent relations;
-  concurrent scanner workers and readers/writers.
+  version-1/version-2/version-3 imports; JSON round trips; filtered export
+  relationship closure; duplicate merge and missing-file analysis; directory
+  and empty-directory queries; archive/torrent relations; concurrent scanner
+  workers and readers/writers.
 - [x] GUI cross-source filtering/navigation parity, concurrent tree/detail
   reads, archive/torrent continuation past 250 entries, filtered GUI export
   values, stale GTK reply rejection, and virtual-table eviction/scrolling. Test
   names and opt-in display commands are recorded in the GUI repository's
   `docs/GUI-REDESIGN.md` and `docs/TEST_FIXTURES.md`.
 
-### Recommended Closeout Order
+### WP-08 Test Closeout Result
 
-1. Complete WP-08.1, WP-08.2, and WP-08.3. They have no implementation
-   dependency on each other and can be reviewed as three small test-only
-   changes.
-2. Run the backend library tests and build, then the GUI tests/build to retain
-   the cross-repository integration baseline.
-3. Record any newly found gaps as separate work packages rather than expanding
-   the scope of these tests.
+WP-08.1, WP-08.2, and WP-08.3 were implemented as independent tests. The backend
+library suite passes with 87 tests; the GUI test suite passes with 45 tests.
+No newly discovered issues were folded into these compatibility tests; scanner
+and filter fixes are tracked separately in WP-10.
 
 For the current DUB layout, verify with `dub test --config=library
 --compiler=ldc2` and `dub build --config=library --compiler=ldc2` in the backend,
@@ -596,12 +596,10 @@ WP-08 contains compatibility and parser tests only. Review-discovered behavior
 fixes are tracked separately in WP-10 so their implementation is not hidden in
 test-closeout work.
 
-The GUI's current asynchronous-filter work and the case-sensitivity parity fix
-are tracked in the GUI backlog and WP-10.1 respectively. Recommended execution
-order is: verify the current GUI P0, close WP-10.1 through WP-10.3 and WP-08.1
-through WP-08.3, then start backend operation implementation. WP-09.1 contract
-design may proceed in parallel with those bounded fixes; WP-09.2 must wait until
-the scan and query semantics it will control are stable.
+The GUI asynchronous-filter P0, WP-10.1 through WP-10.3 correctness work, and
+WP-08.1 through WP-08.3 test closeout are complete and tested in the current
+working trees. WP-09.1 contract design may proceed now; WP-09.2 must still wait
+until its request and cancellation contract is frozen.
 
 ### Final Exit Criteria
 
@@ -970,7 +968,7 @@ mode isolation for every supported request family.
 
 ## WP-10: Review-Driven Query and Scanner Correctness
 
-Status: `[ ]`
+Status: `[x]`
 
 This package records concrete consistency/correctness concerns found in the
 2026-10-04 reviews. For each suspected defect, add a regression test that
@@ -980,52 +978,49 @@ establish whether rows can be skipped under the supported driver/runtime.
 
 ### WP-10.1: Preserve case-sensitive matching in catalog queries
 
-- [ ] Add an explicit `caseSensitive` option to `RepositoryQueryOptions` and
+- [x] Add an explicit `caseSensitive` option to `RepositoryQueryOptions` and
   propagate it from the GUI `SourceQuery` through offset and cursor catalog
   queries.
-- [ ] Update catalog SQL to apply the requested case rule to file-path matching;
+- [x] Update catalog SQL to apply the requested case rule to file-path matching;
   preserve checksum/SHA1 matching semantics independently of path case.
-- [ ] Test upper/lower-case path queries through `RepositoryQueryOptions`, both
+- [x] Test upper/lower-case path queries through `RepositoryQueryOptions`, both
   offset and cursor pagination, and the GUI Blob table. Compare JSON and SQLite
   results with the tree/file path for case-sensitive and insensitive settings.
-- [ ] Update public query docs and README parity claims to match the tested
+- [x] Update public query docs and README parity claims to match the tested
   contract.
 
 **Exit:** the same case preference yields the same matching path sequence in
-JSON and SQLite tree and Blob-table views; SHA1 lookups still work regardless of
-hex letter case; cursor continuation does not change the result set.
+JSON and SQLite tree and Blob-table views; exact binary SHA1 lookup is unaffected
+by path case settings; cursor continuation does not change the result set.
 
 ### WP-10.2: Make missing-file reconciliation safe while updating rows
 
-- [ ] Add a repository scan regression fixture with multiple existing,
-  non-hidden file references that become missing in the same scan, plus present
-  and hidden-path controls.
-- [ ] Confirm the scan marks every eligible missing row exactly once and does
-  not skip rows while changing `exists_on_disk` during iteration.
-- [ ] If the test demonstrates unsafe live-cursor mutation, materialize the
-  required IDs/paths or use a two-phase update so the result set is stable before
-  writes occur.
-- [ ] Verify `dropMissing` still removes the intended references and orphan
+- [x] Add a scan regression fixture with 40 references that become missing in
+  the same scan, one still-present reference, and a hidden-file control.
+- [x] Confirm every missing reference is marked exactly once on the configured
+  SQLite/D2-SQLite target. The regression did not reproduce skipped rows, so no
+  materialization workaround was warranted.
+- [x] Verify `dropMissing` still removes the intended references and orphan
   blobs transactionally, while hidden-file policy remains unchanged.
 
-**Exit:** the regression test passes on supported SQLite/D2-SQLite builds and
-proves all eligible missing references are reconciled without omissions or
+**Exit:** the regression test passes on the configured SQLite/D2-SQLite target
+and proves all eligible missing references are reconciled without omissions or
 duplicate summary counts.
 
 ### WP-10.3: Define changed-file blob cleanup and scan summary semantics
 
-- [ ] Extend the incremental-scan test to change a file's contents/size or mtime
+- [x] Extend the incremental-scan test to change a file's contents/size or mtime
   more than once and inspect blob/reference counts after each scan.
-- [ ] When a file changes, remove the old blob only if no remaining file
+- [x] When a file changes, remove the old blob only if no remaining file
   reference points to it; cover the shared-blob case and verify foreign-key
-  dependent metadata is handled correctly.
-- [ ] Define and document `ScanSummary.filesMissing` (references newly detected
+  dependent torrent metadata is handled correctly.
+- [x] Define and document `ScanSummary.filesMissing` (references newly detected
   as missing during this run) and `filesDropped` (references actually removed
   by this run), or choose clearer field semantics/names if existing behavior is
   inconsistent.
-- [ ] Test `dropMissing` after missing references were detected by an earlier
+- [x] Test `dropMissing` after missing references were detected by an earlier
   scan, including multiple missing references, to pin down the summary contract.
-- [ ] Verify repeated scans of changed files do not accumulate unreferenced
+- [x] Verify repeated scans of changed files do not accumulate unreferenced
   blobs; retain the existing unchanged-scan idempotence checks.
 
 **Exit:** changed and removed files leave no unintended orphan blobs, shared
