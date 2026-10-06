@@ -28,6 +28,14 @@ GUI -------------------+--> dosierskanilo.repository API
 The GUI and CLI must not depend on `d2sqlite3` or issue SQL directly. The
 SQLite implementation remains behind the public repository API.
 
+All algorithms in both repositories are expected to be GC-friendly; changes must
+preserve or improve that property. Keep temporary allocation proportional to
+active work, reuse per-operation/per-worker scratch storage, avoid duplicate full
+catalogs/projections, and bound caches. This does not prohibit the D GC or justify
+premature manual allocation. Use representative workload measurements to verify
+allocation churn, GC behavior, latency, and peak memory without changing results
+or transaction guarantees.
+
 ## Shared Query Contract
 
 The public read API must be opaque across JSON and SQLite. The logical consumer
@@ -598,8 +606,8 @@ test-closeout work.
 
 The GUI asynchronous-filter P0, WP-10.1 through WP-10.3 correctness work, and
 WP-08.1 through WP-08.3 test closeout are complete and tested in the current
-working trees. WP-09.1 contract design may proceed now; WP-09.2 must still wait
-until its request and cancellation contract is frozen.
+working trees. WP-09.1 is complete; its planned pause/resume extension WP-09.1b
+must be frozen before controlled executors in WP-09.2 are implemented.
 
 ### Final Exit Criteria
 
@@ -618,8 +626,8 @@ Status: `[-]`
 
 Allow the CLI and GTK UI to start the same scan, metadata-scrape, and analysis
 operations through library APIs, with consistent options/results, live progress,
-and cooperative cancellation. Operation logic must remain outside GTK and CLI
-presentation code.
+cooperative cancellation, and planned cooperative pause/resume at safe
+checkpoints. Operation logic must remain outside GTK and CLI presentation code.
 
 ### WP-09 Current State
 
@@ -634,6 +642,9 @@ presentation code.
 - WP-09.1 is complete: frontend-neutral request, progress, control, validation,
   and result types are public in `dosierskanilo.operations`. Execution methods
   remain synchronous pending WP-09.2.
+- Pause/resume is not included in the frozen WP-09.1 API. Add it through the
+  planned WP-09.1b contract extension before implementing controlled executors;
+  no current backend operation can be paused or resumed.
 
 WP-09 changes operation control and frontend wiring; it does not replace the
 existing scanner, repository, or JSON data model. Keep each subpackage narrow so
@@ -704,6 +715,42 @@ terminal states/results, callback behavior, target mapping, and cross-process
 write serialization. Later packages implement that contract rather than make
 local, incompatible choices.
 
+#### WP-09.1b: Extend run control for pause and resume
+
+Status: `[ ]`
+
+Extend the frozen cancellation/progress contract with cooperative pause/resume
+before backend executor work begins. Keep GTK and CLI types out of the public
+contract. Pause is acknowledged only at a safe checkpoint; it must not interrupt
+an active syscall, external extractor, SQLite statement, atomic persistence unit,
+or JSON backup/replacement sequence.
+
+- [ ] Define `pausing` and `paused` lifecycle states and legal transitions,
+  including resume to `running`, cancellation while paused, repeated requests,
+  and completion racing with a pause request.
+- [ ] Add thread-safe pause/resume requests and a worker checkpoint/wait contract.
+  Resume and cancellation must wake a paused worker; cancellation takes
+  precedence and must not leave a worker blocked indefinitely.
+- [ ] Define progress behavior while pausing/paused and after resume. Preserve
+  operation identity, phase, and counts; do not report `paused` before backend
+  acknowledgement.
+- [ ] Define how clients learn whether pause is supported/available in the
+  current phase; state-aware frontends must not offer Pause when no safe
+  checkpoint is reachable before completion.
+- [ ] Require paused operations to have drained child workers and released active
+  SQLite transactions/statements. Keep the WP-09.2e target write lease until
+  resume or cancellation so competing processes cannot mutate the target.
+- [ ] Specify pause checkpoints for scan, metadata, analysis, and JSON operations
+  without weakening WP-09.1 commit/rollback guarantees. Design a staging or
+  commit-boundary strategy where a single transaction otherwise leaves no safe
+  mid-operation checkpoint; do not advertise pause for such a slice until tested.
+- [ ] Add deterministic API tests for lifecycle transitions, pause/resume races,
+  cancellation while paused, wake-up behavior, and progress ordering.
+
+**Exit:** the public run-control contract precisely defines pause acknowledgement,
+resume, cancellation precedence, callback/state ordering, resource ownership, and
+storage-safe checkpoints. No executor or frontend has to invent pause semantics.
+
 ### WP-09 Stepwise Migration
 
 #### WP-09.1: Freeze shared request and control contracts
@@ -743,9 +790,10 @@ cover lifecycle and cancellation semantics; no API type depends on GTK,
 #### WP-09.2: Add operation control to backend services
 
 This is an umbrella package, not one implementation change. Complete and verify
-each vertical slice independently. A slice must use WP-09.1 types, retain the
-existing synchronous entry point where required, and have deterministic tests
-for progress, cancellation boundaries, and resulting storage state.
+each vertical slice independently. A slice must use WP-09.1 and WP-09.1b types,
+retain the existing synchronous entry point where required, and have deterministic
+tests for progress, cancellation and pause/resume boundaries, and resulting
+storage state.
 
 ##### WP-09.2a: SQLite filesystem scan
 
@@ -758,6 +806,9 @@ for progress, cancellation boundaries, and resulting storage state.
 - [ ] Test cancellation before iteration, during traversal, before missing-file
   reconciliation, and after the last cancellation checkpoint. Verify summaries
   and unchanged repository state after rollback.
+- [ ] Define and test pause/resume checkpoints that do not wait inside the
+  operation-wide transaction; preserve scan atomicity and prove cancellation
+  still rolls back correctly after a resume.
 - [ ] Preserve `Repository.scan()` as a synchronous convenience wrapper over the
   controlled operation unless WP-09.1 documents a compatibility reason not to.
 
@@ -779,6 +830,8 @@ rollback outcome.
 - [ ] Exercise cancellation before a batch, while workers are active, between
   committed blobs, and after the final batch. Cover worker failure and no-work
   cases as well as successful extraction.
+- [ ] Pause between blob commit units, drain active extractor workers before
+  acknowledging `paused`, then resume without losing completed or retryable work.
 - [ ] Preserve `Repository.updateMetadata()` as a synchronous convenience
   wrapper where possible; prove its summary and state semantics remain compatible.
 
@@ -795,6 +848,9 @@ tests leave a usable repository.
   report cancellation with no phase reported as persistently completed.
 - [ ] Test cancellation between each phase, duplicate-heavy input, missing-file
   cleanup, and a no-op analysis; verify relationships and foreign-key integrity.
+- [ ] Define and test pause checkpoints without holding the operation-wide write
+  transaction or weakening rollback semantics; prove the operation resumes with
+  relationships and foreign-key integrity intact.
 - [ ] Preserve `Repository.analyze()` as a synchronous convenience wrapper where
   possible.
 
@@ -813,6 +869,9 @@ successful, failed, and cancelled outcomes.
   processing before write; prove cancellation leaves the original catalog
   untouched. Once backup/replacement begins, defer cancellation until the write
   and restore policy has completed, then report completed or failed.
+- [ ] Permit pause only before the non-interruptible backup/replacement sequence;
+  resume from that checkpoint without rereading or partially replacing the
+  catalog. Do not pause while the replacement sequence is active.
 - [ ] Keep CLI compatibility wrappers until WP-09.3 has switched to the shared
   operation API.
 
@@ -837,8 +896,9 @@ failure, or cancellation.
   may observe while a write is active.
 
 **Umbrella exit:** all supported SQLite and JSON operation families have
-controlled and legacy synchronous entry points, deterministic progress/cancel
-tests, documented partial-state semantics, and valid storage after termination.
+controlled and legacy synchronous entry points, deterministic progress,
+cancel/pause/resume tests, documented partial-state semantics, and valid storage
+after termination.
 
 #### WP-09.3: Make the CLI a console adapter
 
@@ -919,9 +979,13 @@ semantics.
 - [ ] Run backend operations on worker threads; marshal all GTK state changes
   and progress rendering onto the GTK main loop. Ensure closing a tab/window
   cannot leave callbacks targeting destroyed widgets.
-- [ ] Present queued/running/cancelling/completed/cancelled/failed state, current
-  phase, available progress, and final typed summary in the owning tab/status
-  area. Handle unknown totals without displaying misleading percentages.
+- [ ] Present queued/running/pausing/paused/cancelling/completed/cancelled/failed
+  state, current phase, available progress, and final typed summary in the owning
+  tab/status area. Handle unknown totals without displaying misleading
+  percentages.
+- [ ] Add state-aware Pause, Resume, and Cancel actions. Disable Pause when the
+  operation has no available safe checkpoint; show `pausing` until the backend
+  acknowledges the pause and allow cancellation to wake a paused worker.
 - [ ] Connect Cancel to backend cancellation, keep the UI responsive while
   workers drain, and distinguish backend cancellation from merely discarding a
   stale UI reply.
@@ -933,13 +997,14 @@ semantics.
   On cancellation/failure, display the result and refresh if committed state
   changed.
 - [ ] Add GTK-independent task-manager tests for event ordering, cancellation,
-  serialization, stale-tab handling, and refresh decisions; add opt-in display
-  tests for Tools wiring and main-loop updates.
+  pause/resume, serialization, stale-tab handling, and refresh decisions; add
+  opt-in display tests for Tools wiring and main-loop updates.
 
 **Exit:** GTK actions construct the same requests as CLI; GTK remains responsive;
 all widget updates run on the main loop; Cancel reaches backend work; conflicting
-writes cannot overlap; successful or partially committed operations refresh the
-correct source and show their terminal result.
+writes cannot overlap; pause/resume is exposed only at backend-acknowledged safe
+checkpoints; successful or partially committed operations refresh the correct
+source and show their terminal result.
 
 #### WP-09.5: Verify CLI/GUI operation parity
 
@@ -953,6 +1018,9 @@ correct source and show their terminal result.
 - [ ] Exercise cancellation before start, during scan, during metadata worker
   batches, and between analysis phases. Verify terminal status, partial state,
   joined workers, closed handles, and continued repository/catalog usability.
+- [ ] Pause and resume each operation at its documented safe checkpoint from
+  both frontends where exposed; verify state/progress continuity, cancellation
+  while paused, lease ownership, joined workers, and unchanged atomicity policy.
 - [ ] Verify progress phase order and monotonic work counts where counts are
   known; verify unknown-total status events remain usable without percentages.
 - [ ] Verify operation errors reach both clients consistently while CLI stream
@@ -974,6 +1042,9 @@ mode isolation for every supported request family.
   loop.
 - Cancellation is observed by backend work rather than merely discarding its
   eventual result.
+- Pause/resume is exposed only for operations with documented safe checkpoints;
+  a paused task holds no active transaction and remains the exclusive writer for
+  its target until resumed or cancelled.
 - Progress, final summaries, failures, and cancellation are consistent across
   clients; storage modes remain explicit.
 
@@ -1126,6 +1197,29 @@ API change.
 **Exit:** a new contributor can trace the actual API/module boundary and tell
 which unfinished baseline work is intentional versus forgotten.
 
+### WP-11.5: Reduce GC allocation churn in hot algorithms
+
+- [ ] Profile representative repeated work in SQLite scan/metadata, JSON
+  filtering, directory projection, and TreeView filter/clear cycles. Record
+  elapsed time, peak process memory, and GC allocation/collection behavior where
+  tooling permits.
+- [ ] Identify allocations inside per-file/per-directory loops, including
+  temporary normalized paths, formatted strings, one-use arrays, duplicate
+  filtered row/tree projections, and unbounded retained results.
+- [ ] Prefer stable source objects/IDs, in-place match/visibility state,
+  per-worker scratch buffers, capacity reservation when counts are known, and
+  bounded caches. Do not share mutable scratch across concurrent workers.
+- [ ] Keep SQLite result construction bounded by requested pages and active
+  workers. For JSON, reuse the parsed source/index rather than copying the full
+  catalog or rebuilding its complete tree for each query.
+- [ ] Re-run output-parity, cancellation, pause/resume, and transaction tests
+  after optimization; compare before/after workload measurements and document
+  any retained allocation tradeoff.
+
+**Exit:** hot paths have a measured allocation/memory baseline; repeated
+operations do not create avoidable full-catalog/tree copies or unbounded caches;
+result parity and storage semantics remain covered by tests.
+
 ## Dependency Order
 
 - **Repository foundation:** WP-00 precedes WP-01/WP-02; WP-03/WP-04/WP-05
@@ -1136,7 +1230,8 @@ which unfinished baseline work is intentional versus forgotten.
   fixes before WP-09.2a changes scan transaction behavior.
 - **Operation contract:** WP-09.1 depends on the existing repository and service
   operations (WP-04/WP-05/WP-06), but its design may proceed while WP-08/WP-10
-  tasks are active. WP-09.2 operation slices depend on WP-09.1.
+  tasks are active. WP-09.1b extends that contract with pause/resume before the
+  WP-09.2 controlled operation slices begin.
 - **Vertical CLI slices:** implement in this order:
   `WP-09.2a -> WP-09.3a -> WP-09.2b -> WP-09.3b -> WP-09.2c -> WP-09.3c ->
   WP-09.2d -> WP-09.3d -> WP-09.2e -> WP-09.3e`.

@@ -50,4 +50,7 @@ the script. Benchmark files should remain outside the Git repository.
 - Measure a 250-row path-filtered page.
 - Measure MediaInfo/archive/torrent detail loading for one selected row.
 - Compare GUI peak memory before and after page loading.
+- Measure repeated JSON filter/apply/clear and directory-tree filter changes,
+  including allocation/GC behavior where tooling permits; compare reuse against
+  rebuilding the filtered projection/tree.
 - Repeat measurements with the production media-library distribution.

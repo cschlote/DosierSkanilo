@@ -102,7 +102,19 @@ Each blob can queue independent jobs:
 - `updateTorrentInfo`
 
 In multi-thread mode, jobs are submitted first and then consumed while progress
-is reported. Ctrl-C is handled to stop long operations safely.
+is reported. These are scanner execution modes, not yet a shared task API for
+frontends. The current SQLite `Repository.scan()`, `updateMetadata()`, and
+`analyze()` methods are synchronous and do not accept progress or cancellation
+control. The legacy JSON CLI path has its own console-oriented progress and
+Ctrl-C handling.
+
+WP-09.1 defines a frontend-neutral request, progress, and cooperative-cancellation
+contract, but controlled executors and the GUI task manager are still planned.
+The planned WP-09.1b extension adds cooperative pause/resume at operation-safe
+checkpoints. A paused operation must not hold an active SQLite transaction or
+statement; it retains the per-target write lease until it resumes or is cancelled
+so another process cannot mutate the same catalog in the interim. The backend
+plan defines the additional operation-specific checkpoint and atomicity work.
 
 Scheduling policy details:
 

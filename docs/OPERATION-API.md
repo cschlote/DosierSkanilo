@@ -5,6 +5,8 @@ long-running scan, metadata, and analysis operations. The public D types are in
 `source/dosierskanilo/operations.d` and are re-exported by `import dosierskanilo`.
 WP-09.1 defines the contract only; it does not make the synchronous repository
 or JSON services cancellable. Controlled executors are added in WP-09.2.
+Pause/resume is not part of the frozen WP-09.1 API; a planned WP-09.1b contract
+extension will define it before operation executors are implemented.
 
 ## Storage-mode and operation matrix
 
@@ -147,6 +149,42 @@ the policies above. Extractor failures that are represented in
 `MetadataSummary.failed` do not by themselves make the whole metadata operation
 `failed`; fatal orchestration/storage errors do.
 
+## Planned pause/resume extension (WP-09.1b)
+
+Pause and resume are a planned extension; the current `OperationControl` exposes
+cancellation only. Before backend executors or GUI controls claim pause support,
+WP-09.1b must extend the public run-control and lifecycle contract and add
+deterministic tests for its races and state transitions.
+
+The extension is expected to provide cooperative pause and resume requests. A
+pause request is not an immediate suspension: the operation acknowledges
+`paused` only at an operation-defined safe checkpoint, after the current
+uninterruptible call or atomic persistence unit has finished and its workers have
+been drained. Resume wakes the operation and continues from the acknowledged
+checkpoint with its phase and progress state intact. Cancellation while paused
+wakes the operation and takes precedence over waiting for resume.
+
+The contract must also tell clients whether pausing is supported/available at
+the current phase, so a GUI does not enable Pause when the next safe checkpoint
+cannot be reached before completion. A pending request may still report
+`pausing` while the operation finishes an uninterruptible unit.
+
+An operation must not wait in the paused state while holding an active SQLite
+transaction or statement, or while partway through the JSON backup/replacement
+sequence. The exclusive per-target write lease remains held while paused, so a
+second process cannot mutate the same repository/catalog before the operation
+resumes or is cancelled. Independent SQLite readers may continue under the
+existing WAL/snapshot rules. Progress must distinguish `pausing` from
+`paused`; clients must not display the operation as paused until the backend has
+acknowledged a safe point.
+
+The WP-09.2 operation slices must define checkpoints individually. In particular,
+SQLite scan and analysis currently promise operation-wide atomic transactions:
+their pause design must not break that guarantee or wait indefinitely inside an
+open transaction. If that requires staging or a revised commit-unit design, it
+must be designed and tested before pause is advertised for those operations.
+JSON pause points must remain outside its non-interruptible replacement sequence.
+
 ## Result and error contract
 
 `OperationResult.state` is terminal. `operation` selects the summary field that
@@ -183,4 +221,5 @@ the direct JSON CLI services do not yet accept `OperationControl`. The request,
 event, validation, result, and cancellation types introduced by WP-09.1 are a
 stable contract for later slices, not an indication that operations can already
 be cancelled. The first executable slice is SQLite scan followed by its CLI
-adapter (WP-09.2a and WP-09.3a).
+adapter (WP-09.2a and WP-09.3a). Pause/resume types and behavior are not yet
+implemented and remain planned in WP-09.1b.
