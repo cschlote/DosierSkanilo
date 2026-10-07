@@ -17,6 +17,8 @@ They represent the functional evolution and are intentionally summarized.
   callbacks during entry listing and deep extraction.
 - Repository metadata scans now load and persist archive passwords, including
   passwords entered through the metadata scan callback.
+- Repository metadata scans can now be scoped to one repository-relative file,
+  enabling consumers to scan a selected archive without rescanning the catalog.
 - Added frontend-neutral scan, metadata, and analysis request, progress,
   cancellation-control, validation, and result types as the first WP-09 API
   contract. Existing operations remain synchronous until subsequent WP-09 slices.

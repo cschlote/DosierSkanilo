@@ -150,6 +150,8 @@ struct MetadataScanOptions
     bool rescan;
     /// Optional frontend callback used when an archive requires a password.
     ArchivePasswordCallback archivePasswordCallback;
+    /// Optional repository-relative path restricting metadata work to one blob.
+    string filePath;
 }
 
 /** Counters returned by a repository metadata update. */

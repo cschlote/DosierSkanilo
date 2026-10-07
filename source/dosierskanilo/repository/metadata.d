@@ -6,6 +6,7 @@ import d2sqlite3;
 import std.array : join;
 import std.path : buildPath;
 import std.parallelism : Task, TaskPool, task;
+import std.string : empty;
 import std.typecons : Nullable;
 
 import dosierskanilo.metadata.mediainfosig : MediaInfoSig;
@@ -53,6 +54,24 @@ private void runMetadataWork(MetadataWorkItem item)
         attempt("torrents", { updateTorrentInfo(item.blob, item.options.rescan); });
 }
 
+private long[] metadataBlobIds(ref Database db, string filePath)
+{
+    long[] blobIds;
+    if (filePath.empty)
+    {
+        foreach (row; db.execute("SELECT id FROM blobs ORDER BY id"))
+            blobIds ~= row.peek!long(0);
+    }
+    else
+    {
+        foreach (row; db.execute("SELECT DISTINCT b.id FROM blobs b "
+            ~ "JOIN file_refs f ON f.blob_id = b.id "
+            ~ "WHERE f.relative_path = ? ORDER BY b.id", filePath))
+            blobIds ~= row.peek!long(0);
+    }
+    return blobIds;
+}
+
 /** Run the selected metadata jobs one blob at a time. */
 MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
     MetadataScanOptions options)
@@ -61,10 +80,8 @@ MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
         return updateRepositoryMetadataParallel(db, rootPath, options);
 
     MetadataSummary summary;
-    auto result = db.execute("SELECT id FROM blobs ORDER BY id");
-    foreach (row; result)
+    foreach (blobId; metadataBlobIds(db, options.filePath))
     {
-        auto blobId = row.peek!long(0);
         auto blob = loadBlob(db, rootPath, blobId);
         if (blob is null)
             continue;
@@ -182,10 +199,9 @@ private MetadataSummary updateRepositoryMetadataParallel(ref Database db,
     if (batchSize == 0)
         batchSize = 1;
 
-    auto result = db.execute("SELECT id FROM blobs ORDER BY id");
-    foreach (row; result)
+    foreach (blobId; metadataBlobIds(db, options.filePath))
     {
-        batchIds ~= row.peek!long(0);
+        batchIds ~= blobId;
         if (batchIds.length >= batchSize)
         {
             processMetadataBatch(db, rootPath, options, batchIds, summary);

@@ -1399,3 +1399,61 @@ unittest
     repository.setArchivePasswordForPath("private.zip", "");
     assert(repository.loadCatalog()[0].archivePassword.length == 0);
 }
+
+@("repository metadata scan can target one archive path")
+unittest
+{
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.process : execute;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "repository-targeted-archive-scan-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    auto firstPayload = buildPath(root, "first.txt");
+    auto secondPayload = buildPath(root, "second.txt");
+    auto firstArchive = buildPath(root, "first.zip");
+    auto secondArchive = buildPath(root, "second.zip");
+    write(firstPayload, "first payload");
+    write(secondPayload, "second payload");
+    assert(execute(["zip", "-q", "-j", firstArchive, firstPayload]).status == 0);
+    assert(execute(["zip", "-q", "-j", secondArchive, secondPayload]).status == 0);
+    scope (exit)
+    {
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+
+    auto repository = Repository.initialize(root);
+    scope (exit)
+        repository.close();
+    repository.scan();
+
+    MetadataScanOptions options;
+    options.scanArchives = true;
+    options.deepArchiveScan = false;
+    options.filePath = "first.zip";
+    auto summary = repository.updateMetadata(options);
+    assert(summary.blobsVisited == 1);
+    assert(summary.archivesUpdated == 1);
+    assert(summary.failed == 0);
+
+    bool foundFirst;
+    bool foundSecond;
+    foreach (blob; repository.loadCatalog())
+    {
+        auto fileName = blob.getFirstFileName;
+        if (fileName == "first.zip")
+        {
+            foundFirst = true;
+            assert(blob.archiveSpecs.length == 1);
+        }
+        else if (fileName == "second.zip")
+        {
+            foundSecond = true;
+            assert(blob.archiveSpecs is null);
+        }
+    }
+    assert(foundFirst && foundSecond);
+}
