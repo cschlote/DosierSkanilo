@@ -9,6 +9,14 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- Added optional per-Blob archive passwords to JSON catalogs and SQLite
+  repositories, with a schema-version-2 migration and filename-based repository
+  updates.
+- Archive inspection now passes supplied passwords to ZIP, RAR, and 7z tools,
+  reports password-required/rejected errors, and supports frontend password
+  callbacks during entry listing and deep extraction.
+- Repository metadata scans now load and persist archive passwords, including
+  passwords entered through the metadata scan callback.
 - Added frontend-neutral scan, metadata, and analysis request, progress,
   cancellation-control, validation, and result types as the first WP-09 API
   contract. Existing operations remain synchronous until subsequent WP-09 slices.

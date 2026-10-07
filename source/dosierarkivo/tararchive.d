@@ -28,14 +28,14 @@ class FileArchiveTar : FileArchive
         super(ArchiveType.tar, filename);
     }
 
-    override string[] getEntries()
+    override string[] getEntries(string password = "")
     {
         auto rc = execute(["tar", "-tf", this.fileName]);
         assert(rc.status == 0, rc.output);
         return rc.output.split("\n").filter!(a => !a.empty).array;
     }
 
-    override bool extractEntry(string filename, string destDir)
+    override bool extractEntry(string filename, string destDir, string password = "")
     {
         auto tarPath = buildPath(getcwd(), this.fileName);
         auto rc = execute(["tar", "-xf", tarPath, "-C", destDir, filename]);

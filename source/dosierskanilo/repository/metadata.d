@@ -46,7 +46,8 @@ private void runMetadataWork(MetadataWorkItem item)
     if (item.doArchives)
         attempt("archives", {
             updateArchives(item.blob, item.options.rescan,
-                item.options.deepArchiveScan);
+                item.options.deepArchiveScan, null, null,
+                item.options.archivePasswordCallback);
         });
     if (item.doTorrents)
         attempt("torrents", { updateTorrentInfo(item.blob, item.options.rescan); });
@@ -132,8 +133,10 @@ MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
             setMetadataStatus(db, blobId, "archives", "pending", "");
             try
             {
-                updateArchives(blob, options.rescan, options.deepArchiveScan);
+                updateArchives(blob, options.rescan, options.deepArchiveScan,
+                    null, null, options.archivePasswordCallback);
                 persistArchives(db, blobId, blob.archiveSpecs);
+                persistArchivePassword(db, blobId, blob.archivePassword);
                 setMetadataStatus(db, blobId, "archives",
                     metadataState(blob.archiveSpecs !is null), "");
                 if (blob.archiveSpecs !is null)
@@ -141,6 +144,7 @@ MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
             }
             catch (Exception ex)
             {
+                persistArchivePassword(db, blobId, blob.archivePassword);
                 setMetadataStatus(db, blobId, "archives", "failed", ex.msg);
                 summary.failed++;
             }
@@ -260,6 +264,9 @@ private void persistMetadataWork(ref Database db, MetadataWorkItem item,
             return;
         if (kind in item.errors)
         {
+            if (kind == "archives")
+                persistArchivePassword(db, item.blobId,
+                    item.blob.archivePassword);
             setMetadataStatus(db, item.blobId, kind, "failed", item.errors[kind]);
             summary.failed++;
             return;
@@ -285,15 +292,19 @@ private void persistMetadataWork(ref Database db, MetadataWorkItem item,
         item.blob.mediaInfoSig !is null && !item.blob.mediaInfoSig.empty,
         { persistMediaInfo(db, item.blobId, item.blob.mediaInfoSig); });
     finish("archives", item.doArchives, item.blob.archiveSpecs !is null,
-        { persistArchives(db, item.blobId, item.blob.archiveSpecs); });
+        {
+            persistArchives(db, item.blobId, item.blob.archiveSpecs);
+            persistArchivePassword(db, item.blobId, item.blob.archivePassword);
+        });
     finish("torrents", item.doTorrents, item.blob.torrentInfo !is null,
         { persistTorrentInfo(db, item.blobId, item.blob.torrentInfo); });
 }
 
 private NamedBinaryBlob loadBlob(ref Database db, string rootPath, long blobId)
 {
-    auto blobResult = db.execute("SELECT file_size, file_type FROM blobs "
-        ~ "WHERE id = ?", blobId);
+    auto blobResult = db.execute("SELECT b.file_size, b.file_type, p.password "
+        ~ "FROM blobs b LEFT JOIN archive_passwords p ON p.blob_id = b.id "
+        ~ "WHERE b.id = ?", blobId);
     if (blobResult.empty)
         return null;
 
@@ -302,6 +313,8 @@ private NamedBinaryBlob loadBlob(ref Database db, string rootPath, long blobId)
     blob.fileSize = cast(size_t) blobRow.peek!long(0);
     blob.fileType = blobRow.peek!(Nullable!string)(1).isNull
         ? "" : blobRow.peek!(Nullable!string)(1).get;
+    blob.archivePassword = blobRow.peek!(Nullable!string)(2).isNull
+        ? "" : blobRow.peek!(Nullable!string)(2).get;
 
     auto refs = db.execute("SELECT relative_path, time_last_modified "
         ~ "FROM file_refs WHERE blob_id = ? AND exists_on_disk = 1 "
@@ -409,6 +422,18 @@ private void persistArchives(ref Database db, long blobId, ArchiveSpec[] entries
             checksumBlob(entry.checkSums.sha1sum_b64),
             checksumBlob(entry.checkSums.xxh64sum_b64));
     }
+}
+
+private void persistArchivePassword(ref Database db, long blobId, string password)
+{
+    if (password.length == 0)
+    {
+        db.execute("DELETE FROM archive_passwords WHERE blob_id = ?", blobId);
+        return;
+    }
+    db.execute("INSERT INTO archive_passwords (blob_id, password) VALUES (?, ?) "
+        ~ "ON CONFLICT(blob_id) DO UPDATE SET password = excluded.password",
+        blobId, password);
 }
 
 private void persistTorrentInfo(ref Database db, long blobId, TorrentInfo info)

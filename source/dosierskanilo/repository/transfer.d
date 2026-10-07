@@ -519,6 +519,7 @@ NamedBinaryBlob loadBlobDetailsFromDatabase(ref Database db, string rootPath,
     string sha1sum;
     string xxh64sum;
     string fileType;
+    string archivePassword;
     {
         auto result = db.execute("SELECT file_size, md5, sha1, xxh64, file_type "
             ~ "FROM blobs WHERE id = ?", blobId);
@@ -531,6 +532,10 @@ NamedBinaryBlob loadBlobDetailsFromDatabase(ref Database db, string rootPath,
         xxh64sum = decodeBase64(row.peek!(Nullable!Blob)(3));
         fileType = decodeNullableString(row.peek!(Nullable!string)(4));
     }
+    auto passwordResult = db.execute(
+        "SELECT password FROM archive_passwords WHERE blob_id = ?", blobId);
+    if (!passwordResult.empty)
+        archivePassword = passwordResult.front.peek!string(0);
     auto paths = loadFileSpecs(db, blobId, rootPath, options);
     if (paths.length == 0)
         return null;
@@ -541,6 +546,7 @@ NamedBinaryBlob loadBlobDetailsFromDatabase(ref Database db, string rootPath,
     blob.checkSums.sha1sum_b64 = sha1sum;
     blob.checkSums.xxh64sum_b64 = xxh64sum;
     blob.fileType = fileType;
+    blob.archivePassword = archivePassword;
     blob.fileSpecs = paths;
 
     if (options.includeDetails)
@@ -591,6 +597,10 @@ private void insertBlob(ref Database db, string rootPath, NamedBinaryBlob blob)
         ~ "(file_size, md5, sha1, xxh64, file_type) VALUES (?, ?, ?, ?, ?)",
         cast(long) blob.fileSize, md5, sha1, xxh64, blob.fileType);
     auto id = db.lastInsertRowid;
+
+    if (!blob.archivePassword.empty)
+        db.execute("INSERT INTO archive_passwords (blob_id, password) VALUES (?, ?)",
+            id, blob.archivePassword);
 
     foreach (spec; blob.fileSpecs)
     {

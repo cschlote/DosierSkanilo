@@ -27,17 +27,23 @@ class FileArchiveRar : FileArchive
         super(ArchiveType.rar, filename);
     }
 
-    override string[] getEntries()
+    override string[] getEntries(string password = "")
     {
-        auto rc = execute(["unrar", "lb", this.fileName]);
+        auto passwordOption = password.length > 0 ? "-p" ~ password : "-p-";
+        auto rc = execute(["unrar", "lb", passwordOption, this.fileName]);
+        if (rc.status != 0 && isArchivePasswordFailure(rc.output))
+            throw new ArchivePasswordRequiredException(rc.output);
         assert(rc.status == 0, rc.output);
         return rc.output.split("\n").filter!(a => !a.empty).array;
     }
 
-    override bool extractEntry(string filename, string destDir)
+    override bool extractEntry(string filename, string destDir, string password = "")
     {
         auto tarPath = buildPath(getcwd(), this.fileName);
-        auto rc = execute(["unrar", "x", "-pX", tarPath, filename, destDir]);
+        auto passwordOption = password.length > 0 ? "-p" ~ password : "-p-";
+        auto rc = execute(["unrar", "x", passwordOption, tarPath, filename, destDir]);
+        if (rc.status != 0 && isArchivePasswordFailure(rc.output))
+            throw new ArchivePasswordRequiredException(rc.output);
         assert(rc.status == 0, rc.output);
         return true;
     }

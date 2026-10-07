@@ -3,11 +3,15 @@ module dosierskanilo.repository.repository;
 
 import d2sqlite3;
 
+import std.algorithm.iteration : uniq;
+import std.algorithm.sorting : sort;
+import std.array : array;
 import std.datetime.systime : Clock;
+import std.conv : to;
 import std.exception : enforce;
 import std.file : copy, exists, isDir, mkdirRecurse;
-import std.path : absolutePath, buildNormalizedPath, buildPath, dirName;
-import std.string : empty, toLower;
+import std.path : absolutePath, baseName, buildNormalizedPath, buildPath, dirName, isAbsolute;
+import std.string : empty, replace, startsWith, toLower;
 import std.stdio : File;
 import std.typecons : Nullable;
 
@@ -317,6 +321,55 @@ public:
             blobId, options);
     }
 
+    /** Set or remove the password associated with a blob identity. */
+    void setArchivePasswordForBlob(long blobId, string password)
+    {
+        requireOpen();
+        if (database.execute("SELECT 1 FROM blobs WHERE id = ?", blobId).empty)
+            throw new RepositoryException("Unknown blob ID: " ~ blobId.to!string);
+        if (password.length == 0)
+        {
+            database.execute("DELETE FROM archive_passwords WHERE blob_id = ?", blobId);
+            database.execute("UPDATE repository SET updated_at = ? WHERE id = 1",
+                currentTimestamp());
+            return;
+        }
+        database.execute("INSERT INTO archive_passwords (blob_id, password) "
+            ~ "VALUES (?, ?) ON CONFLICT(blob_id) DO UPDATE SET "
+            ~ "password = excluded.password", blobId, password);
+        database.execute("UPDATE repository SET updated_at = ? WHERE id = 1",
+            currentTimestamp());
+    }
+
+    /** Resolve a repository filename to its blob and set or remove its password. */
+    void setArchivePasswordForPath(string fileName, string password)
+    {
+        requireOpen();
+        auto relativePath = passwordRelativePath(fileName, repositoryPaths.rootPath);
+        long[] matchingBlobIds;
+        long[] basenameBlobIds;
+        foreach (row; database.execute("SELECT blob_id, relative_path FROM file_refs"))
+        {
+            auto rowBlobId = row.peek!long(0);
+            auto rowPath = row.peek!string(1);
+            if (rowPath == relativePath)
+                matchingBlobIds ~= rowBlobId;
+            else if (baseName(relativePath) == relativePath
+                && baseName(rowPath) == relativePath)
+                basenameBlobIds ~= rowBlobId;
+        }
+        auto matches = matchingBlobIds.length > 0
+            ? matchingBlobIds : basenameBlobIds;
+        matches.sort;
+        matches = matches.uniq.array;
+        if (matches.length == 0)
+            throw new RepositoryException("No repository file matches: " ~ fileName);
+        if (matches.length > 1)
+            throw new RepositoryException("Filename is ambiguous in this repository: "
+                ~ fileName);
+        setArchivePasswordForBlob(matches[0], password);
+    }
+
     /** Count blobs matching repository-side query filters. */
     size_t countCatalogQuery(RepositoryQueryOptions options)
     {
@@ -433,6 +486,24 @@ public:
             openState = false;
         }
     }
+}
+
+private string passwordRelativePath(string fileName, string rootPath)
+{
+    auto normalized = buildNormalizedPath(fileName).replace('\\', '/');
+    auto normalizedRoot = buildNormalizedPath(rootPath).replace('\\', '/');
+    if (isAbsolute(normalized))
+    {
+        auto prefix = normalizedRoot ~ "/";
+        if (!normalized.startsWith(prefix))
+            throw new RepositoryException("Archive path is outside repository root: "
+                ~ fileName);
+        normalized = normalized[prefix.length .. $];
+    }
+    if (normalized.length == 0 || normalized == ".."
+        || normalized.startsWith("../"))
+        throw new RepositoryException("Invalid repository file path: " ~ fileName);
+    return normalized;
 }
 
 private string canonicalDirectory(string path)
@@ -1035,7 +1106,8 @@ unittest
     auto archive = buildPath(root, "payload.zip");
     auto torrent = buildPath(root, "example.torrent");
     write(payload, "repository archive payload\n");
-    assert(execute(["zip", "-q", "-j", archive, payload]).status == 0);
+    assert(execute(["zip", "-q", "-P", "repository-secret", "-j", archive,
+        payload]).status == 0);
     copy("./test/example.torrent", torrent);
     auto exported = buildPath(root, "export.json");
     scope (exit)
@@ -1050,7 +1122,17 @@ unittest
     options.scanArchives = true;
     options.scanTorrents = true;
     options.deepArchiveScan = true;
+    size_t passwordPrompts;
+    options.archivePasswordCallback = (string archivePath, string reason,
+        out string password) {
+        assert(archivePath == archive);
+        assert(reason.length > 0);
+        ++passwordPrompts;
+        password = "repository-secret";
+        return true;
+    };
     auto summary = repository.updateMetadata(options);
+    assert(passwordPrompts == 1);
     assert(summary.archivesUpdated == 1);
     assert(summary.torrentsUpdated == 1);
     assert(summary.failed == 0);
@@ -1090,7 +1172,10 @@ unittest
     foreach (blob; blobs)
     {
         if (blob.archiveSpecs.length > 0)
+        {
             foundArchive = true;
+            assert(blob.archivePassword == "repository-secret");
+        }
         if (blob.torrentInfo !is null)
             foundTorrent = true;
     }
@@ -1264,4 +1349,53 @@ unittest
     assert(unchanged.filesChanged == 0);
     assert(repository.blobCount == 2,
         "an unchanged scan must not accumulate additional blobs");
+}
+
+@("archive passwords persist by blob identity and survive JSON export")
+unittest
+{
+    import dosierskanilo.model.namedbinaryblob : deserializeDataClassJsonFile;
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "repository-archive-password-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    auto archivePath = buildPath(root, "private.zip");
+    auto exported = buildPath(root, "catalog.json");
+    write(archivePath, "archive placeholder");
+    scope (exit)
+    {
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+
+    auto repository = Repository.initialize(root);
+    scope (exit)
+        repository.close();
+    repository.scan();
+    auto blobs = repository.loadCatalog();
+    assert(blobs.length == 1);
+    auto blobId = repository.loadCatalogQueryPageWithIds(
+        RepositoryQueryOptions()).blobIds[0];
+
+    repository.setArchivePasswordForPath(archivePath, "archive-secret");
+    assert(repository.loadBlobDetails(blobId).archivePassword == "archive-secret");
+
+    repository.exportJson(exported);
+    auto roundTrip = deserializeDataClassJsonFile(exported);
+    assert(roundTrip.length == 1);
+    assert(roundTrip[0].archivePassword == "archive-secret");
+
+    JsonImportOptions importOptions;
+    importOptions.force = true;
+    importOptions.backupExisting = false;
+    repository.importJson(exported, importOptions);
+    auto imported = repository.loadCatalog();
+    assert(imported.length == 1);
+    assert(imported[0].archivePassword == "archive-secret");
+
+    repository.setArchivePasswordForPath("private.zip", "");
+    assert(repository.loadCatalog()[0].archivePassword.length == 0);
 }

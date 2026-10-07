@@ -173,31 +173,54 @@ void migrate(ref Database db, string now)
     if (!result.empty)
         schemaVersion = cast(ulong) result.front.peek!long(0);
 
-    if (schemaVersion == currentRepositorySchemaVersion)
-        return;
     if (schemaVersion > currentRepositorySchemaVersion)
         throw new RepositoryException("Repository schema is newer than this "
             ~ "application: " ~ to!string(schemaVersion));
-    if (schemaVersion != 0)
-        throw new RepositoryException("Unsupported repository schema version: "
-            ~ to!string(schemaVersion));
 
-    try
-    {
-        db.begin();
-        db.run(initialSchema);
-        db.execute("INSERT INTO schema_migrations (version, applied_at) "
-            ~ "VALUES (?, ?)", cast(long) currentRepositorySchemaVersion, now);
-        db.commit();
-    }
-    catch (Exception ex)
+    if (schemaVersion == 0)
     {
         try
-            db.rollback();
-        catch (Exception)
         {
+            db.begin();
+            db.run(initialSchema);
+            db.execute("INSERT INTO schema_migrations (version, applied_at) "
+                ~ "VALUES (1, ?)", now);
+            db.commit();
+            schemaVersion = 1;
         }
-        throw ex;
+        catch (Exception ex)
+        {
+            try
+                db.rollback();
+            catch (Exception)
+            {
+            }
+            throw ex;
+        }
+    }
+
+    if (schemaVersion == 1)
+    {
+        try
+        {
+            db.begin();
+            db.execute("CREATE TABLE archive_passwords ("
+                ~ "blob_id INTEGER PRIMARY KEY REFERENCES blobs(id) ON DELETE CASCADE, "
+                ~ "password TEXT NOT NULL)");
+            db.execute("INSERT INTO schema_migrations (version, applied_at) "
+                ~ "VALUES (2, ?)", now);
+            db.execute("UPDATE repository SET schema_version = 2 WHERE id = 1");
+            db.commit();
+        }
+        catch (Exception ex)
+        {
+            try
+                db.rollback();
+            catch (Exception)
+            {
+            }
+            throw ex;
+        }
     }
 }
 
@@ -210,7 +233,8 @@ unittest
     migrate(db, "2026-09-17T00:00:00");
 
     assert(db.execute("PRAGMA foreign_keys").oneValue!long == 1);
-    assert(db.execute("SELECT version FROM schema_migrations")
+    assert(db.execute("SELECT version FROM schema_migrations "
+        ~ "ORDER BY version DESC LIMIT 1")
         .oneValue!long == currentRepositorySchemaVersion);
 
     bool[string] expectedTables = [
@@ -226,6 +250,7 @@ unittest
         "media_audio_streams": true,
         "media_text_streams": true,
         "archive_entries": true,
+        "archive_passwords": true,
         "torrent_info": true,
         "torrent_files": true
     ];
@@ -238,6 +263,28 @@ unittest
         expectedTables.remove(tableName);
     }
     assert(expectedTables.length == 0, "Missing repository schema tables.");
+}
+
+@("schema migration upgrades version 1 with the archive password relation")
+unittest
+{
+    auto db = Database(":memory:");
+    db.execute("PRAGMA foreign_keys = ON");
+    db.execute("CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, "
+        ~ "applied_at TEXT NOT NULL)");
+    db.execute("CREATE TABLE blobs (id INTEGER PRIMARY KEY)");
+    db.execute("CREATE TABLE repository (id INTEGER PRIMARY KEY, "
+        ~ "schema_version INTEGER NOT NULL)");
+    db.execute("INSERT INTO repository (id, schema_version) VALUES (1, 1)");
+    db.execute("INSERT INTO schema_migrations (version, applied_at) "
+        ~ "VALUES (1, ?)", "2026-01-01T00:00:00");
+
+    migrate(db, "2026-01-02T00:00:00");
+    assert(db.execute("SELECT version FROM schema_migrations "
+        ~ "ORDER BY version DESC LIMIT 1").oneValue!long == 2);
+    assert(db.execute("SELECT schema_version FROM repository WHERE id = 1")
+        .oneValue!long == 2);
+    assert(!db.execute("PRAGMA foreign_key_list(archive_passwords)").empty);
 }
 
 @("schema migration rejects newer database versions")

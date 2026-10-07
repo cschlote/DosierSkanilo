@@ -114,7 +114,7 @@ mixin template payloadHelpers()
 	Task!(updateDigests, NamedBinaryBlob, shared(bool)*, ProgressCallBack*)* task_hashme; ///< Pointer to hashing job
 	Task!(updateFileType, NamedBinaryBlob)* task_filetype; /// Query filetype with 'file' utility
 	Task!(updateMediaInfo, NamedBinaryBlob, bool)* task_mediasig; ///< Pointer to mediasig job
-	Task!(updateArchives, NamedBinaryBlob, bool, bool, shared(bool)*, ProgressCallBack*)* task_archiveScan; ///< Pointer to archive scan job
+	Task!(updateArchives, NamedBinaryBlob, bool, bool, shared(bool)*, ProgressCallBack*, ArchivePasswordCallback)* task_archiveScan; ///< Pointer to archive scan job
 	Task!(updateTorrentInfo, NamedBinaryBlob)* task_torrentscan; ///< Pointer to torrent scan job
 }
 
@@ -156,6 +156,7 @@ class NamedBinaryBlob
 		string fileType; /// Output of 'file' CLI tool.
 		MediaInfoSig mediaInfoSig; ///< Parsed media info signature
 		ArchiveSpec[] archiveSpecs; /// Contents of an archive
+		string archivePassword; /// Optional password used to inspect this archive
 		TorrentInfo torrentInfo; /// Extracted torrent information
 	}
 
@@ -195,6 +196,7 @@ class NamedBinaryBlob
 		mediaInfo = null; // More humand readable format
 		mediaInfoSig = null; // MediaInfo as JSON fields
 		archiveSpecs = null; // Contents of an archive
+		archivePassword = ""; // Optional archive password
 		torrentInfo = null; // Extracted torrent information
 	}
 
@@ -293,6 +295,7 @@ class NamedBinaryBlob
 		timeLastModified = other.timeLastModified;
 		checkSums = other.checkSums;
 		mediaInfoSig = other.mediaInfoSig;
+		archivePassword = other.archivePassword;
 	}
 
 	/* ------------------------------------------------------------------- */
@@ -577,6 +580,15 @@ unittest
 	auto hashBlob2 = new NamedBinaryBlob("file2", 1234, SysTime(2_345_678), CheckSums("a", "b", "c"));
 	assert(hashBlob1 == hashBlob2, "Blob equality mismatch");
 	assert(hashBlob1.toHash == hashBlob2.toHash, "Blob hash mismatch");
+
+	auto passwordBlob = new NamedBinaryBlob("archive.zip", 1234,
+		SysTime(1_234_567));
+	passwordBlob.archivePassword = "correct horse battery staple";
+	auto passwordCopy = new NamedBinaryBlob(passwordBlob);
+	assert(passwordCopy.archivePassword == passwordBlob.archivePassword);
+	auto passwordJson = toJSONString(passwordBlob);
+	auto passwordRoundTrip = fromJSONString!NamedBinaryBlob(passwordJson);
+	assert(passwordRoundTrip.archivePassword == passwordBlob.archivePassword);
 
 	auto mis12 = new NamedBinaryBlob(["file2", "file8", "file1"], 1234, SysTime(1_234_567));
 	assert(mis12.getFirstFileName == "file1");
@@ -1372,7 +1384,8 @@ void updateArchives(NamedBinaryBlob obj,
 	bool rescan = false,
 	bool deep = true,
 	shared(bool)* gotCtrlC = null,
-	ProgressCallBack* progressCallBack = null)
+	ProgressCallBack* progressCallBack = null,
+	ArchivePasswordCallback passwordCallback = null)
 {
 	string getTmpDirPrefix() const
 	{
@@ -1415,7 +1428,25 @@ void updateArchives(NamedBinaryBlob obj,
 					logFLineVerbose("  with size %d", obj.fileSize);
 					logFLineVerbose("  with 'file' type '%s'", obj.fileType);
 
-					auto arcfiles = archiveObj.getEntries();
+					string password = obj.archivePassword;
+					string[] arcfiles;
+					bool passwordPrompted;
+					while (true)
+					{
+						try
+						{
+							arcfiles = archiveObj.getEntries(password);
+							break;
+						}
+						catch (ArchivePasswordRequiredException ex)
+						{
+							requestPassword(ex.msg, spec.fileName,
+								passwordCallback, password);
+							passwordPrompted = true;
+						}
+					}
+					if (passwordPrompted)
+						obj.archivePassword = password;
 					logFLine("  with %d entries", arcfiles.length);
 					if (progressCallBack !is null)
 						progressCallBack.fp(0, arcfiles.length);
@@ -1427,7 +1458,7 @@ void updateArchives(NamedBinaryBlob obj,
 						logFLineVerbose("  with archive file '%s'", arcfile);
 
 						mkdirRecurse(getTmpDirPrefix);
-						scope (success)
+						scope (exit)
 							if (getTmpDirPrefix.exists)
 								rmdirRecurse(getTmpDirPrefix);
 
@@ -1442,7 +1473,25 @@ void updateArchives(NamedBinaryBlob obj,
 
 							auto destFile = buildPath(getTmpDirPrefix(), arcfile);
 
-							auto exOk = archiveObj.extractEntry(arcfile, getTmpDirPrefix());
+							bool exOk;
+							bool extractionPasswordPrompted;
+							while (true)
+							{
+								try
+								{
+									exOk = archiveObj.extractEntry(arcfile,
+										getTmpDirPrefix(), password);
+									break;
+								}
+								catch (ArchivePasswordRequiredException ex)
+								{
+									requestPassword(ex.msg, spec.fileName,
+										passwordCallback, password);
+									extractionPasswordPrompted = true;
+								}
+							}
+							if (extractionPasswordPrompted)
+								obj.archivePassword = password;
 							enforce(exOk, "Failed to extract archive entry '%s' from archive '%s'".format(arcfile, spec
 									.fileName));
 							enforce(destFile.exists, destFile);
@@ -1477,6 +1526,19 @@ void updateArchives(NamedBinaryBlob obj,
 			}
 		}
 	}
+}
+
+private void requestPassword(string reason, string archivePath,
+	ArchivePasswordCallback callback, ref string password)
+{
+	if (callback is null)
+		throw new ArchivePasswordRequiredException(
+			"Archive password is required for '" ~ archivePath ~ "': " ~ reason);
+	string suppliedPassword;
+	if (!callback(archivePath, reason, suppliedPassword))
+		throw new ArchivePasswordCancelledException(
+			"Archive password request was cancelled for '" ~ archivePath ~ "'.");
+	password = suppliedPassword;
 }
 
 @("updateArchives")
@@ -1561,6 +1623,68 @@ unittest
 	assert(dco2.archiveSpecs.length >= 11,
 		"Expected all archive entries to be scanned for archives with more than 10 files.\nGot %d entries.".format(
 			dco2.archiveSpecs.length));
+}
+
+@("updateArchives requests and retains encrypted ZIP passwords")
+unittest
+{
+	import std.file : exists, getSize, mkdirRecurse, rmdirRecurse, tempDir, write;
+	import std.path : buildPath;
+	import std.process : execute, Config;
+	import std.uuid : randomUUID;
+	import dosierarkivo.archive : ArchivePasswordCallback;
+
+	auto root = buildPath(tempDir(), "dosierskanilo-encrypted-archive-"
+		~ randomUUID().toString());
+	mkdirRecurse(root);
+	scope (exit)
+	{
+		if (exists(root))
+			rmdirRecurse(root);
+	}
+
+	write(buildPath(root, "payload.txt"), "encrypted archive payload\n");
+	auto archivePath = buildPath(root, "private.zip");
+	auto create = execute(["zip", "-q", "-P", "archive-secret", "private.zip",
+		"payload.txt"], null, Config.none, size_t.max, root);
+	assert(create.status == 0, create.output);
+
+	auto blob = new NamedBinaryBlob(archivePath, archivePath.getSize,
+		SysTime(1_234_567));
+	size_t prompts;
+	ArchivePasswordCallback callback = (string requestedPath, string reason,
+		out string password) {
+		assert(requestedPath == archivePath);
+		assert(reason.length > 0);
+		++prompts;
+		password = "archive-secret";
+		return true;
+	};
+	updateArchives(blob, true, true, null, null, callback);
+	assert(prompts == 1);
+	assert(blob.archivePassword == "archive-secret");
+	assert(blob.archiveSpecs.length == 1);
+	assert(blob.archiveSpecs[0].fileName == "payload.txt");
+
+	import std.exception : assertThrown;
+	auto rejectedBlob = new NamedBinaryBlob(archivePath, archivePath.getSize,
+		SysTime(1_234_567));
+	size_t rejectedPrompts;
+	ArchivePasswordCallback rejectWrongPassword = (string requestedPath,
+		string reason, out string password) {
+		++rejectedPrompts;
+		if (rejectedPrompts == 1)
+		{
+			password = "wrong-password";
+			return true;
+		}
+		return false;
+	};
+	assertThrown!ArchivePasswordCancelledException(updateArchives(rejectedBlob,
+		true, true, null, null, rejectWrongPassword));
+	assert(rejectedPrompts == 2);
+	assert(rejectedBlob.archivePassword.length == 0,
+		"a cancelled wrong-password attempt must not be persisted");
 }
 
 /** Get torrent info for file, if missing

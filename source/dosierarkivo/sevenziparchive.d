@@ -26,14 +26,15 @@ class FileArchive7z : FileArchive
         super(ArchiveType._7z, filename);
     }
 
-    override string[] getEntries()
+    override string[] getEntries(string password = "")
     {
-        auto rc0 = execute(["7z", "l", "-p", "-ba", this.fileName]);
-        if (rc0.status == 2)
-            return null;
-
-        auto rc = execute(["7z", "l", "-ba", this.fileName]);
-        assert(rc.status == 0, rc.output);
+        auto passwordOption = password.length > 0
+            ? "-p" ~ password : "-p__dosierskanilo_no_password__";
+        auto rc = execute(["7z", "l", passwordOption, "-ba", this.fileName]);
+        if (rc.status != 0 && isArchivePasswordFailure(rc.output))
+            throw new ArchivePasswordRequiredException(rc.output);
+        if (rc.status != 0)
+            return [];
 
         string[] entries;
         auto lines = rc.output.splitLines;
@@ -55,10 +56,15 @@ class FileArchive7z : FileArchive
         return entries;
     }
 
-    override bool extractEntry(string filename, string destDir)
+    override bool extractEntry(string filename, string destDir, string password = "")
     {
         auto tarPath = buildPath(getcwd(), this.fileName);
-        auto rc = execute(["7z", "x", tarPath, filename, "-o" ~ destDir]);
+        auto passwordOption = password.length > 0
+            ? "-p" ~ password : "-p__dosierskanilo_no_password__";
+        auto rc = execute(["7z", "x", passwordOption, tarPath, filename,
+            "-o" ~ destDir]);
+        if (rc.status != 0 && isArchivePasswordFailure(rc.output))
+            throw new ArchivePasswordRequiredException(rc.output);
         assert(rc.status == 0, rc.output);
         return true;
     }

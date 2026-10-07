@@ -68,7 +68,7 @@ class FileArchiveZip : FileArchive
         super(ArchiveType.zip, filename);
     }
 
-    override string[] getEntries()
+    override string[] getEntries(string password = "")
     {
         auto rcMachineReadable = execute(["unzip", "-Z1", this.fileName]);
         if (rcMachineReadable.status == 0)
@@ -79,6 +79,8 @@ class FileArchiveZip : FileArchive
                 .filter!(line => !line.empty)
                 .array;
         }
+        if (isArchivePasswordFailure(rcMachineReadable.output))
+            throw new ArchivePasswordRequiredException(rcMachineReadable.output);
 
         stderr.writeln("WARNING: unzip -Z1 failed for '", this.fileName,
             "'. Falling back to parsing unzip -l output.");
@@ -86,6 +88,8 @@ class FileArchiveZip : FileArchive
         auto rcLongList = execute(["unzip", "-l", this.fileName]);
         if (rcLongList.status != 0)
         {
+            if (isArchivePasswordFailure(rcLongList.output))
+                throw new ArchivePasswordRequiredException(rcLongList.output);
             stderr.writeln("WARNING: unzip -l failed for '", this.fileName,
                 "'. Skipping archive entry scan.");
             return [];
@@ -100,10 +104,12 @@ class FileArchiveZip : FileArchive
         return entries;
     }
 
-    override bool extractEntry(string filename, string destDir)
+    override bool extractEntry(string filename, string destDir, string password = "")
     {
         auto zipPath = buildPath(getcwd(), this.fileName);
-        auto rc = execute(["unzip", "-d", destDir, zipPath, filename]);
+        auto rc = execute(["unzip", "-P", password, "-d", destDir, zipPath, filename]);
+        if (rc.status != 0 && isArchivePasswordFailure(rc.output))
+            throw new ArchivePasswordRequiredException(rc.output);
         assert(rc.status == 0, rc.output);
         return true;
     }

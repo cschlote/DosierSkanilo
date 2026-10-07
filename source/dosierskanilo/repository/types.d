@@ -4,6 +4,7 @@ module dosierskanilo.repository.types;
 import std.path : buildPath;
 
 import dosierskanilo.model.namedbinaryblob : NamedBinaryBlob;
+import dosierarkivo.archive : ArchivePasswordCallback;
 
 /** Name of the repository metadata directory. */
 enum repositoryDirectoryName = ".dosierskanilo";
@@ -12,7 +13,7 @@ enum repositoryDirectoryName = ".dosierskanilo";
 enum repositoryDatabaseFileName = "catalog.sqlite3";
 
 /** Current database schema version. */
-enum ulong currentRepositorySchemaVersion = 1;
+enum ulong currentRepositorySchemaVersion = 2;
 
 /** Paths belonging to one repository root. */
 struct RepositoryPaths
@@ -147,6 +148,8 @@ struct MetadataScanOptions
     bool scanTorrents;
     /// Force refresh of metadata that is already present.
     bool rescan;
+    /// Optional frontend callback used when an archive requires a password.
+    ArchivePasswordCallback archivePasswordCallback;
 }
 
 /** Counters returned by a repository metadata update. */

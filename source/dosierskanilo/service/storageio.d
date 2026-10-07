@@ -151,11 +151,13 @@ unittest
  * Returns:
  *   a new file name in the format "basename-YYYY-MM-DDTHH-MM-SS.extension".
  */
-private string getBackupFileName(string originalFile, string extension, string nowString = Clock
-        .currTime.toISOExtString())
+private string getBackupFileName(string originalFile, string extension,
+    string nowString = Clock.currTime.toISOExtString(), string backupDirectory = "")
 {
     auto basename = originalFile.baseName(extension);
-    return basename ~ "-" ~ nowString.replace(":", "-") ~ extension;
+    auto backupName = basename ~ "-" ~ nowString.replace(":", "-") ~ extension;
+    return backupDirectory.length > 0 ? buildPath(backupDirectory, backupName)
+        : backupName;
 }
 
 /** Make a backup of the original file if it exists.
@@ -303,18 +305,21 @@ unittest
  *   dynObjectWrapper = source wrapper object.
  *   jsonFileExtension = file extension for backup files (default: ".json").
  *   nowString = optional timestamp string to use in backup file names (default: current time in ISO format).
+ *   backupDirectory = optional directory for the backup file; empty preserves the legacy current-directory location.
  * Returns:
  *   `true` on success, `false` on failure. On failure, the original file is left unchanged if possible.
  */
 bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlobCatalog dynObjectWrapper,
     string jsonFileExtension = ".json",
-    string nowString = Clock.currTime.toISOExtString())
+    string nowString = Clock.currTime.toISOExtString(),
+    string backupDirectory = "")
 {
     string newname = null;
     bool mustCopy = false;
     if (jsonFile.exists)
     {
-        newname = getBackupFileName(jsonFile, jsonFileExtension, nowString);
+        newname = getBackupFileName(jsonFile, jsonFileExtension, nowString,
+            backupDirectory);
         logFLine("Backed up existing file '%s' to '%s'.", jsonFile, newname);
         auto rc = makeBackupFile(newname, jsonFile, mustCopy);
         if (!rc)
@@ -343,10 +348,12 @@ bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlobCatalog dynObjectW
  */
 bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlob[] dynObjectArray,
     string jsonFileExtension = ".json",
-    string nowString = Clock.currTime.toISOExtString())
+    string nowString = Clock.currTime.toISOExtString(),
+    string backupDirectory = "")
 {
     NamedBinaryBlobCatalog wrapper = NamedBinaryBlobCatalog(DATA_CLASS_VERSION3, dynObjectArray);
-    return writeStorageJsonFile(jsonFile, wrapper, jsonFileExtension, nowString);
+    return writeStorageJsonFile(jsonFile, wrapper, jsonFileExtension, nowString,
+        backupDirectory);
 }
 
 @("writeStorageJsonFile")

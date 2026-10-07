@@ -6,6 +6,39 @@
  */
 module dosierarkivo.archive;
 
+import std.string : toLower;
+import std.algorithm.searching : canFind;
+
+/** Raised when an archive operation needs a password or rejects the supplied one. */
+class ArchivePasswordRequiredException : Exception
+{
+    this(string message)
+    {
+        super(message);
+    }
+}
+
+/** Raised when an interactive password request is cancelled by the caller. */
+class ArchivePasswordCancelledException : Exception
+{
+    this(string message)
+    {
+        super(message);
+    }
+}
+
+/** Callback that requests a password; return false when the request is cancelled. */
+alias ArchivePasswordCallback = bool delegate(string archivePath, string reason,
+    out string password);
+
+/** Whether external archive-tool output indicates a missing or rejected password. */
+bool isArchivePasswordFailure(string output)
+{
+    auto message = output.toLower;
+    return message.canFind("password") || message.canFind("encrypted")
+        || message.canFind("passphrase");
+}
+
 /** Types of archives we support. */
 enum ArchiveType
 {
@@ -62,7 +95,7 @@ abstract class FileArchive
      * Returns:
      *   `null` or the list of entries in the archive.
      */
-    string[] getEntries()
+    string[] getEntries(string password = "")
     {
         return null;
     }
@@ -78,7 +111,7 @@ abstract class FileArchive
      * Returns:
      *   true on success, false on failure
      */
-    bool extractEntry(string filename, string destDir)
+    bool extractEntry(string filename, string destDir, string password = "")
     {
         return false;
     }
