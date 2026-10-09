@@ -232,13 +232,15 @@ source/dosierskanilo/repository/
 - [x] Prove identical JSON/SQLite DTOs, filter/sort ordering, and logical
   `next`/`previous` behavior with cross-source integration tests.
 - [x] Keep `d2sqlite3` types out of public signatures.
-- [x] Assign an independent initial API version, proposed as `1.0.0`.
+- [x] Define SemVer for the public API using this repository's DUB package
+  release version; keep database schema versions independent.
 
 ### WP-01 Deliverables
 
 - Public API module with documented types.
 - API-level unit tests that do not require SQLite.
-- Decision record for API SemVer versus application version `26.x.y`.
+- Decision record for the shared API/DUB package SemVer version and independent
+  database schema version.
 
 ### WP-01 Exit Criteria
 

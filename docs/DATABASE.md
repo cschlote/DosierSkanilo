@@ -224,22 +224,24 @@ The implementation can use `d2sqlite3`, already used by
 `eterna-kosmo-server` as `d2sqlite3 ~>1.0.0`, but this dependency should remain
 behind the repository module.
 
-## API Versioning
+## API and Package Versioning
 
-The application currently uses versions such as `26.9.3`. Strictly coupling
-the public database API to every application release would make API support
-hard to reason about. The recommended initial policy is:
+The public D library API follows Semantic Versioning. Because this repository
+ships that API as a DUB package, the repository release tag is also the
+package/API version and uses the `vX.Y.Z` form. The CLI shipped from this
+repository shares that release tag; it does not have a separate version from
+the DUB package.
 
-- Keep the application version at the existing `26.x.y` scheme.
-- Give the public database API its own SemVer identity, initially `1.0.0`.
-- Document the supported API version in the library and generated API docs.
-- Bump the API major version only for source or behavior incompatibilities.
-- Keep database schema migration versioning separate from both versions.
+Existing releases such as `v26.10.2` are valid SemVer versions and remain
+historical releases. Keep the current major version rather than rewriting
+published tags. From the next release onward, version components describe API
+compatibility—not a calendar year or month:
 
-If project policy requires one shared version, `26.9.3` can still be a valid
-SemVer version. In that case, the API compatibility promise must be explicit:
-application patch releases cannot break the public DB API, and a breaking DB
-API change must increment the major component.
+- Increment the major version for incompatible public API changes.
+- Increment the minor version for backward-compatible API additions.
+- Increment the patch version for backward-compatible fixes.
+- Keep database schema/migration versioning separate from the package/API
+  version.
 
 ## Initial Implementation Phases
 
