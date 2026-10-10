@@ -92,6 +92,11 @@ reviewed manifest, a single-flight test seed, JSON/SQLite parity coverage, and
 CLI integration checks. Existing checked-in audio, image, video, and torrent
 fixtures remain as compatibility inputs; the generated corpus supplements them.
 
+WP-13.1 freezes content/reference identity, source-scoped locators, archive-entry
+occurrence identity, missing-source semantics, torrent compatibility, and
+snapshot mutability in [CATALOG-DOMAIN.md](CATALOG-DOMAIN.md). The public
+polymorphic backend API has not yet been implemented.
+
 The backend library tests and GUI tests/build are separate checks. GUI-specific
 status, test commands, and remaining UI integration tests are maintained in
 the GUI plan at `https://gitlab.vahanus.net/dlang/dosierskanilo-gui/blob/main/docs/GUI-REDESIGN.md`.
@@ -1052,8 +1057,8 @@ source and show their terminal result.
 GTK tests cover equivalent results, progress, cancellation, errors, refresh, and
 mode isolation for every supported request family.
 
-Parity evidence and the remaining WP-09.5 process/display checks are summarized in
-[`OPERATION-PARITY.md`](OPERATION-PARITY.md).
+Parity evidence and the remaining WP-09.5 process/display checks are summarized
+in [`OPERATION-PARITY.md`](OPERATION-PARITY.md).
 
 ### WP-09 Exit Criteria
 
@@ -1349,7 +1354,7 @@ tracked until a deliberate history-cleanup decision is made.
 
 ## WP-13: Storage-Neutral Catalog API and First-Class Archive Content
 
-Status: `[ ]` (WP-12 is complete; ready to start.)
+Status: `[-]` (WP-13.1 decisions frozen; WP-13.2 contract is next.)
 
 The product goal is to index one directory tree, enrich its binary content with
 metadata, identify duplicate payloads, and expose filtered logical subsets to
@@ -1382,9 +1387,11 @@ Current implementation facts and limitations:
 1. **Content and reference are distinct.** One content blob represents one
    payload identity; one or more references say where that payload is addressed.
    A physical file path and an archive member are different reference kinds.
-2. **Identity is stable and source-neutral.** Blob IDs and reference IDs are
-   opaque values. A rename changes a physical reference, not the payload ID;
-   equal complete content digests may merge references into one blob.
+2. **Identity semantics are storage-neutral.** Content IDs and reference IDs
+   are opaque and scoped to one catalog source. A rename changes a physical
+   reference, not the payload ID; equal complete content digests may merge
+   references into one blob. IDs from independent catalog sources are not
+   compared directly.
 3. **A virtual archive path is not a filesystem path.** Use a structured locator
    containing the container reference and entry ID/path. Define how duplicate
    same-name entries and nested archives are disambiguated before serialization
@@ -1398,21 +1405,24 @@ Current implementation facts and limitations:
 
 ### WP-13.1: Freeze domain values and locators
 
-- [ ] Define names and responsibilities for content (`ContentBlob`/current
+- [x] Define names and responsibilities for content (`ContentBlob`/current
   `NamedBinaryBlob`), references, stable IDs, extractor state, and metadata.
-- [ ] Define a discriminated `ContentLocator` for filesystem paths and archive
+- [x] Define a discriminated `ContentLocator` for filesystem paths and archive
   entries, including root-relative vs absolute resolution and path normalization.
-- [ ] Define archive-entry identity when names collide, and a locator chain for
+- [x] Define archive-entry identity when names collide, and a locator chain for
   nested archives. Keep display paths separate from identity.
-- [ ] Define how torrent members relate to archive/filesystem references; record
+- [x] Define how torrent members relate to archive/filesystem references; record
   the current torrent metadata-only behavior as a compatibility constraint.
-- [ ] Decide whether the public domain values are immutable snapshots/value DTOs
+- [x] Decide whether the public domain values are immutable snapshots/value DTOs
   or mutable unit-of-work objects. Do not expose Jsonizer annotations as the
   storage-neutral API contract.
 
+Decisions and examples are frozen in [CATALOG-DOMAIN.md](CATALOG-DOMAIN.md).
+
 **Exit:** API examples cover one physical file, renamed/shared references, a
 duplicate payload, an archive entry, duplicate entry names, and one nested
-archive without using a GTK or SQL type.
+archive without using a GTK or SQL type. **Met:** the design note contains these
+examples and records the compatibility boundaries.
 
 ### WP-13.2: Define the public polymorphic catalog contract
 
@@ -1433,10 +1443,10 @@ JsonCatalogBackend      SqlCatalogBackend
 ```
 
 These names describe responsibilities, not finalized D declarations. WP-13.1
-must first freeze `ContentId`, `ReferenceId`, source locators, query DTOs, and
-commit outcomes. Keep the current `OperationTarget` request distinction explicit;
-the backend factory may select an adapter, but no adapter may reinterpret or
-silently convert a target.
+freezes `ContentId`, `ReferenceId`, and source locators; WP-13.2 must define query
+DTOs and commit outcomes. Keep the current `OperationTarget` request distinction
+explicit. The backend factory may select an adapter, but no adapter may
+reinterpret or silently convert a target.
 
 - [ ] Define a public `CatalogBackend` interface and explicit target/factory for
   JSON and SQL adapters. Keep `d2sqlite3`, SQL statement types, JSON serializer

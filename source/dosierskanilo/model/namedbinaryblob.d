@@ -123,7 +123,7 @@ mixin template payloadHelpers()
  * This JSON/Jsonizer type combines payload properties with `FileSpec[]`
  * filesystem references and optional metadata. It is the current interchange
  * representation; the storage-neutral content/reference model is planned in
- * WP-12. Checksum properties serialize as Base64 strings.
+ * WP-13. Checksum properties serialize as Base64 strings.
  */
 class NamedBinaryBlob
 {

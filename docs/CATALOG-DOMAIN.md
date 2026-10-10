@@ -1,0 +1,176 @@
+# Catalog Domain Values and Locators
+
+Status: WP-13.1 decisions; the public D declarations are introduced in WP-13.2.
+
+This document freezes the concepts needed by a storage-neutral catalog API.
+It distinguishes payload identity from the places where that payload is
+addressed, and keeps physical paths, archive display paths, and storage keys
+from becoming interchangeable strings.
+
+## Domain values
+
+- **`ContentId`** — Opaque identity of one content record in a catalog.
+- **`ContentBlob`** — Content size, complete identity fingerprint when
+  available, and content-level metadata/extractor state.
+- **`ReferenceId`** — Opaque identity of one address of content.
+- **`ContentReference`** — Links one `ReferenceId` and locator to a
+  `ContentId`; carries observed location metadata and availability.
+- **`ContentLocator`** — Discriminated location value used to resolve bytes from
+  a source.
+- **`FilesystemLocator`** — A path relative to the filesystem root bound to the
+  open catalog.
+- **`ArchiveEntryLocator`** — An entry identity within a particular archive
+  reference; it may itself be the container for nested entries.
+- **`ArchiveEntryId`** — Identity of one entry occurrence in one version of one
+  container's archive index.
+- **`TorrentManifestEntry`** — A name and size described by torrent metadata;
+  it is not a filesystem or archive reference.
+
+These are value snapshots. Modifying a returned value is local to the caller and
+does not mutate the catalog. Mutations go through typed backend operations and
+their commit/result contract. The mutable Jsonizer classes (`NamedBinaryBlob`,
+`FileSpec`, `ArchiveSpec`, and `TorrentInfo`) remain compatibility/adapter
+representations; they do not define the new public API.
+
+## Identity rules
+
+- IDs are opaque typed values, not SQL row IDs, array positions, paths, or
+  display strings. Their representations are private to an adapter.
+- IDs are scoped to one open catalog source. Do not compare or persist IDs from
+  independently opened JSON/SQLite catalogs as if they were globally portable.
+- Within a source, an ID remains stable while its record remains present. A
+  committed replacement or duplicate merge may invalidate an ID; the surviving
+  record keeps one ID and operations report committed changes so clients refresh.
+- `ContentId` names content, not a filename. Moving or renaming a reference does
+  not by itself change the content identity. Replacing the bytes at a location
+  links that reference to the new content identity; other references to the old
+  bytes remain attached to the old content.
+- Content equality requires equal size and the complete configured fingerprint.
+  Partial checksums, matching names, timestamps, file type, and archive display
+  paths are not proof of content equality. The current complete fingerprint is
+  MD5 + SHA1 + XXH64; changing that set is a separate compatibility decision.
+- When duplicate content is merged, references are redirected to the canonical
+  surviving content record. IDs of removed duplicate records expire; callers
+  must use the operation result and refresh rather than infer which ID survives.
+- `ReferenceId` identifies a location, not content. An explicit rename can update
+  a reference's locator while retaining its ID. A filesystem scan does not infer
+  rename intent: it reports the old path unavailable and discovers the new path
+  as a reference. Duplicate analysis may subsequently associate it with the same
+  `ContentId`.
+
+IDs are stable only within the catalog-source contract above. JSON v3 has no
+serialized content/reference IDs, so its adapter may assign source-scoped IDs;
+no cross-import or cross-adapter ID equality is promised. Adding portable IDs to
+an interchange format requires an explicit JSON schema decision, not an
+incidental Jsonizer field.
+
+## Locator rules
+
+### Filesystem locations
+
+- A `FilesystemLocator` contains a root-relative path. The opened backend binds
+  that path to its explicit source root (`Repository.rootPath` or the JSON
+  operation's filesystem root); the absolute machine path is not part of the
+  locator identity.
+- Use `/` as the domain separator on every host. Preserve case and Unicode text;
+  locator equality uses that canonical spelling and does not case-fold or
+  Unicode-normalize names. A source adapter must reject two locator spellings
+  that resolve to the same source entry; case-insensitive query filters do not
+  change locator identity.
+- Locators must not contain a root prefix, drive prefix, empty path, or `.`/`..`
+  traversal component. Paths outside the bound root are rejected rather than
+  reinterpreted as a second source.
+- Display names and parent-directory projections are derived from the locator;
+  they are not IDs. Modification time and presence are observations, not identity.
+
+### Archive locations
+
+- An `ArchiveEntryLocator` contains a `containerReferenceId` and an
+  `ArchiveEntryId`. A nested archive entry becomes a container reference in its
+  own right, so nested locations are a chain of typed references, not one
+  flattened path string.
+- Entry names are display/query metadata, not unique identifiers. Duplicate
+  names are distinguished by occurrence within the container's ordered index.
+  The entry identity is scoped to the container content version, archive-indexer
+  version, and occurrence; it therefore remains stable for an unchanged
+  container/index and changes when those inputs change.
+- The locator records which container reference owns the entry. If identical
+  archive bytes occur at two filesystem paths, those are distinct reference
+  chains even though their content IDs may be shared.
+- A rendered path such as
+  `archives/photos.zip!/nested.zip!/readme.txt` is presentation only. It must
+  never be parsed to recover container or entry identity.
+- An extracted member can share a `ContentId` with a physical file or another
+  archive member. Each address remains a separate `ContentReference`.
+
+## Availability and metadata states
+
+Availability belongs to a reference and is distinct from whether metadata was
+requested or extracted successfully:
+
+- `notChecked`: the source has not been tested during this view/operation.
+- `available`: the location can currently be resolved.
+- `unavailable`: the physical file, container, or entry cannot currently be
+  resolved (including a temporarily unavailable mount).
+
+An unavailable reference is retained by default. Removal requires an explicit
+`dropMissing` operation and a committed result. Archive indexing/password
+failures are extractor/index states, not evidence that content is empty or that
+the reference should be deleted. Metadata state is tracked per extractor, with
+at least `notRequested`, `pending`, `completed`, `empty`, and `failed` kept
+distinct where the adapter supports persistence.
+
+## Torrent compatibility
+
+`TorrentManifestEntry` records what a `.torrent` describes: path components
+relative to the torrent root and expected byte length. It does not assert that
+those bytes exist locally, does not create a `ContentId`, and is not linked to a
+filesystem reference by matching its display name. A later explicit matching
+operation may create that relationship. Until then, torrent entries remain
+metadata associated with the `.torrent` content record. The current JSON v3
+writer's reduced torrent fields remain a compatibility constraint; exporting
+additional fields requires an extended JSON version.
+
+## Examples
+
+### Shared content and a renamed file
+
+```text
+Content c-A: size=1200, fingerprint=F
+Reference r-1 -> FilesystemLocator("photos/a.jpg") -> c-A
+Reference r-2 -> FilesystemLocator("backup/a-copy.jpg") -> c-A
+```
+
+An explicit rename to `photos/vacation.jpg` changes the reference locator, not
+the payload identity. If a scanner only observes the old path missing and the
+new path present, it reports two location changes; after checksums establish
+fingerprint `F`, duplicate analysis can attach the new reference to `c-A`.
+
+### Duplicate and nested archive entries
+
+```text
+Reference r-zip -> FilesystemLocator("archives/photos.zip") -> c-zip
+Reference r-entry-4 -> ArchiveEntryLocator(r-zip, e-4) -> c-A
+Reference r-nested -> ArchiveEntryLocator(r-zip, e-9) -> c-nested-zip
+Reference r-readme -> ArchiveEntryLocator(r-nested, e-2) -> c-readme
+```
+
+If the ZIP also contains another entry named `a.jpg`, its occurrence receives a
+different `ArchiveEntryId` even if its displayed member path is identical. If its
+bytes match `c-A`, its reference points to `c-A` while remaining a distinct
+archive location. The nested display path can be rendered as
+`archives/photos.zip!/nested.zip!/readme.txt`, but the structured reference chain
+is authoritative.
+
+## Mapping from the current implementation
+
+- `NamedBinaryBlob` approximates `ContentBlob` but also owns `FileSpec[]` physical
+  references and nested `ArchiveSpec[]`; it is mutable and JSON-versioned.
+- SQLite `blobs.id` approximates `ContentId`; `file_refs.id` approximates
+  `ReferenceId`; `file_refs.relative_path` is the current filesystem locator.
+  These integer IDs remain adapter-private.
+- `RepositoryArchiveEntry` currently exposes a row ID and name/size/time under a
+  blob query. It has no locator chain or duplicate-name identity yet.
+- `ArchiveSpec` is legacy nested metadata and `TorrentFileEntry` is torrent
+  metadata only. WP-13.5 defines how archive members become first-class content
+  references without changing those compatibility representations implicitly.

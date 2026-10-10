@@ -16,7 +16,7 @@ import std.format : format;
  *
  * This type stores entry path, size, modification time, and optional checksums.
  * It does not itself have a content-blob identity or source locator; promotion
- * of archive members into the normal catalog model is planned in WP-12.
+ * of archive members into the normal catalog model is planned in WP-13.5.
  */
 class ArchiveSpec
 {
