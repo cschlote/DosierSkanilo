@@ -4,6 +4,7 @@ __dummy.html
 public/
 /build/bin/
 /build/coverage/
+/build/test-data/
 /dosierskanilo
 dosierskanilo.so
 dosierskanilo.dylib

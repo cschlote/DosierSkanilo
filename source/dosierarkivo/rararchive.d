@@ -55,8 +55,7 @@ class FileArchiveRar : FileArchive
         static void createTestArchive()
         {
             deleteTestArchive;
-            auto cmd = "rar a \"%s\" test/*".format(rarFileName);
-            auto rc = executeShell(cmd);
+            auto rc = execute(["rar", "a", rarFileName] ~ expectedEntries);
             assert(rc.status == 0, rc.output);
         }
 

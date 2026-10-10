@@ -59,7 +59,7 @@ and transport controls, not user-visible SQL pages. JSON can use an in-memory
 index; SQLite should use stable keyset/cursor queries. Both sources must expose
 the same DTOs, filter semantics, sort order, stable IDs, and logical navigation.
 
-## Current Implementation Snapshot (2026-10-09)
+## Current Implementation Snapshot (2026-10-10)
 
 Implemented in the backend:
 
@@ -87,13 +87,18 @@ cancellation, safe pause/resume checkpoints, and operation results. Remaining
 work is focused on broader cancellation/race tests and the full CLI/GTK parity
 matrix; see WP-09.
 
+WP-12 adds a deterministic D-generated filesystem/archive/torrent corpus, a
+reviewed manifest, a single-flight test seed, JSON/SQLite parity coverage, and
+CLI integration checks. The 6.7 MB checked-in audio, image, video, and torrent
+samples were replaced by generated test data.
+
 The backend library tests and GUI tests/build are separate checks. GUI-specific
 status, test commands, and remaining UI integration tests are maintained in
 the GUI plan at `https://gitlab.vahanus.net/dlang/dosierskanilo-gui/blob/main/docs/GUI-REDESIGN.md`.
 
 Last verified on this snapshot:
 
-- Backend: `dub test --config=library --compiler=ldc2` — 112 passed;
+- Backend: `dub test --config=library --compiler=ldc2` — 117 passed;
   `dub build --config=library --compiler=ldc2` passed.
 - GUI: `dub test --compiler=ldc2` — 61 tests; `dub build
   --compiler=ldc2` passed.
@@ -1237,7 +1242,7 @@ result parity and storage semantics remain covered by tests.
 
 ## WP-12: Reproducible Synthetic Test Catalog
 
-Status: `[ ]` (next implementation package; design agreed, no generator code yet).
+Status: `[x]`
 
 Build one deterministic fixture generator in D and use it from both a standalone
 DUB executable configuration and unit-test support. Do not check generated
@@ -1247,20 +1252,19 @@ is compared with an independently reviewed expected manifest.
 
 ### WP-12.1: Define the canonical fixture and manifest
 
-- [ ] Add a versioned expected manifest under `test/fixtures/synthetic/`. It
+- [x] Add a versioned expected manifest under `test/fixtures/synthetic/`. It
   records relative paths, roles, sizes, normalized timestamps, content checksums,
   duplicate groups, and archive-member names/sizes/checksums. It contains no
   machine-specific absolute root or wall-clock generation time.
-- [ ] Include deterministic cases for: identical file contents at multiple
+- [x] Include deterministic cases for: identical file contents at multiple
   paths; same-size/different-content files; empty and text files; UTF-8 and
   nested paths; an empty directory; hidden entries; and a fixed `SOURCE_DATE_EPOCH`.
-- [ ] Include archive cases whose members have stable names and data, including
+- [x] Include archive cases whose members have stable names and data, including
   a member with the same content as a normal file, a unique member, nested paths,
   and a nested archive. Record current expected archive metadata without
   pretending members are already ordinary catalog blobs.
-- [ ] Define how optional formats are reported. ZIP and TAR are baseline cases;
-  RAR/7z writer-dependent cases must be explicitly marked skipped when their
-  writer is unavailable, not silently omitted from the manifest.
+- [x] Define how optional formats are reported. ZIP and TAR are baseline cases;
+  RAR/7z remain explicitly marked skipped outside the deterministic D baseline.
 
 **Exit:** the golden manifest independently describes all logical inputs and
 expected invariants; it does not merely copy output fields calculated by the
@@ -1268,20 +1272,20 @@ same assertion being tested.
 
 ### WP-12.2: Implement the D generator and CLI
 
-- [ ] Put reusable generation code in a D module shared by tests and the
+- [x] Put reusable generation code in a D module shared by tests and the
   generator executable. Add a DUB configuration such as
   `synthetic-testdata`; do not add Python or another runtime dependency.
-- [ ] Default CLI output to `build/test-data/synthetic-catalog`; accept an
+- [x] Default CLI output to `build/test-data/synthetic-catalog`; accept an
   explicit `--output PATH` for debugging/CI. Refuse to overwrite unrelated
   non-empty directories unless an explicit replace option is supplied.
-- [ ] Generate ZIP data with the D standard-library ZIP writer and deterministic
+- [x] Generate ZIP data with the D standard-library ZIP writer and deterministic
   timestamps/compression settings. Generate baseline TAR data in D (USTAR) so
-  archive creation itself does not depend on a host shell tool. Optional RAR/7z
-  generation may use detected writers and must record availability.
-- [ ] Write an actual `manifest.json` beside the generated data. Add an explicit
+  archive creation itself does not depend on a host shell tool. RAR/7z are marked
+  skipped in the golden manifest until deterministic D writer support is added.
+- [x] Write an actual `manifest.json` beside the generated data. Add an explicit
   `--update-manifest PATH` mode for intentionally refreshing the checked-in
   golden; ordinary generation/tests must never update the golden automatically.
-- [ ] Stage output in a temporary sibling directory, validate it against the
+- [x] Stage output in a temporary sibling directory, validate it against the
   expected manifest, then publish it atomically. Keep the manifest independent of
   the absolute destination path.
 
@@ -1299,20 +1303,20 @@ logical files and manifest; generation errors leave no partially published tree.
 The backend test runner uses `silly` and executes unit tests in a parallel
 `TaskPool`; each test must not race fixture construction or mutate shared input.
 
-- [ ] Add a lazy `ensureSyntheticCatalog()` helper backed by a process-wide
+- [x] Add a lazy `ensureSyntheticTestCatalog()` helper backed by a process-wide
   `Mutex`/`Condition` state machine: `uninitialized`, `building`, `ready`, or
   `failed`.
-- [ ] The first caller changes the state to `building`, releases the mutex,
+- [x] The first caller changes the state to `building`, releases the mutex,
   generates and validates the corpus, then publishes `ready` and notifies all
   waiters. Other callers wait in a condition loop and immediately reuse the
   published path. On failure, publish the error and notify all waiters so none
   can block indefinitely.
-- [ ] Do not perform generation in a module/static constructor. The first test
+- [x] Do not perform generation in a module/static constructor. The first test
   that needs synthetic data triggers it explicitly.
-- [ ] Make the shared corpus immutable after publication. Tests that scan,
+- [x] Make the shared corpus immutable after publication. Tests that scan,
   mutate, remove files, create `.dosierskanilo`, or rewrite catalogs must copy the
   relevant tree into a unique per-test working directory.
-- [ ] Use a process-specific test output beneath `build/test-data/` so separate
+- [x] Use a process-specific test output beneath `build/test-data/` so separate
   concurrent `dub test` processes do not share writable repositories. Add that
   generated directory to `.gitignore` and `scripts/clean.sh`.
 
@@ -1322,20 +1326,20 @@ and proves all waiters receive a deterministic failure if generation fails.
 
 ### WP-12.4: Drive backend and archive tests from the corpus
 
-- [ ] Add manifest-validation tests for generator output, file bytes, fixed
+- [x] Add manifest-validation tests for generator output, file bytes, fixed
   timestamps, directory layout, and exact archive entry listings.
-- [ ] Exercise `DosierArkivo` listing, single-entry extraction, deep checksums,
+- [x] Exercise `DosierArkivo` listing, single-entry extraction, deep checksums,
   archive rescan idempotence, invalid archives, and password/optional-format
   cases when the requisite runtime/writer tool exists.
-- [ ] Run the same copied filesystem tree through JSON scan/metadata/analyze and
+- [x] Run the same copied filesystem tree through JSON scan/metadata/analyze and
   SQLite scan/metadata/analyze. Compare normalized summaries, complete checksums,
   duplicate groups, references, and export subsets against manifest expectations.
-- [ ] Add fixtures for unavailable/missing sources and verify analyze preserves
+- [x] Add fixtures for unavailable/missing sources and verify analyze preserves
   records by default, while explicit `drop-missing` removes only the expected
   records.
-- [ ] Add operation cancellation/failure tests using a private copy of the
+- [x] Add operation cancellation/failure tests using a private copy of the
   generated corpus; never let a test modify the shared published fixture.
-- [ ] Extend `scripts/test-cli.sh` or add a focused script that invokes the
+- [x] Extend `scripts/test-cli.sh` or add a focused script that invokes the
   generator and runs both explicit CLI modes against the same corpus.
 
 **Exit:** backend model, JSON, SQLite, archive adapters, and CLI tests consume the
@@ -1344,7 +1348,7 @@ large binary fixture is committed.
 
 ## WP-13: Storage-Neutral Catalog API and First-Class Archive Content
 
-Status: `[ ]` (deferred until the synthetic fixture/manifest package WP-12 is implemented and validates the current baseline).
+Status: `[ ]` (WP-12 is complete; ready to start.)
 
 The product goal is to index one directory tree, enrich its binary content with
 metadata, identify duplicate payloads, and expose filtered logical subsets to

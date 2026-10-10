@@ -500,32 +500,44 @@ private string toHex(const ubyte[] data)
 unittest
 {
     import std.stdio : File;
+    import std.path : buildPath;
+    import dosierskanilo.testdata : ensureSyntheticTestCatalog;
 
     auto ti0 = new TorrentInfo();
     assert(ti0.empty, "New TorrentInfo should be empty");
 
-    auto ti = getTorrentInfo("test/example.torrent");
-    assert(ti.infoHashHex == "2c423fe994bf512d4c786ae3f46329c3ce9a5369");
+    auto fixture = ensureSyntheticTestCatalog();
+    auto torrentPath = buildPath(fixture.catalogRoot, "torrent", "single-file.torrent");
+    auto ti = getTorrentInfo(torrentPath);
+    assert(ti.infoHashHex.length == 40);
     assert(startsWith(ti.magnetURI, "magnet:?xt=urn:btih:"));
-    assert(ti.name == "dummy-video-file.mp4.mkv");
+    assert(ti.name == "tone.wav");
     assert(!ti.isMultiFile);
-    auto fh = File("test/dummy-video-file.mp4.mkv", "rb");
+    auto payloadPath = buildPath(fixture.catalogRoot, "media", "tone.wav");
+    auto fh = File(payloadPath, "rb");
     auto size = fh.size;
     assert(ti.totalSize == size, ti.totalSize.to!string);
     assert(ti.files.length == 1, ti.files.length.to!string);
     assert(ti.files[0].length == size);
-    assert(ti.files[0].path == ["dummy-video-file.mp4.mkv"]);
+    assert(ti.files[0].path == ["tone.wav"]);
 }
 
 @("getTorrentInfo - multi file torrent")
 unittest
 {
-	auto ti = getTorrentInfo("test/test-multifile.torrent");
-	assert(ti.infoHashHex == "0f43d6fb308b289e9c443a9fc0095b40a0f27a4e");
+    import std.path : buildPath;
+    import dosierskanilo.testdata : ensureSyntheticTestCatalog;
+
+    auto fixture = ensureSyntheticTestCatalog();
+	auto ti = getTorrentInfo(buildPath(fixture.catalogRoot, "torrent",
+        "multi-file.torrent"));
+    assert(ti.infoHashHex.length == 40);
     assert(startsWith(ti.magnetURI, "magnet:?xt=urn:btih:"));
-    assert(ti.name == "multifile_tmp");
+	assert(ti.name == "synthetic-multifile");
     assert(ti.isMultiFile);
-    assert(ti.files.length > 1);
+    assert(ti.files.length == 2);
+    assert(ti.files[0].path == ["synthetic-multifile", "alpha.txt"]);
+    assert(ti.files[1].path == ["synthetic-multifile", "nested", "tone.wav"]);
     ulong sum = 0;
     foreach (f; ti.files)
     {

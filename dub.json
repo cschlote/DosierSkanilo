@@ -38,6 +38,12 @@
 		{
 			"name": "library",
 			"targetType": "library"
+		},
+		{
+			"name": "synthetic-testdata",
+			"targetType": "executable",
+			"targetName": "dosierskanilo-testdata",
+			"mainSourceFile": "source/dosierskanilo_testdata.d"
 		}
 	]
 }

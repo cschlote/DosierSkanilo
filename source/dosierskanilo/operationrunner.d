@@ -538,26 +538,41 @@ unittest
 unittest
 {
     import core.atomic : atomicLoad, atomicStore;
-    import std.file : exists, mkdirRecurse, remove, rmdirRecurse, tempDir, write;
+    import std.file : exists, remove, rmdirRecurse, tempDir, write;
     import std.path : buildPath;
     import std.uuid : randomUUID;
+    import dosierskanilo.testdata : copySyntheticCatalogForTest;
 
     auto root = buildPath(tempDir(), "operation-scan-cancel-"
         ~ randomUUID().toString());
-    mkdirRecurse(root);
+    copySyntheticCatalogForTest(root);
     scope (exit)
     {
         if (exists(root))
             rmdirRecurse(root);
     }
-    write(buildPath(root, "original.txt"), "original");
     auto repository = Repository.initialize(root);
     repository.close();
     ScanOperationRequest request;
     request.operationId = 102;
     request.target = OperationTarget.repositoryTarget(root);
+    request.scanOptions.recursive = true;
     auto initial = runOperation(request, new OperationControl());
     assert(initial.state == OperationState.completed);
+    assert(initial.scanSummary.filesAdded == 12);
+
+    OperationControl failureControl = new OperationControl((OperationProgress event) {
+        if (event.phase == OperationPhase.scanning && event.completed > 0)
+            throw new Exception("injected generated-catalog scan failure");
+    });
+    request.operationId = 103;
+    auto failed = runOperation(request, failureControl);
+    assert(failed.state == OperationState.failed);
+    assert(failed.errorCode == OperationErrorCode.callbackFailure);
+    assert(!failed.changesCommitted);
+    repository = Repository.open(root);
+    assert(repository.blobCount == 12);
+    repository.close();
 
     write(buildPath(root, "new.txt"), "new");
     shared bool cancellationSent;
@@ -570,7 +585,7 @@ unittest
             atomicStore(cancellationSent, true);
         }
     });
-    request.operationId = 103;
+    request.operationId = 104;
     auto cancelled = runOperation(request, control);
     assert(cancelled.state == OperationState.cancelled);
     assert(cancelled.errorCode == OperationErrorCode.none);
@@ -580,7 +595,7 @@ unittest
     repository = Repository.open(root);
     scope (exit)
         repository.close();
-    assert(repository.blobCount == 1,
+    assert(repository.blobCount == 12,
         "temporary staged rows must not change the catalog after cancellation");
 }
 
@@ -1029,21 +1044,22 @@ unittest
     assert(deserializeDataClassJsonWrapperFile(catalogPath).dataArray.length == 0);
 }
 
-@("repository and JSON operation requests preserve scan and analysis parity")
+@("JSON operations selectively drop a missing generated source")
 unittest
 {
     import std.algorithm.searching : startsWith;
-    import std.file : DirEntry, SpanMode, dirEntries, exists, getcwd,
-        mkdirRecurse, remove, rmdirRecurse, tempDir, write;
-    import std.format : format;
+    import std.file : DirEntry, SpanMode, dirEntries, exists, getcwd, remove,
+        rmdirRecurse, tempDir;
     import std.path : baseName, buildPath;
     import std.uuid : randomUUID;
-    import dosierskanilo.model.namedbinaryblob : deserializeDataClassJsonWrapperFile;
+    import dosierskanilo.model.namedbinaryblob :
+        deserializeDataClassJsonWrapperFile;
+    import dosierskanilo.testdata : copySyntheticCatalogForTest;
 
     auto token = randomUUID().toString();
-    auto root = buildPath(tempDir(), "operation-mode-parity-" ~ token);
-    mkdirRecurse(root);
-    auto catalogPath = buildPath(tempDir(), "operation-mode-parity-"
+    auto root = buildPath(tempDir(), "operation-json-generated-missing-" ~ token);
+    copySyntheticCatalogForTest(root);
+    auto catalogPath = buildPath(tempDir(), "operation-json-generated-missing-"
         ~ token ~ ".json");
     auto backupPrefix = baseName(catalogPath)[0 .. $ - ".json".length] ~ "-";
     scope (exit)
@@ -1056,20 +1072,105 @@ unittest
         if (exists(root))
             rmdirRecurse(root);
     }
-    write(buildPath(root, "one.txt"), "identical bytes");
-    write(buildPath(root, "two.txt"), "identical bytes");
+
+    ScanOperationRequest scan;
+    scan.operationId = 905;
+    scan.target = OperationTarget.jsonTarget(catalogPath, root);
+    scan.scanOptions.recursive = true;
+    scan.metadataOptions.calculateChecksums = true;
+    auto scanned = runOperation(scan, new OperationControl());
+    assert(scanned.state == OperationState.completed, scanned.error);
+    assert(scanned.scanSummary.filesAdded == 12);
+
+    auto missingPath = buildPath(root, "same-size", "different.txt");
+    remove(missingPath);
+    AnalysisOperationRequest analyze;
+    analyze.operationId = 906;
+    analyze.target = OperationTarget.jsonTarget(catalogPath);
+    auto retained = runOperation(analyze, new OperationControl());
+    assert(retained.state == OperationState.completed, retained.error);
+    assert(retained.analysisSummary.missingFiles == 1);
+    assert(retained.analysisSummary.droppedFiles == 0);
+    bool missingReferenceRetained;
+    foreach (blob; deserializeDataClassJsonWrapperFile(catalogPath).dataArray)
+        foreach (file; blob.fileSpecs)
+            if (file.fileName == missingPath)
+                missingReferenceRetained = true;
+    assert(missingReferenceRetained);
+
+    analyze.operationId = 907;
+    analyze.options.dropMissing = true;
+    auto dropped = runOperation(analyze, new OperationControl());
+    assert(dropped.state == OperationState.completed, dropped.error);
+    assert(dropped.analysisSummary.droppedFiles == 1);
+    bool missingReferenceStillPresent;
+    foreach (blob; deserializeDataClassJsonWrapperFile(catalogPath).dataArray)
+        foreach (file; blob.fileSpecs)
+            if (file.fileName == missingPath)
+                missingReferenceStillPresent = true;
+    assert(!missingReferenceStillPresent);
+}
+
+@("repository and JSON operation requests preserve scan and analysis parity")
+unittest
+{
+    import std.algorithm.sorting : sort;
+    import std.algorithm.searching : startsWith;
+    import std.file : DirEntry, SpanMode, dirEntries, exists, getcwd,
+        remove, rmdirRecurse, tempDir;
+    import std.format : format;
+    import std.path : baseName, buildNormalizedPath, buildPath, dirSeparator;
+    import std.uuid : randomUUID;
+    import dosierskanilo.model.namedbinaryblob : deserializeDataClassJsonWrapperFile;
+    import dosierskanilo.repository.types : JsonExportOptions;
+    import dosierskanilo.testdata : copySyntheticCatalogForTest;
+
+    auto token = randomUUID().toString();
+    auto root = buildPath(tempDir(), "operation-mode-parity-" ~ token);
+    copySyntheticCatalogForTest(root);
+    auto catalogPath = buildPath(tempDir(), "operation-mode-parity-"
+        ~ token ~ ".json");
+    auto exportPath = buildPath(tempDir(), "operation-mode-parity-export-"
+        ~ token ~ ".json");
+    auto backupPrefix = baseName(catalogPath)[0 .. $ - ".json".length] ~ "-";
+    scope (exit)
+    {
+        if (exists(catalogPath))
+            remove(catalogPath);
+        if (exists(exportPath))
+            remove(exportPath);
+        foreach (DirEntry entry; dirEntries(getcwd(), SpanMode.shallow))
+            if (entry.name.baseName.startsWith(backupPrefix) && exists(entry.name))
+                remove(entry.name);
+        if (exists(root))
+            rmdirRecurse(root);
+    }
     auto repository = Repository.initialize(root);
     repository.close();
 
     ScanOperationRequest sqliteScan;
     sqliteScan.operationId = 801;
     sqliteScan.target = OperationTarget.repositoryTarget(root);
+    sqliteScan.scanOptions.recursive = true;
     sqliteScan.metadataOptions.calculateChecksums = true;
+    sqliteScan.metadataOptions.detectFileTypes = true;
+    sqliteScan.metadataOptions.extractMediaInfo = true;
+    sqliteScan.metadataOptions.scanArchives = true;
+    sqliteScan.metadataOptions.deepArchiveScan = true;
+    sqliteScan.metadataOptions.scanTorrents = true;
+    sqliteScan.metadataOptions.threads = 2;
     auto sqliteScanned = runOperation(sqliteScan, new OperationControl());
     ScanOperationRequest jsonScan;
     jsonScan.operationId = 802;
     jsonScan.target = OperationTarget.jsonTarget(catalogPath, root);
+    jsonScan.scanOptions.recursive = true;
     jsonScan.metadataOptions.calculateChecksums = true;
+    jsonScan.metadataOptions.detectFileTypes = true;
+    jsonScan.metadataOptions.extractMediaInfo = true;
+    jsonScan.metadataOptions.scanArchives = true;
+    jsonScan.metadataOptions.deepArchiveScan = true;
+    jsonScan.metadataOptions.scanTorrents = true;
+    jsonScan.metadataOptions.threads = 2;
     auto jsonScanned = runOperation(jsonScan, new OperationControl());
     assert(sqliteScanned.state == OperationState.completed, sqliteScanned.error);
     assert(jsonScanned.state == OperationState.completed, jsonScanned.error);
@@ -1081,6 +1182,19 @@ unittest
             sqliteScanned.scanSummary.filesAdded, jsonScanned.scanSummary.filesAdded));
     assert(sqliteScanned.metadataSummary.checksumsUpdated
         == jsonScanned.metadataSummary.checksumsUpdated);
+    assert(sqliteScanned.metadataSummary.fileTypesUpdated
+        == jsonScanned.metadataSummary.fileTypesUpdated);
+    assert(sqliteScanned.metadataSummary.mediaInfoUpdated
+        == jsonScanned.metadataSummary.mediaInfoUpdated);
+    assert(sqliteScanned.metadataSummary.archivesUpdated
+        == jsonScanned.metadataSummary.archivesUpdated);
+    assert(sqliteScanned.metadataSummary.torrentsUpdated
+        == jsonScanned.metadataSummary.torrentsUpdated);
+    assert(sqliteScanned.metadataSummary.failed == jsonScanned.metadataSummary.failed);
+    assert(sqliteScanned.scanSummary.filesFound == 12);
+    assert(sqliteScanned.metadataSummary.checksumsUpdated == 12);
+    assert(sqliteScanned.metadataSummary.archivesUpdated == 3);
+    assert(sqliteScanned.metadataSummary.torrentsUpdated == 2);
 
     AnalysisOperationRequest sqliteAnalyze;
     sqliteAnalyze.operationId = 803;
@@ -1096,14 +1210,74 @@ unittest
         == jsonAnalyzed.analysisSummary.duplicateGroups);
     assert(sqliteAnalyzed.analysisSummary.mergedBlobs
         == jsonAnalyzed.analysisSummary.mergedBlobs);
+    assert(sqliteAnalyzed.analysisSummary.duplicateGroups == 1);
+    assert(sqliteAnalyzed.analysisSummary.mergedBlobs == 1);
     repository = Repository.open(root);
     scope (exit)
         repository.close();
     auto jsonCatalog = deserializeDataClassJsonWrapperFile(catalogPath);
-    assert(repository.loadCatalog().length == jsonCatalog.dataArray.length);
-    assert(repository.loadCatalog().length == 1);
-    assert(repository.loadCatalog()[0].fileSpecs.length
-        == jsonCatalog.dataArray[0].fileSpecs.length);
+    auto sqliteCatalog = repository.loadCatalog();
+    assert(sqliteCatalog.length == 11);
+    assert(sqliteCatalog.length == jsonCatalog.dataArray.length);
+    size_t referenceCount;
+    size_t sharedBlobs;
+    string[string] sqliteDigestsByPath;
+    string[string] jsonDigestsByPath;
+    auto sourcePrefix = buildNormalizedPath(root) ~ dirSeparator;
+    foreach (blob; sqliteCatalog)
+    {
+        assert(blob.checkSums.hasDigests);
+        referenceCount += blob.fileSpecs.length;
+        foreach (file; blob.fileSpecs)
+        {
+            auto path = buildNormalizedPath(file.fileName);
+            auto relative = path.startsWith(sourcePrefix)
+                ? path[sourcePrefix.length .. $] : file.fileName;
+            sqliteDigestsByPath[relative] = blob.checkSums.sha1sum_b64;
+        }
+        if (blob.fileSpecs.length == 2)
+            ++sharedBlobs;
+    }
+    foreach (blob; jsonCatalog.dataArray)
+    {
+        assert(blob.checkSums.hasDigests);
+        foreach (file; blob.fileSpecs)
+        {
+            auto path = buildNormalizedPath(file.fileName);
+            auto relative = path.startsWith(sourcePrefix)
+                ? path[sourcePrefix.length .. $] : file.fileName;
+            jsonDigestsByPath[relative] = blob.checkSums.sha1sum_b64;
+        }
+    }
+    assert(referenceCount == 12);
+    assert(sharedBlobs == 1);
+    string[] sqlitePaths;
+    string[] jsonPaths;
+    foreach (path; sqliteDigestsByPath.keys)
+        sqlitePaths ~= path;
+    foreach (path; jsonDigestsByPath.keys)
+        jsonPaths ~= path;
+    sqlitePaths.sort;
+    jsonPaths.sort;
+    assert(sqlitePaths == jsonPaths);
+    foreach (path; sqlitePaths)
+        assert(sqliteDigestsByPath[path] == jsonDigestsByPath[path]);
+
+    JsonExportOptions exportOptions;
+    exportOptions.pathPrefix = "archives";
+    repository.exportJson(exportPath, exportOptions);
+    auto archiveSubset = deserializeDataClassJsonWrapperFile(exportPath);
+    assert(archiveSubset.dataArray.length == 3);
+    string[] exportedArchivePaths;
+    foreach (blob; archiveSubset.dataArray)
+    {
+        assert(blob.checkSums.hasDigests);
+        foreach (file; blob.fileSpecs)
+            exportedArchivePaths ~= file.fileName;
+    }
+    exportedArchivePaths.sort;
+    assert(exportedArchivePaths == ["archives/nested.zip", "archives/sample.tar",
+        "archives/sample.zip"]);
 }
 
 @("repository write lease remains held while an operation is paused")

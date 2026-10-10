@@ -1,0 +1,256 @@
+{
+    "archives": [
+        {
+            "entries": [
+                {
+                    "path": "payload\/copy.txt",
+                    "role": "duplicate-of-filesystem-payload",
+                    "sha256": "8350f62d843d6b67172f2394e59f0cec11e323488baced33edb5e58882de37ba",
+                    "size": 28
+                },
+                {
+                    "path": "nested\/unique.txt",
+                    "role": "unique-zip-member",
+                    "sha256": "e06abe47f859fe00ddb7771692e8058b4df89e619f59d531cb4a2a5e2b054ee4",
+                    "size": 23
+                },
+                {
+                    "path": "left\/shared.txt",
+                    "role": "duplicate-basename-left",
+                    "sha256": "be17722877be8e6878d1105de5d1292dcde4bafdc098474d5aaa24b0de88abc7",
+                    "size": 12
+                },
+                {
+                    "path": "right\/shared.txt",
+                    "role": "duplicate-basename-right",
+                    "sha256": "fd17144eb2e51474fb0a75efd17055b1b0397ac9f43a25a6e19bbc04eff68473",
+                    "size": 13
+                },
+                {
+                    "path": "empty\/zero.bin",
+                    "role": "empty-zip-member",
+                    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                    "size": 0
+                },
+                {
+                    "path": "media\/tone.wav",
+                    "role": "same-content-as-filesystem-wave",
+                    "sha256": "faf90dde7fd7a168c57cb3a4724584c233c2b297754169d85a5d7b4165ef82fd",
+                    "size": 76
+                },
+                {
+                    "path": "nested.zip",
+                    "role": "nested-archive",
+                    "sha256": "06e7022df80056596922637b13508329b526cf9e67bd754a9031ffa392458475",
+                    "size": 160
+                }
+            ],
+            "format": "zip",
+            "path": "archives\/sample.zip",
+            "sha256": "39af88cd3978448932e9fdbcfa2275d9871d3f49e4f76f4c419f7da5bf9b7e3c",
+            "size": 1070
+        },
+        {
+            "entries": [
+                {
+                    "path": "payload\/copy.txt",
+                    "role": "duplicate-of-filesystem-payload",
+                    "sha256": "8350f62d843d6b67172f2394e59f0cec11e323488baced33edb5e58882de37ba",
+                    "size": 28
+                },
+                {
+                    "path": "tar\/unique.txt",
+                    "role": "unique-tar-member",
+                    "sha256": "eff65a8ebffbfb1ef7299ffe699e5c052d3989aeb748de585d044635b00ecde2",
+                    "size": 23
+                },
+                {
+                    "path": "empty.bin",
+                    "role": "empty-tar-member",
+                    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                    "size": 0
+                }
+            ],
+            "format": "tar",
+            "path": "archives\/sample.tar",
+            "sha256": "ce183db2dbfb73051810b640b369a5749c063635a98fb59bb545520f7549c44f",
+            "size": 3584
+        },
+        {
+            "entries": [
+                {
+                    "path": "deep\/readme.txt",
+                    "role": "nested-archive-member",
+                    "sha256": "dfdda20ab40c3ff4959fc8964fe2506a87b85173d9a9d268d8a6a4f9404920cb",
+                    "size": 32
+                }
+            ],
+            "format": "zip",
+            "path": "archives\/nested.zip",
+            "sha256": "06e7022df80056596922637b13508329b526cf9e67bd754a9031ffa392458475",
+            "size": 160
+        }
+    ],
+    "directories": [
+        ".hidden",
+        "alpha",
+        "archives",
+        "copies",
+        "empty",
+        "empty-directory",
+        "images",
+        "media",
+        "same-size",
+        "torrent",
+        "unicode"
+    ],
+    "duplicateContentGroups": [
+        {
+            "locations": [
+                "archive:archives\/sample.zip!\/nested.zip",
+                "file:archives\/nested.zip"
+            ],
+            "sha256": "06e7022df80056596922637b13508329b526cf9e67bd754a9031ffa392458475"
+        },
+        {
+            "locations": [
+                "archive:archives\/sample.tar!\/payload\/copy.txt",
+                "archive:archives\/sample.zip!\/payload\/copy.txt",
+                "file:alpha\/original.txt",
+                "file:copies\/copy.txt"
+            ],
+            "sha256": "8350f62d843d6b67172f2394e59f0cec11e323488baced33edb5e58882de37ba"
+        },
+        {
+            "locations": [
+                "archive:archives\/sample.tar!\/empty.bin",
+                "archive:archives\/sample.zip!\/empty\/zero.bin",
+                "file:empty\/zero.bin"
+            ],
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "locations": [
+                "archive:archives\/sample.zip!\/media\/tone.wav",
+                "file:media\/tone.wav"
+            ],
+            "sha256": "faf90dde7fd7a168c57cb3a4724584c233c2b297754169d85a5d7b4165ef82fd"
+        }
+    ],
+    "expected": {
+        "archiveCount": 3,
+        "archiveEntryCount": 11,
+        "duplicateContentGroupCount": 4,
+        "hiddenPhysicalFileCount": 1,
+        "physicalFileCount": 13,
+        "visiblePhysicalFileCount": 12
+    },
+    "files": [
+        {
+            "modifiedAt": "2020-01-02T03:04:06Z",
+            "path": ".hidden\/secret.txt",
+            "role": "hidden-file",
+            "sha256": "e83e0ca964304979aba0d46a9ce6d38222d3623931b0e8a53afa9df7c8411bbd",
+            "size": 15
+        },
+        {
+            "modifiedAt": "2020-01-02T03:04:06Z",
+            "path": "alpha\/original.txt",
+            "role": "duplicate-source",
+            "sha256": "8350f62d843d6b67172f2394e59f0cec11e323488baced33edb5e58882de37ba",
+            "size": 28
+        },
+        {
+            "modifiedAt": "2020-01-02T03:04:06Z",
+            "path": "archives\/nested.zip",
+            "role": "archive-container:zip",
+            "sha256": "06e7022df80056596922637b13508329b526cf9e67bd754a9031ffa392458475",
+            "size": 160
+        },
+        {
+            "modifiedAt": "2020-01-02T03:04:06Z",
+            "path": "archives\/sample.tar",
+            "role": "archive-container:tar",
+            "sha256": "ce183db2dbfb73051810b640b369a5749c063635a98fb59bb545520f7549c44f",
+            "size": 3584
+        },
+        {
+            "modifiedAt": "2020-01-02T03:04:06Z",
+            "path": "archives\/sample.zip",
+            "role": "archive-container:zip",
+            "sha256": "39af88cd3978448932e9fdbcfa2275d9871d3f49e4f76f4c419f7da5bf9b7e3c",
+            "size": 1070
+        },
+        {
+            "modifiedAt": "2020-01-02T03:04:06Z",
+            "path": "copies\/copy.txt",
+            "role": "duplicate-copy",
+            "sha256": "8350f62d843d6b67172f2394e59f0cec11e323488baced33edb5e58882de37ba",
+            "size": 28
+        },
+        {
+            "modifiedAt": "2020-01-02T03:04:06Z",
+            "path": "empty\/zero.bin",
+            "role": "empty-file",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "size": 0
+        },
+        {
+            "modifiedAt": "2020-01-02T03:04:06Z",
+            "path": "images\/sample.bmp",
+            "role": "generated-bitmap",
+            "sha256": "af37e0b647ec79d3ca3bad1e9a7ad8457340c024ae5150f394f9c574beb06e5d",
+            "size": 70
+        },
+        {
+            "modifiedAt": "2020-01-02T03:04:06Z",
+            "path": "media\/tone.wav",
+            "role": "generated-wave",
+            "sha256": "faf90dde7fd7a168c57cb3a4724584c233c2b297754169d85a5d7b4165ef82fd",
+            "size": 76
+        },
+        {
+            "modifiedAt": "2020-01-02T03:04:06Z",
+            "path": "same-size\/different.txt",
+            "role": "same-size-different-content",
+            "sha256": "1288022124e36bc13558ecef3a6a12daee5c7b4af205aea7824a77137d7a03a8",
+            "size": 28
+        },
+        {
+            "modifiedAt": "2020-01-02T03:04:06Z",
+            "path": "torrent\/multi-file.torrent",
+            "role": "generated-multi-file-torrent",
+            "sha256": "e42074e8d3d46377124ef90c6e25047de2bb3dadf6cef9db8ca1fda5ccd7ee07",
+            "size": 173
+        },
+        {
+            "modifiedAt": "2020-01-02T03:04:06Z",
+            "path": "torrent\/single-file.torrent",
+            "role": "generated-single-file-torrent",
+            "sha256": "7a656c53469510b3e79fda43ce05dfb7ee3d72bb6d78b881a4827ad9f585ba5f",
+            "size": 91
+        },
+        {
+            "modifiedAt": "2020-01-02T03:04:06Z",
+            "path": "unicode\/café.txt",
+            "role": "utf8-text",
+            "sha256": "19f93d5da39119352f499807e2711b81079c840571cc88088e35bfa45b9fc413",
+            "size": 22
+        }
+    ],
+    "generatorVersion": 1,
+    "optionalFormats": [
+        {
+            "format": "rar",
+            "reason": "optional format is outside the deterministic D baseline",
+            "status": "skipped"
+        },
+        {
+            "format": "7z",
+            "reason": "optional format is outside the deterministic D baseline",
+            "status": "skipped"
+        }
+    ],
+    "schemaVersion": 1,
+    "sourceDateEpoch": 1577934246
+}

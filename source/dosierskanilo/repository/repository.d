@@ -1082,12 +1082,16 @@ unittest
     import std.file : copy, exists, mkdirRecurse, rmdirRecurse, tempDir;
     import std.path : buildPath;
     import std.uuid : randomUUID;
+    import dosierskanilo.testdata : ensureSyntheticTestCatalog;
 
     auto root = buildPath(tempDir(), "repository-rich-metadata-"
         ~ randomUUID().toString());
     mkdirRecurse(root);
-    copy("./test/dummy-picture-file.jpg", buildPath(root, "picture.jpg"));
-    copy("./test/example.torrent", buildPath(root, "example.torrent"));
+    auto fixture = ensureSyntheticTestCatalog();
+    copy(buildPath(fixture.catalogRoot, "images", "sample.bmp"),
+        buildPath(root, "picture.bmp"));
+    copy(buildPath(fixture.catalogRoot, "torrent", "single-file.torrent"),
+        buildPath(root, "example.torrent"));
     scope (exit)
     {
         if (exists(root))
@@ -1172,17 +1176,19 @@ unittest
     import std.path : buildPath;
     import std.process : execute;
     import std.uuid : randomUUID;
+    import dosierskanilo.testdata : ensureSyntheticTestCatalog;
 
     auto root = buildPath(tempDir(), "repository-rich-persistence-"
         ~ randomUUID().toString());
     mkdirRecurse(root);
+    auto fixture = ensureSyntheticTestCatalog();
     auto payload = buildPath(root, "payload.txt");
     auto archive = buildPath(root, "payload.zip");
     auto torrent = buildPath(root, "example.torrent");
     write(payload, "repository archive payload\n");
     assert(execute(["zip", "-q", "-P", "repository-secret", "-j", archive,
         payload]).status == 0);
-    copy("./test/example.torrent", torrent);
+    copy(buildPath(fixture.catalogRoot, "torrent", "single-file.torrent"), torrent);
     auto exported = buildPath(root, "export.json");
     scope (exit)
     {
@@ -1370,6 +1376,7 @@ unittest
     import std.file : copy, exists, mkdirRecurse, rmdirRecurse, tempDir, write;
     import std.path : buildPath;
     import std.uuid : randomUUID;
+    import dosierskanilo.testdata : ensureSyntheticTestCatalog;
 
     auto root = buildPath(tempDir(), "repository-changed-file-orphans-"
         ~ randomUUID().toString());
@@ -1382,8 +1389,11 @@ unittest
 
     auto firstPath = buildPath(root, "first.torrent");
     auto secondPath = buildPath(root, "second.torrent");
-    copy("./test/example.torrent", firstPath);
-    copy("./test/example.torrent", secondPath);
+    auto fixture = ensureSyntheticTestCatalog();
+    auto torrentSeed = buildPath(fixture.catalogRoot, "torrent",
+        "single-file.torrent");
+    copy(torrentSeed, firstPath);
+    copy(torrentSeed, secondPath);
 
     auto repository = Repository.initialize(root);
     scope (exit)

@@ -619,7 +619,7 @@ unittest
 
 	auto mis13 = new NamedBinaryBlob([
 		"file2", "file8", "file1",
-		"test/dummy-audio-file.mp3", "test/dummy-text-file.txt"
+		"test/dummy-subtitle-file.srt", "test/dummy-text-file.txt"
 	], 1234, SysTime(1_234_567));
 	assert(mis13.fileSpecs.length == 5);
 	auto en = mis13.getExistingFiles();
@@ -666,7 +666,7 @@ unittest
 	auto legacy = new NamedBinaryBlob();
 	legacy.fileName = "test/dummy-text-file.txt";
 	legacy.timeLastModified = SysTime(1_234_567).toISOExtString;
-	legacy.fileNames = ["test/dummy-audio-file.mp3"];
+	legacy.fileNames = ["test/dummy-subtitle-file.srt"];
 	legacy.md5sum_b64 = "a";
 	legacy.sha1sum_b64 = "b";
 	legacy.xxh64sum_b64 = "c";
@@ -1278,8 +1278,11 @@ void updateDigests(NamedBinaryBlob obj,
 unittest
 {
 	import std.stdio : File;
+	import std.path : buildPath;
+	import dosierskanilo.testdata : ensureSyntheticTestCatalog;
 
-	string filename = "./test/dummy-audio-file.mp3";
+	auto fixture = ensureSyntheticTestCatalog();
+	string filename = buildPath(fixture.catalogRoot, "media", "tone.wav");
 	auto fh = File(filename);
 	auto dco = new NamedBinaryBlob(filename, fh.size, SysTime(4_237_892));
 	updateDigests(dco, null);
@@ -1321,8 +1324,11 @@ void updateFileType(NamedBinaryBlob obj, bool rescan = false)
 unittest
 {
 	import std.stdio : File;
+	import std.path : buildPath;
+	import dosierskanilo.testdata : ensureSyntheticTestCatalog;
 
-	string filename = "./test/dummy-audio-file.mp3";
+	auto fixture = ensureSyntheticTestCatalog();
+	string filename = buildPath(fixture.catalogRoot, "media", "tone.wav");
 	auto fh = File(filename);
 	auto dco = new NamedBinaryBlob(filename, fh.size, SysTime(4_237_892));
 	updateFileType(dco, true);
@@ -1361,8 +1367,11 @@ void updateMediaInfo(NamedBinaryBlob obj, bool rescan = false)
 unittest
 {
 	import std.stdio : File;
+	import std.path : buildPath;
+	import dosierskanilo.testdata : ensureSyntheticTestCatalog;
 
-	string filename = "./test/dummy-picture-file.jpg";
+	auto fixture = ensureSyntheticTestCatalog();
+	string filename = buildPath(fixture.catalogRoot, "images", "sample.bmp");
 	auto fh = File(filename);
 	auto dco = new NamedBinaryBlob(filename, fh.size, SysTime(4_237_892));
 	updateMediaInfo(dco, true);
@@ -1552,27 +1561,14 @@ unittest
 	import std.conv : to;
 	import std.string : format;
 	import std.path : buildPath;
+	import dosierskanilo.testdata : ensureSyntheticTestCatalog;
 
-	string filename = "./test/dummy-audio-file.mp3";
+	auto fixture = ensureSyntheticTestCatalog();
+	string filename = buildPath(fixture.catalogRoot, "media", "tone.wav");
 	auto fh = File(filename);
 	auto dco = new NamedBinaryBlob(filename, fh.size, SysTime(4_237_892));
 	updateArchives(dco, true);
 	assert(dco.archiveSpecs.length == 0);
-
-	enum string fn = "updateTest.zip";
-	void deleteTestArchive()
-	{
-		if (fn.exists)
-			std.file.remove(fn);
-	}
-
-	void createTestArchive()
-	{
-		deleteTestArchive();
-		auto rc = executeShell("zip -q \"%s\" test/*".format(fn));
-		write(rc.output);
-		assert(rc.status == 0, rc.output);
-	}
 
 	enum string fnMany = "updateTest-many.zip";
 	enum string stagingDir = ".test/updateArchives-many-entries";
@@ -1606,14 +1602,15 @@ unittest
 		assert(rc.status == 0, rc.output);
 	}
 
-	createTestArchive();
-	scope (success)
-		deleteTestArchive();
-
-	auto fh1 = File(fn);
-	auto dco1 = new NamedBinaryBlob(fn, fh1.size, SysTime(4_237_892));
+	auto archivePath = buildPath(fixture.catalogRoot, "archives", "sample.zip");
+	auto fh1 = File(archivePath);
+	auto dco1 = new NamedBinaryBlob(archivePath, fh1.size, SysTime(4_237_892));
 	updateArchives(dco1, true);
 	assert(dco1.archiveSpecs.length > 0);
+	assert(dco1.archiveSpecs.length == 7);
+	foreach (entry; dco1.archiveSpecs)
+		assert(entry.checkSums.hasDigests,
+			"deep archive scans calculate each generated entry checksum");
 	auto firstScanEntries = dco1.archiveSpecs.length;
 	updateArchives(dco1, true);
 	assert(dco1.archiveSpecs.length == firstScanEntries,
@@ -1735,15 +1732,18 @@ void updateTorrentInfo(NamedBinaryBlob obj, bool rescan = false)
 unittest
 {
 	import std.stdio : File;
+	import std.path : buildPath;
+	import dosierskanilo.testdata : ensureSyntheticTestCatalog;
 
-	string filename = "./test/example.torrent";
+	auto fixture = ensureSyntheticTestCatalog();
+	string filename = buildPath(fixture.catalogRoot, "torrent", "single-file.torrent");
 	auto fh = File(filename);
 	auto dco = new NamedBinaryBlob(filename, fh.size, SysTime(4_237_892));
 	updateTorrentInfo(dco, true);
 	assert(dco.torrentInfo, "No TorrentInfo was set.");
 	assert(dco.torrentInfo.isMultiFile == false);
 
-	string filename2 = "./test/test-multifile.torrent";
+	string filename2 = buildPath(fixture.catalogRoot, "torrent", "multi-file.torrent");
 	auto fh2 = File(filename2);
 	auto dco2 = new NamedBinaryBlob(filename2, fh2.size, SysTime(4_237_892));
 	updateTorrentInfo(dco2, true);

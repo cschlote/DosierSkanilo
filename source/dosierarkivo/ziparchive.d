@@ -122,7 +122,7 @@ class FileArchiveZip : FileArchive
         {
             if (fn.exists)
                 remove(fn);
-            auto rc = executeShell("zip -q \"%s\" test/*".format(zipFileName));
+            auto rc = execute(["zip", "-q", zipFileName] ~ expectedEntries);
             write(rc.output);
             assert(rc.status == 0, rc.output);
         }
