@@ -89,8 +89,8 @@ matrix; see WP-09.
 
 WP-12 adds a deterministic D-generated filesystem/archive/torrent corpus, a
 reviewed manifest, a single-flight test seed, JSON/SQLite parity coverage, and
-CLI integration checks. The 6.7 MB checked-in audio, image, video, and torrent
-samples were replaced by generated test data.
+CLI integration checks. Existing checked-in audio, image, video, and torrent
+fixtures remain as compatibility inputs; the generated corpus supplements them.
 
 The backend library tests and GUI tests/build are separate checks. GUI-specific
 status, test commands, and remaining UI integration tests are maintained in
@@ -98,7 +98,7 @@ the GUI plan at `https://gitlab.vahanus.net/dlang/dosierskanilo-gui/blob/main/do
 
 Last verified on this snapshot:
 
-- Backend: `dub test --config=library --compiler=ldc2` — 117 passed;
+- Backend: `dub test --config=library --compiler=ldc2` — 118 passed;
   `dub build --config=library --compiler=ldc2` passed.
 - GUI: `dub test --compiler=ldc2` — 61 tests; `dub build
   --compiler=ldc2` passed.
@@ -1343,8 +1343,9 @@ and proves all waiters receive a deterministic failure if generation fails.
   generator and runs both explicit CLI modes against the same corpus.
 
 **Exit:** backend model, JSON, SQLite, archive adapters, and CLI tests consume the
-same versioned synthetic scenario; all generated data is reproducible and no
-large binary fixture is committed.
+same versioned synthetic scenario; generated data is reproducible and no new
+generated binary fixtures are committed. Existing compatibility fixtures remain
+tracked until a deliberate history-cleanup decision is made.
 
 ## WP-13: Storage-Neutral Catalog API and First-Class Archive Content
 

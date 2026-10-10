@@ -550,6 +550,29 @@ unittest
 	assert(ti.totalSize == sum);
 }
 
+@("getTorrentInfo - existing binary compatibility fixtures")
+unittest
+{
+    import std.stdio : File;
+
+    auto single = getTorrentInfo("test/example.torrent");
+    assert(single.infoHashHex == "2c423fe994bf512d4c786ae3f46329c3ce9a5369");
+    assert(single.name == "dummy-video-file.mp4.mkv");
+    assert(!single.isMultiFile);
+    auto payload = File("test/dummy-video-file.mp4.mkv", "rb");
+    assert(single.totalSize == payload.size);
+
+    auto multi = getTorrentInfo("test/test-multifile.torrent");
+    assert(multi.infoHashHex == "0f43d6fb308b289e9c443a9fc0095b40a0f27a4e");
+    assert(multi.name == "multifile_tmp");
+    assert(multi.isMultiFile);
+    assert(multi.files.length > 1);
+    ulong sum;
+    foreach (entry; multi.files)
+        sum += entry.length;
+    assert(multi.totalSize == sum);
+}
+
 @("TorrentInfo helpers")
 unittest
 {

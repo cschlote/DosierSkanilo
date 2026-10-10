@@ -756,20 +756,49 @@ unittest
 	auto sig1 = getMediaTypeSignature("test/dummy-text-file.txt");
 	assert(sig1 is null);
 
+	auto sig2 = getMediaTypeSignature("test/dummy-audio-file.mp3");
+	auto sig2ref = new MediaInfoSig(
+		[],
+		[],
+		[new MediaInfoAudio(0, "", "MPEG Audio", 2, 170_091, "38 s 217 ms")],
+		[]);
+	assert(sig2 == sig2ref, "Expected: %s, got: %s".format(sig2ref, sig2));
+
+	auto sig3 = getMediaTypeSignature("test/dummy-video-file.mp4.mkv");
+	auto sig3ref = new MediaInfoSig(
+		[],
+		[new MediaInfoVideo(0, "", "AV1", 1920, 1080, 30.147, 0, "5 s 108 ms")],
+		[new MediaInfoAudio(0, "en", "AAC", 2, 0, "5 s 122 ms")],
+		[]);
+	assert(sig3 == sig3ref, "Expected: %s, got: %s".format(sig3ref, sig3));
+
+	auto sig4 = getMediaTypeSignature("test/dummy-picture-file.jpg");
+	assert(sig4 !is null);
+	assert(sig4.imageStreams.length >= 1, "Expected at least one image stream");
+	assert(sig4.imageStreams[0].format == "JPEG", sig4.to!string);
+	assert(sig4.imageStreams[0].width == 3264, sig4.to!string);
+	assert(sig4.imageStreams[0].height == 2448, sig4.to!string);
+	if (sig4.imageStreams.length >= 2)
+	{
+		assert(sig4.imageStreams[1].format == "JPEG", sig4.to!string);
+		assert(sig4.imageStreams[1].width == 320, sig4.to!string);
+		assert(sig4.imageStreams[1].height == 240, sig4.to!string);
+	}
+
 	auto fixture = ensureSyntheticTestCatalog();
 	auto audioPath = buildPath(fixture.catalogRoot, "media", "tone.wav");
-	auto sig2 = getMediaTypeSignature(audioPath);
-	assert(sig2 !is null);
-	assert(sig2.audioStreams.length == 1, sig2.to!string);
-	assert(sig2.audioStreams[0].channels == 1, sig2.to!string);
+	auto syntheticAudio = getMediaTypeSignature(audioPath);
+	assert(syntheticAudio !is null);
+	assert(syntheticAudio.audioStreams.length == 1, syntheticAudio.to!string);
+	assert(syntheticAudio.audioStreams[0].channels == 1, syntheticAudio.to!string);
 
 	auto bitmapPath = buildPath(fixture.catalogRoot, "images", "sample.bmp");
-	auto sig3 = getMediaTypeSignature(bitmapPath);
-	assert(sig3 !is null);
-	assert(sig3.imageStreams.length == 1, sig3.to!string);
-	assert(sig3.imageStreams[0].format == "Raw", sig3.to!string);
-	assert(sig3.imageStreams[0].width == 2, sig3.to!string);
-	assert(sig3.imageStreams[0].height == 2, sig3.to!string);
+	auto syntheticBitmap = getMediaTypeSignature(bitmapPath);
+	assert(syntheticBitmap !is null);
+	assert(syntheticBitmap.imageStreams.length == 1, syntheticBitmap.to!string);
+	assert(syntheticBitmap.imageStreams[0].format == "Raw", syntheticBitmap.to!string);
+	assert(syntheticBitmap.imageStreams[0].width == 2, syntheticBitmap.to!string);
+	assert(syntheticBitmap.imageStreams[0].height == 2, syntheticBitmap.to!string);
 
 	auto sig5 = getMediaTypeSignature("test/dummy-subtitle-file.srt");
 	auto sig5ref = new MediaInfoSig(
@@ -799,7 +828,7 @@ unittest
 	assert(sig.videoStreams.length == 1);
 	assert(sig.audioStreams.length == 1);
 	assert(sig.textStreams.length == 1);
-	assert(hasMediaFileExtension("test/dummy-audio-file.wav"));
+	assert(hasMediaFileExtension("test/dummy-audio-file.mp3"));
 	assert(!hasMediaFileExtension("test/dummy-text-file.txt"));
 	assert(parseBitRate("1234") == 1234);
 	assert(parseBitRate("Unknown") == 0);
