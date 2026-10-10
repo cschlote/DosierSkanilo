@@ -22,6 +22,28 @@ They represent the functional evolution and are intentionally summarized.
 - Added frontend-neutral scan, metadata, and analysis request, progress,
   cancellation-control, validation, and result types as the first WP-09 API
   contract. Existing operations remain synchronous until subsequent WP-09 slices.
+- Extended the shared operation control contract with safe-checkpoint
+  pause/resume requests, pause availability, acknowledgement states, and
+  cancellation precedence while paused.
+- Added controlled SQLite scan, metadata, and analysis executors with staged
+  scan/analysis plans, per-blob metadata commits, progress events, and
+  cooperative cancellation/pause checkpoints. Synchronous repository methods
+  remain as convenience wrappers.
+- SQLite scan requests can include selected metadata extraction, and the CLI
+  passes scan plus metadata options through that single shared request.
+- Routed repository and explicit JSON scan/analyze CLI commands through the
+  shared operation requests; JSON cancellation leaves the original catalog
+  untouched before its backup/replacement phase.
+- Added cross-process advisory target leases for shared mutating operations and
+  typed `targetBusy` results when another writer owns the same repository or
+  catalog.
+- Operation results report whether any source changes committed, allowing GTK to
+  refresh after partial metadata cancellation without refreshing rolled-back work.
+- JSON analysis now retains records with unavailable source paths unless
+  `drop-missing` was explicitly requested, preventing accidental empty-catalog
+  replacement when source files or mounts are temporarily unavailable.
+- Forced archive re-indexing now replaces the stored entry list instead of
+  appending duplicate `ArchiveSpec` rows.
 - The `init` command now reports the initialized repository path by default;
   existing repositories are reported as opened instead of newly initialized;
   verbose mode remains available for additional output.

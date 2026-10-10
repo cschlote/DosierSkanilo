@@ -13,6 +13,8 @@ import dosierskanilo.metadata.mediainfosig : MediaInfoSig;
 import dosierskanilo.metadata.torrentinfo : TorrentInfo;
 import dosierskanilo.model.archivespec : ArchiveSpec;
 import dosierskanilo.model.namedbinaryblob;
+import dosierskanilo.operations : OperationControl, OperationKind,
+    OperationPhase, OperationProgress, OperationState;
 import dosierskanilo.repository.types;
 
 private class MetadataWorkItem
@@ -188,6 +190,192 @@ MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
         }
     }
     return summary;
+}
+
+/**
+ * Run metadata extraction in bounded worker batches with one atomic persistence
+ * transaction per blob. Pause is acknowledged only after every worker in the
+ * active batch has finished and all complete blob results have been committed.
+ */
+MetadataExecutionResult updateRepositoryMetadataControlled(ref Database db,
+    string rootPath, MetadataScanOptions options, OperationControl control,
+    ulong operationId)
+{
+    MetadataExecutionResult execution;
+    auto blobIds = metadataBlobIds(db, options.filePath);
+    auto batchSize = options.threads > 0 ? options.threads * 4 : 1;
+    if (batchSize == 0)
+        batchSize = 1;
+    auto phases = metadataPhases(options);
+    size_t nextIndex;
+
+    while (nextIndex < blobIds.length)
+    {
+        if (!reportMetadataProgress(control, operationId,
+            OperationPhase.discovering, execution.summary.blobsVisited,
+            blobIds.length, "Preparing metadata work."))
+        {
+            execution.cancelled = true;
+            return execution;
+        }
+
+        MetadataWorkItem[] items;
+        while (nextIndex < blobIds.length && items.length < batchSize)
+        {
+            if (control !is null && control.cancellationRequested)
+                break;
+            auto blobId = blobIds[nextIndex++];
+            auto blob = loadBlob(db, rootPath, blobId);
+            if (blob is null)
+                continue;
+
+            auto item = new MetadataWorkItem();
+            item.blobId = blobId;
+            item.blob = blob;
+            item.options = options;
+            item.doChecksums = options.calculateChecksums
+                && !blob.checkSums.hasDigests;
+            item.doFileType = options.detectFileTypes
+                && blob.fileType.length == 0;
+            item.doMediaInfo = options.extractMediaInfo
+                && (options.rescan || !metadataCompleted(db, blobId, "media_info"));
+            item.doArchives = options.scanArchives
+                && (options.rescan || !metadataCompleted(db, blobId, "archives"));
+            item.doTorrents = options.scanTorrents
+                && (options.rescan || !metadataCompleted(db, blobId, "torrents"));
+            items ~= item;
+        }
+
+        if (control !is null && control.cancellationRequested)
+        {
+            execution.cancelled = true;
+            return execution;
+        }
+        if (items.length == 0)
+        {
+            continue;
+        }
+
+        runControlledMetadataBatch(items, options.threads);
+        // All worker calls are joined before any result is persisted or pause is
+        // acknowledged. Each blob's requested metadata is one transaction.
+        foreach (item; items)
+        {
+            if (hasMetadataWork(item))
+            {
+                db.begin();
+                try
+                {
+                    persistMetadataWork(db, item, execution.summary);
+                    db.commit();
+                    execution.committed = true;
+                }
+                catch (Exception ex)
+                {
+                    try
+                        db.rollback();
+                    catch (Exception)
+                    {
+                    }
+                    throw ex;
+                }
+            }
+            execution.summary.blobsVisited++;
+        }
+
+        foreach (item; items)
+        {
+            foreach (phase; phases)
+            {
+                if (!reportMetadataProgress(control, operationId, phase,
+                    execution.summary.blobsVisited, blobIds.length,
+                    item.blob.getFirstFileName()))
+                {
+                    execution.cancelled = true;
+                    return execution;
+                }
+            }
+        }
+        if (control !is null && control.cancellationRequested)
+        {
+            execution.cancelled = true;
+            return execution;
+        }
+    }
+    return execution;
+}
+
+private bool hasMetadataWork(MetadataWorkItem item)
+{
+    return item.doChecksums || item.doFileType || item.doMediaInfo
+        || item.doArchives || item.doTorrents;
+}
+
+private void runControlledMetadataBatch(MetadataWorkItem[] items, size_t threads)
+{
+    if (threads <= 1)
+    {
+        foreach (item; items)
+            runMetadataWork(item);
+        return;
+    }
+
+    TaskPool pool = new TaskPool(threads);
+    Task!(runMetadataWork, MetadataWorkItem)*[] tasks;
+    try
+    {
+        foreach (item; items)
+        {
+            auto worker = task!runMetadataWork(item);
+            tasks ~= worker;
+            pool.put(worker);
+        }
+        foreach (worker; tasks)
+            worker.workForce();
+    }
+    finally
+    {
+        pool.finish(true);
+        pool.stop();
+    }
+}
+
+private OperationPhase[] metadataPhases(MetadataScanOptions options)
+{
+    OperationPhase[] phases;
+    if (options.calculateChecksums) phases ~= OperationPhase.checksums;
+    if (options.detectFileTypes) phases ~= OperationPhase.fileTypes;
+    if (options.extractMediaInfo) phases ~= OperationPhase.mediaInfo;
+    if (options.scanArchives) phases ~= OperationPhase.archives;
+    if (options.scanTorrents) phases ~= OperationPhase.torrents;
+    return phases;
+}
+
+private bool reportMetadataProgress(OperationControl control, ulong operationId,
+    OperationPhase phase, size_t completed, size_t total, string path)
+{
+    if (control is null)
+        return true;
+    if (control.cancellationRequested)
+        return false;
+    control.setPauseAvailable(true);
+    OperationProgress progress;
+    progress.operationId = operationId;
+    progress.operation = OperationKind.metadata;
+    progress.state = OperationState.running;
+    progress.phase = phase;
+    progress.completed = completed;
+    progress.total = total;
+    progress.totalKnown = phase != OperationPhase.discovering;
+    progress.path = path;
+    progress.message = phase == OperationPhase.discovering
+        ? "Preparing metadata work." : "Metadata results committed for completed blobs.";
+    control.report(progress);
+    if (control.cancellationRequested)
+        return false;
+    if (!control.pauseAtCheckpoint(progress))
+        return false;
+    return !control.cancellationRequested;
 }
 
 private MetadataSummary updateRepositoryMetadataParallel(ref Database db,

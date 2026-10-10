@@ -1,4 +1,4 @@
-/** Data class for a file inside an archive
+/** Legacy nested metadata for one member listed inside an archive.
  *
  * Authors: Carsten Schlote, schlote@vahanus.net
  * Copyright: Carsten Schlote, licensed under GPL-3.0-only
@@ -12,11 +12,11 @@ public import dosierskanilo.model.checksums;
 
 import std.format : format;
 
-/** Contents description of an archive file
+/** Basic contents description nested under the archive's `NamedBinaryBlob`.
  *
- * There are several known archive file formats (zip, tar, rar, 7z, ...). Each of
- * them can contain multiple files inside. We store the basic information
- * about each file inside the archive in this class.
+ * This type stores entry path, size, modification time, and optional checksums.
+ * It does not itself have a content-blob identity or source locator; promotion
+ * of archive members into the normal catalog model is planned in WP-12.
  */
 class ArchiveSpec
 {

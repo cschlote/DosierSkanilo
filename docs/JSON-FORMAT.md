@@ -36,7 +36,9 @@ metadata. They are not a version of the JSON schema itself.
 ## Binary Content Records
 
 Each element of `dataArray` represents one binary payload. Several filesystem
-paths can refer to the same payload after duplicate analysis.
+paths can refer to the same payload after duplicate analysis. In the current
+format, those references are filesystem paths; archive members are still nested
+metadata rather than first-class blob references.
 
 - `fileSize` (integer): Payload size in bytes.
 - `checkSums` (optional object): MD5, SHA1 and XXH64 values encoded as
@@ -51,6 +53,9 @@ paths can refer to the same payload after duplicate analysis.
   stream metadata.
 - `archiveSpecs` (optional array): Metadata and checksums for entries inside an
   archive.
+- `archivePassword` (optional string): Password associated with the archive
+  blob and reused by archive inspection. Version 3 catalogs can contain this
+  value, so catalogs carrying passwords should be treated as sensitive files.
 - `torrentInfo` (optional object): Selected torrent metadata.
 
 ### Checksums
@@ -121,7 +126,19 @@ Each element of `archiveSpecs` contains:
 - `checkSums` (optional object): MD5, SHA1 and XXH64 values for the extracted
   entry.
 
-Archive entries belong to the binary record of the archive file itself.
+Archive entries belong to the binary record of the archive file itself. The v3
+shape does not give an entry its own ordinary `NamedBinaryBlob` identity or
+path-reference record. Consequently, v3 archive metadata supports preview and
+per-entry checksums, but not full archive-member participation in the normal
+catalog duplicate/search/reference model. The planned normalized archive model
+is tracked in WP-13 of `SQLITE-IMPLEMENTATION-PLAN.md`.
+
+The current shallow archive scan records entry names only; size, timestamp and
+checksums are populated by deep scanning, which extracts entries to temporary
+files. An `ArchiveSpec` with zero/empty values can therefore mean “listed but not
+deeply inspected,” not necessarily an empty member. The future typed archive
+entry descriptor should represent scan/index state explicitly rather than infer
+it from these sentinel values.
 
 ### Torrent Information
 
@@ -154,6 +171,11 @@ During input migration:
 3. Legacy textual MediaInfo is parsed into `mediaInfoSig`.
 4. Invalid empty torrent and media records are removed.
 5. The in-memory catalog is normalized to version 3.
+
+JSON analysis retains records whose source files are currently unavailable by
+default. `dropMissing` is the explicit opt-in to remove them. Duplicate-merge
+cleanup removes only records invalidated by a successful merge; it must not
+silently apply missing-file cleanup.
 
 During output migration:
 

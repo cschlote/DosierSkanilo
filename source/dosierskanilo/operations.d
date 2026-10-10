@@ -2,6 +2,7 @@
 module dosierskanilo.operations;
 
 import core.atomic : atomicLoad, atomicStore;
+import core.sync.condition : Condition;
 import core.sync.mutex : Mutex;
 
 import dosierskanilo.repository.types : AnalysisSummary, MetadataScanOptions,
@@ -27,6 +28,8 @@ enum OperationState
 {
     queued,
     running,
+    pausing,
+    paused,
     cancelling,
     completed,
     cancelled,
@@ -42,8 +45,15 @@ bool validOperationStateTransition(OperationState current, OperationState next)
         return next == OperationState.running || next == OperationState.cancelled
             || next == OperationState.failed;
     case OperationState.running:
-        return next == OperationState.cancelling || next == OperationState.completed
-            || next == OperationState.cancelled || next == OperationState.failed;
+        return next == OperationState.pausing || next == OperationState.cancelling
+            || next == OperationState.completed || next == OperationState.cancelled
+            || next == OperationState.failed;
+    case OperationState.pausing:
+        return next == OperationState.paused || next == OperationState.running
+            || next == OperationState.cancelling || next == OperationState.completed
+            || next == OperationState.failed;
+    case OperationState.paused:
+        return next == OperationState.running || next == OperationState.cancelling;
     case OperationState.cancelling:
         return next == OperationState.completed || next == OperationState.cancelled
             || next == OperationState.failed;
@@ -111,6 +121,8 @@ struct ScanOperationRequest
     OperationTarget target;
     RepositoryScanOptions scanOptions;
     MetadataScanOptions metadataOptions;
+    /// Continue with an empty catalog if an existing JSON input is malformed.
+    bool forceJsonOverwrite;
 }
 
 /** Request for standalone repository metadata extraction. */
@@ -130,6 +142,8 @@ struct AnalysisOperationRequest
     /// Direct JSON analyze may run the existing selected scanner jobs first.
     /// Repository analyze rejects metadata options, as the current CLI does.
     MetadataScanOptions metadataOptions;
+    /// Continue with an empty catalog if an existing JSON input is malformed.
+    bool forceJsonOverwrite;
 }
 
 /** Validation errors detectable without opening a repository or catalog. */
@@ -169,12 +183,23 @@ struct OperationProgress
     ulong total;
     /// False means `completed` is a work count/status value, not a percentage.
     bool totalKnown;
+    /// True when a pause request can be acknowledged at a reachable safe checkpoint.
+    bool pauseAvailable;
     string path;
     string message;
 }
 
 /** Progress callbacks run synchronously on a reporting worker thread. */
 alias OperationProgressCallback = void delegate(OperationProgress event);
+
+/** Exception wrapper used to preserve progress-callback failures at API boundaries. */
+class OperationCallbackException : Exception
+{
+    this(string message)
+    {
+        super(message);
+    }
+}
 
 /** Stable operation-level failure categories; extractor failures remain summaries. */
 enum OperationErrorCode
@@ -193,6 +218,8 @@ struct OperationResult
     OperationState state;
     OperationErrorCode errorCode;
     string error;
+    /// Whether any source mutation committed before this terminal result.
+    bool changesCommitted;
     /// Populated for `scan` operations; other summaries remain their init value.
     ScanSummary scanSummary;
     /// Populated when metadata work was part of the request.
@@ -201,11 +228,16 @@ struct OperationResult
     AnalysisSummary analysisSummary;
 }
 
-/** Cooperative cancellation flag and serialized progress callback for one task. */
+/** Cooperative pause/cancellation control and progress channel for one operation. */
 final class OperationControl
 {
 private:
     shared bool cancelRequested;
+    shared bool* cancellationMirror;
+    bool pauseRequested;
+    bool pauseAvailable;
+    Mutex runControlMutex;
+    Condition runControlCondition;
     OperationProgressCallback progressCallback;
     Mutex callbackMutex;
 
@@ -214,13 +246,22 @@ public:
     this(OperationProgressCallback progressCallback = null)
     {
         this.progressCallback = progressCallback;
+        runControlMutex = new Mutex();
+        runControlCondition = new Condition(runControlMutex);
         callbackMutex = new Mutex();
     }
 
-    /** Set a sticky cancellation request; executors observe it at safe points. */
-    void requestCancellation() nothrow
+    /** Set cancellation and wake an operation waiting at a pause checkpoint. */
+    void requestCancellation()
     {
         atomicStore(cancelRequested, true);
+        synchronized (runControlMutex)
+        {
+            pauseRequested = false;
+            runControlCondition.notifyAll();
+            if (cancellationMirror !is null)
+                atomicStore(*cancellationMirror, true);
+        }
     }
 
     /** Whether a caller requested cooperative cancellation. */
@@ -229,13 +270,131 @@ public:
         return atomicLoad(cancelRequested);
     }
 
+    /**
+     * Bind an optional legacy cancellation flag that existing extractors poll.
+     * The pointed-to storage must remain alive until this operation and all its
+     * workers have joined.
+     */
+    void bindCancellationMirror(shared bool* mirror)
+    {
+        synchronized (runControlMutex)
+        {
+            cancellationMirror = mirror;
+            if (mirror !is null && cancellationRequested)
+                atomicStore(*mirror, true);
+        }
+    }
+
+    /** Whether the current phase has a reachable, safe pause checkpoint. */
+    @property bool pauseIsAvailable()
+    {
+        synchronized (runControlMutex)
+            return pauseAvailable && !cancellationRequested;
+    }
+
+    /**
+     * Advertise whether a pause request can be honored at a future safe point.
+     * Executors must set this false while holding a transaction, statement, or
+     * non-interruptible replacement sequence.
+     */
+    void setPauseAvailable(bool available)
+    {
+        synchronized (runControlMutex)
+            pauseAvailable = available;
+    }
+
+    /** Request a cooperative pause; false means no safe point is currently reachable. */
+    bool requestPause()
+    {
+        synchronized (runControlMutex)
+        {
+            if (cancellationRequested)
+                return false;
+            if (pauseRequested)
+                return true;
+            if (!pauseAvailable)
+                return false;
+            pauseRequested = true;
+            return true;
+        }
+    }
+
+    /** Resume a paused operation and wake its worker. */
+    bool requestResume()
+    {
+        synchronized (runControlMutex)
+        {
+            if (!pauseRequested)
+                return false;
+            pauseRequested = false;
+            runControlCondition.notifyAll();
+            return true;
+        }
+    }
+
+    /**
+     * Stop at an operation-defined safe checkpoint when pause was requested.
+     * The caller must have drained workers and released active storage
+     * transactions/statements before calling this method. False means
+     * cancellation took precedence while the operation was stopped.
+     */
+    bool pauseAtCheckpoint(OperationProgress progress)
+    {
+        synchronized (runControlMutex)
+        {
+            if (cancellationRequested)
+                return false;
+            if (!pauseRequested)
+                return true;
+            pauseAvailable = false;
+        }
+
+        progress.state = OperationState.paused;
+        progress.pauseAvailable = false;
+        if (progress.message.length == 0)
+            progress.message = "Paused at a safe checkpoint.";
+        report(progress);
+
+        bool cancelled;
+        synchronized (runControlMutex)
+        {
+            while (pauseRequested && !cancellationRequested)
+                runControlCondition.wait();
+            cancelled = cancellationRequested;
+            pauseAvailable = false;
+        }
+
+        progress.state = cancelled ? OperationState.cancelling : OperationState.running;
+        progress.pauseAvailable = false;
+        progress.message = cancelled ? "Cancellation requested while paused."
+            : "Operation resumed.";
+        report(progress);
+        return !cancelled;
+    }
+
     /** Deliver an event; callback invocations are serialized, but may use a worker thread. */
     void report(OperationProgress event)
     {
+        synchronized (runControlMutex)
+        {
+            if (event.state == OperationState.running)
+            {
+                if (cancellationRequested)
+                    event.state = OperationState.cancelling;
+                else if (pauseRequested)
+                    event.state = OperationState.pausing;
+            }
+            event.pauseAvailable = pauseAvailable && !cancellationRequested;
+        }
         if (progressCallback is null)
             return;
         synchronized (callbackMutex)
-            progressCallback(event);
+        {
+            try
+                progressCallback(event);
+            catch (Exception ex)
+                throw new OperationCallbackException(ex.msg);
+        }
     }
 }
 
@@ -402,7 +561,7 @@ unittest
         == OperationRequestError.unsupportedOptionCombination);
 }
 
-@("operation lifecycle permits safe terminals and rejects resurrection")
+@("operation lifecycle models pause and cancellation without resurrection")
 unittest
 {
     assert(validOperationStateTransition(OperationState.queued,
@@ -410,6 +569,18 @@ unittest
     assert(validOperationStateTransition(OperationState.queued,
         OperationState.cancelled));
     assert(validOperationStateTransition(OperationState.running,
+        OperationState.cancelling));
+    assert(validOperationStateTransition(OperationState.running,
+        OperationState.pausing));
+    assert(validOperationStateTransition(OperationState.pausing,
+        OperationState.paused));
+    assert(validOperationStateTransition(OperationState.pausing,
+        OperationState.running), "a completed unit may miss a pending pause");
+    assert(validOperationStateTransition(OperationState.paused,
+        OperationState.running));
+    assert(validOperationStateTransition(OperationState.paused,
+        OperationState.cancelling));
+    assert(validOperationStateTransition(OperationState.pausing,
         OperationState.cancelling));
     assert(validOperationStateTransition(OperationState.running,
         OperationState.completed));
@@ -423,6 +594,110 @@ unittest
         OperationState.running));
     assert(!validOperationStateTransition(OperationState.cancelled,
         OperationState.failed));
+    assert(!validOperationStateTransition(OperationState.paused,
+        OperationState.completed));
+}
+
+@("operation pause reports acknowledgement and resume in order")
+unittest
+{
+    import core.atomic : atomicLoad, atomicStore;
+    import core.thread : Thread;
+    import std.datetime : dur;
+
+    shared bool sawPaused;
+    shared bool sawPausing;
+    shared bool pausingPreservedCounts;
+    shared bool sawRunning;
+    shared bool checkpointContinued;
+    auto control = new OperationControl((OperationProgress event) {
+        if (event.state == OperationState.paused)
+            atomicStore(sawPaused, true);
+        else if (event.state == OperationState.pausing)
+        {
+            atomicStore(sawPausing, true);
+            atomicStore(pausingPreservedCounts, event.completed == 3
+                && event.total == 9 && event.pauseAvailable);
+        }
+        else if (event.state == OperationState.running
+            && event.message == "Operation resumed.")
+            atomicStore(sawRunning, true);
+    });
+    OperationProgress progress;
+    progress.operationId = 7;
+    progress.operation = OperationKind.scan;
+    progress.state = OperationState.running;
+    progress.phase = OperationPhase.scanning;
+    progress.completed = 3;
+    progress.total = 9;
+    progress.totalKnown = true;
+
+    assert(!control.requestPause(), "unavailable pause points are not offered");
+    control.setPauseAvailable(true);
+    assert(control.pauseIsAvailable);
+    assert(control.requestPause());
+    assert(control.requestPause(), "repeated pause requests are idempotent");
+    control.report(progress);
+
+    auto worker = new Thread({
+        atomicStore(checkpointContinued, control.pauseAtCheckpoint(progress));
+    });
+    worker.start();
+    size_t attempts;
+    while (!atomicLoad(sawPaused) && attempts++ < 5000)
+        Thread.sleep(dur!"msecs"(1));
+    auto acknowledged = atomicLoad(sawPaused);
+    auto resumed = control.requestResume();
+    worker.join();
+
+    assert(acknowledged, "pause is reported only after reaching the checkpoint");
+    assert(atomicLoad(sawPausing), "pending pause is distinct from acknowledgement");
+    assert(atomicLoad(pausingPreservedCounts));
+    assert(resumed);
+    assert(atomicLoad(sawRunning));
+    assert(atomicLoad(checkpointContinued));
+    assert(progress.completed == 3 && progress.total == 9,
+        "checkpoint progress values remain unchanged");
+}
+
+@("cancellation wakes a paused operation and takes precedence over resume")
+unittest
+{
+    import core.atomic : atomicLoad, atomicStore;
+    import core.thread : Thread;
+    import std.datetime : dur;
+
+    shared bool sawPaused;
+    shared bool sawCancelling;
+    shared bool checkpointContinued;
+    auto control = new OperationControl((OperationProgress event) {
+        if (event.state == OperationState.paused)
+            atomicStore(sawPaused, true);
+        else if (event.state == OperationState.cancelling)
+            atomicStore(sawCancelling, true);
+    });
+    control.setPauseAvailable(true);
+    assert(control.requestPause());
+    OperationProgress progress;
+    progress.operationId = 8;
+    progress.operation = OperationKind.metadata;
+    progress.phase = OperationPhase.archives;
+    auto worker = new Thread({
+        atomicStore(checkpointContinued, control.pauseAtCheckpoint(progress));
+    });
+    worker.start();
+    size_t attempts;
+    while (!atomicLoad(sawPaused) && attempts++ < 5000)
+        Thread.sleep(dur!"msecs"(1));
+    auto acknowledged = atomicLoad(sawPaused);
+    control.requestCancellation();
+    worker.join();
+
+    assert(acknowledged, "worker reached the pause checkpoint");
+    assert(control.cancellationRequested);
+    assert(atomicLoad(sawCancelling));
+    assert(!atomicLoad(checkpointContinued));
+    assert(!control.requestResume(), "cancellation clears the paused wait");
 }
 
 @("operation control cancellation is atomic and progress is a value event")
@@ -453,6 +728,14 @@ unittest
     assert(received.operationId == 42);
     assert(received.phase == OperationPhase.discovering);
     assert(!received.totalKnown);
+
+    shared bool legacyCancellation;
+    auto mirroredControl = new OperationControl();
+    mirroredControl.bindCancellationMirror(&legacyCancellation);
+    assert(!atomicLoad(legacyCancellation));
+    mirroredControl.requestCancellation();
+    assert(atomicLoad(legacyCancellation),
+        "legacy extractors observe the same cooperative cancellation request");
 }
 
 @("operation progress callbacks are serialized across workers")

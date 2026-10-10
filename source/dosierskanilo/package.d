@@ -26,3 +26,4 @@ public import dosierskanilo.service.scanning;
 public import dosierskanilo.service.storageio;
 public import dosierskanilo.repository;
 public import dosierskanilo.operations;
+public import dosierskanilo.operationrunner;

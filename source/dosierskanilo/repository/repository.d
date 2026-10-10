@@ -16,12 +16,14 @@ import std.stdio : File;
 import std.typecons : Nullable;
 
 import dosierskanilo.model.namedbinaryblob : NamedBinaryBlob;
+import dosierskanilo.operations : OperationControl, OperationTarget;
+import dosierskanilo.operationlease : TargetWriteLease;
 import dosierskanilo.repository.errors;
-import dosierskanilo.repository.analysis : analyzeRepository;
+import dosierskanilo.repository.analysis : analyzeRepositoryControlled;
 import dosierskanilo.repository.analysis : queryDuplicateGroups;
-import dosierskanilo.repository.metadata : updateRepositoryMetadata;
+import dosierskanilo.repository.metadata : updateRepositoryMetadataControlled;
 import dosierskanilo.repository.schema : migrate;
-import dosierskanilo.repository.scanner : scanRepository;
+import dosierskanilo.repository.scanner : scanRepositoryControlled;
 import dosierskanilo.repository.transfer : exportCatalogJson, importCatalogJson,
     loadCatalogFromDatabase, loadCatalogPageFromDatabase,
     loadCatalogQueryPageFromDatabase, loadCatalogQueryPageWithIdsFromDatabase,
@@ -325,6 +327,15 @@ public:
     void setArchivePasswordForBlob(long blobId, string password)
     {
         requireOpen();
+        auto targetLease = TargetWriteLease.acquireRepositoryRoot(
+            repositoryPaths.rootPath);
+        scope (exit)
+            targetLease.release();
+        setArchivePasswordForBlobUnleased(blobId, password);
+    }
+
+    private void setArchivePasswordForBlobUnleased(long blobId, string password)
+    {
         if (database.execute("SELECT 1 FROM blobs WHERE id = ?", blobId).empty)
             throw new RepositoryException("Unknown blob ID: " ~ blobId.to!string);
         if (password.length == 0)
@@ -345,6 +356,10 @@ public:
     void setArchivePasswordForPath(string fileName, string password)
     {
         requireOpen();
+        auto targetLease = TargetWriteLease.acquireRepositoryRoot(
+            repositoryPaths.rootPath);
+        scope (exit)
+            targetLease.release();
         auto relativePath = passwordRelativePath(fileName, repositoryPaths.rootPath);
         long[] matchingBlobIds;
         long[] basenameBlobIds;
@@ -367,7 +382,7 @@ public:
         if (matches.length > 1)
             throw new RepositoryException("Filename is ambiguous in this repository: "
                 ~ fileName);
-        setArchivePasswordForBlob(matches[0], password);
+        setArchivePasswordForBlobUnleased(matches[0], password);
     }
 
     /** Count blobs matching repository-side query filters. */
@@ -450,7 +465,27 @@ public:
     ScanSummary scan(RepositoryScanOptions options = RepositoryScanOptions())
     {
         requireOpen();
-        return scanRepository(database, repositoryPaths.rootPath, options);
+        return scanControlled(options, null, 0).summary;
+    }
+
+    /** Run a staged scan with operation progress, cancellation, and safe pauses. */
+    package(dosierskanilo) ScanExecutionResult scanControlled(RepositoryScanOptions options,
+        OperationControl control, ulong operationId,
+        TargetWriteLease targetLease = null)
+    {
+        requireOpen();
+        bool ownsLease = targetLease is null;
+        if (ownsLease)
+            targetLease = TargetWriteLease.acquireRepositoryRoot(
+                repositoryPaths.rootPath);
+        else
+            enforce(targetLease.owns(OperationTarget.repositoryTarget(
+                repositoryPaths.rootPath)), "Operation lease target does not match repository.");
+        scope (exit)
+            if (ownsLease)
+                targetLease.release();
+        return scanRepositoryControlled(database, repositoryPaths.rootPath,
+            options, control, operationId);
     }
 
     /** Run selected metadata extraction jobs for stored file references. */
@@ -458,7 +493,27 @@ public:
         MetadataScanOptions options = MetadataScanOptions())
     {
         requireOpen();
-        return updateRepositoryMetadata(database, repositoryPaths.rootPath, options);
+        return updateMetadataControlled(options, null, 0).summary;
+    }
+
+    /** Run metadata extraction with worker draining, blob transactions, and control. */
+    package(dosierskanilo) MetadataExecutionResult updateMetadataControlled(MetadataScanOptions options,
+        OperationControl control, ulong operationId,
+        TargetWriteLease targetLease = null)
+    {
+        requireOpen();
+        bool ownsLease = targetLease is null;
+        if (ownsLease)
+            targetLease = TargetWriteLease.acquireRepositoryRoot(
+                repositoryPaths.rootPath);
+        else
+            enforce(targetLease.owns(OperationTarget.repositoryTarget(
+                repositoryPaths.rootPath)), "Operation lease target does not match repository.");
+        scope (exit)
+            if (ownsLease)
+                targetLease.release();
+        return updateRepositoryMetadataControlled(database,
+            repositoryPaths.rootPath, options, control, operationId);
     }
 
     /** Analyze missing references and duplicate blobs in SQL. */
@@ -466,7 +521,26 @@ public:
         RepositoryAnalysisOptions options = RepositoryAnalysisOptions())
     {
         requireOpen();
-        return analyzeRepository(database, options);
+        return analyzeControlled(options, null, 0).summary;
+    }
+
+    /** Analyze the repository with staged plans and cooperative run control. */
+    package(dosierskanilo) AnalysisExecutionResult analyzeControlled(RepositoryAnalysisOptions options,
+        OperationControl control, ulong operationId,
+        TargetWriteLease targetLease = null)
+    {
+        requireOpen();
+        bool ownsLease = targetLease is null;
+        if (ownsLease)
+            targetLease = TargetWriteLease.acquireRepositoryRoot(
+                repositoryPaths.rootPath);
+        else
+            enforce(targetLease.owns(OperationTarget.repositoryTarget(
+                repositoryPaths.rootPath)), "Operation lease target does not match repository.");
+        scope (exit)
+            if (ownsLease)
+                targetLease.release();
+        return analyzeRepositoryControlled(database, options, control, operationId);
     }
 
     /** Return duplicate groups without changing repository data. */

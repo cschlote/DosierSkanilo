@@ -41,8 +41,8 @@ The directory has separate responsibilities:
 - `logs/`: Human-readable or structured operational logs; not query state.
 - `exports/`: Optional JSON exports created by the user or CLI.
 - `backups/`: Optional database and JSON backups before destructive operations.
-- `locks/`: Optional application lock files if SQLite locking alone is
-  insufficient for a workflow.
+- Cross-process operation locks currently live in the system temporary directory;
+  they are coordination state, not part of the repository catalog.
 
 The database belongs to the repository metadata, similar to `.git`. A command
 started below the repository root should search parent directories for
@@ -72,6 +72,9 @@ repository
   content identity data.
 - `file_refs`: A path, modification timestamp and existence/observation state
   pointing to a blob.
+- `archive_passwords`: Optional clear-text password associated with a blob, added
+  in schema version 2. Repository files and JSON exports containing passwords
+  are sensitive data.
 - `schema_migrations`: Applied database schema migrations.
 
 `file_refs` replaces the JSON model's mixed single-file and multi-file
@@ -105,7 +108,8 @@ large polymorphic table:
 - `media_text_streams`
 
 `archive_entries` references the archive blob and stores entry path, size,
-modification timestamp and entry checksums.
+modification timestamp and entry checksums. It is a nested metadata relation;
+entries do not yet reference first-class content blobs.
 
 `torrent_info` references one blob and stores all currently available torrent
 fields, including the fields that version-3 JSON does not currently output.
@@ -188,41 +192,36 @@ Current options are tracked as low-priority follow-up work:
 - Add an explicit external database-root configuration if the second option is
   selected.
 
-## Library API Boundary
+## Public API Boundary: Current and Target
 
-The GUI should depend on a library-facing repository API, not on `d2sqlite3`
-or raw SQL. The current public surface is defined in the shared query contract
-in [SQLITE-IMPLEMENTATION-PLAN.md](SQLITE-IMPLEMENTATION-PLAN.md) (lines 38–47):
+The implemented database API is the concrete `Repository` class in
+`source/dosierskanilo/repository/repository.d`, re-exported by
+`import dosierskanilo.repository`. It owns initialization/discovery, normalized
+queries, JSON transfer, and synchronous convenience methods for scan, metadata,
+and analysis. `d2sqlite3`, SQL statements, and schema migrations remain behind
+this class. Public reads return typed repository DTOs, but some legacy catalog
+methods still expose `NamedBinaryBlob`, the JSON serialization model.
 
-```text
-open(path)
-root(filterState, sortOrder)
-listDirectories(parentId, filterState, sortOrder)
-listFiles(directoryId, filterState, sortOrder, cursor)
-loadFileDetails(fileId)
-loadArchiveDetails(fileId)
-loadTorrentDetails(fileId)
-next(fileId, filterState, sortOrder)
-previous(fileId, filterState, sortOrder)
-close()
-```
+The shared long-running `runOperation()` API handles explicit SQLite and JSON
+targets for scan/metadata/analysis. It is an operation facade; it is not yet the
+polymorphic read/query base class for both storage formats. The GTK directory
+view currently combines `Repository` DTO queries with its own JSON projection
+through a GUI-owned `DirectorySource`.
 
-The exact D types are to be designed separately. Query results should be
-read-only value types or DTOs so the GUI cannot accidentally mutate database
-state outside a transaction.
+The desired API is a storage-neutral catalog/backend interface created by a
+factory from an explicit target. JSON and SQLite implementations should expose
+the same logical directory/file reads, stable identifiers, filters, sorting,
+details, and navigation cursors. HMI code should depend on that interface rather
+than branching on SQLite DTOs or `NamedBinaryBlob`; SQL drivers and JSON
+serialization stay private adapters. Do not claim generic SQL-database support
+yet: first freeze the backend contract and SQLite behavior, then assess which
+transaction, keyset-query, migration, and binary-type capabilities another SQL
+engine would need. The staged design is tracked as WP-13 in
+`SQLITE-IMPLEMENTATION-PLAN.md`.
 
-The old API surface documented here has been superseded by the shared query
-contract above: `Repository.initialize()` was replaced by `open()`,
-`Repository.loadCatalog()` and `Repository.queryFiles()` were replaced by
-`root()` / `listDirectories()` / `listFiles()`, and `Repository.scan()`,
-`Repository.importJson()`, `Repository.exportJson()`, `Repository.queryDuplicates()`,
-and `Repository.queryMedia()` are now either implementation details or part of
-the operation contract (WP-09). Any external references to the old methods need
-to be updated to the current shared contract.
-
-The implementation can use `d2sqlite3`, already used by
-`eterna-kosmo-server` as `d2sqlite3 ~>1.0.0`, but this dependency should remain
-behind the repository module.
+The archive schema currently stores `archive_entries` as metadata children of a
+container blob. It does not yet represent every archive member as an ordinary
+content blob/reference; see the archive-indexing design in the backend plan.
 
 ## API and Package Versioning
 
@@ -243,7 +242,7 @@ compatibility—not a calendar year or month:
 - Keep database schema/migration versioning separate from the package/API
   version.
 
-## Initial Implementation Phases
+## Historical Initial Implementation Phases
 
 The detailed, checkable work breakdown is maintained in
 [SQLITE-IMPLEMENTATION-PLAN.md](SQLITE-IMPLEMENTATION-PLAN.md).
@@ -257,5 +256,6 @@ The detailed, checkable work breakdown is maintained in
 7. Add CLI commands for repository discovery, initialization and scanning.
 8. Add compatibility tests for JSON round trips and database migrations.
 
-The existing JSON backend should remain untouched until the SQLite path has
-equivalent import, export and scan coverage.
+These phases record the SQLite rollout sequence and are complete. Subsequent
+storage-neutral API and archive-content work is planned separately under WP-13;
+the existing JSON v3 format remains the compatibility boundary during that work.

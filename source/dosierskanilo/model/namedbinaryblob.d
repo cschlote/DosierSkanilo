@@ -118,12 +118,12 @@ mixin template payloadHelpers()
 	Task!(updateTorrentInfo, NamedBinaryBlob)* task_torrentscan; ///< Pointer to torrent scan job
 }
 
-/** Simple class to store the basic file properties
+/** Legacy JSON domain record for one binary payload and its known file paths.
  *
- * Encapsulate the payload into this class. Also some property functions
- * allow to store the binary data as base64 strings instead of ubyte arrays.
- * This saves a lot of space in the resulting storage files (strings are much
- * shorter then typical array representations).
+ * This JSON/Jsonizer type combines payload properties with `FileSpec[]`
+ * filesystem references and optional metadata. It is the current interchange
+ * representation; the storage-neutral content/reference model is planned in
+ * WP-12. Checksum properties serialize as Base64 strings.
  */
 class NamedBinaryBlob
 {
@@ -1400,6 +1400,8 @@ void updateArchives(NamedBinaryBlob obj,
 
 	if (obj.archiveSpecs is null || rescan)
 	{
+		if (rescan)
+			obj.archiveSpecs = null;
 		import std.algorithm.sorting : sort;
 		import std.file : exists;
 
@@ -1612,6 +1614,10 @@ unittest
 	auto dco1 = new NamedBinaryBlob(fn, fh1.size, SysTime(4_237_892));
 	updateArchives(dco1, true);
 	assert(dco1.archiveSpecs.length > 0);
+	auto firstScanEntries = dco1.archiveSpecs.length;
+	updateArchives(dco1, true);
+	assert(dco1.archiveSpecs.length == firstScanEntries,
+		"rescan replaces the entry index instead of appending duplicates");
 
 	createManyEntriesArchive(11);
 	scope (success)
@@ -1788,11 +1794,12 @@ void invalidateDataClassObjs(NamedBinaryBlob[] objs)
 		o.fileSpecs = [];
 }
 
-/** Remove Cleanup list
+/** Remove orphaned records whose filesystem references are all unavailable.
  *
  * Params:
- *   objs = Set of objects to cleanup
- * Returns: cleaned up array
+ *   objs = Records to filter.
+ * Returns: Records with at least one existing file reference. Use only when the
+ *     caller explicitly intends missing-file cleanup.
  */
 NamedBinaryBlob[] cleanupDataClassObjs(NamedBinaryBlob[] objs)
 {
@@ -1802,6 +1809,20 @@ NamedBinaryBlob[] cleanupDataClassObjs(NamedBinaryBlob[] objs)
 	alias matcher = (a) => !a.isBlobOrphaned;
 	auto valobjs = objs.filter!(matcher);
 	return valobjs.array;
+}
+
+/** Remove only records explicitly invalidated by duplicate merging.
+ *
+ * Unlike `cleanupDataClassObjs`, this helper does not test filesystem
+ * existence. Callers can preserve unavailable source references unless the
+ * user explicitly requested missing-file removal.
+ */
+NamedBinaryBlob[] cleanupInvalidatedDataClassObjs(NamedBinaryBlob[] objs)
+{
+	import std.array : array;
+	import std.algorithm : filter;
+
+	return objs.filter!(blob => blob !is null && blob.fileSpecs.length > 0).array;
 }
 
 /** Combined unit test for merge operaton

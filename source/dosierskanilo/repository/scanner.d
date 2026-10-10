@@ -4,23 +4,47 @@ module dosierskanilo.repository.scanner;
 import d2sqlite3;
 
 import std.algorithm.searching : startsWith;
-import std.file : DirEntry, SpanMode, dirEntries, isFile;
+import std.file : SpanMode, dirEntries, isFile;
 import std.path : buildNormalizedPath, buildPath, dirName, dirSeparator;
 import std.string : empty, replace, split;
 
 import dosierskanilo.repository.errors;
 import dosierskanilo.repository.types;
+import dosierskanilo.operations : OperationControl, OperationKind,
+    OperationPhase, OperationProgress, OperationState;
 
 /** Scan the repository root and update current file references. */
 ScanSummary scanRepository(ref Database db, string rootPath,
     RepositoryScanOptions options)
 {
-    ScanSummary summary;
-    auto now = currentTimestamp();
+    return scanRepositoryControlled(db, rootPath, options, null, 0).summary;
+}
+
+/**
+ * Stage filesystem observations outside a catalog transaction, then apply them
+ * atomically. Pause checkpoints occur only while staging and after each
+ * temporary-table statement has completed.
+ */
+ScanExecutionResult scanRepositoryControlled(ref Database db, string rootPath,
+    RepositoryScanOptions options, OperationControl control, ulong operationId)
+{
+    ScanExecutionResult execution;
+    auto ref summary = execution.summary;
+    resetScanStage(db);
+    scope (exit)
+        clearScanStage(db);
+    db.execute("INSERT INTO temp.scan_missing_candidates (id, relative_path) "
+        ~ "SELECT id, relative_path FROM file_refs WHERE exists_on_disk = 1");
+
+    if (!reportScanProgress(control, operationId, OperationPhase.discovering,
+        0, "Scanning filesystem."))
+    {
+        execution.cancelled = true;
+        return execution;
+    }
 
     try
     {
-        db.begin();
         foreach (entry; dirEntries(rootPath,
             options.recursive ? SpanMode.depth : SpanMode.shallow))
         {
@@ -31,16 +55,52 @@ ScanSummary scanRepository(ref Database db, string rootPath,
             if (isFile(entry.name))
             {
                 summary.filesFound++;
-                upsertFileReference(db, relative, entry, now, summary);
+                auto modified = entry.timeLastModified.toISOExtString;
+                db.execute("INSERT OR REPLACE INTO temp.scan_stage_files "
+                    ~ "(relative_path, file_size, time_last_modified) "
+                    ~ "VALUES (?, ?, ?)", relative, cast(long) entry.size,
+                    modified);
+                db.execute("DELETE FROM temp.scan_missing_candidates "
+                    ~ "WHERE relative_path = ?", relative);
             }
             else
             {
                 summary.directoriesFound++;
-                ensureDirectory(db, relative);
+                db.execute("INSERT OR IGNORE INTO temp.scan_stage_directories "
+                    ~ "(relative_path) VALUES (?)", relative);
+            }
+
+            if (!reportScanProgress(control, operationId, OperationPhase.scanning,
+                summary.filesFound + summary.directoriesFound,
+                relative))
+            {
+                execution.cancelled = true;
+                return execution;
             }
         }
 
-        markMissing(db, rootPath, options.pickHidden, summary);
+        if (!stageMissingReferences(db, rootPath, options.pickHidden, control,
+            operationId, summary.filesFound + summary.directoriesFound,
+            summary.filesMissing))
+        {
+            execution.cancelled = true;
+            return execution;
+        }
+
+        // No pause is advertised while the atomic catalog transaction is active.
+        if (control !is null)
+            control.setPauseAvailable(false);
+        if (control !is null && control.cancellationRequested)
+        {
+            execution.cancelled = true;
+            return execution;
+        }
+
+        auto now = currentTimestamp();
+        db.begin();
+        applyStagedDirectories(db);
+        applyStagedFiles(db, now, summary);
+        applyStagedMissing(db);
         if (options.dropMissing)
         {
             summary.filesDropped = cast(size_t) db.execute(
@@ -51,7 +111,14 @@ ScanSummary scanRepository(ref Database db, string rootPath,
                 ~ "(SELECT DISTINCT blob_id FROM file_refs)");
         }
         db.execute("UPDATE repository SET updated_at = ? WHERE id = 1", now);
+        if (control !is null && control.cancellationRequested)
+        {
+            db.rollback();
+            execution.cancelled = true;
+            return execution;
+        }
         db.commit();
+        execution.committed = true;
     }
     catch (Exception ex)
     {
@@ -62,22 +129,20 @@ ScanSummary scanRepository(ref Database db, string rootPath,
         }
         throw ex;
     }
-    return summary;
+    return execution;
 }
 
 private void upsertFileReference(ref Database db, string relativePath,
-    DirEntry entry, string now, ref ScanSummary summary)
+    ulong fileSize, string modified, string now, ref ScanSummary summary)
 {
     auto result = db.execute("SELECT file_refs.id, file_refs.blob_id, "
         ~ "blobs.file_size, file_refs.time_last_modified FROM file_refs "
         ~ "JOIN blobs ON blobs.id = file_refs.blob_id "
         ~ "WHERE file_refs.relative_path = ?", relativePath);
-    auto modified = entry.timeLastModified.toISOExtString;
-
     if (result.empty)
     {
         db.execute("INSERT INTO blobs (file_size) VALUES (?)",
-            cast(long) entry.size);
+            cast(long) fileSize);
         auto blobId = db.lastInsertRowid;
         auto directoryId = ensureDirectory(db, dirName(relativePath));
         if (directoryId == 0)
@@ -104,10 +169,10 @@ private void upsertFileReference(ref Database db, string relativePath,
     auto oldBlobId = row.peek!long(1);
     auto oldSize = cast(ulong) row.peek!long(2);
     auto oldModified = row.peek!string(3);
-    if (oldSize != entry.size || oldModified != modified)
+    if (oldSize != fileSize || oldModified != modified)
     {
         db.execute("INSERT INTO blobs (file_size) VALUES (?)",
-            cast(long) entry.size);
+            cast(long) fileSize);
         auto newBlobId = db.lastInsertRowid;
         db.execute("UPDATE file_refs SET blob_id = ?, "
             ~ "time_last_modified = ?, exists_on_disk = 1, last_seen_at = ? "
@@ -123,23 +188,133 @@ private void upsertFileReference(ref Database db, string relativePath,
     }
 }
 
-private void markMissing(ref Database db, string rootPath, bool pickHidden,
+private void resetScanStage(ref Database db)
+{
+    db.execute("DROP TABLE IF EXISTS temp.scan_stage_directories");
+    db.execute("DROP TABLE IF EXISTS temp.scan_stage_files");
+    db.execute("DROP TABLE IF EXISTS temp.scan_missing_candidates");
+    db.execute("DROP TABLE IF EXISTS temp.scan_stage_missing");
+    db.execute("CREATE TEMP TABLE scan_stage_directories "
+        ~ "(relative_path TEXT PRIMARY KEY)");
+    db.execute("CREATE TEMP TABLE scan_stage_files "
+        ~ "(relative_path TEXT PRIMARY KEY, file_size INTEGER NOT NULL, "
+        ~ "time_last_modified TEXT NOT NULL)");
+    db.execute("CREATE TEMP TABLE scan_missing_candidates "
+        ~ "(id INTEGER PRIMARY KEY, relative_path TEXT NOT NULL)");
+    db.execute("CREATE TEMP TABLE scan_stage_missing (id INTEGER PRIMARY KEY)");
+}
+
+private void clearScanStage(ref Database db)
+{
+    try
+    {
+        db.execute("DROP TABLE IF EXISTS temp.scan_stage_directories");
+        db.execute("DROP TABLE IF EXISTS temp.scan_stage_files");
+        db.execute("DROP TABLE IF EXISTS temp.scan_missing_candidates");
+        db.execute("DROP TABLE IF EXISTS temp.scan_stage_missing");
+    }
+    catch (Exception)
+    {
+    }
+}
+
+private struct MissingCandidate
+{
+    long id;
+    string relativePath;
+    bool found;
+}
+
+private MissingCandidate nextMissingCandidate(ref Database db, long afterId)
+{
+    auto result = db.execute("SELECT id, relative_path FROM "
+        ~ "temp.scan_missing_candidates WHERE id > ? ORDER BY id LIMIT 1",
+        afterId);
+    if (result.empty)
+        return MissingCandidate.init;
+    auto row = result.front;
+    return MissingCandidate(row.peek!long(0), row.peek!string(1), true);
+}
+
+private bool stageMissingReferences(ref Database db, string rootPath,
+    bool pickHidden, OperationControl control, ulong operationId, size_t completed,
+    ref size_t observedMissing)
+{
+    long afterId;
+    while (true)
+    {
+        auto candidate = nextMissingCandidate(db, afterId);
+        if (!candidate.found)
+            break;
+        afterId = candidate.id;
+        if (pickHidden || !hasHiddenComponent(candidate.relativePath))
+        {
+            if (!existsOnDisk(rootPath, candidate.relativePath))
+            {
+                db.execute("INSERT INTO temp.scan_stage_missing (id) VALUES (?)",
+                    candidate.id);
+                observedMissing++;
+            }
+        }
+        completed++;
+        if (!reportScanProgress(control, operationId,
+            OperationPhase.reconcilingMissingFiles, completed,
+            candidate.relativePath))
+            return false;
+    }
+    return true;
+}
+
+private void applyStagedDirectories(ref Database db)
+{
+    auto directories = db.execute("SELECT relative_path FROM "
+        ~ "temp.scan_stage_directories ORDER BY length(relative_path), relative_path");
+    foreach (row; directories)
+        ensureDirectory(db, row.peek!string(0));
+}
+
+private void applyStagedFiles(ref Database db, string now,
     ref ScanSummary summary)
 {
-    auto result = db.execute("SELECT id, relative_path FROM file_refs "
-        ~ "WHERE exists_on_disk = 1");
-    foreach (row; result)
+    auto files = db.execute("SELECT relative_path, file_size, "
+        ~ "time_last_modified FROM temp.scan_stage_files ORDER BY relative_path");
+    foreach (row; files)
+        upsertFileReference(db, row.peek!string(0),
+            cast(ulong) row.peek!long(1), row.peek!string(2), now, summary);
+}
+
+private void applyStagedMissing(ref Database db)
+{
+    auto missing = db.execute("SELECT id FROM temp.scan_stage_missing ORDER BY id");
+    foreach (row; missing)
     {
-        auto path = row.peek!string(1);
-        if (!pickHidden && hasHiddenComponent(path))
-            continue;
-        if (!existsOnDisk(rootPath, path))
-        {
-            db.execute("UPDATE file_refs SET exists_on_disk = 0 "
-                ~ "WHERE id = ?", row.peek!long(0));
-            summary.filesMissing++;
-        }
+        db.execute("UPDATE file_refs SET exists_on_disk = 0 WHERE id = ?",
+            row.peek!long(0));
     }
+}
+
+private bool reportScanProgress(OperationControl control, ulong operationId,
+    OperationPhase phase, size_t completed, string path)
+{
+    if (control is null)
+        return true;
+    if (control.cancellationRequested)
+        return false;
+    control.setPauseAvailable(true);
+    OperationProgress progress;
+    progress.operationId = operationId;
+    progress.operation = OperationKind.scan;
+    progress.state = OperationState.running;
+    progress.phase = phase;
+    progress.completed = completed;
+    progress.totalKnown = false;
+    progress.path = path;
+    progress.message = phase == OperationPhase.discovering
+        ? "Scanning filesystem." : "Checking stored file references.";
+    control.report(progress);
+    if (!control.pauseAtCheckpoint(progress))
+        return false;
+    return !control.cancellationRequested;
 }
 
 private bool existsOnDisk(string rootPath, string relativePath)

@@ -53,8 +53,6 @@ version (ldc)
 /* ----------------------------------------------------------------------- */
 
 /* The global wrapper with all file objects and shared metadata */
-NamedBinaryBlobCatalog dynObjectWrapper = NamedBinaryBlobCatalog(DATA_CLASS_VERSION3, []); /// Global data wrapper
-
 /* Custom CTRL-C handler for a smooth abort of running scan operation */
 shared bool gotCtrlC; /// Set in handler
 
@@ -159,17 +157,33 @@ bool executeRepositoryOperation(ArgsArray options)
 		if (!options.argImportJSON.empty)
 			executeRepositoryImport(repository, options);
 
-		if (options.argScanFiles)
-			executeRepositoryScan(repository, options);
+		if (options.argScanFiles
+			&& !executeRepositoryScan(repository, options))
+		{
+			repository.close();
+			return false;
+		}
 
-		if (options.argRunAnalysis)
-			executeRepositoryAnalysis(repository, options);
+		if (options.argRunAnalysis
+			&& !executeRepositoryAnalysis(repository, options))
+		{
+			repository.close();
+			return false;
+		}
 
 		if (options.argRunMetadata || options.argDoChecksums
 			|| options.argDoFileTypes || options.argDoMediaSig
 			|| options.argScanArchives || options.argScanTorrents)
 		{
-			executeRepositoryMetadata(repository, options);
+			const bool metadataRequested = options.argDoChecksums
+				|| options.argDoFileTypes || options.argDoMediaSig
+				|| options.argScanArchives || options.argScanTorrents;
+			if ((!options.argScanFiles || !metadataRequested)
+				&& !executeRepositoryMetadata(repository, options))
+			{
+				repository.close();
+				return false;
+			}
 		}
 
 		executeRepositoryExport(repository, options);
@@ -197,31 +211,69 @@ void executeRepositoryImport(Repository repository, ArgsArray options)
 }
 
 /** Scan the repository filesystem and persist changed references. */
-void executeRepositoryScan(Repository repository, ArgsArray options)
+bool executeRepositoryScan(Repository repository, ArgsArray options)
 {
-	logLine("Repository phase: scan filesystem.");
-	repository.appendLog("scan.start", repository.rootPath);
 	RepositoryScanOptions scanOptions;
 	scanOptions.recursive = options.argRecursive;
 	scanOptions.pickHidden = options.argPickHidden;
 	scanOptions.dropMissing = options.argDropMissing;
-	auto summary = repository.scan(scanOptions);
+	ScanOperationRequest request;
+	request.operationId = 1;
+	request.target = OperationTarget.repositoryTarget(repository.rootPath);
+	request.scanOptions = scanOptions;
+	request.metadataOptions = metadataOptionsFromCli(options);
+	auto control = cliOperationControl("Repository scan");
+	repository.appendLog("scan.start", repository.rootPath);
+	auto result = runOperation(request, control);
+	if (result.state != OperationState.completed)
+	{
+		if (result.state == OperationState.cancelled)
+			errorLine("Repository scan cancelled; no scan changes were committed.");
+		else
+			errorLine("Repository scan failed: ", result.error);
+		return false;
+	}
+	auto summary = result.scanSummary;
 	logFLine("Repository scan: %d files, %d added, %d changed, %d missing.",
 		summary.filesFound, summary.filesAdded, summary.filesChanged,
 		summary.filesMissing);
+	if (result.metadataSummary.blobsVisited > 0)
+		logFLine("Repository metadata: %d blobs, %d checksum, %d file type, "
+			~ "%d media, %d archive, %d torrent updates, %d failures.",
+			result.metadataSummary.blobsVisited,
+			result.metadataSummary.checksumsUpdated,
+			result.metadataSummary.fileTypesUpdated,
+			result.metadataSummary.mediaInfoUpdated,
+			result.metadataSummary.archivesUpdated,
+			result.metadataSummary.torrentsUpdated,
+			result.metadataSummary.failed);
 	repository.appendLog("scan.complete", format(
 		"files=%d added=%d changed=%d missing=%d", summary.filesFound,
 		summary.filesAdded, summary.filesChanged, summary.filesMissing));
+	return true;
 }
 
 /** Analyze duplicate and missing-file state in the repository. */
-void executeRepositoryAnalysis(Repository repository, ArgsArray options)
+bool executeRepositoryAnalysis(Repository repository, ArgsArray options)
 {
-	logLine("Repository phase: SQL analysis.");
-	repository.appendLog("analysis.start", "");
 	RepositoryAnalysisOptions analysisOptions;
 	analysisOptions.dropMissing = options.argDropMissing;
-	auto summary = repository.analyze(analysisOptions);
+	AnalysisOperationRequest request;
+	request.operationId = 3;
+	request.target = OperationTarget.repositoryTarget(repository.rootPath);
+	request.options = analysisOptions;
+	auto control = cliOperationControl("Repository analysis");
+	repository.appendLog("analysis.start", "");
+	auto result = runOperation(request, control);
+	if (result.state != OperationState.completed)
+	{
+		if (result.state == OperationState.cancelled)
+			errorLine("Repository analysis cancelled; no analysis changes were committed.");
+		else
+			errorLine("Repository analysis failed: ", result.error);
+		return false;
+	}
+	auto summary = result.analysisSummary;
 	logFLine("Repository analysis: %d missing, %d dropped, %d duplicate "
 		~ "groups, %d merged blobs, %d orphaned blobs.",
 		summary.missingFiles, summary.droppedFiles,
@@ -232,6 +284,7 @@ void executeRepositoryAnalysis(Repository repository, ArgsArray options)
 		summary.missingFiles, summary.droppedFiles,
 		summary.duplicateGroups, summary.mergedBlobs,
 		summary.orphanedBlobs));
+	return true;
 }
 
 /** Export the repository catalog when requested. */
@@ -355,10 +408,8 @@ string jsonQuote(string value)
 }
 
 /** Execute the selected metadata extractors against a repository. */
-void executeRepositoryMetadata(Repository repository, ArgsArray options)
+bool executeRepositoryMetadata(Repository repository, ArgsArray options)
 {
-	logLine("Repository phase: metadata extraction.");
-	repository.appendLog("metadata.start", "");
 	MetadataScanOptions metadataOptions;
 	metadataOptions.calculateChecksums = options.argDoChecksums;
 	metadataOptions.detectFileTypes = options.argDoFileTypes;
@@ -369,7 +420,22 @@ void executeRepositoryMetadata(Repository repository, ArgsArray options)
 	metadataOptions.rescan = options.argRescanMediaSig;
 	metadataOptions.threads = options.argNumberOfThreads > 1
 		? cast(size_t) options.argNumberOfThreads : 1;
-	auto summary = repository.updateMetadata(metadataOptions);
+	MetadataOperationRequest request;
+	request.operationId = 2;
+	request.target = OperationTarget.repositoryTarget(repository.rootPath);
+	request.options = metadataOptions;
+	auto control = cliOperationControl("Repository metadata");
+	repository.appendLog("metadata.start", "");
+	auto result = runOperation(request, control);
+	if (result.state != OperationState.completed)
+	{
+		if (result.state == OperationState.cancelled)
+			errorLine("Repository metadata operation cancelled.");
+		else
+			errorLine("Repository metadata operation failed: ", result.error);
+		return false;
+	}
+	auto summary = result.metadataSummary;
 	logFLine("Metadata update: %d blobs, %d checksum, %d file type, "
 		~ "%d media, %d archive, %d torrent updates, %d failures.",
 		summary.blobsVisited, summary.checksumsUpdated,
@@ -377,6 +443,32 @@ void executeRepositoryMetadata(Repository repository, ArgsArray options)
 		summary.archivesUpdated, summary.torrentsUpdated, summary.failed);
 	repository.appendLog("metadata.complete", format(
 		"blobs=%d failed=%d", summary.blobsVisited, summary.failed));
+	return true;
+}
+
+/** Render shared operation progress and translate SIGINT into cooperative cancellation. */
+OperationControl cliOperationControl(string label)
+{
+	OperationControl control;
+	OperationPhase lastPhase = OperationPhase.none;
+	size_t lastReported;
+	control = new OperationControl((OperationProgress event) {
+		// Signal handlers only set a flag; mutex/condition work happens here.
+		if (gotCtrlC && !control.cancellationRequested)
+			control.requestCancellation();
+		if (event.phase != lastPhase)
+		{
+			lastPhase = event.phase;
+			logFLine("%s phase: %s.", label, event.phase);
+		}
+		if (event.completed >= lastReported + 1000
+			&& event.state == OperationState.running)
+		{
+			lastReported = event.completed;
+			logFLine("%s progress: %d blobs/items.", label, event.completed);
+		}
+	});
+	return control;
 }
 
 /** A handler for OS signals
@@ -421,70 +513,78 @@ extern (C) nothrow @nogc @system void signalHandler(int sig)
  */
 bool executeFileScannerOperation(ArgsArray options)
 {
-
-	/* Read the JSON file, if existent */
-	const bool rc_load = readStorageJsonFile(options.argJSONFile, options.argReplaceCatalog,
-		dynObjectWrapper);
-	if (!rc_load)
-	{
-		errorLine("Abort program. Use -f to force overwriting of output file.");
-		return false;
-	}
-
-	/* Scan directory - here we just collect the filenames. Any new name is added
-	   as a new node to the array of object blobs.
-	 */
+	auto control = cliOperationControl("JSON operation");
+	OperationResult result;
 	if (options.argScanFiles)
 	{
-		import std.algorithm.iteration : fold;
-
-		const bool rc_scandirtree =
-			scanDirTree(options.argScanPath, options.argPickHidden, dynObjectWrapper.dataArray, gotCtrlC, options);
-		if (!rc_scandirtree)
-		{
-			errorLine("Failed to scan the directory tree.");
-			return false;
-		}
+		ScanOperationRequest request;
+		request.operationId = 4;
+		request.target = OperationTarget.jsonTarget(options.argJSONFile,
+			options.argScanPath);
+		request.scanOptions.recursive = options.argRecursive;
+		request.scanOptions.pickHidden = options.argPickHidden;
+		request.forceJsonOverwrite = options.argReplaceCatalog;
+		request.metadataOptions = metadataOptionsFromCli(options);
+		result = runOperation(request, control);
+	}
+	else
+	{
+		AnalysisOperationRequest request;
+		request.operationId = 5;
+		request.target = OperationTarget.jsonTarget(options.argJSONFile);
+		request.options.dropMissing = options.argDropMissing;
+		request.metadataOptions = metadataOptionsFromCli(options);
+		request.forceJsonOverwrite = options.argReplaceCatalog;
+		result = runOperation(request, control);
 	}
 
-	/* The next section is running the real time consuming jobs.*/
-	try
+	if (result.state != OperationState.completed)
 	{
-		/* Execute the checksum and MediaInfo jobs for each file. */
-		const bool rc_dojobs = runScannerJobs(dynObjectWrapper.dataArray, gotCtrlC, options);
-		if (!rc_dojobs)
-			errorLine("Failed to run all scanner jobs.");
-	}
-	catch (Exception e)
-	{
-		errorLine("Something happened while scanning and an exception was thrown.");
-		auto emergencySaveName = buildPath(thisExePath.dirName, ".crash_save.json");
-		logFLine("Serialize Array of Objects to temporary file: %s", emergencySaveName);
-		serializeDataClassWrapperFile(emergencySaveName, dynObjectWrapper);
-		logLine("Exception message: ", e.msg);
-		logLine("File: ", e.file);
-		logLine("Line: ", e.line);
-		logLine("Stacktrace:\n", e.toString);
-		logLine("The program will now stop.");
+		if (result.state == OperationState.cancelled)
+			errorLine("JSON operation cancelled; the original catalog was not replaced.");
+		else
+			errorLine("JSON operation failed: ", result.error);
 		return false;
 	}
-
-	/* Do data analysis on data */
-	if (options.argRunAnalysis)
+	if (result.operation == OperationKind.scan)
 	{
-		/* Do something useful on data */
-		const bool rc_analyse = analyseData(dynObjectWrapper.dataArray, gotCtrlC, options);
-		if (!rc_analyse)
-			logLine("Data analysis failed.");
+		logFLine("JSON scan: %d files, %d added, %d changed.",
+			result.scanSummary.filesFound, result.scanSummary.filesAdded,
+			result.scanSummary.filesChanged);
+		logFLine("JSON metadata: %d blobs, %d checksum, %d file type, "
+			~ "%d media, %d archive, %d torrent updates, %d failures.",
+			result.metadataSummary.blobsVisited,
+			result.metadataSummary.checksumsUpdated,
+			result.metadataSummary.fileTypesUpdated,
+			result.metadataSummary.mediaInfoUpdated,
+			result.metadataSummary.archivesUpdated,
+			result.metadataSummary.torrentsUpdated,
+			result.metadataSummary.failed);
 	}
-
-	/* Serialize the data */
-	if (options.argWriteJSON)
+	else
 	{
-		const bool rc_write = writeStorageJsonFile(options.argJSONFile, dynObjectWrapper);
-		if (!rc_write)
-			logLine("Write to storage file failed! Check data!");
+		logFLine("JSON analysis: %d missing, %d dropped, %d duplicate groups, "
+			~ "%d merged blobs.", result.analysisSummary.missingFiles,
+			result.analysisSummary.droppedFiles,
+			result.analysisSummary.duplicateGroups,
+			result.analysisSummary.mergedBlobs);
 	}
-	logLine("Scan complete.");
+	logLine("JSON operation complete.");
 	return true;
+}
+
+/** Map shared scanner CLI flags to frontend-neutral library options. */
+MetadataScanOptions metadataOptionsFromCli(ArgsArray options)
+{
+	MetadataScanOptions metadata;
+	metadata.calculateChecksums = options.argDoChecksums;
+	metadata.detectFileTypes = options.argDoFileTypes;
+	metadata.extractMediaInfo = options.argDoMediaSig;
+	metadata.scanArchives = options.argScanArchives != 0;
+	metadata.deepArchiveScan = options.argScanArchives > 1;
+	metadata.scanTorrents = options.argScanTorrents;
+	metadata.rescan = options.argRescanMediaSig;
+	metadata.threads = options.argNumberOfThreads > 1
+		? cast(size_t) options.argNumberOfThreads : 1;
+	return metadata;
 }

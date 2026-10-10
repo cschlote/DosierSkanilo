@@ -129,6 +129,14 @@ struct ScanSummary
     size_t filesDropped;
 }
 
+/** Scan summary plus cooperative-cancellation outcome for controlled callers. */
+struct ScanExecutionResult
+{
+    ScanSummary summary;
+    bool cancelled;
+    bool committed;
+}
+
 /** Options for metadata extraction after a repository filesystem scan. */
 struct MetadataScanOptions
 {
@@ -171,6 +179,14 @@ struct MetadataSummary
     size_t torrentsUpdated;
     /// Number of metadata jobs that failed.
     size_t failed;
+}
+
+/** Metadata summary plus cooperative-cancellation outcome. */
+struct MetadataExecutionResult
+{
+    MetadataSummary summary;
+    bool cancelled;
+    bool committed;
 }
 
 /** Options controlling SQL-based repository analysis. */
@@ -392,6 +408,14 @@ struct AnalysisSummary
     size_t mergedBlobs;
     /// Unreferenced blob rows removed after cleanup.
     size_t orphanedBlobs;
+}
+
+/** Analysis summary plus cooperative-cancellation outcome. */
+struct AnalysisExecutionResult
+{
+    AnalysisSummary summary;
+    bool cancelled;
+    bool committed;
 }
 
 /** One read-only group of blobs with identical complete checksums. */

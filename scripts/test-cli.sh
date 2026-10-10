@@ -39,8 +39,9 @@ init_output=$("${BIN}" init "${TMP_DIR}/second-sqlite-library")
 [[ "${init_output}" == *"Initialized new repository at"* ]]
 existing_init_output=$("${BIN}" init "${sqlite_root}")
 [[ "${existing_init_output}" == *"Opened existing repository at"* ]]
-scan_output=$("${BIN}" scan "${sqlite_root}" --recursive)
+scan_output=$("${BIN}" scan "${sqlite_root}" --recursive --checksums)
 [[ "${scan_output}" == *"Repository scan:"* ]]
+[[ "${scan_output}" == *"Repository metadata:"* ]]
 analysis_output=$("${BIN}" analyze "${sqlite_root}")
 [[ "${analysis_output}" == *"Repository analysis:"* ]]
 metadata_output=$("${BIN}" metadata "${sqlite_root}" --file-types)
