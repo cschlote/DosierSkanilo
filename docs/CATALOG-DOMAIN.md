@@ -137,8 +137,12 @@ additional fields requires an extended JSON version.
 `CatalogBackendFactory.open(OperationTarget)` selects exactly the requested
 source: an initialized repository root or an explicit JSON catalog plus
 filesystem root. It does not discover a different source, create a repository,
-or convert between storage modes. An operation submitted to an opened backend
-must carry the same target; a mismatch is a typed `invalidTarget` error.
+or convert between storage modes. A JSON catalog may be opened without a
+filesystem root for analysis; tree queries and filtered file subsets are then
+reported unsupported through capabilities. An operation submitted to an opened
+backend must name the same catalog/repository; a scan root must also match. JSON
+analysis may omit its unused filesystem root but may not name a different one.
+Mismatches are typed `invalidTarget` errors.
 
 The public `CatalogBackend` surface is in `dosierskanilo.catalogbackend`. Its
 directory/file projections, filters, sort order, cursors, content details,
@@ -151,8 +155,9 @@ CLI parser/output types.
 - A page cursor is opaque and bound to the opened source, full query/filter,
   sort order, and page size. Reusing it with another source/query is a typed
   `invalidCursor` error. A committed mutation may invalidate the cursor.
-- `capabilities()` reports supported operations, subset export, archive/torrent
-  entry queries, first-class archive references, and concurrent-read behavior.
+- `capabilities()` reports supported operations, rooted tree queries, subset
+  export, archive/torrent entry queries, first-class archive references, and
+  concurrent-read behavior.
   Unsupported operations/features fail explicitly with
   `CatalogBackendException`; adapters do not silently substitute another mode.
 - Each `runOperation` call is synchronous at the method boundary, accepts the

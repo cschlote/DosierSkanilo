@@ -544,6 +544,7 @@ struct CatalogSourceInfo
 struct CatalogBackendCapabilities
 {
     OperationKind[] operations; /// Operations accepted by this source.
+    bool supportsTreeQueries; /// Root, directory, and file-reference queries are available.
     /// Multiple read calls may be issued concurrently on this backend instance.
     bool supportsConcurrentReads;
     /// Reads may run while a mutating operation is in progress.
@@ -639,18 +640,18 @@ interface CatalogBackend
     CatalogExportResult exportSubset(CatalogSubsetQuery query,
         CatalogExportOptions options);
 
-    /**
-     * Run synchronously to a terminal result. The method joins internal workers
-     * before returning; request.target must match the opened source exactly.
-     */
+    /** Run scan synchronously and require its explicit root to match this source. */
     OperationResult runOperation(ScanOperationRequest request,
         OperationControl control);
 
-    /** Run standalone metadata extraction when this source supports it. */
+    /** Run metadata synchronously when supported and bound to this source. */
     OperationResult runOperation(MetadataOperationRequest request,
         OperationControl control);
 
-    /** Run duplicate/missing-source analysis when supported by this source. */
+    /**
+     * Run analysis synchronously when supported. JSON analysis may omit its
+     * filesystem root; a supplied root must match the opened source.
+     */
     OperationResult runOperation(AnalysisOperationRequest request,
         OperationControl control);
 
@@ -664,7 +665,10 @@ interface CatalogBackend
 /** Explicit factory boundary; implementations select, but never reinterpret, a target. */
 interface CatalogBackendFactory
 {
-    /** Open exactly this storage target or throw a typed target/open error. */
+    /**
+     * Open exactly this target or throw a typed target/open error. JSON targets
+     * may omit the filesystem root when they are used only for analysis.
+     */
     CatalogBackend open(OperationTarget target);
 }
 
@@ -733,13 +737,34 @@ version (unittest)
                     "Catalog backend is closed.");
         }
 
-        private void requireTarget(OperationTarget requestTarget) const
+        private void requireTreeQueries() const
         {
             requireOpen();
-            if (requestTarget.mode != sourceTarget.mode
-                || requestTarget.repositoryRoot != sourceTarget.repositoryRoot
-                || requestTarget.catalogPath != sourceTarget.catalogPath
-                || requestTarget.filesystemRoot != sourceTarget.filesystemRoot)
+            if (sourceTarget.mode == OperationStorageMode.jsonCatalog
+                && sourceTarget.filesystemRoot.length == 0)
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.unsupportedFeature,
+                    "JSON tree queries require an explicit filesystem root.");
+        }
+
+        private void requireTarget(OperationTarget requestTarget,
+            OperationKind operation) const
+        {
+            requireOpen();
+            bool matchesSource = requestTarget.mode == sourceTarget.mode;
+            if (matchesSource && requestTarget.mode == OperationStorageMode.repository)
+                matchesSource = requestTarget.repositoryRoot == sourceTarget.repositoryRoot;
+            else if (matchesSource)
+            {
+                matchesSource = requestTarget.catalogPath == sourceTarget.catalogPath;
+                if (matchesSource && requestTarget.filesystemRoot.length > 0)
+                    matchesSource = requestTarget.filesystemRoot
+                        == sourceTarget.filesystemRoot;
+                if (matchesSource && operation == OperationKind.scan)
+                    matchesSource = requestTarget.filesystemRoot.length > 0
+                        && requestTarget.filesystemRoot == sourceTarget.filesystemRoot;
+            }
+            if (!matchesSource)
                 throw new CatalogBackendException(
                     CatalogBackendErrorCode.invalidTarget,
                     "Operation target does not match the opened catalog source.");
@@ -847,7 +872,7 @@ version (unittest)
         private CatalogFilePage filePage(CatalogFileQuery query,
             CatalogPageRequest page)
         {
-            requireOpen();
+            requireTreeQueries();
             if (page.limit == 0)
                 throw new CatalogBackendException(
                     CatalogBackendErrorCode.invalidCursor,
@@ -904,10 +929,14 @@ version (unittest)
         {
             requireOpen();
             CatalogBackendCapabilities result;
-            result.operations = [OperationKind.scan, OperationKind.analyze];
+            result.supportsTreeQueries = sourceTarget.mode == OperationStorageMode.repository
+                || sourceTarget.filesystemRoot.length > 0;
+            result.operations = [OperationKind.analyze];
+            if (result.supportsTreeQueries)
+                result.operations ~= OperationKind.scan;
             result.supportsConcurrentReads = true;
             result.supportsReadsDuringMutation = true;
-            result.supportsFilteredExport = true;
+            result.supportsFilteredExport = result.supportsTreeQueries;
             result.supportsArchiveEntryQueries = true;
             result.supportsTorrentEntryQueries = true;
             return result;
@@ -915,7 +944,7 @@ version (unittest)
 
         override CatalogRootSummary rootSummary(CatalogFilter filter = CatalogFilter.init)
         {
-            requireOpen();
+            requireTreeQueries();
             CatalogRootSummary result;
             result.childDirectoryCount = directories.length;
             foreach (file; files)
@@ -930,7 +959,7 @@ version (unittest)
         override CatalogDirectoryPage listDirectories(CatalogDirectoryQuery query,
             CatalogPageRequest page = CatalogPageRequest.init)
         {
-            requireOpen();
+            requireTreeQueries();
             if (page.limit == 0)
                 throw new CatalogBackendException(
                     CatalogBackendErrorCode.invalidCursor,
@@ -1041,6 +1070,10 @@ version (unittest)
             CatalogExportOptions options)
         {
             requireOpen();
+            if (!capabilities().supportsFilteredExport)
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.unsupportedFeature,
+                    "Filtered export requires a rooted catalog source.");
             if (options.outputPath.length == 0)
                 throw new CatalogBackendException(
                     CatalogBackendErrorCode.invalidTarget,
@@ -1066,7 +1099,7 @@ version (unittest)
         override OperationResult runOperation(ScanOperationRequest request,
             OperationControl control)
         {
-            requireTarget(request.target);
+            requireTarget(request.target, OperationKind.scan);
             requireSupported(OperationKind.scan);
             OperationResult result;
             result.operationId = request.operationId;
@@ -1081,7 +1114,7 @@ version (unittest)
         override OperationResult runOperation(MetadataOperationRequest request,
             OperationControl control)
         {
-            requireTarget(request.target);
+            requireTarget(request.target, OperationKind.metadata);
             requireSupported(OperationKind.metadata);
             OperationResult result;
             result.operationId = request.operationId;
@@ -1093,7 +1126,7 @@ version (unittest)
         override OperationResult runOperation(AnalysisOperationRequest request,
             OperationControl control)
         {
-            requireTarget(request.target);
+            requireTarget(request.target, OperationKind.analyze);
             requireSupported(OperationKind.analyze);
             OperationResult result;
             result.operationId = request.operationId;
@@ -1130,11 +1163,10 @@ version (unittest)
                         "A repository target requires a root.");
                 break;
             case OperationStorageMode.jsonCatalog:
-                if (target.catalogPath.length == 0
-                    || target.filesystemRoot.length == 0)
+                if (target.catalogPath.length == 0)
                     throw new CatalogBackendException(
                         CatalogBackendErrorCode.invalidTarget,
-                        "A JSON scan target requires a catalog and filesystem root.");
+                        "A JSON target requires a catalog path.");
                 break;
             }
             return new FakeCatalogBackend(target);
@@ -1179,6 +1211,24 @@ version (unittest)
         assert(rejectedEmptyTarget);
 
         auto target = OperationTarget.jsonTarget("library.json", "/library");
+        auto analysisOnlyTarget = OperationTarget.jsonTarget("library.json");
+        auto analysisOnlyBackend = factory.open(analysisOnlyTarget);
+        assert(!analysisOnlyBackend.capabilities().supportsTreeQueries);
+        assert(analysisOnlyBackend.capabilities().supports(OperationKind.analyze));
+        assert(!analysisOnlyBackend.capabilities().supports(OperationKind.scan));
+        AnalysisOperationRequest analysisOnlyRequest;
+        analysisOnlyRequest.operationId = 40;
+        analysisOnlyRequest.target = analysisOnlyTarget;
+        assert(analysisOnlyBackend.runOperation(analysisOnlyRequest,
+            new OperationControl()).state == OperationState.completed);
+        bool rejectedRootQuery;
+        try
+            analysisOnlyBackend.rootSummary();
+        catch (CatalogBackendException failure)
+            rejectedRootQuery = failure.code == CatalogBackendErrorCode.unsupportedFeature;
+        assert(rejectedRootQuery);
+        analysisOnlyBackend.close();
+
         auto backend = factory.open(target);
         assert(backend.target().mode == OperationStorageMode.jsonCatalog);
         assert(backend.sourceInfo().storageMode == OperationStorageMode.jsonCatalog);
