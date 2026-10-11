@@ -1,6 +1,7 @@
 # Catalog Domain Values and Locators
 
-Status: WP-13.1 decisions; the public D declarations are introduced in WP-13.2.
+Status: WP-13.1 and WP-13.2 decisions frozen; JSON/SQLite adapter migrations are
+tracked as WP-13.3 and WP-13.4.
 
 This document freezes the concepts needed by a storage-neutral catalog API.
 It distinguishes payload identity from the places where that payload is
@@ -130,6 +131,43 @@ operation may create that relationship. Until then, torrent entries remain
 metadata associated with the `.torrent` content record. The current JSON v3
 writer's reduced torrent fields remain a compatibility constraint; exporting
 additional fields requires an extended JSON version.
+
+## Backend contract
+
+`CatalogBackendFactory.open(OperationTarget)` selects exactly the requested
+source: an initialized repository root or an explicit JSON catalog plus
+filesystem root. It does not discover a different source, create a repository,
+or convert between storage modes. An operation submitted to an opened backend
+must carry the same target; a mismatch is a typed `invalidTarget` error.
+
+The public `CatalogBackend` surface is in `dosierskanilo.catalogbackend`. Its
+directory/file projections, filters, sort order, cursors, content details,
+archive/torrent pages, and subset-export requests use neutral value types. It
+does not expose SQL statements, d2sqlite3 values, Jsonizer records, GTK types, or
+CLI parser/output types.
+
+- Returned query/detail values are detached snapshots. Editing them locally
+  never writes through to the backend.
+- A page cursor is opaque and bound to the opened source, full query/filter,
+  sort order, and page size. Reusing it with another source/query is a typed
+  `invalidCursor` error. A committed mutation may invalidate the cursor.
+- `capabilities()` reports supported operations, subset export, archive/torrent
+  entry queries, first-class archive references, and concurrent-read behavior.
+  Unsupported operations/features fail explicitly with
+  `CatalogBackendException`; adapters do not silently substitute another mode.
+- Each `runOperation` call is synchronous at the method boundary, accepts the
+  shared `OperationControl`, joins its workers before returning, and reports its
+  terminal `OperationResult` including `changesCommitted`. The caller must keep
+  the backend alive until the call returns. `close()` is called after active
+  operations have joined; later calls report the typed `closed` error.
+- Filtered export takes an explicit subset and format. The adapter exports a
+  coherent selected-reference/content relationship closure and publishes the
+  output according to that format's atomic-write policy.
+
+The contract test uses a fake in-memory implementation to exercise root and
+directory reads, cursor-based forward/backward pages, content details, subset
+export, explicit target checking, capabilities, unsupported operations, and
+close behavior without importing `Repository` or `NamedBinaryBlob`.
 
 ## Examples
 

@@ -92,10 +92,9 @@ reviewed manifest, a single-flight test seed, JSON/SQLite parity coverage, and
 CLI integration checks. Existing checked-in audio, image, video, and torrent
 fixtures remain as compatibility inputs; the generated corpus supplements them.
 
-WP-13.1 freezes content/reference identity, source-scoped locators, archive-entry
-occurrence identity, missing-source semantics, torrent compatibility, and
-snapshot mutability in [CATALOG-DOMAIN.md](CATALOG-DOMAIN.md). The public
-polymorphic backend API has not yet been implemented.
+WP-13.1 freezes the catalog domain model and WP-13.2 declares the storage-neutral
+`CatalogBackend` interface and DTOs in `source/dosierskanilo/catalogbackend.d`.
+The JSON and SQLite adapters have not yet migrated to this contract.
 
 The backend library tests and GUI tests/build are separate checks. GUI-specific
 status, test commands, and remaining UI integration tests are maintained in
@@ -103,7 +102,7 @@ the GUI plan at `https://gitlab.vahanus.net/dlang/dosierskanilo-gui/blob/main/do
 
 Last verified on this snapshot:
 
-- Backend: `dub test --config=library --compiler=ldc2` — 118 passed;
+- Backend: `dub test --config=library --compiler=ldc2` — 119 passed;
   `dub build --config=library --compiler=ldc2` passed.
 - GUI: `dub test --compiler=ldc2` — 61 tests; `dub build
   --compiler=ldc2` passed.
@@ -1354,7 +1353,7 @@ tracked until a deliberate history-cleanup decision is made.
 
 ## WP-13: Storage-Neutral Catalog API and First-Class Archive Content
 
-Status: `[-]` (WP-13.1 decisions frozen; WP-13.2 contract is next.)
+Status: `[-]` (WP-13.1 and WP-13.2 complete; WP-13.3 JSON adapter is next.)
 
 The product goal is to index one directory tree, enrich its binary content with
 metadata, identify duplicate payloads, and expose filtered logical subsets to
@@ -1382,7 +1381,7 @@ Current implementation facts and limitations:
   identities. `ArchiveSpec[]` is replaced on a forced rescan; archive entries
   are not yet queryable/deduplicated as ordinary file content.
 
-### Product invariants to freeze
+### Frozen product invariants
 
 1. **Content and reference are distinct.** One content blob represents one
    payload identity; one or more references say where that payload is addressed.
@@ -1393,9 +1392,8 @@ Current implementation facts and limitations:
    references into one blob. IDs from independent catalog sources are not
    compared directly.
 3. **A virtual archive path is not a filesystem path.** Use a structured locator
-   containing the container reference and entry ID/path. Define how duplicate
-   same-name entries and nested archives are disambiguated before serialization
-   or query code depends on their display strings.
+   containing the container reference and entry ID. Duplicate same-name entries
+   and nested archives are disambiguated independently from display paths.
 4. **Missing is explicit.** Temporary unavailability of a filesystem or archive
    source must not delete references by default. Destructive removal requires an
    explicit `dropMissing` request and a committed result.
@@ -1426,6 +1424,8 @@ examples and records the compatibility boundaries.
 
 ### WP-13.2: Define the public polymorphic catalog contract
 
+Status: `[x]`
+
 The target shape is one public backend interface implemented by JSON and SQL
 adapters, not an HMI-side `switch` over storage engines:
 
@@ -1442,28 +1442,28 @@ CatalogBackend
 JsonCatalogBackend      SqlCatalogBackend
 ```
 
-These names describe responsibilities, not finalized D declarations. WP-13.1
-freezes `ContentId`, `ReferenceId`, and source locators; WP-13.2 must define query
-DTOs and commit outcomes. Keep the current `OperationTarget` request distinction
-explicit. The backend factory may select an adapter, but no adapter may
-reinterpret or silently convert a target.
+The public declarations are in `source/dosierskanilo/catalogbackend.d` and are
+re-exported by `dosierskanilo`. Keep the current `OperationTarget` request
+distinction explicit. The backend factory selects an adapter, but no adapter
+may reinterpret or silently convert a target.
 
-- [ ] Define a public `CatalogBackend` interface and explicit target/factory for
+- [x] Define a public `CatalogBackend` interface and explicit target/factory for
   JSON and SQL adapters. Keep `d2sqlite3`, SQL statement types, JSON serializer
   types, GTK, and CLI parser/output types private to their adapters.
-- [ ] Move or re-export the common directory/file projections, filters, sort
+- [x] Move or re-export the common directory/file projections, filters, sort
   order, cursors, details, and result subset API from a neutral backend module.
-- [ ] Define logical root, directory/file listing, detail, next/previous, and
+- [x] Define logical root, directory/file listing, detail, next/previous, and
   filtered-subset operations. Internal paging may differ, but user-visible
   ordering, stable identity, and result membership must match.
-- [ ] Define supported capabilities and typed unsupported-operation errors
+- [x] Define supported capabilities and typed unsupported-operation errors
   rather than silently changing storage modes.
-- [ ] Define transaction/snapshot and mutation ownership on the base interface;
+- [x] Define transaction/snapshot and mutation ownership on the base interface;
   keep synchronous convenience wrappers over controlled operation execution.
 
 **Exit:** a fake in-memory backend can satisfy the interface contract tests;
 frontends can compile against the interface without importing `Repository` or
-`NamedBinaryBlob` implementation details.
+`NamedBinaryBlob` implementation details. **Met:** the interface and neutral DTOs
+are exported, and the fake backend contract test passes.
 
 ### WP-13.3: Migrate the JSON catalog adapter
 
