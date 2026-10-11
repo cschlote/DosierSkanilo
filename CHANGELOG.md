@@ -11,8 +11,8 @@ They represent the functional evolution and are intentionally summarized.
 
 - Added the storage-neutral `CatalogBackend` contract, explicit factory boundary,
   opaque domain IDs/locators, common bounded query/detail/export DTOs, and typed
-  capability errors. Added the JSON v0-v3 `JsonCatalogBackend` adapter; the
-  SQLite adapter implementation remains in WP-13.4.
+  capability errors. Added JSON v0-v3 and SQLite `CatalogBackend` adapters, with
+  explicit storage-mode factory routing and filtered subset export.
 - Added optional per-Blob archive passwords to JSON catalogs and SQLite
   repositories, with a schema-version-2 migration and filename-based repository
   updates.

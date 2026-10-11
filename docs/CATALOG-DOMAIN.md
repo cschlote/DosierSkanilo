@@ -1,7 +1,7 @@
 # Catalog Domain Values and Locators
 
-Status: WP-13.1/WP-13.2 decisions and the WP-13.3 JSON adapter are complete;
-SQLite adapter migration is tracked as WP-13.4.
+Status: WP-13.1/WP-13.2 decisions and WP-13.3/WP-13.4 JSON/SQLite adapters are
+implemented; first-class archive references remain tracked as WP-13.5.
 
 This document freezes the concepts needed by a storage-neutral catalog API.
 It distinguishes payload identity from the places where that payload is

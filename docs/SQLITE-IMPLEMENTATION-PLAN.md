@@ -94,8 +94,8 @@ fixtures remain as compatibility inputs; the generated corpus supplements them.
 
 WP-13.1 freezes the catalog domain model and WP-13.2 declares the storage-neutral
 `CatalogBackend` interface and DTOs in `source/dosierskanilo/catalogbackend.d`.
-WP-13.3 now implements the JSON v0-v3 adapter; the SQLite adapter remains for
-WP-13.4.
+WP-13.3 implements the JSON v0-v3 adapter. WP-13.4 adds the SQLite adapter over
+the public `Repository` facade and an explicit default factory for both targets.
 
 The backend library tests and GUI tests/build are separate checks. GUI-specific
 status, test commands, and remaining UI integration tests are maintained in
@@ -103,7 +103,7 @@ the GUI plan at `https://gitlab.vahanus.net/dlang/dosierskanilo-gui/blob/main/do
 
 Last verified on this snapshot:
 
-- Backend: `dub test --config=library --compiler=ldc2` — 122 passed;
+- Backend: `dub test --config=library --compiler=ldc2` — 123 passed;
   `dub build --config=library --compiler=ldc2` passed.
 - GUI: `dub test --compiler=ldc2` — 61 tests; `dub build
   --compiler=ldc2` passed.
@@ -1354,7 +1354,7 @@ tracked until a deliberate history-cleanup decision is made.
 
 ## WP-13: Storage-Neutral Catalog API and First-Class Archive Content
 
-Status: `[-]` (WP-13.1 through WP-13.3 complete; WP-13.4 SQLite adapter is next.)
+Status: `[-]` (WP-13.1 through WP-13.4 complete; WP-13.5 is next.)
 
 The product goal is to index one directory tree, enrich its binary content with
 metadata, identify duplicate payloads, and expose filtered logical subsets to
@@ -1489,17 +1489,43 @@ retention/removal.
 
 ### WP-13.4: Isolate the SQLite adapter and assess SQL portability
 
-- [ ] Adapt the public `Repository` facade to the common backend contract while
+- [x] Adapt the public `Repository` facade to the common backend contract while
   retaining its existing methods as compatibility wrappers.
-- [ ] Keep schema, migrations, SQL, and `d2sqlite3` behind the SQLite adapter.
-- [ ] Identify which interface requirements are genuinely relational/SQL
+- [x] Keep schema, migrations, SQL, and `d2sqlite3` behind the SQLite adapter.
+- [x] Route explicit JSON and repository targets through the default backend
+  factory without reinterpreting either target.
+- [x] Map bounded directory/file cursors, lazy details, archive/torrent pages,
+  typed operations, availability filters, and filtered JSON subset export.
+- [x] Identify which interface requirements are genuinely relational/SQL
   capabilities and which are catalog-domain behavior.
-- [ ] Only then decide whether a second SQL engine is warranted. Document
+- [x] Only then decide whether a second SQL engine is warranted. Document
   transaction, keyset paging, blob/binary, migration, locking, and test
   requirements before promising portability.
 
 **Exit:** the same query/operation contract is implemented by the JSON and
 SQLite adapters; an engine-portability decision is explicit and evidence-based.
+
+**Portability assessment:** directory/file/detail DTOs, filters, sort order,
+opaque identities, logical cursors, capabilities, typed errors, operations, and
+subset-export semantics are catalog-domain behavior. SQLite schema/migrations,
+transactions, WAL/busy-timeout configuration, binary digest storage, SQL
+filtering, and the SQL portion of keyset paging remain behind `Repository` and
+`SqliteCatalogBackend`. The backend cursor carries the last path/row identity/
+size needed by the repository keyset query without exposing those fields to
+consumers. Target write leases provide cross-process mutation exclusion; each
+read uses an independent repository connection.
+
+No second SQL engine is warranted by current product requirements. The public
+`CatalogBackend` boundary is storage-neutral, but this package does not promise
+generic SQL portability. If another engine is proposed, its design must preserve
+transactional scan/import semantics, stable sort-aware keyset paging, raw binary
+digest values, versioned migrations, equivalent target locking/read behavior,
+and the JSON/SQLite parity suite before it is supported.
+
+WP-13.4 verification: `dub test --config=library --compiler=ldc2` — 123 passed.
+The SQLite adapter test scans the generated corpus through both backends and
+compares root counts/size, filtering, paging in both directions, lazy metadata,
+archive/torrent pages, subset export, missing-reference analysis, and availability.
 
 ### WP-13.5: Promote archive members into searchable content references
 

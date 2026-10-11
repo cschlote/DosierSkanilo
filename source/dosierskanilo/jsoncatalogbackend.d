@@ -1071,9 +1071,12 @@ private:
             if (filter.mediaNegated ? hasSelectedMedia : !hasSelectedMedia)
                 return false;
         }
-        return (!filter.fileType || file.hasFileType)
-            && (!filter.archive || file.hasArchive)
-            && (!filter.torrent || file.hasTorrent);
+        const bool hasTypeFilter = filter.fileType || filter.archive
+            || filter.torrent;
+        const bool matchesType = (filter.fileType && file.hasFileType)
+            || (filter.archive && file.hasArchive)
+            || (filter.torrent && file.hasTorrent);
+        return !hasTypeFilter || matchesType;
     }
 
     bool hasActiveFilter(CatalogFilter filter) const

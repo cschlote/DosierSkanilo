@@ -380,9 +380,9 @@ struct CatalogContentSnapshot
 
 /** Directory/file query filters shared by the JSON and SQL adapters.
  *
- * Multiple selected media kinds use OR semantics. `mediaNegated` inverts that
- * combined media condition; path, availability, type, archive, and torrent
- * conditions combine with it using AND.
+ * Selected media kinds use OR semantics, with `mediaNegated` inverting their
+ * combined condition. File-type/archive/torrent selectors form a second OR
+ * group. Path and availability filters combine with those groups using AND.
  */
 struct CatalogFilter
 {
@@ -849,9 +849,13 @@ version (unittest)
                 if (filter.mediaNegated ? hasSelectedMedia : !hasSelectedMedia)
                     return false;
             }
-            if (filter.fileType && !file.hasFileType) return false;
-            if (filter.archive && !file.hasArchive) return false;
-            if (filter.torrent && !file.hasTorrent) return false;
+            const bool hasTypeFilter = filter.fileType || filter.archive
+                || filter.torrent;
+            const bool matchesType = (filter.fileType && file.hasFileType)
+                || (filter.archive && file.hasArchive)
+                || (filter.torrent && file.hasTorrent);
+            if (hasTypeFilter && !matchesType)
+                return false;
             return true;
         }
 

@@ -3,6 +3,7 @@ module dosierskanilo.repository.types;
 
 import std.path : buildPath;
 
+import dosierskanilo.model.checksums : CheckSums;
 import dosierskanilo.model.namedbinaryblob : NamedBinaryBlob;
 import dosierarkivo.archive : ArchivePasswordCallback;
 
@@ -256,6 +257,8 @@ struct RepositoryDirectoryQuery
     bool fileType;
     bool archive;
     bool torrent;
+    /// Exclude references currently marked missing on disk.
+    bool availableOnly;
 }
 
 /** Archive entry projection for lazy detail views. */
@@ -265,6 +268,8 @@ struct RepositoryArchiveEntry
     string name;
     ulong size;
     string modifiedAt;
+    /// Raw file checksums when deep archive inspection persisted them.
+    CheckSums checkSums;
 }
 
 /** Torrent file projection for lazy detail views. */
@@ -316,6 +321,8 @@ struct RepositoryFileQuery
     bool fileType;
     bool archive;
     bool torrent;
+    /// Exclude references currently marked missing on disk.
+    bool availableOnly;
     RepositoryFileSortOrder sortOrder = RepositoryFileSortOrder.pathAscending;
     /// Keyset cursor, interpreted using sortOrder.
     string afterPath;

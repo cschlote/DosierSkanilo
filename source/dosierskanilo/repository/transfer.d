@@ -151,7 +151,8 @@ RepositoryRootSummary loadRootSummaryFromDatabase(ref Database db)
 private string directoryFilterSql(RepositoryDirectoryQuery options)
 {
     if (options.text.empty && !options.video && !options.audio && !options.image
-        && !options.textStream && !options.fileType && !options.archive && !options.torrent)
+        && !options.textStream && !options.fileType && !options.archive
+        && !options.torrent && !options.availableOnly)
         return "";
 
     string sql = " AND EXISTS (WITH RECURSIVE subtree(id) AS (SELECT d.id UNION ALL "
@@ -161,7 +162,9 @@ private string directoryFilterSql(RepositoryDirectoryQuery options)
     if (!options.text.empty)
         sql ~= options.caseSensitive
             ? " AND instr(f.relative_path, :directory_text) > 0"
-            : " AND lower(f.relative_path) LIKE lower(:directory_text)";
+            : " AND instr(lower(f.relative_path), lower(:directory_text)) > 0";
+    if (options.availableOnly)
+        sql ~= " AND f.exists_on_disk = 1";
 
     string[] media;
     if (options.video) media ~= "EXISTS (SELECT 1 FROM media_video_streams x WHERE x.blob_id = b.id)";
@@ -184,8 +187,7 @@ private string directoryFilterSql(RepositoryDirectoryQuery options)
 private void bindDirectoryFilter(ref Statement statement, RepositoryDirectoryQuery options)
 {
     if (!options.text.empty)
-        statement.bind(":directory_text", options.caseSensitive
-            ? options.text : "%" ~ options.text ~ "%");
+        statement.bind(":directory_text", options.text);
 }
 
 /** List immediate file references without materializing blob details. */
@@ -211,7 +213,9 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
         ~ (options.directoryId == 0 ? "f.directory_id IS NULL" : "f.directory_id = :directory_id");
     if (!options.text.empty)
         sql ~= options.caseSensitive ? " AND instr(f.relative_path, :text) > 0"
-            : " AND lower(f.relative_path) LIKE lower(:text)";
+            : " AND instr(lower(f.relative_path), lower(:text)) > 0";
+    if (options.availableOnly)
+        sql ~= " AND f.exists_on_disk = 1";
     string[] mediaConditions;
     if (options.video)
         mediaConditions ~= "EXISTS (SELECT 1 FROM media_video_streams mv WHERE mv.blob_id = b.id)";
@@ -286,7 +290,7 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
     if (options.directoryId != 0)
         statement.bind(":directory_id", options.directoryId);
     if (!options.text.empty)
-        statement.bind(":text", options.caseSensitive ? options.text : "%" ~ options.text ~ "%");
+        statement.bind(":text", options.text);
     if (!options.afterPath.empty)
     {
         statement.bind(":after_path", options.afterPath);
@@ -329,7 +333,8 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
 RepositoryArchiveEntry[] listArchiveEntriesFromDatabase(ref Database db,
     RepositoryArchiveQuery options)
 {
-    auto statement = db.prepare("SELECT id, file_name, file_size, time_last_modified "
+    auto statement = db.prepare("SELECT id, file_name, file_size, time_last_modified, "
+        ~ "md5, sha1, xxh64 "
         ~ "FROM archive_entries WHERE blob_id = ? ORDER BY file_name "
         ~ "LIMIT ? OFFSET ?");
     statement.bind(1, options.blobId);
@@ -339,8 +344,15 @@ RepositoryArchiveEntry[] listArchiveEntriesFromDatabase(ref Database db,
     foreach (row; statement.execute())
     {
         auto modified = row.peek!(Nullable!string)(3);
-        result ~= RepositoryArchiveEntry(row.peek!long(0), row.peek!string(1),
-            cast(ulong) row.peek!long(2), modified.isNull ? "" : modified.get);
+        RepositoryArchiveEntry entry;
+        entry.id = row.peek!long(0);
+        entry.name = row.peek!string(1);
+        entry.size = cast(ulong) row.peek!long(2);
+        entry.modifiedAt = modified.isNull ? "" : modified.get;
+        entry.checkSums.md5sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(4));
+        entry.checkSums.sha1sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(5));
+        entry.checkSums.xxh64sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(6));
+        result ~= entry;
     }
     return result;
 }
@@ -427,7 +439,7 @@ private Statement prepareCatalogQuery(ref Database db, string selectSql,
     {
         sql ~= " AND (EXISTS (SELECT 1 FROM file_refs f WHERE f.blob_id = b.id "
             ~ (options.caseSensitive ? "AND instr(f.relative_path, :text) > 0)"
-                : "AND lower(f.relative_path) LIKE lower(:text))");
+                : "AND instr(lower(f.relative_path), lower(:text)) > 0)");
         if (sha1Search.length == 20)
             sql ~= " OR b.sha1 = :sha1";
         sql ~= ")";
@@ -492,8 +504,7 @@ private Statement prepareCatalogQuery(ref Database db, string selectSql,
 
     auto statement = db.prepare(sql);
     if (!options.text.empty)
-        statement.bind(":text", options.caseSensitive ? options.text
-            : "%" ~ options.text ~ "%");
+        statement.bind(":text", options.text);
     if (sha1Search.length == 20)
         statement.bind(":sha1", cast(Blob) sha1Search);
     if (paged)
