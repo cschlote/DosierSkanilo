@@ -28,3 +28,6 @@ public import dosierskanilo.repository;
 public import dosierskanilo.operations;
 public import dosierskanilo.operationrunner;
 public import dosierskanilo.catalogbackend;
+public import dosierskanilo.jsoncatalogbackend;
+public import dosierskanilo.jsoncatalogbackend;
+public import dosierskanilo.jsoncatalogbackend;

@@ -94,7 +94,8 @@ fixtures remain as compatibility inputs; the generated corpus supplements them.
 
 WP-13.1 freezes the catalog domain model and WP-13.2 declares the storage-neutral
 `CatalogBackend` interface and DTOs in `source/dosierskanilo/catalogbackend.d`.
-The JSON and SQLite adapters have not yet migrated to this contract.
+WP-13.3 now implements the JSON v0-v3 adapter; the SQLite adapter remains for
+WP-13.4.
 
 The backend library tests and GUI tests/build are separate checks. GUI-specific
 status, test commands, and remaining UI integration tests are maintained in
@@ -102,7 +103,7 @@ the GUI plan at `https://gitlab.vahanus.net/dlang/dosierskanilo-gui/blob/main/do
 
 Last verified on this snapshot:
 
-- Backend: `dub test --config=library --compiler=ldc2` — 119 passed;
+- Backend: `dub test --config=library --compiler=ldc2` — 122 passed;
   `dub build --config=library --compiler=ldc2` passed.
 - GUI: `dub test --compiler=ldc2` — 61 tests; `dub build
   --compiler=ldc2` passed.
@@ -1353,7 +1354,7 @@ tracked until a deliberate history-cleanup decision is made.
 
 ## WP-13: Storage-Neutral Catalog API and First-Class Archive Content
 
-Status: `[-]` (WP-13.1 and WP-13.2 complete; WP-13.3 JSON adapter is next.)
+Status: `[-]` (WP-13.1 through WP-13.3 complete; WP-13.4 SQLite adapter is next.)
 
 The product goal is to index one directory tree, enrich its binary content with
 metadata, identify duplicate payloads, and expose filtered logical subsets to
@@ -1368,8 +1369,9 @@ Current implementation facts and limitations:
   content-plus-filesystem-reference object. `FileSpec` stores a physical path
   and observed timestamp.
 - `Repository` is a concrete SQLite class with public typed queries and
-  synchronous convenience methods. JSON operations use separate services and
-  the operation runner dispatches on `OperationTarget.mode`.
+  synchronous convenience methods. `JsonCatalogBackend` adapts current JSON
+  v0-v3 deserialization, queries, subset export, and shared operations; the
+  existing JSON CLI still uses the same services through the operation runner.
 - The GUI owns `DirectorySource` and adapts JSON projections plus `Repository`
   DTOs. There is not yet one backend catalog/query superclass.
 - `ArchiveSpec` is nested under the containing `NamedBinaryBlob`; it stores the
@@ -1467,18 +1469,23 @@ are exported, and the fake backend contract test passes.
 
 ### WP-13.3: Migrate the JSON catalog adapter
 
-- [ ] Wrap current v0-v3 deserialization, migration, and v3 serialization behind
+Status: `[x]`
+
+- [x] Wrap current v0-v3 deserialization, migration, and v3 serialization behind
   the catalog interface without changing accepted input/output behavior.
-- [ ] Build/reuse a JSON source index for directory, reference, blob, filter,
+- [x] Build/reuse a JSON source index for directory, reference, blob, filter,
   cursor, detail, and selected-subset queries.
-- [ ] Preserve unavailable source paths unless explicitly removed; verify the
+- [x] Preserve unavailable source paths unless explicitly removed; verify the
   recently fixed JSON `analyze` default against absent mounts and malformed input.
-- [ ] Define an extended JSON version only when the chosen reference/archive
+- [x] Define an extended JSON version only when the chosen reference/archive
   model cannot be represented losslessly by v3. Never silently omit first-class
   archive content on export.
 
 **Exit:** JSON mode implements the common reads and operations with parity tests,
-keeps its explicit catalog/root isolation, and preserves legacy fixtures.
+keeps its explicit catalog/root isolation, and preserves legacy fixtures. **Met:**
+the JSON adapter tests cover v0-v3 reads, generated-catalog scans/metadata,
+queries/cursors, details, subset exports, operation outcomes, and missing-source
+retention/removal.
 
 ### WP-13.4: Isolate the SQLite adapter and assess SQL portability
 

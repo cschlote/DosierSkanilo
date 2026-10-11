@@ -1,7 +1,7 @@
 # Catalog Domain Values and Locators
 
-Status: WP-13.1 and WP-13.2 decisions frozen; JSON/SQLite adapter migrations are
-tracked as WP-13.3 and WP-13.4.
+Status: WP-13.1/WP-13.2 decisions and the WP-13.3 JSON adapter are complete;
+SQLite adapter migration is tracked as WP-13.4.
 
 This document freezes the concepts needed by a storage-neutral catalog API.
 It distinguishes payload identity from the places where that payload is
@@ -134,6 +134,7 @@ additional fields requires an extended JSON version.
 
 ## Backend contract
 
+The storage-specific implementation of
 `CatalogBackendFactory.open(OperationTarget)` selects exactly the requested
 source: an initialized repository root or an explicit JSON catalog plus
 filesystem root. It does not discover a different source, create a repository,
@@ -160,6 +161,10 @@ CLI parser/output types.
   concurrent-read behavior.
   Unsupported operations/features fail explicitly with
   `CatalogBackendException`; adapters do not silently substitute another mode.
+- `JsonCatalogBackend` reads legacy arrays and JSON versions 1-3. It requires an
+  explicit filesystem root for tree queries and scans; analysis of an explicit
+  catalog can run without one. JSON v3 omits torrent file-list details, so the
+  adapter reports torrent-entry queries unsupported when that data is absent.
 - Each `runOperation` call is synchronous at the method boundary, accepts the
   shared `OperationControl`, joins its workers before returning, and reports its
   terminal `OperationResult` including `changesCommitted`. The caller must keep

@@ -20,6 +20,8 @@ struct ContentId
         this.token = token;
     }
 
+    package(dosierskanilo) @property string adapterToken() const { return token; }
+
     /// Whether an adapter-issued identifier has been assigned.
     @property bool isValid() const
     {
@@ -55,6 +57,8 @@ struct ReferenceId
         enforce(token.length > 0, "ReferenceId token cannot be empty.");
         this.token = token;
     }
+
+    package(dosierskanilo) @property string adapterToken() const { return token; }
 
     /// Whether an adapter-issued identifier has been assigned.
     @property bool isValid() const
@@ -92,6 +96,8 @@ struct DirectoryId
         this.token = token;
     }
 
+    package(dosierskanilo) @property string adapterToken() const { return token; }
+
     /// Whether an adapter-issued identifier has been assigned.
     @property bool isValid() const
     {
@@ -127,6 +133,8 @@ struct ArchiveEntryId
         enforce(token.length > 0, "ArchiveEntryId token cannot be empty.");
         this.token = token;
     }
+
+    package(dosierskanilo) @property string adapterToken() const { return token; }
 
     /// Whether an adapter-issued identifier has been assigned.
     @property bool isValid() const
@@ -171,6 +179,10 @@ struct CatalogPageCursor
         this.queryToken = queryToken;
         this.valid = true;
     }
+
+    package(dosierskanilo) @property size_t adapterIndex() const { return index; }
+    package(dosierskanilo) @property size_t adapterPageSize() const { return pageSize; }
+    package(dosierskanilo) @property string adapterQueryToken() const { return queryToken; }
 
     /// Whether this is a continuation cursor rather than the first-page marker.
     @property bool isValid() const
@@ -330,6 +342,28 @@ struct CatalogMediaStream
     string duration; /// Human-readable duration supplied by the extractor.
 }
 
+/** Summary of archive indexing persisted with one content record. */
+struct CatalogArchiveSummary
+{
+    bool indexKnown; /// False when archive extraction was not requested or failed.
+    size_t entryCount; /// Number of names in the current archive index.
+    size_t entriesWithCompleteFingerprints; /// Entries deeply inspected so far.
+}
+
+/** Torrent metadata retained independently of optional file-list detail. */
+struct CatalogTorrentSummary
+{
+    string name; /// Torrent root/display name.
+    string magnetUri; /// Magnet URI when present.
+    ulong totalSize; /// Described payload size in bytes.
+    bool isMultiFile; /// Whether the torrent describes multiple payload files.
+    string infoHashHex; /// Info dictionary hash when persisted by the source.
+    string announce; /// Primary announce tracker when available.
+    ulong pieceLength; /// Piece length when available.
+    ulong piecesCount; /// Number of content pieces when available.
+    bool fileListAvailable; /// Whether detailed torrent paths can be queried.
+}
+
 /** Detached content metadata snapshot; references and entry pages are separate. */
 struct CatalogContentSnapshot
 {
@@ -340,6 +374,8 @@ struct CatalogContentSnapshot
     CatalogExtractorStatus[] extractors; /// Per-extractor status snapshot.
     bool hasArchive; /// Whether archive metadata is available.
     bool hasTorrent; /// Whether torrent metadata is available.
+    CatalogArchiveSummary archiveSummary; /// Optional archive-index summary.
+    CatalogTorrentSummary torrentSummary; /// Optional torrent metadata summary.
 }
 
 /** Directory/file query filters shared by the JSON and SQL adapters.
@@ -1029,6 +1065,19 @@ version (unittest)
             result.id = contentId;
             result.fingerprint.size = contentId == contentOne ? 10 : 20;
             result.fingerprint.complete = true;
+            if (contentId == contentOne)
+            {
+                result.hasTorrent = true;
+                result.torrentSummary.name = "payload.torrent";
+                result.torrentSummary.totalSize = 10;
+                result.torrentSummary.fileListAvailable = true;
+            }
+            else
+            {
+                result.hasArchive = true;
+                result.archiveSummary.indexKnown = true;
+                result.archiveSummary.entryCount = 1;
+            }
             return result;
         }
 
