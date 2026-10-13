@@ -6,13 +6,18 @@ import d2sqlite3;
 import std.algorithm : reverse, startsWith;
 import std.array : join;
 import std.base64 : Base64;
+import std.exception : enforce;
 import std.path : baseName, buildNormalizedPath, dirName, isAbsolute;
 import std.string : empty, replace, split;
 import std.typecons : Nullable;
 
+import dosierarkivo.archive : archiveIndexVersion,
+    normalizeArchiveEntryPath;
 import dosierskanilo.metadata.mediainfosig;
 import dosierskanilo.metadata.torrentinfo;
 import dosierskanilo.model.namedbinaryblob;
+import dosierskanilo.repository.archiveindex : deleteUnreachableBlobs,
+    ensureArchiveMemberBlob, resolveArchiveMemberBlobLinks;
 import dosierskanilo.repository.errors;
 import dosierskanilo.repository.types;
 
@@ -31,6 +36,8 @@ void importCatalogJson(ref Database db, string rootPath, string jsonFile,
 
         foreach (blob; catalog.dataArray)
             insertBlob(db, rootPath, blob);
+        resolveArchiveMemberBlobLinks(db);
+        deleteUnreachableBlobs(db);
 
         db.execute("UPDATE repository SET updated_at = ?, "
             ~ "media_info_version = ?, file_utility_version = ? WHERE id = 1",
@@ -54,8 +61,27 @@ void exportCatalogJson(ref Database db, string rootPath, string jsonFile,
     JsonExportOptions options)
 {
     auto blobs = loadCatalogFromDatabase(db, rootPath, options);
-    auto wrapper = NamedBinaryBlobCatalog(DATA_CLASS_VERSION3, blobs);
+    const auto exportVersion = containsNestedArchiveMetadata(blobs)
+        ? DATA_CLASS_VERSION4 : DATA_CLASS_VERSION3;
+    auto wrapper = NamedBinaryBlobCatalog(exportVersion, blobs);
     serializeDataClassWrapperFile(jsonFile, wrapper);
+}
+
+private bool containsNestedArchiveMetadata(NamedBinaryBlob[] blobs)
+{
+    foreach (blob; blobs)
+        if (blob !is null && containsNestedArchiveSpecs(blob.archiveSpecs))
+            return true;
+    return false;
+}
+
+private bool containsNestedArchiveSpecs(ArchiveSpec[] entries)
+{
+    foreach (entry; entries)
+        if (entry !is null && (entry.archivePassword.length > 0
+            || entry.nestedEntries !is null))
+            return true;
+    return false;
 }
 
 /** Load repository data into the existing domain model for library consumers. */
@@ -151,17 +177,21 @@ RepositoryRootSummary loadRootSummaryFromDatabase(ref Database db)
 private string directoryFilterSql(RepositoryDirectoryQuery options)
 {
     if (options.text.empty && !options.video && !options.audio && !options.image
-        && !options.textStream && !options.fileType && !options.archive && !options.torrent)
+        && !options.textStream && !options.fileType && !options.archive
+        && !options.torrent && !options.availableOnly)
         return "";
 
-    string sql = " AND EXISTS (WITH RECURSIVE subtree(id) AS (SELECT d.id UNION ALL "
+    string sql = " AND " ~ (options.includeArchiveMembers ? "(" : "")
+        ~ "EXISTS (WITH RECURSIVE subtree(id) AS (SELECT d.id UNION ALL "
         ~ "SELECT child.id FROM directories child JOIN subtree s ON child.parent_id = s.id) "
         ~ "SELECT 1 FROM file_refs f JOIN blobs b ON b.id = f.blob_id "
         ~ "WHERE f.directory_id IN (SELECT id FROM subtree)";
     if (!options.text.empty)
         sql ~= options.caseSensitive
             ? " AND instr(f.relative_path, :directory_text) > 0"
-            : " AND lower(f.relative_path) LIKE lower(:directory_text)";
+            : " AND instr(lower(f.relative_path), lower(:directory_text)) > 0";
+    if (options.availableOnly)
+        sql ~= " AND f.exists_on_disk = 1";
 
     string[] media;
     if (options.video) media ~= "EXISTS (SELECT 1 FROM media_video_streams x WHERE x.blob_id = b.id)";
@@ -174,18 +204,60 @@ private string directoryFilterSql(RepositoryDirectoryQuery options)
 
     string[] other;
     if (options.fileType) other ~= "(b.file_type IS NOT NULL AND length(b.file_type) > 0)";
-    if (options.archive) other ~= "EXISTS (SELECT 1 FROM archive_entries a WHERE a.blob_id = b.id)";
+    if (options.archive) other ~= "EXISTS (SELECT 1 FROM archive_indexes a WHERE a.blob_id = b.id)";
     if (options.torrent) other ~= "EXISTS (SELECT 1 FROM torrent_info t WHERE t.blob_id = b.id)";
     if (other.length > 0)
         sql ~= " AND (" ~ other.join(" OR ") ~ ")";
-    return sql ~ ")";
+    if (!options.includeArchiveMembers)
+        return sql ~ ")";
+
+    sql ~= ") OR EXISTS (WITH RECURSIVE subtree(id) AS (SELECT d.id UNION ALL "
+        ~ "SELECT child.id FROM directories child JOIN subtree s ON child.parent_id = s.id), "
+        ~ "members(directory_id, relative_path, blob_id, present, depth) AS ("
+        ~ "SELECT COALESCE(c.directory_id, 0), replace(c.relative_path, '!', '!!') "
+        ~ "|| '!/' || replace(a.normalized_path, '!', '!!'), "
+        ~ "a.content_blob_id, c.exists_on_disk, 1 FROM file_refs c "
+        ~ "JOIN archive_entries a ON a.blob_id = c.blob_id "
+        ~ "WHERE a.path_safe = 1 AND a.is_directory = 0 "
+        ~ "AND a.content_blob_id IS NOT NULL UNION ALL "
+        ~ "SELECT m.directory_id, m.relative_path || '!/' "
+        ~ "|| replace(a.normalized_path, '!', '!!'), "
+        ~ "a.content_blob_id, m.present, m.depth + 1 FROM members m "
+        ~ "JOIN archive_entries a ON a.blob_id = m.blob_id "
+        ~ "WHERE m.depth < 32 AND a.path_safe = 1 AND a.is_directory = 0 "
+        ~ "AND a.content_blob_id IS NOT NULL) "
+        ~ "SELECT 1 FROM members m JOIN blobs b ON b.id = m.blob_id "
+        ~ "WHERE m.directory_id IN (SELECT id FROM subtree)";
+    if (!options.text.empty)
+        sql ~= options.caseSensitive
+            ? " AND instr(m.relative_path, :directory_text) > 0"
+            : " AND instr(lower(m.relative_path), lower(:directory_text)) > 0";
+    if (options.availableOnly)
+        sql ~= " AND m.present = 1";
+    string[] memberMedia;
+    if (options.video) memberMedia ~= "EXISTS (SELECT 1 FROM media_video_streams x WHERE x.blob_id = b.id)";
+    if (options.audio) memberMedia ~= "EXISTS (SELECT 1 FROM media_audio_streams x WHERE x.blob_id = b.id)";
+    if (options.image) memberMedia ~= "EXISTS (SELECT 1 FROM media_image_streams x WHERE x.blob_id = b.id)";
+    if (options.textStream) memberMedia ~= "EXISTS (SELECT 1 FROM media_text_streams x WHERE x.blob_id = b.id)";
+    if (memberMedia.length > 0)
+        sql ~= options.mediaNegated ? " AND NOT (" ~ memberMedia.join(" OR ") ~ ")"
+            : " AND (" ~ memberMedia.join(" OR ") ~ ")";
+    string[] memberOther;
+    if (options.fileType)
+        memberOther ~= "(b.file_type IS NOT NULL AND length(b.file_type) > 0)";
+    if (options.archive)
+        memberOther ~= "EXISTS (SELECT 1 FROM archive_indexes x WHERE x.blob_id = b.id)";
+    if (options.torrent)
+        memberOther ~= "EXISTS (SELECT 1 FROM torrent_info x WHERE x.blob_id = b.id)";
+    if (memberOther.length > 0)
+        sql ~= " AND (" ~ memberOther.join(" OR ") ~ ")";
+    return sql ~ "))";
 }
 
 private void bindDirectoryFilter(ref Statement statement, RepositoryDirectoryQuery options)
 {
     if (!options.text.empty)
-        statement.bind(":directory_text", options.caseSensitive
-            ? options.text : "%" ~ options.text ~ "%");
+        statement.bind(":directory_text", options.text);
 }
 
 /** List immediate file references without materializing blob details. */
@@ -197,21 +269,57 @@ RepositoryFile[] listFilesFromDatabase(ref Database db, RepositoryFileQuery opti
 /** List one keyset-paged file chunk and report continuation state. */
 RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuery options)
 {
-    auto sql = "SELECT f.id, COALESCE(f.directory_id, 0), f.blob_id, "
-        ~ "f.relative_path, f.time_last_modified, f.exists_on_disk, b.file_size "
+    auto sql = "WITH RECURSIVE archive_rows (id, directory_id, blob_id, "
+        ~ "relative_path, modified_at, present, archive_member, "
+        ~ "container_reference_id, archive_entry_id, archive_container_blob_id, "
+        ~ "archive_entry_index, archive_container_identity, depth) AS ("
+        ~ "SELECT -a.id, COALESCE(c.directory_id, 0), a.content_blob_id, "
+        ~ "replace(c.relative_path, '!', '!!') || '!/' "
+        ~ "|| replace(a.normalized_path, '!', '!!'), a.time_last_modified, "
+        ~ "c.exists_on_disk, 1, c.id, a.id, a.blob_id, a.entry_index, "
+        ~ "'p' || CAST(c.id AS TEXT), 1 FROM file_refs c "
+        ~ "JOIN archive_entries a ON a.blob_id = c.blob_id "
+        ~ "WHERE a.path_safe = 1 AND a.is_directory = 0 "
+        ~ "AND a.content_blob_id IS NOT NULL"
+        ~ (options.includeArchiveMembers ? "" : " AND 0")
+        ~ " UNION ALL SELECT -a.id, r.directory_id, a.content_blob_id, "
+        ~ "r.relative_path || '!/' || replace(a.normalized_path, '!', '!!'), "
+        ~ "a.time_last_modified, "
+        ~ "r.present, 1, 0, a.id, a.blob_id, a.entry_index, "
+        ~ "r.archive_container_identity || ':' || r.archive_entry_id, "
+        ~ "r.depth + 1 FROM archive_rows r JOIN archive_entries a "
+        ~ "ON a.blob_id = r.blob_id WHERE r.depth < 32 "
+        ~ "AND a.path_safe = 1 AND a.is_directory = 0 "
+        ~ "AND a.content_blob_id IS NOT NULL), file_rows AS ("
+        ~ "SELECT f.id AS id, COALESCE(f.directory_id, 0) AS directory_id, "
+        ~ "f.blob_id AS blob_id, f.relative_path AS relative_path, "
+        ~ "f.time_last_modified AS modified_at, f.exists_on_disk AS present, "
+        ~ "0 AS archive_member, 0 AS container_reference_id, "
+        ~ "0 AS archive_entry_id, 0 AS archive_container_blob_id, "
+        ~ "0 AS archive_entry_index, '' AS archive_container_identity "
+        ~ "FROM file_refs f UNION ALL SELECT id, directory_id, blob_id, "
+        ~ "relative_path, modified_at, present, archive_member, "
+        ~ "container_reference_id, archive_entry_id, archive_container_blob_id, "
+        ~ "archive_entry_index, archive_container_identity FROM archive_rows) "
+        ~ "SELECT f.id, f.directory_id, f.blob_id, f.relative_path, "
+        ~ "f.modified_at, f.present, b.file_size "
         ~ ", (b.file_type IS NOT NULL AND length(b.file_type) > 0) "
         ~ ", EXISTS (SELECT 1 FROM media_signatures ms WHERE ms.blob_id = b.id) "
         ~ ", EXISTS (SELECT 1 FROM media_video_streams mv WHERE mv.blob_id = b.id) "
         ~ ", EXISTS (SELECT 1 FROM media_audio_streams ma WHERE ma.blob_id = b.id) "
         ~ ", EXISTS (SELECT 1 FROM media_image_streams mi WHERE mi.blob_id = b.id) "
         ~ ", EXISTS (SELECT 1 FROM media_text_streams mt WHERE mt.blob_id = b.id) "
-        ~ ", EXISTS (SELECT 1 FROM archive_entries ar WHERE ar.blob_id = b.id) "
+        ~ ", EXISTS (SELECT 1 FROM archive_indexes ar WHERE ar.blob_id = b.id) "
         ~ ", EXISTS (SELECT 1 FROM torrent_info ti WHERE ti.blob_id = b.id) "
-        ~ "FROM file_refs f JOIN blobs b ON b.id = f.blob_id WHERE "
-        ~ (options.directoryId == 0 ? "f.directory_id IS NULL" : "f.directory_id = :directory_id");
+        ~ ", f.archive_member, f.container_reference_id, f.archive_entry_id, "
+        ~ "f.archive_container_blob_id, f.archive_entry_index, "
+        ~ "f.archive_container_identity FROM file_rows f "
+        ~ "JOIN blobs b ON b.id = f.blob_id WHERE f.directory_id = :directory_id";
     if (!options.text.empty)
         sql ~= options.caseSensitive ? " AND instr(f.relative_path, :text) > 0"
-            : " AND lower(f.relative_path) LIKE lower(:text)";
+            : " AND instr(lower(f.relative_path), lower(:text)) > 0";
+    if (options.availableOnly)
+        sql ~= " AND f.present = 1";
     string[] mediaConditions;
     if (options.video)
         mediaConditions ~= "EXISTS (SELECT 1 FROM media_video_streams mv WHERE mv.blob_id = b.id)";
@@ -229,7 +337,7 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
     if (options.fileType)
         otherConditions ~= "(b.file_type IS NOT NULL AND length(b.file_type) > 0)";
     if (options.archive)
-        otherConditions ~= "EXISTS (SELECT 1 FROM archive_entries ar WHERE ar.blob_id = b.id)";
+        otherConditions ~= "EXISTS (SELECT 1 FROM archive_indexes ar WHERE ar.blob_id = b.id)";
     if (options.torrent)
         otherConditions ~= "EXISTS (SELECT 1 FROM torrent_info ti WHERE ti.blob_id = b.id)";
     if (otherConditions.length > 0)
@@ -283,10 +391,9 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
     }
     sql ~= " LIMIT :limit";
     auto statement = db.prepare(sql);
-    if (options.directoryId != 0)
-        statement.bind(":directory_id", options.directoryId);
+    statement.bind(":directory_id", options.directoryId);
     if (!options.text.empty)
-        statement.bind(":text", options.caseSensitive ? options.text : "%" ~ options.text ~ "%");
+        statement.bind(":text", options.text);
     if (!options.afterPath.empty)
     {
         statement.bind(":after_path", options.afterPath);
@@ -307,7 +414,10 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
             modified.isNull ? "" : modified.get, row.peek!long(5) != 0,
             row.peek!long(7) != 0, row.peek!long(8) != 0, row.peek!long(9) != 0,
             row.peek!long(10) != 0, row.peek!long(11) != 0, row.peek!long(12) != 0,
-            row.peek!long(13) != 0, row.peek!long(14) != 0);
+            row.peek!long(13) != 0, row.peek!long(14) != 0,
+            row.peek!long(15) != 0, row.peek!long(16), row.peek!long(17),
+            row.peek!long(18), cast(size_t) row.peek!long(19),
+            row.peek!string(20));
     }
     if (page.files.length > options.limit)
     {
@@ -325,12 +435,43 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
     return page;
 }
 
+/** Load one physical reference by its stable repository ID. */
+RepositoryFile loadFileReferenceFromDatabase(ref Database db, long fileReferenceId)
+{
+    auto result = db.execute("SELECT f.id, COALESCE(f.directory_id, 0), f.blob_id, "
+        ~ "f.relative_path, f.time_last_modified, f.exists_on_disk, b.file_size, "
+        ~ "(b.file_type IS NOT NULL AND length(b.file_type) > 0), "
+        ~ "EXISTS (SELECT 1 FROM media_signatures ms WHERE ms.blob_id = b.id), "
+        ~ "EXISTS (SELECT 1 FROM media_video_streams mv WHERE mv.blob_id = b.id), "
+        ~ "EXISTS (SELECT 1 FROM media_audio_streams ma WHERE ma.blob_id = b.id), "
+        ~ "EXISTS (SELECT 1 FROM media_image_streams mi WHERE mi.blob_id = b.id), "
+        ~ "EXISTS (SELECT 1 FROM media_text_streams mt WHERE mt.blob_id = b.id), "
+        ~ "EXISTS (SELECT 1 FROM archive_indexes ar WHERE ar.blob_id = b.id), "
+        ~ "EXISTS (SELECT 1 FROM torrent_info ti WHERE ti.blob_id = b.id) "
+        ~ "FROM file_refs f JOIN blobs b ON b.id = f.blob_id WHERE f.id = ?",
+        fileReferenceId);
+    if (result.empty)
+        return RepositoryFile.init;
+    auto row = result.front;
+    auto modified = row.peek!(Nullable!string)(4);
+    return RepositoryFile(row.peek!long(0), row.peek!long(1), row.peek!long(2),
+        baseName(row.peek!string(3)), row.peek!string(3),
+        cast(ulong) row.peek!long(6), modified.isNull ? "" : modified.get,
+        row.peek!long(5) != 0, row.peek!long(7) != 0,
+        row.peek!long(8) != 0, row.peek!long(9) != 0,
+        row.peek!long(10) != 0, row.peek!long(11) != 0,
+        row.peek!long(12) != 0, row.peek!long(13) != 0,
+        row.peek!long(14) != 0, false, 0, 0, 0, 0, "");
+}
+
 /** List archive entries for one blob without loading the complete blob. */
 RepositoryArchiveEntry[] listArchiveEntriesFromDatabase(ref Database db,
     RepositoryArchiveQuery options)
 {
-    auto statement = db.prepare("SELECT id, file_name, file_size, time_last_modified "
-        ~ "FROM archive_entries WHERE blob_id = ? ORDER BY file_name "
+    auto statement = db.prepare("SELECT id, entry_index, occurrence, file_name, "
+        ~ "normalized_path, path_safe, is_directory, file_size, "
+        ~ "time_last_modified, md5, sha1, xxh64, content_blob_id "
+        ~ "FROM archive_entries WHERE blob_id = ? ORDER BY entry_index "
         ~ "LIMIT ? OFFSET ?");
     statement.bind(1, options.blobId);
     statement.bind(2, cast(long) options.limit);
@@ -338,11 +479,61 @@ RepositoryArchiveEntry[] listArchiveEntriesFromDatabase(ref Database db,
     RepositoryArchiveEntry[] result;
     foreach (row; statement.execute())
     {
-        auto modified = row.peek!(Nullable!string)(3);
-        result ~= RepositoryArchiveEntry(row.peek!long(0), row.peek!string(1),
-            cast(ulong) row.peek!long(2), modified.isNull ? "" : modified.get);
+        auto modified = row.peek!(Nullable!string)(8);
+        RepositoryArchiveEntry entry;
+        entry.id = row.peek!long(0);
+        entry.containerBlobId = options.blobId;
+        entry.entryIndex = cast(size_t) row.peek!long(1);
+        entry.occurrence = cast(size_t) row.peek!long(2);
+        entry.name = row.peek!string(3);
+        entry.relativePath = row.peek!string(4);
+        entry.hasSafePath = row.peek!long(5) != 0;
+        if (!entry.hasSafePath)
+            entry.relativePath = "";
+        entry.isDirectory = row.peek!long(6) != 0;
+        entry.size = cast(ulong) row.peek!long(7);
+        entry.modifiedAt = modified.isNull ? "" : modified.get;
+        entry.checkSums.md5sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(9));
+        entry.checkSums.sha1sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(10));
+        entry.checkSums.xxh64sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(11));
+        auto contentBlobId = row.peek!(Nullable!long)(12);
+        entry.contentBlobId = contentBlobId.isNull ? 0 : contentBlobId.get;
+        result ~= entry;
     }
     return result;
+}
+
+/** Load one stable archive-index row without knowing its container blob first. */
+RepositoryArchiveEntry loadArchiveEntryFromDatabase(ref Database db,
+    long archiveEntryId)
+{
+    auto result = db.execute("SELECT id, blob_id, entry_index, occurrence, "
+        ~ "file_name, normalized_path, path_safe, is_directory, file_size, "
+        ~ "time_last_modified, md5, sha1, xxh64, content_blob_id "
+        ~ "FROM archive_entries WHERE id = ?", archiveEntryId);
+    if (result.empty)
+        return RepositoryArchiveEntry.init;
+    auto row = result.front;
+    RepositoryArchiveEntry entry;
+    entry.id = row.peek!long(0);
+    entry.containerBlobId = row.peek!long(1);
+    entry.entryIndex = cast(size_t) row.peek!long(2);
+    entry.occurrence = cast(size_t) row.peek!long(3);
+    entry.name = row.peek!string(4);
+    entry.relativePath = row.peek!string(5);
+    entry.hasSafePath = row.peek!long(6) != 0;
+    if (!entry.hasSafePath)
+        entry.relativePath = "";
+    entry.isDirectory = row.peek!long(7) != 0;
+    entry.size = cast(ulong) row.peek!long(8);
+    const auto modified = row.peek!(Nullable!string)(9);
+    entry.modifiedAt = modified.isNull ? "" : modified.get;
+    entry.checkSums.md5sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(10));
+    entry.checkSums.sha1sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(11));
+    entry.checkSums.xxh64sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(12));
+    const auto contentBlobId = row.peek!(Nullable!long)(13);
+    entry.contentBlobId = contentBlobId.isNull ? 0 : contentBlobId.get;
+    return entry;
 }
 
 /** List torrent files for one blob without loading torrent metadata. */
@@ -427,7 +618,7 @@ private Statement prepareCatalogQuery(ref Database db, string selectSql,
     {
         sql ~= " AND (EXISTS (SELECT 1 FROM file_refs f WHERE f.blob_id = b.id "
             ~ (options.caseSensitive ? "AND instr(f.relative_path, :text) > 0)"
-                : "AND lower(f.relative_path) LIKE lower(:text))");
+                : "AND instr(lower(f.relative_path), lower(:text)) > 0)");
         if (sha1Search.length == 20)
             sql ~= " OR b.sha1 = :sha1";
         sql ~= ")";
@@ -474,7 +665,7 @@ private Statement prepareCatalogQuery(ref Database db, string selectSql,
         if (options.fileType)
             addOtherCondition("b.file_type IS NOT NULL AND length(b.file_type) > 0");
         if (options.archive)
-            addOtherCondition("EXISTS (SELECT 1 FROM archive_entries a "
+            addOtherCondition("EXISTS (SELECT 1 FROM archive_indexes a "
                 ~ "WHERE a.blob_id = b.id)");
         if (options.torrent)
             addOtherCondition("EXISTS (SELECT 1 FROM torrent_info t "
@@ -492,8 +683,7 @@ private Statement prepareCatalogQuery(ref Database db, string selectSql,
 
     auto statement = db.prepare(sql);
     if (!options.text.empty)
-        statement.bind(":text", options.caseSensitive ? options.text
-            : "%" ~ options.text ~ "%");
+        statement.bind(":text", options.text);
     if (sha1Search.length == 20)
         statement.bind(":sha1", cast(Blob) sha1Search);
     if (paged)
@@ -537,7 +727,7 @@ NamedBinaryBlob loadBlobDetailsFromDatabase(ref Database db, string rootPath,
     if (!passwordResult.empty)
         archivePassword = passwordResult.front.peek!string(0);
     auto paths = loadFileSpecs(db, blobId, rootPath, options);
-    if (paths.length == 0)
+    if (paths.length == 0 && !options.allowUnreferencedContent)
         return null;
 
     auto blob = new NamedBinaryBlob();
@@ -574,7 +764,7 @@ private RepositoryBlobFlags loadBlobFlags(ref Database db, long blobId)
         ~ "WHERE blob_id = ?", blobId).empty;
     flags.hasText = !db.execute("SELECT 1 FROM media_text_streams "
         ~ "WHERE blob_id = ?", blobId).empty;
-    flags.hasArchive = !db.execute("SELECT 1 FROM archive_entries "
+    flags.hasArchive = !db.execute("SELECT 1 FROM archive_indexes "
         ~ "WHERE blob_id = ?", blobId).empty;
     flags.hasTorrent = !db.execute("SELECT 1 FROM torrent_info "
         ~ "WHERE blob_id = ?", blobId).empty;
@@ -626,19 +816,82 @@ private void insertBlob(ref Database db, string rootPath, NamedBinaryBlob blob)
     }
 
     insertMediaInfo(db, id, blob.mediaInfoSig);
-    foreach (entry; blob.archiveSpecs)
+    if (blob.archiveSpecs !is null)
+    {
+        long[long] activeContainers;
+        insertArchiveSpecs(db, id, blob.archiveSpecs, activeContainers);
+    }
+    insertTorrentInfo(db, id, blob.torrentInfo);
+}
+
+private void insertArchiveSpecs(ref Database db, long containerBlobId,
+    ArchiveSpec[] entries, ref long[long] activeContainers)
+{
+    if (containerBlobId in activeContainers)
+        throw new RepositoryException(
+            "Nested archive metadata contains a cyclic content identity.");
+    if (activeContainers.length >= 32)
+        throw new RepositoryException(
+            "Nested archive metadata exceeds the maximum import depth.");
+    activeContainers[containerBlobId] = true;
+    scope (exit)
+        activeContainers.remove(containerBlobId);
+
+    db.execute("DELETE FROM archive_entries WHERE blob_id = ?", containerBlobId);
+    db.execute("DELETE FROM archive_indexes WHERE blob_id = ?", containerBlobId);
+    size_t[string] archiveOccurrences;
+    bool archiveDeepScanned = true;
+    foreach (entryIndex, entry; entries)
     {
         if (entry is null)
             continue;
-        db.execute("INSERT INTO archive_entries "
-            ~ "(blob_id, file_name, file_size, time_last_modified, md5, "
-            ~ "sha1, xxh64) VALUES (?, ?, ?, ?, ?, ?, ?)", id, entry.fileName,
+        bool pathSafe;
+        bool isDirectory;
+        const auto normalizedPath = normalizeArchiveEntryPath(entry.fileName,
+            pathSafe, isDirectory);
+        auto storedPath = pathSafe ? normalizedPath : entry.fileName;
+        const auto occurrenceKey = (pathSafe ? "safe\0" : "unsafe\0")
+            ~ storedPath;
+        const auto occurrence = archiveOccurrences.get(occurrenceKey, 0);
+        archiveOccurrences[occurrenceKey] = occurrence + 1;
+        const auto memberMd5 = encodeBase64(entry.checkSums.md5sum_b64);
+        const auto memberSha1 = encodeBase64(entry.checkSums.sha1sum_b64);
+        const auto memberXxh64 = encodeBase64(entry.checkSums.xxh64sum_b64);
+        const auto memberBlobId = ensureArchiveMemberBlob(db,
+            cast(long) entry.fileSize, memberMd5, memberSha1, memberXxh64);
+        if (!isDirectory && memberBlobId == 0)
+            archiveDeepScanned = false;
+        if (memberBlobId == 0 && (entry.nestedEntries !is null
+            || entry.archivePassword.length > 0))
+            throw new RepositoryException("Nested archive metadata requires a "
+                ~ "complete content fingerprint for its container entry.");
+        Nullable!long memberBlobReference;
+        if (memberBlobId > 0)
+            memberBlobReference = memberBlobId;
+        db.execute("INSERT INTO archive_entries (blob_id, entry_index, occurrence, "
+            ~ "file_name, normalized_path, path_safe, is_directory, file_size, "
+            ~ "time_last_modified, md5, sha1, xxh64, content_blob_id) "
+            ~ "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", containerBlobId,
+            cast(long) entryIndex, cast(long) occurrence, entry.fileName,
+            storedPath, pathSafe ? 1 : 0, isDirectory ? 1 : 0,
             cast(long) entry.fileSize, entry.timeLastModified,
-            encodeBase64(entry.checkSums.md5sum_b64),
-            encodeBase64(entry.checkSums.sha1sum_b64),
-            encodeBase64(entry.checkSums.xxh64sum_b64));
+            memberMd5, memberSha1, memberXxh64, memberBlobReference);
+
+        if (memberBlobId > 0 && entry.archivePassword.length > 0)
+            db.execute("INSERT INTO archive_passwords (blob_id, password) "
+                ~ "VALUES (?, ?) ON CONFLICT(blob_id) DO UPDATE SET "
+                ~ "password = excluded.password", memberBlobId,
+                entry.archivePassword);
+        if (memberBlobId > 0 && entry.nestedEntries !is null)
+            insertArchiveSpecs(db, memberBlobId, entry.nestedEntries,
+                activeContainers);
     }
-    insertTorrentInfo(db, id, blob.torrentInfo);
+    db.execute("INSERT INTO archive_indexes (blob_id, indexer_version, indexed_at, "
+        ~ "deep_scanned) VALUES (?, ?, ?, ?) ON CONFLICT(blob_id) DO UPDATE SET "
+        ~ "indexer_version = excluded.indexer_version, "
+        ~ "indexed_at = excluded.indexed_at, "
+        ~ "deep_scanned = excluded.deep_scanned", containerBlobId,
+        archiveIndexVersion, currentTimestamp(), archiveDeepScanned ? 1 : 0);
 }
 
 private long ensureDirectory(ref Database db, string relativeDirectory)
@@ -807,19 +1060,48 @@ private void loadMediaInfo(ref Database db, long blobId, ref NamedBinaryBlob blo
 
 private void loadArchiveSpecs(ref Database db, long blobId, ref NamedBinaryBlob blob)
 {
-    foreach (row; db.execute("SELECT file_name, file_size, time_last_modified, "
-        ~ "md5, sha1, xxh64 FROM archive_entries WHERE blob_id = ? "
-        ~ "ORDER BY file_name", blobId))
+    if (db.execute("SELECT 1 FROM archive_indexes WHERE blob_id = ?",
+        blobId).empty)
+        return;
+    blob.archiveSpecs = loadArchiveSpecsFromDatabase(db, blobId, 0);
+}
+
+private ArchiveSpec[] loadArchiveSpecsFromDatabase(ref Database db,
+    long blobId, size_t depth)
+{
+    enforce(depth < 32, "Nested archive index exceeds the maximum load depth.");
+    ArchiveSpec[] result;
+    foreach (row; db.execute("SELECT entry_index, occurrence, file_name, file_size, "
+        ~ "time_last_modified, md5, sha1, xxh64, content_blob_id "
+        ~ "FROM archive_entries "
+        ~ "WHERE blob_id = ? ORDER BY entry_index", blobId))
     {
-        auto modified = row.peek!(Nullable!string)(2);
-        auto entry = new ArchiveSpec(row.peek!string(0),
-            cast(size_t) row.peek!long(1), modified.isNull ? "" : modified.get,
+        auto modified = row.peek!(Nullable!string)(4);
+        auto entry = new ArchiveSpec(row.peek!string(2),
+            cast(size_t) row.peek!long(3), modified.isNull ? "" : modified.get,
             CheckSums());
-        entry.checkSums.md5sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(3));
-        entry.checkSums.sha1sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(4));
-        entry.checkSums.xxh64sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(5));
-        blob.archiveSpecs ~= entry;
+        entry.entryIndex = cast(size_t) row.peek!long(0);
+        entry.occurrence = cast(size_t) row.peek!long(1);
+        entry.hasIndexIdentity = true;
+        entry.checkSums.md5sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(5));
+        entry.checkSums.sha1sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(6));
+        entry.checkSums.xxh64sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(7));
+        const auto memberBlobId = row.peek!(Nullable!long)(8);
+        if (!memberBlobId.isNull)
+        {
+            entry.contentBlobId = memberBlobId.get;
+            auto password = db.execute("SELECT password FROM archive_passwords "
+                ~ "WHERE blob_id = ?", memberBlobId.get);
+            if (!password.empty)
+                entry.archivePassword = password.front.peek!string(0);
+            if (!db.execute("SELECT 1 FROM archive_indexes WHERE blob_id = ?",
+                memberBlobId.get).empty)
+                entry.nestedEntries = loadArchiveSpecsFromDatabase(db,
+                    memberBlobId.get, depth + 1);
+        }
+        result ~= entry;
     }
+    return result;
 }
 
 private void loadTorrentInfo(ref Database db, long blobId, ref NamedBinaryBlob blob,

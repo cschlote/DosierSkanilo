@@ -747,6 +747,9 @@ MediaInfoSig getMediaTypeSignature(const string filename)
 @("getMediaTypeSignature")
 unittest
 {
+	import std.path : buildPath;
+	import dosierskanilo.testdata : ensureSyntheticTestCatalog;
+
 	auto sig = getMediaTypeSignature("test/non-existing-file.txt");
 	assert(sig is null);
 
@@ -775,13 +778,27 @@ unittest
 	assert(sig4.imageStreams[0].format == "JPEG", sig4.to!string);
 	assert(sig4.imageStreams[0].width == 3264, sig4.to!string);
 	assert(sig4.imageStreams[0].height == 2448, sig4.to!string);
-	// Some MediaInfo builds expose an additional thumbnail stream, some do not.
 	if (sig4.imageStreams.length >= 2)
 	{
 		assert(sig4.imageStreams[1].format == "JPEG", sig4.to!string);
 		assert(sig4.imageStreams[1].width == 320, sig4.to!string);
 		assert(sig4.imageStreams[1].height == 240, sig4.to!string);
 	}
+
+	auto fixture = ensureSyntheticTestCatalog();
+	auto audioPath = buildPath(fixture.catalogRoot, "media", "tone.wav");
+	auto syntheticAudio = getMediaTypeSignature(audioPath);
+	assert(syntheticAudio !is null);
+	assert(syntheticAudio.audioStreams.length == 1, syntheticAudio.to!string);
+	assert(syntheticAudio.audioStreams[0].channels == 1, syntheticAudio.to!string);
+
+	auto bitmapPath = buildPath(fixture.catalogRoot, "images", "sample.bmp");
+	auto syntheticBitmap = getMediaTypeSignature(bitmapPath);
+	assert(syntheticBitmap !is null);
+	assert(syntheticBitmap.imageStreams.length == 1, syntheticBitmap.to!string);
+	assert(syntheticBitmap.imageStreams[0].format == "Raw", syntheticBitmap.to!string);
+	assert(syntheticBitmap.imageStreams[0].width == 2, syntheticBitmap.to!string);
+	assert(syntheticBitmap.imageStreams[0].height == 2, syntheticBitmap.to!string);
 
 	auto sig5 = getMediaTypeSignature("test/dummy-subtitle-file.srt");
 	auto sig5ref = new MediaInfoSig(

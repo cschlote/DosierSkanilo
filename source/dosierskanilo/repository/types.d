@@ -3,6 +3,7 @@ module dosierskanilo.repository.types;
 
 import std.path : buildPath;
 
+import dosierskanilo.model.checksums : CheckSums;
 import dosierskanilo.model.namedbinaryblob : NamedBinaryBlob;
 import dosierarkivo.archive : ArchivePasswordCallback;
 
@@ -13,7 +14,7 @@ enum repositoryDirectoryName = ".dosierskanilo";
 enum repositoryDatabaseFileName = "catalog.sqlite3";
 
 /** Current database schema version. */
-enum ulong currentRepositorySchemaVersion = 2;
+enum ulong currentRepositorySchemaVersion = 3;
 
 /** Paths belonging to one repository root. */
 struct RepositoryPaths
@@ -99,6 +100,8 @@ struct JsonExportOptions
     bool includeArchiveEntries = true;
     /// Include torrent file rows as part of blob details.
     bool includeTorrentFiles = true;
+    /// Allow loading an archive-member content row without physical file refs.
+    bool allowUnreferencedContent;
 }
 
 /** Options controlling a repository filesystem scan. */
@@ -127,6 +130,14 @@ struct ScanSummary
     size_t filesMissing;
     /// Number of missing references physically removed by `dropMissing` this run.
     size_t filesDropped;
+}
+
+/** Scan summary plus cooperative-cancellation outcome for controlled callers. */
+struct ScanExecutionResult
+{
+    ScanSummary summary;
+    bool cancelled;
+    bool committed;
 }
 
 /** Options for metadata extraction after a repository filesystem scan. */
@@ -171,6 +182,14 @@ struct MetadataSummary
     size_t torrentsUpdated;
     /// Number of metadata jobs that failed.
     size_t failed;
+}
+
+/** Metadata summary plus cooperative-cancellation outcome. */
+struct MetadataExecutionResult
+{
+    MetadataSummary summary;
+    bool cancelled;
+    bool committed;
 }
 
 /** Options controlling SQL-based repository analysis. */
@@ -221,6 +240,12 @@ struct RepositoryFile
     bool hasText;
     bool hasArchive;
     bool hasTorrent;
+    bool archiveMember;
+    long containerReferenceId;
+    long archiveEntryId;
+    long archiveContainerBlobId;
+    size_t archiveEntryIndex;
+    string archiveContainerIdentity;
 }
 
 /** Query options for bounded directory children reads. */
@@ -240,15 +265,29 @@ struct RepositoryDirectoryQuery
     bool fileType;
     bool archive;
     bool torrent;
+    /// Exclude references currently marked missing on disk.
+    bool availableOnly;
+    /// Include indexed archive members in child-file queries.
+    bool includeArchiveMembers;
 }
 
 /** Archive entry projection for lazy detail views. */
 struct RepositoryArchiveEntry
 {
-    long id;
-    string name;
-    ulong size;
-    string modifiedAt;
+    long id; /// Stable row identity within the repository.
+    long containerBlobId; /// Content blob that owns this index entry.
+    size_t entryIndex; /// Position in the persisted index sequence.
+    size_t occurrence; /// Duplicate occurrence for this normalized path.
+    string name; /// Original archive-provided entry name.
+    string relativePath; /// Normalized member path when safe.
+    bool isDirectory; /// Whether this row describes a directory entry.
+    bool hasSafePath; /// Whether the path is relative and traversal-free.
+    ulong size; /// Uncompressed member size when deeply scanned.
+    string modifiedAt; /// Member timestamp when available.
+    /// Raw file checksums when deep archive inspection persisted them.
+    CheckSums checkSums;
+    /// Content blob ID when the member has a complete persisted fingerprint.
+    long contentBlobId;
 }
 
 /** Torrent file projection for lazy detail views. */
@@ -300,6 +339,10 @@ struct RepositoryFileQuery
     bool fileType;
     bool archive;
     bool torrent;
+    /// Exclude references currently marked missing on disk.
+    bool availableOnly;
+    /// Include indexed archive members in child-file queries.
+    bool includeArchiveMembers;
     RepositoryFileSortOrder sortOrder = RepositoryFileSortOrder.pathAscending;
     /// Keyset cursor, interpreted using sortOrder.
     string afterPath;
@@ -392,6 +435,14 @@ struct AnalysisSummary
     size_t mergedBlobs;
     /// Unreferenced blob rows removed after cleanup.
     size_t orphanedBlobs;
+}
+
+/** Analysis summary plus cooperative-cancellation outcome. */
+struct AnalysisExecutionResult
+{
+    AnalysisSummary summary;
+    bool cancelled;
+    bool committed;
 }
 
 /** One read-only group of blobs with identical complete checksums. */

@@ -64,16 +64,21 @@ string getFileUtilityVersion()
 unittest
 {
     import std.stdio : writeln;
+    import std.path : buildPath;
+    import dosierskanilo.testdata : ensureSyntheticTestCatalog;
 
     auto type1 = getFileType("test/dummy-text-file.txt");
 
     assert(type1 == "ASCII text", type1);
 
     auto type2 = getFileType("test/dummy-audio-file.mp3");
-    // `file` changes its MP3 wording across versions, so keep the test stable
-    // by checking for the relevant markers instead of the full sentence.
     assert(type2.canFind("Audio file with ID3 version 2.3.0"), type2);
     assert(type2.canFind("MPEG ADTS, layer III"), type2);
+
+    auto fixture = ensureSyntheticTestCatalog();
+    auto syntheticType = getFileType(buildPath(fixture.catalogRoot, "media", "tone.wav"));
+    assert(syntheticType.canFind("WAVE audio"), syntheticType);
+    assert(syntheticType.canFind("Microsoft PCM"), syntheticType);
 
     auto type3 = getFileType("test/no-file.txt");
     assert(type3 is null, type3);

@@ -415,10 +415,11 @@ unittest
 unittest
 {
     import std.conv : to;
-    import std.file : getcwd, mkdirRecurse, remove, rmdirRecurse, tempDir, write;
+    import std.file : mkdirRecurse, remove, rmdirRecurse, tempDir, write;
     import std.path : buildPath;
     import std.process : execute;
     import std.uuid : randomUUID;
+    import dosierskanilo.testdata : ensureSyntheticTestCatalog;
 
     auto root = buildPath(tempDir(), "scanning-archive-" ~ randomUUID().toString());
     mkdirRecurse(root);
@@ -440,7 +441,9 @@ unittest
     auto zipCreate = execute(["zip", "-q", "-j", zipPath, payload]);
     assert(zipCreate.status == 0, zipCreate.output);
 
-    auto torrentPath = "test/example.torrent";
+    auto fixture = ensureSyntheticTestCatalog();
+    auto torrentPath = buildPath(fixture.catalogRoot, "torrent",
+        "single-file.torrent");
     NamedBinaryBlob[] objs = [
         new NamedBinaryBlob(zipPath, getSize(zipPath), Clock.currTime()),
         new NamedBinaryBlob(torrentPath, getSize(torrentPath), Clock.currTime()),

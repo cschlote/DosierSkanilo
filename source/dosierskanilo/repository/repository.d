@@ -16,19 +16,22 @@ import std.stdio : File;
 import std.typecons : Nullable;
 
 import dosierskanilo.model.namedbinaryblob : NamedBinaryBlob;
+import dosierskanilo.operations : OperationControl, OperationTarget;
+import dosierskanilo.operationlease : TargetWriteLease;
 import dosierskanilo.repository.errors;
-import dosierskanilo.repository.analysis : analyzeRepository;
+import dosierskanilo.repository.analysis : analyzeRepositoryControlled;
 import dosierskanilo.repository.analysis : queryDuplicateGroups;
-import dosierskanilo.repository.metadata : updateRepositoryMetadata;
+import dosierskanilo.repository.metadata : updateRepositoryMetadataControlled;
 import dosierskanilo.repository.schema : migrate;
-import dosierskanilo.repository.scanner : scanRepository;
+import dosierskanilo.repository.scanner : scanRepositoryControlled;
 import dosierskanilo.repository.transfer : exportCatalogJson, importCatalogJson,
     loadCatalogFromDatabase, loadCatalogPageFromDatabase,
     loadCatalogQueryPageFromDatabase, loadCatalogQueryPageWithIdsFromDatabase,
     loadBlobDetailsFromDatabase, countCatalogQueryFromDatabase,
     listDirectoriesFromDatabase, loadRootSummaryFromDatabase, listFilesFromDatabase,
     listFilesPageFromDatabase, listArchiveEntriesFromDatabase,
-    listTorrentFilesFromDatabase;
+    listTorrentFilesFromDatabase, loadFileReferenceFromDatabase,
+    loadArchiveEntryFromDatabase;
 import dosierskanilo.repository.types;
 
 /** A connection to one `.dosierskanilo` repository. */
@@ -325,6 +328,15 @@ public:
     void setArchivePasswordForBlob(long blobId, string password)
     {
         requireOpen();
+        auto targetLease = TargetWriteLease.acquireRepositoryRoot(
+            repositoryPaths.rootPath);
+        scope (exit)
+            targetLease.release();
+        setArchivePasswordForBlobUnleased(blobId, password);
+    }
+
+    private void setArchivePasswordForBlobUnleased(long blobId, string password)
+    {
         if (database.execute("SELECT 1 FROM blobs WHERE id = ?", blobId).empty)
             throw new RepositoryException("Unknown blob ID: " ~ blobId.to!string);
         if (password.length == 0)
@@ -345,6 +357,10 @@ public:
     void setArchivePasswordForPath(string fileName, string password)
     {
         requireOpen();
+        auto targetLease = TargetWriteLease.acquireRepositoryRoot(
+            repositoryPaths.rootPath);
+        scope (exit)
+            targetLease.release();
         auto relativePath = passwordRelativePath(fileName, repositoryPaths.rootPath);
         long[] matchingBlobIds;
         long[] basenameBlobIds;
@@ -367,7 +383,7 @@ public:
         if (matches.length > 1)
             throw new RepositoryException("Filename is ambiguous in this repository: "
                 ~ fileName);
-        setArchivePasswordForBlob(matches[0], password);
+        setArchivePasswordForBlobUnleased(matches[0], password);
     }
 
     /** Count blobs matching repository-side query filters. */
@@ -408,6 +424,13 @@ public:
         return listFilesPageFromDatabase(database, options);
     }
 
+    /** Load one physical file reference by its stable repository ID. */
+    RepositoryFile fileReference(long fileReferenceId)
+    {
+        requireOpen();
+        return loadFileReferenceFromDatabase(database, fileReferenceId);
+    }
+
     /** Continue forward from a stable file cursor in the query's sorted result. */
     RepositoryFilePage nextFilesPage(RepositoryFileQuery options,
         RepositoryFileCursor cursor)
@@ -438,6 +461,21 @@ public:
         return listArchiveEntriesFromDatabase(database, options);
     }
 
+    /** Load one archive index row by stable entry ID. */
+    RepositoryArchiveEntry archiveEntry(long entryId)
+    {
+        requireOpen();
+        return loadArchiveEntryFromDatabase(database, entryId);
+    }
+
+    /** Whether a blob has an archive index, including a known empty index. */
+    bool hasArchiveIndex(long blobId)
+    {
+        requireOpen();
+        return !database.execute("SELECT 1 FROM archive_indexes WHERE blob_id = ?",
+            blobId).empty;
+    }
+
     /** List torrent files for one blob using bounded SQL queries. */
     RepositoryTorrentFile[] listTorrentFiles(RepositoryTorrentQuery options)
     {
@@ -450,7 +488,27 @@ public:
     ScanSummary scan(RepositoryScanOptions options = RepositoryScanOptions())
     {
         requireOpen();
-        return scanRepository(database, repositoryPaths.rootPath, options);
+        return scanControlled(options, null, 0).summary;
+    }
+
+    /** Run a staged scan with operation progress, cancellation, and safe pauses. */
+    package(dosierskanilo) ScanExecutionResult scanControlled(RepositoryScanOptions options,
+        OperationControl control, ulong operationId,
+        TargetWriteLease targetLease = null)
+    {
+        requireOpen();
+        bool ownsLease = targetLease is null;
+        if (ownsLease)
+            targetLease = TargetWriteLease.acquireRepositoryRoot(
+                repositoryPaths.rootPath);
+        else
+            enforce(targetLease.owns(OperationTarget.repositoryTarget(
+                repositoryPaths.rootPath)), "Operation lease target does not match repository.");
+        scope (exit)
+            if (ownsLease)
+                targetLease.release();
+        return scanRepositoryControlled(database, repositoryPaths.rootPath,
+            options, control, operationId);
     }
 
     /** Run selected metadata extraction jobs for stored file references. */
@@ -458,7 +516,27 @@ public:
         MetadataScanOptions options = MetadataScanOptions())
     {
         requireOpen();
-        return updateRepositoryMetadata(database, repositoryPaths.rootPath, options);
+        return updateMetadataControlled(options, null, 0).summary;
+    }
+
+    /** Run metadata extraction with worker draining, blob transactions, and control. */
+    package(dosierskanilo) MetadataExecutionResult updateMetadataControlled(MetadataScanOptions options,
+        OperationControl control, ulong operationId,
+        TargetWriteLease targetLease = null)
+    {
+        requireOpen();
+        bool ownsLease = targetLease is null;
+        if (ownsLease)
+            targetLease = TargetWriteLease.acquireRepositoryRoot(
+                repositoryPaths.rootPath);
+        else
+            enforce(targetLease.owns(OperationTarget.repositoryTarget(
+                repositoryPaths.rootPath)), "Operation lease target does not match repository.");
+        scope (exit)
+            if (ownsLease)
+                targetLease.release();
+        return updateRepositoryMetadataControlled(database,
+            repositoryPaths.rootPath, options, control, operationId);
     }
 
     /** Analyze missing references and duplicate blobs in SQL. */
@@ -466,7 +544,26 @@ public:
         RepositoryAnalysisOptions options = RepositoryAnalysisOptions())
     {
         requireOpen();
-        return analyzeRepository(database, options);
+        return analyzeControlled(options, null, 0).summary;
+    }
+
+    /** Analyze the repository with staged plans and cooperative run control. */
+    package(dosierskanilo) AnalysisExecutionResult analyzeControlled(RepositoryAnalysisOptions options,
+        OperationControl control, ulong operationId,
+        TargetWriteLease targetLease = null)
+    {
+        requireOpen();
+        bool ownsLease = targetLease is null;
+        if (ownsLease)
+            targetLease = TargetWriteLease.acquireRepositoryRoot(
+                repositoryPaths.rootPath);
+        else
+            enforce(targetLease.owns(OperationTarget.repositoryTarget(
+                repositoryPaths.rootPath)), "Operation lease target does not match repository.");
+        scope (exit)
+            if (ownsLease)
+                targetLease.release();
+        return analyzeRepositoryControlled(database, options, control, operationId);
     }
 
     /** Return duplicate groups without changing repository data. */
@@ -1008,12 +1105,16 @@ unittest
     import std.file : copy, exists, mkdirRecurse, rmdirRecurse, tempDir;
     import std.path : buildPath;
     import std.uuid : randomUUID;
+    import dosierskanilo.testdata : ensureSyntheticTestCatalog;
 
     auto root = buildPath(tempDir(), "repository-rich-metadata-"
         ~ randomUUID().toString());
     mkdirRecurse(root);
-    copy("./test/dummy-picture-file.jpg", buildPath(root, "picture.jpg"));
-    copy("./test/example.torrent", buildPath(root, "example.torrent"));
+    auto fixture = ensureSyntheticTestCatalog();
+    copy(buildPath(fixture.catalogRoot, "images", "sample.bmp"),
+        buildPath(root, "picture.bmp"));
+    copy(buildPath(fixture.catalogRoot, "torrent", "single-file.torrent"),
+        buildPath(root, "example.torrent"));
     scope (exit)
     {
         if (exists(root))
@@ -1021,6 +1122,8 @@ unittest
     }
 
     auto repository = Repository.initialize(root);
+    scope (exit)
+        repository.close();
     repository.scan();
     MetadataScanOptions options;
     options.extractMediaInfo = true;
@@ -1098,17 +1201,19 @@ unittest
     import std.path : buildPath;
     import std.process : execute;
     import std.uuid : randomUUID;
+    import dosierskanilo.testdata : ensureSyntheticTestCatalog;
 
     auto root = buildPath(tempDir(), "repository-rich-persistence-"
         ~ randomUUID().toString());
     mkdirRecurse(root);
+    auto fixture = ensureSyntheticTestCatalog();
     auto payload = buildPath(root, "payload.txt");
     auto archive = buildPath(root, "payload.zip");
     auto torrent = buildPath(root, "example.torrent");
     write(payload, "repository archive payload\n");
     assert(execute(["zip", "-q", "-P", "repository-secret", "-j", archive,
         payload]).status == 0);
-    copy("./test/example.torrent", torrent);
+    copy(buildPath(fixture.catalogRoot, "torrent", "single-file.torrent"), torrent);
     auto exported = buildPath(root, "export.json");
     scope (exit)
     {
@@ -1117,11 +1222,14 @@ unittest
     }
 
     auto repository = Repository.initialize(root);
+    scope (exit)
+        repository.close();
     repository.scan();
     MetadataScanOptions options;
+    options.calculateChecksums = true;
     options.scanArchives = true;
     options.scanTorrents = true;
-    options.deepArchiveScan = true;
+    options.deepArchiveScan = false;
     size_t passwordPrompts;
     options.archivePasswordCallback = (string archivePath, string reason,
         out string password) {
@@ -1132,7 +1240,6 @@ unittest
         return true;
     };
     auto summary = repository.updateMetadata(options);
-    assert(passwordPrompts == 1);
     assert(summary.archivesUpdated == 1);
     assert(summary.torrentsUpdated == 1);
     assert(summary.failed == 0);
@@ -1150,7 +1257,40 @@ unittest
     assert(archiveBlob.archiveSpecs.length == 0);
     RepositoryArchiveQuery archiveEntriesQuery;
     archiveEntriesQuery.blobId = archiveFiles[0].blobId;
-    assert(repository.listArchiveEntries(archiveEntriesQuery).length > 0);
+    auto archiveEntriesBefore = repository.listArchiveEntries(archiveEntriesQuery);
+    assert(archiveEntriesBefore.length > 0);
+    assert(archiveEntriesBefore[0].hasSafePath);
+    assert(archiveEntriesBefore[0].relativePath == "payload.txt");
+    assert(archiveEntriesBefore[0].contentBlobId == 0,
+        "A shallow index must not invent a member content identity.");
+    const auto stableArchiveEntryId = archiveEntriesBefore[0].id;
+    options.deepArchiveScan = true;
+    repository.updateMetadata(options);
+    assert(passwordPrompts == 1);
+    auto deepArchiveEntries = repository.listArchiveEntries(archiveEntriesQuery);
+    assert(deepArchiveEntries[0].id == stableArchiveEntryId);
+    assert(deepArchiveEntries[0].contentBlobId > 0,
+        "Deep archive checksums should establish a member content identity.");
+    RepositoryFileQuery payloadQuery;
+    payloadQuery.text = "payload.txt";
+    auto physicalPayloads = repository.listFiles(payloadQuery);
+    assert(physicalPayloads.length == 1);
+    assert(deepArchiveEntries[0].contentBlobId == physicalPayloads[0].blobId,
+        "Equal archive and filesystem payloads should reuse one blob.");
+    JsonExportOptions memberDetailsOptions;
+    memberDetailsOptions.allowUnreferencedContent = true;
+    auto memberDetails = repository.loadBlobDetails(
+        deepArchiveEntries[0].contentBlobId, memberDetailsOptions);
+    assert(memberDetails !is null && memberDetails.fileSpecs.length == 1);
+    assert(memberDetails.fileSpecs[0].fileName == "payload.txt");
+    assert(memberDetails.checkSums.hasDigests);
+    options.rescan = true;
+    repository.updateMetadata(options);
+    auto archiveEntriesAfter = repository.listArchiveEntries(archiveEntriesQuery);
+    assert(archiveEntriesAfter.length == deepArchiveEntries.length);
+    assert(archiveEntriesAfter[0].id == stableArchiveEntryId,
+        "An unchanged archive entry should retain its repository identity.");
+    options.rescan = false;
     RepositoryFileQuery torrentQuery;
     torrentQuery.torrent = true;
     torrentQuery.limit = 10;
@@ -1296,6 +1436,7 @@ unittest
     import std.file : copy, exists, mkdirRecurse, rmdirRecurse, tempDir, write;
     import std.path : buildPath;
     import std.uuid : randomUUID;
+    import dosierskanilo.testdata : ensureSyntheticTestCatalog;
 
     auto root = buildPath(tempDir(), "repository-changed-file-orphans-"
         ~ randomUUID().toString());
@@ -1308,8 +1449,11 @@ unittest
 
     auto firstPath = buildPath(root, "first.torrent");
     auto secondPath = buildPath(root, "second.torrent");
-    copy("./test/example.torrent", firstPath);
-    copy("./test/example.torrent", secondPath);
+    auto fixture = ensureSyntheticTestCatalog();
+    auto torrentSeed = buildPath(fixture.catalogRoot, "torrent",
+        "single-file.torrent");
+    copy(torrentSeed, firstPath);
+    copy(torrentSeed, secondPath);
 
     auto repository = Repository.initialize(root);
     scope (exit)

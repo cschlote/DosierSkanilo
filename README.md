@@ -73,10 +73,11 @@ the directory tree and Blob/catalog view, size sorting, and forward/backward
 paging. Broader interaction and large-detail coverage remain tracked in
 `docs/SQLITE-IMPLEMENTATION-PLAN.md` and `TODO.md`.
 
-The current GUI remains a browser. The CLI and GUI operation-parity plan covers
-shared scan, metadata, and analysis requests, asynchronous progress/cancellation,
-and explicit support for both SQLite repositories and JSON catalogs; see WP-09
-in `docs/SQLITE-IMPLEMENTATION-PLAN.md`.
+The GUI now exposes shared scan, metadata, and analysis requests from its Tools
+menu, with background progress, cooperative cancellation, safe pause/resume, and
+explicit SQLite/JSON targets. The CLI uses the same operation requests. Remaining
+CLI/GUI parity and process-level lifecycle checks are tracked in WP-09 of
+`docs/SQLITE-IMPLEMENTATION-PLAN.md`.
 
 ## Build and Test
 
@@ -217,12 +218,17 @@ DosierSkanilo is licensed under [GPL-3.0-only](LICENSE.md).
 - `source/dosierskanilo_cli/repositoryvalidation.d` and
   `source/dosierskanilo_cli/jsonvalidation.d`: storage-mode validation
 - `source/dosierskanilo_cli/logging.d`: logging wrapper
-- `source/dosierskanilo/service/scanning.d`: directory scanning + job scheduling
+- `source/dosierskanilo/service/scanning.d`: legacy JSON scanner/job entrypoints
+- `source/dosierskanilo/service/jsonoperations.d`: controlled JSON scan/analysis
+  execution used by the shared operation runner
 - `source/dosierskanilo/service/analyze.d`: duplicate/missing-file analysis
 - `source/dosierskanilo/service/storageio.d`: JSON storage read/write and backup
-- `source/dosierskanilo/operations.d`: frontend-neutral long-running operation
-  requests, progress, cancellation control, validation, and results (execution is
-  being added in WP-09.2)
+- `source/dosierskanilo/operations.d`: frontend-neutral operation requests,
+  progress, cancellation/pause control, validation, and results
+- `source/dosierskanilo/operationrunner.d`: controlled SQLite/JSON operation
+  dispatch and execution
+- `source/dosierskanilo/operationlease.d`: per-target writer leases and JSON
+  replacement/read coordination
 - `source/dosierskanilo/repository/*`: SQLite repository, schema and JSON
   transfer API
 - `source/dosierskanilo/repository/scanner.d`: incremental filesystem scan

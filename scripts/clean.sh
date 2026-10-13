@@ -7,7 +7,7 @@ echo "[clean] Running dub clean"
 dub clean -v
 
 echo "[clean] Removing generated binaries and coverage"
-rm -rf ./build/bin ./build/coverage
+rm -rf ./build/bin ./build/coverage ./build/test-data
 
 echo "[clean] Removing generated docs output and archives"
 rm -rf ./public

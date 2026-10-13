@@ -1,8 +1,9 @@
 # JSON Storage Format
 
-This document describes the JSON format currently used by DosierSkanilo for
-import and export. It describes version 3, which is the format written by the
-current application.
+This document describes the JSON formats used by DosierSkanilo for import and
+export. Version 3 remains the default for ordinary writes. Version 4 adds a
+recursive representation for nested archive entries and is selected explicitly
+when such data is exported.
 
 JSON is a compatibility and exchange format. It is not intended to be the
 primary query store for large repositories. The `.dosierskanilo` SQLite
@@ -36,7 +37,9 @@ metadata. They are not a version of the JSON schema itself.
 ## Binary Content Records
 
 Each element of `dataArray` represents one binary payload. Several filesystem
-paths can refer to the same payload after duplicate analysis.
+paths can refer to the same payload after duplicate analysis. In the current
+format, those references are filesystem paths; archive members are still nested
+metadata rather than first-class blob references.
 
 - `fileSize` (integer): Payload size in bytes.
 - `checkSums` (optional object): MD5, SHA1 and XXH64 values encoded as
@@ -51,6 +54,9 @@ paths can refer to the same payload after duplicate analysis.
   stream metadata.
 - `archiveSpecs` (optional array): Metadata and checksums for entries inside an
   archive.
+- `archivePassword` (optional string): Password associated with the archive
+  blob and reused by archive inspection. Version 3 catalogs can contain this
+  value, so catalogs carrying passwords should be treated as sensitive files.
 - `torrentInfo` (optional object): Selected torrent metadata.
 
 ### Checksums
@@ -121,7 +127,43 @@ Each element of `archiveSpecs` contains:
 - `checkSums` (optional object): MD5, SHA1 and XXH64 values for the extracted
   entry.
 
-Archive entries belong to the binary record of the archive file itself.
+Archive entries belong to the binary record of the archive file itself. The v3
+shape does not persist an entry's own `NamedBinaryBlob` identity or path-reference
+record. The JSON adapter derives source-scoped member references and content IDs
+from deep checksums for the lifetime of an open catalog. Version 4 can additionally
+persist nested entry metadata; runtime reference identities are rebuilt on open.
+Virtual directory projection remains in WP-13.5 of
+`SQLITE-IMPLEMENTATION-PLAN.md`.
+
+The current shallow archive scan records entry names only; size, timestamp and
+checksums are populated by deep scanning, which extracts entries to temporary
+files. An `ArchiveSpec` with zero/empty values can therefore mean “listed but not
+deeply inspected,” not necessarily an empty member. Typed archive descriptors
+now report safe normalized paths and duplicate occurrence; deep-index state is
+stored separately by SQLite, while JSON v3 retains its legacy sentinel values.
+
+## Version 4: Nested Archive Entries
+
+Version 4 keeps the version-3 root object and record fields. An `ArchiveSpec` may
+add an optional `nestedEntries` array whose elements use the same entry shape,
+recursively describing a member that is itself an archive.
+
+- Readers accept versions 1-4 and legacy root arrays.
+- Writers default to version 3. Version 4 is selected through
+  `CatalogExportFormat.jsonV4` or an explicitly versioned wrapper.
+- A version-3 write containing nested archive entries fails rather than silently
+  discarding them.
+- SQLite JSON import persists nested version-4 indexes recursively. Nested
+  container entries require complete content fingerprints, and imports reject
+  cyclic metadata or nesting deeper than 32 levels.
+
+Deep scans recursively extract and index nested archives, and both adapters expose
+nested locator chains and member queries. A TreeView can treat the existing archive
+file row as expandable and group its member paths in the UI.
+
+Adapter-generated virtual member paths use `!/` to separate an archive from its
+member path. Literal `!` characters within physical or member path components are
+escaped as `!!`; persisted JSON `ArchiveSpec.fileName` values remain unchanged.
 
 ### Torrent Information
 
@@ -154,6 +196,11 @@ During input migration:
 3. Legacy textual MediaInfo is parsed into `mediaInfoSig`.
 4. Invalid empty torrent and media records are removed.
 5. The in-memory catalog is normalized to version 3.
+
+JSON analysis retains records whose source files are currently unavailable by
+default. `dropMissing` is the explicit opt-in to remove them. Duplicate-merge
+cleanup removes only records invalidated by a successful merge; it must not
+silently apply missing-file cleanup.
 
 During output migration:
 

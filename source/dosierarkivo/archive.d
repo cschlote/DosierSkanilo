@@ -6,8 +6,9 @@
  */
 module dosierarkivo.archive;
 
+import std.algorithm.searching : canFind, startsWith;
+import std.array : join;
 import std.string : toLower;
-import std.algorithm.searching : canFind;
 
 /** Raised when an archive operation needs a password or rejects the supplied one. */
 class ArchivePasswordRequiredException : Exception
@@ -58,6 +59,104 @@ enum RAR_SUFFIX = ".rar";
 /** File extension for 7z archives. */
 enum _7Z_SUFFIX = ".7z";
 
+/** Version of the normalized path/occurrence identity used by archive indexes. */
+enum archiveEntryIdentityVersion = "path-occurrence-v1";
+/** Version of the archive scan/index behavior, including recursive member indexing. */
+enum archiveIndexVersion = "nested-index-v2";
+
+/** One ordered archive member descriptor, independent of extracting its bytes. */
+struct ArchiveEntryDescriptor
+{
+    size_t index; /// Position in the archive handler's current entry sequence.
+    size_t occurrence; /// Zero-based occurrence among identical normalized paths.
+    string name; /// Format-provided member name, unchanged for display/extraction.
+    string relativePath; /// Normalized slash-separated path when safe.
+    ulong size; /// Uncompressed size when supplied by the archive index.
+    string modifiedAt; /// Archive timestamp when supplied without extraction.
+    ubyte[] formatChecksum; /// Optional checksum exposed directly by the format.
+    bool hasSize; /// Whether `size` came from archive metadata.
+    bool hasModifiedAt; /// Whether `modifiedAt` came from archive metadata.
+    bool isDirectory; /// True for an explicit directory entry.
+    bool hasSafePath; /// False for absolute or traversal paths that cannot be indexed.
+}
+
+/** Normalize a member name without permitting absolute or traversal paths. */
+string normalizeArchiveEntryPath(string name, out bool safe, out bool isDirectory)
+{
+    import std.string : replace, split;
+
+    auto normalized = name.replace('\\', '/');
+    isDirectory = normalized.length > 0 && normalized[$ - 1] == '/';
+    safe = normalized.length > 0 && !normalized.startsWith("/")
+        && !normalized.canFind('\0')
+        && !(normalized.length >= 2 && normalized[1] == ':');
+    if (!safe)
+        return "";
+
+    string[] components;
+    foreach (component; normalized.split("/"))
+    {
+        if (component.length == 0 || component == ".")
+            continue;
+        if (component == "..")
+        {
+            safe = false;
+            return "";
+        }
+        components ~= component;
+    }
+    return components.join("/");
+}
+
+/** Escape literal exclamation marks in a path used in archive display paths. */
+string escapeArchiveVirtualPath(string path)
+{
+    import std.string : replace;
+
+    return path.replace("!", "!!");
+}
+
+/** Append one archive-entry path to an already display-encoded container path. */
+string appendArchiveVirtualPath(string containerPath, string entryPath)
+{
+    return containerPath ~ "!/" ~ escapeArchiveVirtualPath(entryPath);
+}
+
+/** Split an archive display path into its physical/member path layers.
+ *
+ * A literal `!` is encoded as `!!`; `!/` separates a container from its
+ * member path. The returned layers have literal exclamation marks restored.
+ */
+string[] splitArchiveVirtualPath(string path)
+{
+    string[] layers;
+    string current;
+    for (size_t index; index < path.length; ++index)
+    {
+        if (path[index] != '!')
+        {
+            current ~= path[index];
+            continue;
+        }
+        if (index + 1 < path.length && path[index + 1] == '!')
+        {
+            current ~= '!';
+            ++index;
+            continue;
+        }
+        if (index + 1 < path.length && path[index + 1] == '/')
+        {
+            layers ~= current;
+            current = "";
+            ++index;
+            continue;
+        }
+        current ~= '!';
+    }
+    layers ~= current;
+    return layers;
+}
+
 /** Top-level representation of an archive file.
  *
  * The idea is to have a baseclass with the common interface and then have implementations
@@ -98,6 +197,35 @@ abstract class FileArchive
     string[] getEntries(string password = "")
     {
         return null;
+    }
+
+    /** Return stable-shape descriptors without extracting archive members.
+     *
+     * Identity is expressed as normalized member path plus occurrence in the
+     * ordered index. The caller must bind that identity to the container content
+     * and `archiveEntryIdentityVersion`; it is not a global ID by itself.
+     */
+    ArchiveEntryDescriptor[] getEntryDescriptors(string password = "")
+    {
+        auto names = getEntries(password);
+        if (names is null)
+            return null;
+        size_t[string] occurrences;
+        ArchiveEntryDescriptor[] result;
+        foreach (index, name; names)
+        {
+            ArchiveEntryDescriptor descriptor;
+            descriptor.index = index;
+            descriptor.name = name;
+            descriptor.relativePath = normalizeArchiveEntryPath(name,
+                descriptor.hasSafePath, descriptor.isDirectory);
+            auto occurrenceKey = descriptor.hasSafePath
+                ? descriptor.relativePath : name;
+            descriptor.occurrence = occurrences.get(occurrenceKey, 0);
+            occurrences[occurrenceKey] = descriptor.occurrence + 1;
+            result ~= descriptor;
+        }
+        return result;
     }
 
     /** Extract entry from archive to destination directory. The destination file is the same as the entry name.
@@ -144,5 +272,50 @@ unittest
 	assert(archive.fileType == ArchiveType.zip);
 	assert(archive.fileName == "dummy.zip");
 	assert(archive.getEntries is null);
-	assert(!archive.extractEntry("entry.txt", "/tmp"));
+    assert(!archive.extractEntry("entry.txt", "/tmp"));
+}
+
+@("archive entry descriptors normalize paths and distinguish occurrences")
+unittest
+{
+    class DescriptorArchive : FileArchive
+    {
+        this()
+        {
+            super(ArchiveType.zip, "descriptor.zip");
+        }
+
+        override string[] getEntries(string password = "")
+        {
+            return ["folder/", "folder\\same.txt", "folder/same.txt",
+                "../outside.txt", "/absolute.txt", "./root.txt"];
+        }
+    }
+
+    auto entries = (new DescriptorArchive()).getEntryDescriptors();
+    assert(entries.length == 6);
+    assert(entries[0].isDirectory && entries[0].relativePath == "folder");
+    assert(entries[1].hasSafePath && entries[1].relativePath == "folder/same.txt");
+    assert(entries[1].occurrence == 0);
+    assert(entries[2].relativePath == "folder/same.txt");
+    assert(entries[2].occurrence == 1);
+    assert(!entries[3].hasSafePath && entries[3].relativePath.length == 0);
+    assert(!entries[4].hasSafePath && entries[4].relativePath.length == 0);
+    assert(entries[5].relativePath == "root.txt");
+    assert(archiveEntryIdentityVersion == "path-occurrence-v1");
+}
+
+@("archive virtual paths distinguish separators from literal exclamation marks")
+unittest
+{
+    const auto physicalPath = escapeArchiveVirtualPath("dir!/sample!.zip");
+    assert(physicalPath == "dir!!/sample!!.zip");
+    auto displayPath = appendArchiveVirtualPath(physicalPath,
+        "sub!/nested!.zip");
+    displayPath = appendArchiveVirtualPath(displayPath, "deep/readme!.txt");
+    assert(displayPath
+        == "dir!!/sample!!.zip!/sub!!/nested!!.zip!/deep/readme!!.txt");
+    const auto layers = splitArchiveVirtualPath(displayPath);
+    assert(layers == ["dir!/sample!.zip", "sub!/nested!.zip",
+        "deep/readme!.txt"]);
 }

@@ -76,8 +76,7 @@ class FileArchive7z : FileArchive
         static void createTestArchive()
         {
             deleteTestArchive;
-            auto cmd = "7z a \"%s\" test/*".format(_7zFileName);
-            auto rc = executeShell(cmd);
+            auto rc = execute(["7z", "a", _7zFileName] ~ expectedEntries);
             assert(rc.status == 0, rc.output);
         }
 

@@ -33,6 +33,7 @@ public import dosierskanilo.model.filespec;
 enum int DATA_CLASS_VERSION1 = 1; ///< Current version of the NamedBinaryBlob structure, v1
 enum int DATA_CLASS_VERSION2 = 2; ///< Current version of the NamedBinaryBlob structure, v2
 enum int DATA_CLASS_VERSION3 = 3; ///< Current version of the NamedBinaryBlob structure, v3
+enum int DATA_CLASS_VERSION4 = 4; ///< Recursive archive-member representation, v4
 
 /** Wrapper class to serialize an array of NamedBinaryBlob objects
  *
@@ -118,12 +119,12 @@ mixin template payloadHelpers()
 	Task!(updateTorrentInfo, NamedBinaryBlob)* task_torrentscan; ///< Pointer to torrent scan job
 }
 
-/** Simple class to store the basic file properties
+/** Legacy JSON domain record for one binary payload and its known file paths.
  *
- * Encapsulate the payload into this class. Also some property functions
- * allow to store the binary data as base64 strings instead of ubyte arrays.
- * This saves a lot of space in the resulting storage files (strings are much
- * shorter then typical array representations).
+ * This JSON/Jsonizer type combines payload properties with `FileSpec[]`
+ * filesystem references and optional metadata. It is the current interchange
+ * representation; the storage-neutral content/reference model is planned in
+ * WP-13. Checksum properties serialize as Base64 strings.
  */
 class NamedBinaryBlob
 {
@@ -296,6 +297,12 @@ class NamedBinaryBlob
 		checkSums = other.checkSums;
 		mediaInfoSig = other.mediaInfoSig;
 		archivePassword = other.archivePassword;
+		if (other.archiveSpecs !is null)
+		{
+			archiveSpecs = [];
+			foreach (entry; other.archiveSpecs)
+				archiveSpecs ~= entry is null ? null : entry.dup();
+		}
 	}
 
 	/* ------------------------------------------------------------------- */
@@ -380,8 +387,6 @@ class NamedBinaryBlob
 		auto dc = new NamedBinaryBlob(this);
 		if (dc.mediaInfoSig !is null)
 			dc.mediaInfoSig = dc.mediaInfoSig.dup;
-		if (dc.archiveSpecs !is null)
-			dc.archiveSpecs = dc.archiveSpecs.dup;
 		if (dc.torrentInfo !is null)
 			dc.torrentInfo = dc.torrentInfo.dup;
 		return dc;
@@ -619,7 +624,7 @@ unittest
 
 	auto mis13 = new NamedBinaryBlob([
 		"file2", "file8", "file1",
-		"test/dummy-audio-file.mp3", "test/dummy-text-file.txt"
+		"test/dummy-subtitle-file.srt", "test/dummy-text-file.txt"
 	], 1234, SysTime(1_234_567));
 	assert(mis13.fileSpecs.length == 5);
 	auto en = mis13.getExistingFiles();
@@ -666,7 +671,7 @@ unittest
 	auto legacy = new NamedBinaryBlob();
 	legacy.fileName = "test/dummy-text-file.txt";
 	legacy.timeLastModified = SysTime(1_234_567).toISOExtString;
-	legacy.fileNames = ["test/dummy-audio-file.mp3"];
+	legacy.fileNames = ["test/dummy-subtitle-file.srt"];
 	legacy.md5sum_b64 = "a";
 	legacy.sha1sum_b64 = "b";
 	legacy.xxh64sum_b64 = "c";
@@ -1025,9 +1030,13 @@ NamedBinaryBlobCatalog deserializeDataClassJsonWrapperString(const string serial
 		if (wrapper.dataVersion == DATA_CLASS_VERSION1)
 			wrapper.dataVersion = DATA_CLASS_VERSION2;
 
-		if (wrapper.dataVersion != DATA_CLASS_VERSION2 && wrapper.dataVersion != DATA_CLASS_VERSION3)
+		if (wrapper.dataVersion != DATA_CLASS_VERSION2
+			&& wrapper.dataVersion != DATA_CLASS_VERSION3
+			&& wrapper.dataVersion != DATA_CLASS_VERSION4)
 			assert(false, "Data version mismatch, expected " ~ to!string(
-				DATA_CLASS_VERSION3) ~ " or " ~ to!string(DATA_CLASS_VERSION2) ~ ", got " ~ to!string(wrapper.dataVersion));
+				DATA_CLASS_VERSION2) ~ ", " ~ to!string(DATA_CLASS_VERSION3)
+				~ " or " ~ to!string(DATA_CLASS_VERSION4) ~ ", got "
+				~ to!string(wrapper.dataVersion));
 	}
 	// Check for old plain array JSON
 	else if (serializedData[0] == '[')
@@ -1137,7 +1146,11 @@ void serializeDataClassWrapperFile(string fileName, ref NamedBinaryBlobCatalog w
 	logFLineVerbose("Generate JSON data and write it to file %s", fileName);
 	if (wrapper.dataVersion == 0)
 		wrapper.dataVersion = DATA_CLASS_VERSION3;
-	wrapper.dataVersion = DATA_CLASS_VERSION3;
+	if (wrapper.dataVersion != DATA_CLASS_VERSION4)
+		wrapper.dataVersion = DATA_CLASS_VERSION3;
+	if (wrapper.dataVersion == DATA_CLASS_VERSION3
+		&& containsNestedArchiveEntries(wrapper.dataArray))
+		throw new Exception("Nested archive indexes require JSON version 4.");
 	wrapper.refreshRuntimeMetadata();
 
 	logFLineVerbose("  sort and uniq serialized array by their filenames (use a range)");
@@ -1146,6 +1159,61 @@ void serializeDataClassWrapperFile(string fileName, ref NamedBinaryBlobCatalog w
 	wrapper.dataArray = fixupDataClassArrayOut(uniqSortedDeserializedData);
 	writeJSON!(NamedBinaryBlobWrapper)(fileName, wrapper);
 	wrapper.dataArray = fixupDataClassArrayIn(wrapper.dataArray);
+}
+
+private bool containsNestedArchiveEntries(NamedBinaryBlob[] blobs)
+{
+	foreach (blob; blobs)
+		if (blob !is null && containsNestedArchiveSpecs(blob.archiveSpecs))
+			return true;
+	return false;
+}
+
+private bool containsNestedArchiveSpecs(ArchiveSpec[] entries)
+{
+	foreach (entry; entries)
+		if (entry !is null && (entry.archivePassword.length > 0
+			|| entry.nestedEntries !is null))
+			return true;
+	return false;
+}
+
+@("JSON v4 roundtrips nested archive metadata and v3 refuses to discard it")
+unittest
+{
+	import std.exception : assertThrown;
+	import std.file : exists, remove, tempDir;
+	import std.path : buildPath;
+	import std.uuid : randomUUID;
+
+	const auto fileName = buildPath(tempDir(), "nested-archive-v4-"
+		~ randomUUID().toString() ~ ".json");
+	scope (exit)
+		if (exists(fileName))
+			remove(fileName);
+
+	auto member = new ArchiveSpec("nested/readme.txt", 11, "",
+		CheckSums.init);
+	auto nestedArchive = new ArchiveSpec("nested.zip", 64, "",
+		CheckSums.init);
+	nestedArchive.nestedEntries = [member];
+	auto archive = new ArchiveSpec("container.zip", 128, "",
+		CheckSums.init);
+	archive.nestedEntries = [nestedArchive];
+	auto blob = new NamedBinaryBlob();
+	blob.fileSize = 256;
+	blob.fileSpecs = [new FileSpec("container.zip", "")];
+	blob.archiveSpecs = [archive];
+	auto v4 = NamedBinaryBlobCatalog(DATA_CLASS_VERSION4, [blob]);
+	serializeDataClassWrapperFile(fileName, v4);
+	assert(v4.dataVersion == DATA_CLASS_VERSION4);
+	auto loaded = deserializeDataClassJsonWrapperFile(fileName);
+	assert(loaded.dataVersion == DATA_CLASS_VERSION4);
+	assert(loaded.dataArray[0].archiveSpecs[0].nestedEntries[0]
+		.nestedEntries[0].fileName == "nested/readme.txt");
+
+	auto v3 = NamedBinaryBlobCatalog(DATA_CLASS_VERSION3, [blob]);
+	assertThrown!Exception(serializeDataClassWrapperFile(fileName, v3));
 }
 
 @("deserializeDataClassJsonFile")
@@ -1278,8 +1346,11 @@ void updateDigests(NamedBinaryBlob obj,
 unittest
 {
 	import std.stdio : File;
+	import std.path : buildPath;
+	import dosierskanilo.testdata : ensureSyntheticTestCatalog;
 
-	string filename = "./test/dummy-audio-file.mp3";
+	auto fixture = ensureSyntheticTestCatalog();
+	string filename = buildPath(fixture.catalogRoot, "media", "tone.wav");
 	auto fh = File(filename);
 	auto dco = new NamedBinaryBlob(filename, fh.size, SysTime(4_237_892));
 	updateDigests(dco, null);
@@ -1321,8 +1392,11 @@ void updateFileType(NamedBinaryBlob obj, bool rescan = false)
 unittest
 {
 	import std.stdio : File;
+	import std.path : buildPath;
+	import dosierskanilo.testdata : ensureSyntheticTestCatalog;
 
-	string filename = "./test/dummy-audio-file.mp3";
+	auto fixture = ensureSyntheticTestCatalog();
+	string filename = buildPath(fixture.catalogRoot, "media", "tone.wav");
 	auto fh = File(filename);
 	auto dco = new NamedBinaryBlob(filename, fh.size, SysTime(4_237_892));
 	updateFileType(dco, true);
@@ -1361,8 +1435,11 @@ void updateMediaInfo(NamedBinaryBlob obj, bool rescan = false)
 unittest
 {
 	import std.stdio : File;
+	import std.path : buildPath;
+	import dosierskanilo.testdata : ensureSyntheticTestCatalog;
 
-	string filename = "./test/dummy-picture-file.jpg";
+	auto fixture = ensureSyntheticTestCatalog();
+	string filename = buildPath(fixture.catalogRoot, "images", "sample.bmp");
 	auto fh = File(filename);
 	auto dco = new NamedBinaryBlob(filename, fh.size, SysTime(4_237_892));
 	updateMediaInfo(dco, true);
@@ -1385,7 +1462,10 @@ void updateArchives(NamedBinaryBlob obj,
 	bool deep = true,
 	shared(bool)* gotCtrlC = null,
 	ProgressCallBack* progressCallBack = null,
-	ArchivePasswordCallback passwordCallback = null)
+	ArchivePasswordCallback passwordCallback = null,
+	size_t depth = 0,
+	size_t maxDepth = 8,
+	string displayArchivePath = "")
 {
 	string getTmpDirPrefix() const
 	{
@@ -1394,12 +1474,14 @@ void updateArchives(NamedBinaryBlob obj,
 		import std.file : tempDir;
 		import std.conv : to;
 
-		return buildPath(tempDir, "dosierskanilo-" ~ thisProcessID.to!string ~ "-" ~ thisThreadID
-				.to!string);
+		return buildPath(tempDir, "dosierskanilo-" ~ thisProcessID.to!string ~ "-"
+			~ thisThreadID.to!string ~ "-archive-depth-" ~ depth.to!string);
 	}
 
 	if (obj.archiveSpecs is null || rescan)
 	{
+		if (rescan)
+			obj.archiveSpecs = null;
 		import std.algorithm.sorting : sort;
 		import std.file : exists;
 
@@ -1422,6 +1504,8 @@ void updateArchives(NamedBinaryBlob obj,
 				auto archiveObj = fileArchive(spec.fileName);
 				if (archiveObj)
 				{
+					const auto archiveDisplayPath = displayArchivePath.length > 0
+						? displayArchivePath : spec.fileName;
 					logLineVerbose();
 					logFLineVerbose("Found archive of type '%s'", archiveObj.fileType);
 					logFLineVerbose("  with file '%s'", spec.fileName);
@@ -1429,49 +1513,70 @@ void updateArchives(NamedBinaryBlob obj,
 					logFLineVerbose("  with 'file' type '%s'", obj.fileType);
 
 					string password = obj.archivePassword;
-					string[] arcfiles;
-					bool passwordPrompted;
-					while (true)
-					{
-						try
-						{
-							arcfiles = archiveObj.getEntries(password);
-							break;
+                    ArchiveEntryDescriptor[] archiveEntries;
+                    bool passwordPrompted;
+                    while (true)
+                    {
+                        try
+                        {
+                            archiveEntries = archiveObj.getEntryDescriptors(password);
+                            enforce(archiveEntries !is null,
+                                "Archive handler returned no entry index for "
+                                ~ spec.fileName);
+                            break;
 						}
 						catch (ArchivePasswordRequiredException ex)
 						{
-							requestPassword(ex.msg, spec.fileName,
+							requestPassword(ex.msg, archiveDisplayPath,
 								passwordCallback, password);
 							passwordPrompted = true;
 						}
 					}
-					if (passwordPrompted)
-						obj.archivePassword = password;
-					logFLine("  with %d entries", arcfiles.length);
-					if (progressCallBack !is null)
-						progressCallBack.fp(0, arcfiles.length);
+                    if (passwordPrompted)
+                        obj.archivePassword = password;
+                    logFLine("  with %d entries", archiveEntries.length);
+                    obj.archiveSpecs = [];
+                    if (progressCallBack !is null)
+                        progressCallBack.fp(0, archiveEntries.length);
 
-					foreach (idx, arcfile; arcfiles)
-					{
-						import std.file : mkdirRecurse, rmdirRecurse;
+                    foreach (idx, descriptor; archiveEntries)
+                    {
+                        import std.file : mkdirRecurse, rmdirRecurse;
 
-						logFLineVerbose("  with archive file '%s'", arcfile);
+                        const auto arcfile = descriptor.name;
+                        logFLineVerbose("  with archive file '%s'", arcfile);
 
-						mkdirRecurse(getTmpDirPrefix);
+                        size_t arcFileSize;
+                        string arcModTimeStr;
+                        string extractedPath;
+                        CheckSums sums = CheckSums();
+                        if (!descriptor.hasSafePath || descriptor.isDirectory
+                            || descriptor.occurrence > 0)
+                        {
+                            auto unscannedEntry = new ArchiveSpec(arcfile,
+                                arcFileSize, arcModTimeStr, sums);
+                            unscannedEntry.entryIndex = idx;
+                            unscannedEntry.occurrence = descriptor.occurrence;
+                            unscannedEntry.hasIndexIdentity = true;
+                            obj.archiveSpecs ~= unscannedEntry;
+                            if (progressCallBack !is null)
+                                progressCallBack.fp(idx + 1, archiveEntries.length);
+                            continue;
+                        }
+
+                        mkdirRecurse(getTmpDirPrefix);
 						scope (exit)
 							if (getTmpDirPrefix.exists)
 								rmdirRecurse(getTmpDirPrefix);
 
-						size_t arcFileSize = 0;
-						string arcModTimeStr = "";
-						CheckSums sums = CheckSums();
-						if (deep)
+                        if (deep)
 						{
 							import std.string : format;
 							import std.path : buildPath;
 							import std.file : getSize, getTimes;
 
-							auto destFile = buildPath(getTmpDirPrefix(), arcfile);
+                            auto destFile = buildPath(getTmpDirPrefix(), arcfile);
+                            extractedPath = destFile;
 
 							bool exOk;
 							bool extractionPasswordPrompted;
@@ -1485,7 +1590,7 @@ void updateArchives(NamedBinaryBlob obj,
 								}
 								catch (ArchivePasswordRequiredException ex)
 								{
-									requestPassword(ex.msg, spec.fileName,
+									requestPassword(ex.msg, archiveDisplayPath,
 										passwordCallback, password);
 									extractionPasswordPrompted = true;
 								}
@@ -1502,7 +1607,7 @@ void updateArchives(NamedBinaryBlob obj,
 							ubyte[] md5sum_s, sha1sum_s, xxh64sum_s;
 							calculatesDigests(gotCtrlC, destFile, &md5sum_s, &sha1sum_s, &xxh64sum_s, progressCallBack);
 							if (progressCallBack !is null)
-								progressCallBack.fp(idx, arcfiles.length);
+                                progressCallBack.fp(idx, archiveEntries.length);
 
 							sums.set_md5sum = md5sum_s;
 							sums.set_sha1sum = sha1sum_s;
@@ -1515,11 +1620,37 @@ void updateArchives(NamedBinaryBlob obj,
 
 							arcFileSize = destFile.getSize;
 						}
-						ArchiveSpec aspec = new ArchiveSpec(arcfile, arcFileSize, arcModTimeStr, sums);
-						obj.archiveSpecs ~= aspec;
+                        ArchiveSpec[] nestedEntries;
+                        string nestedPassword;
+                        if (deep && depth < maxDepth && extractedPath.length > 0)
+                        {
+                            auto nestedArchive = fileArchive(extractedPath);
+                            if (nestedArchive !is null)
+                            {
+                                auto nestedBlob = new NamedBinaryBlob();
+                                nestedBlob.fileSize = arcFileSize;
+                                nestedBlob.fileSpecs = [new FileSpec(extractedPath,
+                                    arcModTimeStr)];
+                                const auto nestedDisplayPath = archiveDisplayPath
+                                    ~ "!/" ~ descriptor.relativePath;
+                                updateArchives(nestedBlob, true, deep, gotCtrlC,
+                                    progressCallBack, passwordCallback, depth + 1,
+                                    maxDepth, nestedDisplayPath);
+                                nestedEntries = nestedBlob.archiveSpecs;
+                                nestedPassword = nestedBlob.archivePassword;
+                            }
+                        }
+                        auto aspec = new ArchiveSpec(arcfile, arcFileSize,
+                            arcModTimeStr, sums);
+                        aspec.entryIndex = idx;
+                        aspec.occurrence = descriptor.occurrence;
+                        aspec.hasIndexIdentity = true;
+                        aspec.nestedEntries = nestedEntries;
+                        aspec.archivePassword = nestedPassword;
+                        obj.archiveSpecs ~= aspec;
 
-						if (progressCallBack !is null)
-							progressCallBack.fp(arcfiles.length, arcfiles.length);
+                        if (progressCallBack !is null)
+                            progressCallBack.fp(idx + 1, archiveEntries.length);
 					}
 					break;
 				}
@@ -1550,27 +1681,14 @@ unittest
 	import std.conv : to;
 	import std.string : format;
 	import std.path : buildPath;
+	import dosierskanilo.testdata : ensureSyntheticTestCatalog;
 
-	string filename = "./test/dummy-audio-file.mp3";
+	auto fixture = ensureSyntheticTestCatalog();
+	string filename = buildPath(fixture.catalogRoot, "media", "tone.wav");
 	auto fh = File(filename);
 	auto dco = new NamedBinaryBlob(filename, fh.size, SysTime(4_237_892));
 	updateArchives(dco, true);
 	assert(dco.archiveSpecs.length == 0);
-
-	enum string fn = "updateTest.zip";
-	void deleteTestArchive()
-	{
-		if (fn.exists)
-			std.file.remove(fn);
-	}
-
-	void createTestArchive()
-	{
-		deleteTestArchive();
-		auto rc = executeShell("zip -q \"%s\" test/*".format(fn));
-		write(rc.output);
-		assert(rc.status == 0, rc.output);
-	}
 
 	enum string fnMany = "updateTest-many.zip";
 	enum string stagingDir = ".test/updateArchives-many-entries";
@@ -1604,14 +1722,19 @@ unittest
 		assert(rc.status == 0, rc.output);
 	}
 
-	createTestArchive();
-	scope (success)
-		deleteTestArchive();
-
-	auto fh1 = File(fn);
-	auto dco1 = new NamedBinaryBlob(fn, fh1.size, SysTime(4_237_892));
+	auto archivePath = buildPath(fixture.catalogRoot, "archives", "sample.zip");
+	auto fh1 = File(archivePath);
+	auto dco1 = new NamedBinaryBlob(archivePath, fh1.size, SysTime(4_237_892));
 	updateArchives(dco1, true);
 	assert(dco1.archiveSpecs.length > 0);
+	assert(dco1.archiveSpecs.length == 7);
+	foreach (entry; dco1.archiveSpecs)
+		assert(entry.checkSums.hasDigests,
+			"deep archive scans calculate each generated entry checksum");
+	auto firstScanEntries = dco1.archiveSpecs.length;
+	updateArchives(dco1, true);
+	assert(dco1.archiveSpecs.length == firstScanEntries,
+		"rescan replaces the entry index instead of appending duplicates");
 
 	createManyEntriesArchive(11);
 	scope (success)
@@ -1729,15 +1852,18 @@ void updateTorrentInfo(NamedBinaryBlob obj, bool rescan = false)
 unittest
 {
 	import std.stdio : File;
+	import std.path : buildPath;
+	import dosierskanilo.testdata : ensureSyntheticTestCatalog;
 
-	string filename = "./test/example.torrent";
+	auto fixture = ensureSyntheticTestCatalog();
+	string filename = buildPath(fixture.catalogRoot, "torrent", "single-file.torrent");
 	auto fh = File(filename);
 	auto dco = new NamedBinaryBlob(filename, fh.size, SysTime(4_237_892));
 	updateTorrentInfo(dco, true);
 	assert(dco.torrentInfo, "No TorrentInfo was set.");
 	assert(dco.torrentInfo.isMultiFile == false);
 
-	string filename2 = "./test/test-multifile.torrent";
+	string filename2 = buildPath(fixture.catalogRoot, "torrent", "multi-file.torrent");
 	auto fh2 = File(filename2);
 	auto dco2 = new NamedBinaryBlob(filename2, fh2.size, SysTime(4_237_892));
 	updateTorrentInfo(dco2, true);
@@ -1788,11 +1914,12 @@ void invalidateDataClassObjs(NamedBinaryBlob[] objs)
 		o.fileSpecs = [];
 }
 
-/** Remove Cleanup list
+/** Remove orphaned records whose filesystem references are all unavailable.
  *
  * Params:
- *   objs = Set of objects to cleanup
- * Returns: cleaned up array
+ *   objs = Records to filter.
+ * Returns: Records with at least one existing file reference. Use only when the
+ *     caller explicitly intends missing-file cleanup.
  */
 NamedBinaryBlob[] cleanupDataClassObjs(NamedBinaryBlob[] objs)
 {
@@ -1802,6 +1929,20 @@ NamedBinaryBlob[] cleanupDataClassObjs(NamedBinaryBlob[] objs)
 	alias matcher = (a) => !a.isBlobOrphaned;
 	auto valobjs = objs.filter!(matcher);
 	return valobjs.array;
+}
+
+/** Remove only records explicitly invalidated by duplicate merging.
+ *
+ * Unlike `cleanupDataClassObjs`, this helper does not test filesystem
+ * existence. Callers can preserve unavailable source references unless the
+ * user explicitly requested missing-file removal.
+ */
+NamedBinaryBlob[] cleanupInvalidatedDataClassObjs(NamedBinaryBlob[] objs)
+{
+	import std.array : array;
+	import std.algorithm : filter;
+
+	return objs.filter!(blob => blob !is null && blob.fileSpecs.length > 0).array;
 }
 
 /** Combined unit test for merge operaton

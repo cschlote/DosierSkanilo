@@ -54,28 +54,25 @@ The backend plan in `docs/SQLITE-IMPLEMENTATION-PLAN.md`, section WP-09, is the
 source of truth for the request contract, safe cancellation semantics, and
 acceptance criteria.
 
-- [x] WP-09.1: Freeze frontend-neutral requests/results, progress and
-  cancellation semantics, threading/ownership, storage-mode mapping, and safe
-  partial-result boundaries. Add contract tests and API documentation.
-- [ ] WP-09.2a: Add controlled SQLite scan and deterministic cancellation tests.
-- [ ] WP-09.2b: Add controlled SQLite metadata extraction and worker-drain tests.
-- [ ] WP-09.2c: Add controlled SQLite analysis and transaction-phase tests.
-- [ ] WP-09.2d: Adapt existing JSON scan/analyze services to the shared contract.
-- [ ] WP-09.2e: Verify cross-operation lifecycle, worker joining, and per-target
-  write serialization.
-- [ ] WP-09.3: Adapt the CLI incrementally as each backend operation slice lands;
-  map Ctrl-C to cooperative cancellation while preserving command, stream, and
-  exit contracts.
-- [ ] WP-09.4: After the CLI is a working reference, add GTK Tools actions and a
-  background task manager with main-loop progress, backend cancellation,
-  per-target write serialization, and source refresh.
-- [ ] WP-09.5: Compare CLI/GTK results and storage changes; cover progress,
-  cancellation, errors, refresh, and explicit JSON/SQLite mode isolation.
+Implemented: WP-09.1/09.1b contracts, controlled SQLite and JSON operations,
+repository/catalog writer leases, initial SQLite/JSON CLI adapters, and GTK Tools
+actions using the same typed requests. Backend and GUI tests compare source modes,
+request construction, task-state reduction, and refresh decisions.
 
-**Dependency:** WP-09.1 -> controlled backend operation slices, interleaved with
-the corresponding CLI adapter work -> WP-09.4 -> WP-09.5. GTK also depends on
-the existing WP-07 source integration. WP-09.1 design may proceed while WP-08
-and WP-10 are active; backend scan operation work must wait for WP-10.2/10.3.
+Remaining verification is enumerated in WP-09 and
+`docs/OPERATION-PARITY.md`: process-level Ctrl-C/worker-shutdown checks,
+multi-process lease races, and display-backed GTK operation start/progress/
+pause/cancel/refresh tests. Do not reintroduce an HMI-owned scan or analysis
+implementation.
+
+## P1 — Storage-neutral catalog and archive-content model (WP-13)
+
+The domain/API redesign is recorded in
+`docs/SQLITE-IMPLEMENTATION-PLAN.md`, section WP-13. Work bottom-up: freeze
+content/reference identities and virtual archive locators, then define the
+polymorphic JSON/SQL catalog interface, port the existing adapters, and finally
+make archive members first-class content references. Keep SQLite as the only
+implemented SQL engine until adapter portability requirements are tested.
 
 ## P2 — Read-path and API-boundary audit (WP-11)
 
@@ -91,8 +88,8 @@ intentional transitional type coupling, not all confirmed defects.
   changing load behavior.
 - [ ] WP-11.3: Decide whether the transitional Blob table remains coupled to
   `NamedBinaryBlob` or migrates to source-neutral summary/detail DTOs.
-- [ ] WP-11.4: Reconcile the backend dependency diagram and clarify the still-open
-  WP-00 baseline items and whether each blocks later work.
+- [x] WP-11.4: Reconcile the backend dependency diagram and close WP-00 baseline
+  status; remaining large-path measurement is tracked under WP-11.2/WP-11.5.
 
 WP-11 does not block WP-09 unless measurement or inspection reveals a correctness
 issue.

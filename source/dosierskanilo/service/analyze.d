@@ -12,14 +12,17 @@ import std.path;
 import std.uuid;
 
 import dosierskanilo.logging;
-import dosierskanilo.model.namedbinaryblob;
+import dosierskanilo.model.namedbinaryblob : NamedBinaryBlob,
+    cleanupDataClassObjs, cleanupInvalidatedDataClassObjs,
+    invalidateDataClassObjs, mergeDataClassObjects, updateDigests;
 import dosierskanilo.options;
 import dosierskanilo.progress;
 
 /** Do some basic analysis on data.
  *
- * The analysis step removes missing files, identifies same-size groups, checks
- * hashes, merges duplicates, and drops invalidated objects.
+ * The analysis step reports missing files and removes them only when
+ * `argDropMissing` is set, identifies same-size checksum candidates, merges
+ * duplicates, and removes only records invalidated by a merge.
  *
  * Params:
  *   dynObjectArray = database objects to analyze and possibly modify.
@@ -139,7 +142,8 @@ bool analyseData(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCtrlC
 	/* ------------------------------------------------------------------- */
 	logLine("  Drop invalidated objects.");
 	{
-		NamedBinaryBlob[] dynObjectArray3 = cleanupDataClassObjs(dynObjectArray);
+		NamedBinaryBlob[] dynObjectArray3 =
+			cleanupInvalidatedDataClassObjs(dynObjectArray);
 		auto droppedFilesCnt2 = dynObjectArray.length - dynObjectArray3.length;
 		logFLine("    Dropped %d invalidated nodes.", droppedFilesCnt2);
 		dynObjectArray = dynObjectArray3;
@@ -192,4 +196,10 @@ unittest
     assert(objs.length == 1);
     assert(objs[0].fileSpecs.length == 2);
     assert(objs[0].checkSums.hasDigests);
+
+    NamedBinaryBlob[] missingOnly = [missing];
+    args.argDropMissing = false;
+    assert(analyseData(missingOnly, gotCtrlC, args));
+    assert(missingOnly.length == 1,
+        "analysis retains unavailable records unless drop-missing is requested");
 }

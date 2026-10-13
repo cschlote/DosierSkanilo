@@ -50,7 +50,7 @@ class FileArchiveTar : FileArchive
         static void createTestArchive()
         {
             deleteTestArchive;
-            auto rc = executeShell("tar -cf \"%s\" test/*".format(tarFileName));
+            auto rc = execute(["tar", "-cf", tarFileName] ~ expectedEntries);
             write(rc.output);
             assert(rc.status == 0, rc.output);
         }

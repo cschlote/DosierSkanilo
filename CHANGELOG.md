@@ -9,6 +9,28 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- Added the storage-neutral `CatalogBackend` contract, explicit factory boundary,
+  opaque domain IDs/locators, common bounded query/detail/export DTOs, and typed
+  capability errors. Added JSON v0-v3 and SQLite `CatalogBackend` adapters, with
+  explicit storage-mode factory routing and filtered subset export.
+- Archive indexes now use normalized member paths plus duplicate occurrence for
+  stable entry IDs across rescans. Schema version 3 migrates existing archive
+  metadata, and deep-fingerprinted members link to reusable content blobs; a
+  shallow index is upgraded when a later scan requests deep checksums.
+- JSON and SQLite archive-entry pages expose normalized paths, occurrence/index
+  values and linked member content IDs when complete checksums are available.
+- Added bounded archive-member reference pages with stable member-reference IDs
+  and structured container/entry locators.
+- Added JSON v4's recursive `nestedEntries` shape and a roundtrip reader/writer;
+  v3 writes now reject nested data instead of silently dropping it. Deep scans
+  recursively extract and index nested archives, exposing structured nested
+  member locators through the JSON and SQLite adapters. SQLite imports now
+  persist nested version-4 archive indexes recursively.
+- Deep-indexed archive members can now be included in JSON/SQLite file queries,
+  directory visibility, root summaries and relationship-closed JSON subset
+  exports (v3 for flat data, v4 when nested metadata is selected); their locators
+  remain container/entry values rather than display paths. Virtual member paths
+  use `!/` as the archive boundary and `!!` for a literal exclamation mark.
 - Added optional per-Blob archive passwords to JSON catalogs and SQLite
   repositories, with a schema-version-2 migration and filename-based repository
   updates.
@@ -22,6 +44,28 @@ They represent the functional evolution and are intentionally summarized.
 - Added frontend-neutral scan, metadata, and analysis request, progress,
   cancellation-control, validation, and result types as the first WP-09 API
   contract. Existing operations remain synchronous until subsequent WP-09 slices.
+- Extended the shared operation control contract with safe-checkpoint
+  pause/resume requests, pause availability, acknowledgement states, and
+  cancellation precedence while paused.
+- Added controlled SQLite scan, metadata, and analysis executors with staged
+  scan/analysis plans, per-blob metadata commits, progress events, and
+  cooperative cancellation/pause checkpoints. Synchronous repository methods
+  remain as convenience wrappers.
+- SQLite scan requests can include selected metadata extraction, and the CLI
+  passes scan plus metadata options through that single shared request.
+- Routed repository and explicit JSON scan/analyze CLI commands through the
+  shared operation requests; JSON cancellation leaves the original catalog
+  untouched before its backup/replacement phase.
+- Added cross-process advisory target leases for shared mutating operations and
+  typed `targetBusy` results when another writer owns the same repository or
+  catalog.
+- Operation results report whether any source changes committed, allowing GTK to
+  refresh after partial metadata cancellation without refreshing rolled-back work.
+- JSON analysis now retains records with unavailable source paths unless
+  `drop-missing` was explicitly requested, preventing accidental empty-catalog
+  replacement when source files or mounts are temporarily unavailable.
+- Forced archive re-indexing now replaces the stored entry list instead of
+  appending duplicate `ArchiveSpec` rows.
 - The `init` command now reports the initialized repository path by default;
   existing repositories are reported as opened instead of newly initialized;
   verbose mode remains available for additional output.
