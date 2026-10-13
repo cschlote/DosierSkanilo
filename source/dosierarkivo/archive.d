@@ -108,6 +108,55 @@ string normalizeArchiveEntryPath(string name, out bool safe, out bool isDirector
     return components.join("/");
 }
 
+/** Escape literal exclamation marks in a path used in archive display paths. */
+string escapeArchiveVirtualPath(string path)
+{
+    import std.string : replace;
+
+    return path.replace("!", "!!");
+}
+
+/** Append one archive-entry path to an already display-encoded container path. */
+string appendArchiveVirtualPath(string containerPath, string entryPath)
+{
+    return containerPath ~ "!/" ~ escapeArchiveVirtualPath(entryPath);
+}
+
+/** Split an archive display path into its physical/member path layers.
+ *
+ * A literal `!` is encoded as `!!`; `!/` separates a container from its
+ * member path. The returned layers have literal exclamation marks restored.
+ */
+string[] splitArchiveVirtualPath(string path)
+{
+    string[] layers;
+    string current;
+    for (size_t index; index < path.length; ++index)
+    {
+        if (path[index] != '!')
+        {
+            current ~= path[index];
+            continue;
+        }
+        if (index + 1 < path.length && path[index + 1] == '!')
+        {
+            current ~= '!';
+            ++index;
+            continue;
+        }
+        if (index + 1 < path.length && path[index + 1] == '/')
+        {
+            layers ~= current;
+            current = "";
+            ++index;
+            continue;
+        }
+        current ~= '!';
+    }
+    layers ~= current;
+    return layers;
+}
+
 /** Top-level representation of an archive file.
  *
  * The idea is to have a baseclass with the common interface and then have implementations
@@ -254,4 +303,19 @@ unittest
     assert(!entries[4].hasSafePath && entries[4].relativePath.length == 0);
     assert(entries[5].relativePath == "root.txt");
     assert(archiveEntryIdentityVersion == "path-occurrence-v1");
+}
+
+@("archive virtual paths distinguish separators from literal exclamation marks")
+unittest
+{
+    const auto physicalPath = escapeArchiveVirtualPath("dir!/sample!.zip");
+    assert(physicalPath == "dir!!/sample!!.zip");
+    auto displayPath = appendArchiveVirtualPath(physicalPath,
+        "sub!/nested!.zip");
+    displayPath = appendArchiveVirtualPath(displayPath, "deep/readme!.txt");
+    assert(displayPath
+        == "dir!!/sample!!.zip!/sub!!/nested!!.zip!/deep/readme!!.txt");
+    const auto layers = splitArchiveVirtualPath(displayPath);
+    assert(layers == ["dir!/sample!.zip", "sub!/nested!.zip",
+        "deep/readme!.txt"]);
 }

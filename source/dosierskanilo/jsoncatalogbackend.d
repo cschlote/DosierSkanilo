@@ -1,4 +1,4 @@
-/** JSON v0-v3 adapter for the storage-neutral catalog contract. */
+/** JSON v0-v4 adapter for the storage-neutral catalog contract. */
 module dosierskanilo.jsoncatalogbackend;
 
 import std.algorithm.searching : canFind, startsWith;
@@ -11,9 +11,9 @@ import std.path : absolutePath, baseName, buildNormalizedPath, buildPath,
 import std.string : replace, split, toLower;
 import std.uuid : randomUUID;
 
-import dosierarkivo.archive : normalizeArchiveEntryPath;
+import dosierarkivo.archive : appendArchiveVirtualPath,
+    escapeArchiveVirtualPath, normalizeArchiveEntryPath;
 import dosierskanilo.catalogbackend;
-import dosierskanilo.model.archivespec : ArchiveSpec;
 import dosierskanilo.model.archivespec : ArchiveSpec;
 import dosierskanilo.model.checksums : CheckSums;
 import dosierskanilo.model.filespec : FileSpec;
@@ -318,8 +318,12 @@ public:
             memberFile.directoryId = container.directoryId;
             memberFile.locator = member.locator;
             memberFile.name = member.name;
-            memberFile.relativePath = container.relativePath ~ "!/"
-                ~ member.relativePath;
+            const auto displayContainerPath = container.locator.kind
+                == ContentLocator.Kind.filesystem
+                ? escapeArchiveVirtualPath(container.relativePath)
+                : container.relativePath;
+            memberFile.relativePath = appendArchiveVirtualPath(
+                displayContainerPath, member.relativePath);
             memberFile.size = member.size;
             memberFile.modifiedAt = member.modifiedAt;
             memberFile.availability = member.availability;
@@ -1427,7 +1431,12 @@ private:
             member.directoryId = container.directoryId;
             member.locator = ContentLocator.entry(container.referenceId, entry.id);
             member.name = baseName(entry.relativePath);
-            member.relativePath = container.relativePath ~ "!/" ~ entry.relativePath;
+            const auto displayContainerPath = container.locator.kind
+                == ContentLocator.Kind.filesystem
+                ? escapeArchiveVirtualPath(container.relativePath)
+                : container.relativePath;
+            member.relativePath = appendArchiveVirtualPath(displayContainerPath,
+                entry.relativePath);
             member.size = entry.size;
             member.modifiedAt = entry.modifiedAt;
             member.availability = container.availability;

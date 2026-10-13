@@ -97,9 +97,10 @@ WP-13.1 freezes the catalog domain model and WP-13.2 declares the storage-neutra
 WP-13.3 implements the JSON v0-v3 adapter. WP-13.4 adds the SQLite adapter over
 the public `Repository` facade and an explicit default factory for both targets.
 WP-13.5 adds stable archive entry identities, shallow-to-deep upgrades, reusable
-member content blobs, recursive nested scanning/import, and JSON v4 nested
-`ArchiveSpec` trees while preserving v3 payloads. Virtual directory projection
-and selected-member extraction/preview remain in progress.
+member content blobs, recursive nested scanning/import, JSON v4 nested
+`ArchiveSpec` trees, and an escaped archive display-path grammar while preserving
+v3 payloads. GUI TreeView grouping and selected-member extraction/preview remain
+in progress.
 
 The backend library tests and GUI tests/build are separate checks. GUI-specific
 status, test commands, and remaining UI integration tests are maintained in
@@ -107,7 +108,7 @@ the GUI plan at `https://gitlab.vahanus.net/dlang/dosierskanilo-gui/blob/main/do
 
 Last verified on this snapshot:
 
-- Backend: `dub test --config=library --compiler=ldc2` — 126 passed;
+- Backend: `dub test --config=library --compiler=ldc2` — 127 passed;
   library and CLI builds passed.
 - GUI: `dub test --compiler=ldc2` — 61 tests; `dub build
   --compiler=ldc2` passed.
@@ -1557,31 +1558,35 @@ archive/torrent pages, subset export, missing-reference analysis, and availabili
 - [x] Export a selected member subset through its physical container reference
   and selected `ArchiveSpec` rows, using JSON v4 when nested metadata is needed.
 
-The remaining WP-13.5 work is virtual directory projection inside containers
-and selected-member extraction/preview.
+The remaining WP-13.5 work is GUI TreeView grouping of archive member paths and
+selected-member extraction/preview. Archive files remain ordinary file rows with
+`hasArchive`; the UI can expand the row and group member paths without adding
+database directory rows.
 `CatalogFilter.includeArchiveMembers` currently opts deep-indexed safe entries
 into the regular file sequence; their display paths use `container!/member` while
 their `ContentLocator` remains structural. Subset export retains the selected
 entry rows below the physical container reference in JSON v3 or v4 as required.
+Literal exclamation marks in virtual path layers are escaped as `!!`.
 Deep scanning recursively indexes nested archives. Duplicate-name
 entries are listed distinctly; handlers that cannot select a duplicate
 occurrence for extraction do not claim a deep fingerprint for it.
 
-WP-13.5 verification: `dub test --config=library --compiler=ldc2` — 126 passed.
+WP-13.5 verification: `dub test --config=library --compiler=ldc2` — 127 passed.
 Coverage checks safe path normalization, duplicate occurrence assignment,
 version-2-to-3 migration, shallow-to-deep upgrade, recursive nested indexing,
 stable row identity after rescan, archive-member content deduplication against a
 filesystem file, bounded member locators, mixed file-query cursor pages, and
 flat/nested subset-export closure across JSON and SQLite adapters, including a
-nested JSON-v4 subset import back into SQLite.
+nested JSON-v4 subset import back into SQLite and unambiguous archive display-path
+escaping.
 
-- [ ] Extend the archive adapter API to return bounded typed entry descriptors
+- [x] Extend the archive adapter API to return bounded typed entry descriptors
   (stable entry identity, normalized name/path, size, timestamp, and optional
   format-native checksum) separately from extraction.
-- [ ] Store a container content identity and archive-index/extractor version so
+- [x] Store a container content identity and archive-index/extractor version so
   unchanged archives reuse their entry index and changed containers invalidate
   only dependent entries.
-- [ ] Store archive members as references to normal content blobs. Reuse a blob
+- [x] Store archive members as references to normal content blobs. Reuse a blob
   when an archive member and filesystem file have the same complete digest.
 - [ ] Reconcile renamed, changed, removed, encrypted, duplicate-name, and nested
   entries with explicit per-container/per-entry commit units and retryable

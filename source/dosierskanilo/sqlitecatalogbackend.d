@@ -1552,6 +1552,12 @@ version (unittest)
         assert(nestedArchiveMemberFiles.files.length == 1);
         assert(nestedArchiveMemberFiles.files[0].locator.kind
             == ContentLocator.Kind.archiveEntry);
+        assert(!nestedArchiveMemberFiles.files[0].hasArchive);
+        bool nestedArchiveMemberHasIndex;
+        foreach (member; archiveMemberFiles.files)
+            if (member.relativePath == "archives/sample.zip!/nested.zip")
+                nestedArchiveMemberHasIndex = member.hasArchive;
+        assert(nestedArchiveMemberHasIndex);
         CatalogPageRequest archiveMemberFileRequest;
         archiveMemberFileRequest.limit = 2;
         auto firstArchiveMemberPage = sqliteBackend.listFiles(
@@ -1708,6 +1714,12 @@ version (unittest)
             jsonNestedMemberQuery);
         assert(jsonNestedMemberFiles.files.length
             == nestedArchiveMemberFiles.files.length);
+        assert(!jsonNestedMemberFiles.files[0].hasArchive);
+        bool jsonNestedArchiveMemberHasIndex;
+        foreach (member; jsonArchiveMemberFiles)
+            if (member.relativePath == "archives/sample.zip!/nested.zip")
+                jsonNestedArchiveMemberHasIndex = member.hasArchive;
+        assert(jsonNestedArchiveMemberHasIndex);
         assert(jsonNestedMemberFiles.files[0].relativePath
             == nestedArchiveMemberFiles.files[0].relativePath);
         archiveRequest.cursor = archiveEntries.nextCursor;

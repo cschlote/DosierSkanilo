@@ -158,8 +158,12 @@ recursively describing a member that is itself an archive.
   cyclic metadata or nesting deeper than 32 levels.
 
 Deep scans recursively extract and index nested archives, and both adapters expose
-nested locator chains and member queries. Virtual directory projection remains in
-WP-13.5.
+nested locator chains and member queries. A TreeView can treat the existing archive
+file row as expandable and group its member paths in the UI.
+
+Adapter-generated virtual member paths use `!/` to separate an archive from its
+member path. Literal `!` characters within physical or member path components are
+escaped as `!!`; persisted JSON `ArchiveSpec.fileName` values remain unchanged.
 
 ### Torrent Information
 

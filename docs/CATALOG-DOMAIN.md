@@ -99,8 +99,11 @@ incidental Jsonizer field.
   archive bytes occur at two filesystem paths, those are distinct reference
   chains even though their content IDs may be shared.
 - A rendered path such as
-  `archives/photos.zip!/nested.zip!/readme.txt` is presentation only. It must
-  never be parsed to recover container or entry identity.
+  `archives/photos.zip!/nested.zip!/readme.txt` is presentation only. `!/`
+  separates archive layers and `!!` encodes a literal exclamation mark inside a
+  path component, so the display spelling can be split unambiguously. The
+  resulting names still do not identify entries; typed locators remain
+  authoritative for identity.
 - An extracted member can share a `ContentId` with a physical file or another
   archive member. Each address remains a separate `ContentReference`.
 
@@ -222,11 +225,13 @@ is authoritative.
   index/duplicate occurrence, size/time/checksums, and a linked content ID after
   deep extraction. `CatalogBackend.listArchiveMembers` combines that entry ID
   with a selected container `ReferenceId` to return a structured locator and a
-  stable member-reference ID. Setting `CatalogFilter.includeArchiveMembers`
+  stable member-reference ID. `CatalogFile.hasArchive` identifies expandable
+  physical/member file rows. Setting `CatalogFilter.includeArchiveMembers`
   includes safe, deeply indexed member references in the ordinary file query,
   directory visibility, root summary, and relationship-closed JSON subsets (v3
   for flat data and v4 when nested entries are selected). Nested locator chains
-  are supported; virtual directory projection remains in WP-13.5.
+  are supported. The TreeView can expand the existing file row and group member
+  paths beneath it without adding a database directory relation.
 - `ArchiveSpec` is legacy nested metadata and `TorrentFileEntry` is torrent
   metadata only. WP-13.5 adds first-class backend projections without changing
   those compatibility representations implicitly.

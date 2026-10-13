@@ -29,7 +29,8 @@ They represent the functional evolution and are intentionally summarized.
 - Deep-indexed archive members can now be included in JSON/SQLite file queries,
   directory visibility, root summaries and relationship-closed JSON subset
   exports (v3 for flat data, v4 when nested metadata is selected); their locators
-  remain container/entry values rather than display paths.
+  remain container/entry values rather than display paths. Virtual member paths
+  use `!/` as the archive boundary and `!!` for a literal exclamation mark.
 - Added optional per-Blob archive passwords to JSON catalogs and SQLite
   repositories, with a schema-version-2 migration and filename-based repository
   updates.

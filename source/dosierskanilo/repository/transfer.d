@@ -204,7 +204,7 @@ private string directoryFilterSql(RepositoryDirectoryQuery options)
 
     string[] other;
     if (options.fileType) other ~= "(b.file_type IS NOT NULL AND length(b.file_type) > 0)";
-    if (options.archive) other ~= "EXISTS (SELECT 1 FROM archive_entries a WHERE a.blob_id = b.id)";
+    if (options.archive) other ~= "EXISTS (SELECT 1 FROM archive_indexes a WHERE a.blob_id = b.id)";
     if (options.torrent) other ~= "EXISTS (SELECT 1 FROM torrent_info t WHERE t.blob_id = b.id)";
     if (other.length > 0)
         sql ~= " AND (" ~ other.join(" OR ") ~ ")";
@@ -214,12 +214,14 @@ private string directoryFilterSql(RepositoryDirectoryQuery options)
     sql ~= ") OR EXISTS (WITH RECURSIVE subtree(id) AS (SELECT d.id UNION ALL "
         ~ "SELECT child.id FROM directories child JOIN subtree s ON child.parent_id = s.id), "
         ~ "members(directory_id, relative_path, blob_id, present, depth) AS ("
-        ~ "SELECT COALESCE(c.directory_id, 0), c.relative_path || '!/' || a.normalized_path, "
+        ~ "SELECT COALESCE(c.directory_id, 0), replace(c.relative_path, '!', '!!') "
+        ~ "|| '!/' || replace(a.normalized_path, '!', '!!'), "
         ~ "a.content_blob_id, c.exists_on_disk, 1 FROM file_refs c "
         ~ "JOIN archive_entries a ON a.blob_id = c.blob_id "
         ~ "WHERE a.path_safe = 1 AND a.is_directory = 0 "
         ~ "AND a.content_blob_id IS NOT NULL UNION ALL "
-        ~ "SELECT m.directory_id, m.relative_path || '!/' || a.normalized_path, "
+        ~ "SELECT m.directory_id, m.relative_path || '!/' "
+        ~ "|| replace(a.normalized_path, '!', '!!'), "
         ~ "a.content_blob_id, m.present, m.depth + 1 FROM members m "
         ~ "JOIN archive_entries a ON a.blob_id = m.blob_id "
         ~ "WHERE m.depth < 32 AND a.path_safe = 1 AND a.is_directory = 0 "
@@ -244,7 +246,7 @@ private string directoryFilterSql(RepositoryDirectoryQuery options)
     if (options.fileType)
         memberOther ~= "(b.file_type IS NOT NULL AND length(b.file_type) > 0)";
     if (options.archive)
-        memberOther ~= "EXISTS (SELECT 1 FROM archive_entries x WHERE x.blob_id = b.id)";
+        memberOther ~= "EXISTS (SELECT 1 FROM archive_indexes x WHERE x.blob_id = b.id)";
     if (options.torrent)
         memberOther ~= "EXISTS (SELECT 1 FROM torrent_info x WHERE x.blob_id = b.id)";
     if (memberOther.length > 0)
@@ -272,7 +274,8 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
         ~ "container_reference_id, archive_entry_id, archive_container_blob_id, "
         ~ "archive_entry_index, archive_container_identity, depth) AS ("
         ~ "SELECT -a.id, COALESCE(c.directory_id, 0), a.content_blob_id, "
-        ~ "c.relative_path || '!/' || a.normalized_path, a.time_last_modified, "
+        ~ "replace(c.relative_path, '!', '!!') || '!/' "
+        ~ "|| replace(a.normalized_path, '!', '!!'), a.time_last_modified, "
         ~ "c.exists_on_disk, 1, c.id, a.id, a.blob_id, a.entry_index, "
         ~ "'p' || CAST(c.id AS TEXT), 1 FROM file_refs c "
         ~ "JOIN archive_entries a ON a.blob_id = c.blob_id "
@@ -280,7 +283,8 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
         ~ "AND a.content_blob_id IS NOT NULL"
         ~ (options.includeArchiveMembers ? "" : " AND 0")
         ~ " UNION ALL SELECT -a.id, r.directory_id, a.content_blob_id, "
-        ~ "r.relative_path || '!/' || a.normalized_path, a.time_last_modified, "
+        ~ "r.relative_path || '!/' || replace(a.normalized_path, '!', '!!'), "
+        ~ "a.time_last_modified, "
         ~ "r.present, 1, 0, a.id, a.blob_id, a.entry_index, "
         ~ "r.archive_container_identity || ':' || r.archive_entry_id, "
         ~ "r.depth + 1 FROM archive_rows r JOIN archive_entries a "
@@ -305,7 +309,7 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
         ~ ", EXISTS (SELECT 1 FROM media_audio_streams ma WHERE ma.blob_id = b.id) "
         ~ ", EXISTS (SELECT 1 FROM media_image_streams mi WHERE mi.blob_id = b.id) "
         ~ ", EXISTS (SELECT 1 FROM media_text_streams mt WHERE mt.blob_id = b.id) "
-        ~ ", EXISTS (SELECT 1 FROM archive_entries ar WHERE ar.blob_id = b.id) "
+        ~ ", EXISTS (SELECT 1 FROM archive_indexes ar WHERE ar.blob_id = b.id) "
         ~ ", EXISTS (SELECT 1 FROM torrent_info ti WHERE ti.blob_id = b.id) "
         ~ ", f.archive_member, f.container_reference_id, f.archive_entry_id, "
         ~ "f.archive_container_blob_id, f.archive_entry_index, "
@@ -333,7 +337,7 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
     if (options.fileType)
         otherConditions ~= "(b.file_type IS NOT NULL AND length(b.file_type) > 0)";
     if (options.archive)
-        otherConditions ~= "EXISTS (SELECT 1 FROM archive_entries ar WHERE ar.blob_id = b.id)";
+        otherConditions ~= "EXISTS (SELECT 1 FROM archive_indexes ar WHERE ar.blob_id = b.id)";
     if (options.torrent)
         otherConditions ~= "EXISTS (SELECT 1 FROM torrent_info ti WHERE ti.blob_id = b.id)";
     if (otherConditions.length > 0)
@@ -442,7 +446,7 @@ RepositoryFile loadFileReferenceFromDatabase(ref Database db, long fileReference
         ~ "EXISTS (SELECT 1 FROM media_audio_streams ma WHERE ma.blob_id = b.id), "
         ~ "EXISTS (SELECT 1 FROM media_image_streams mi WHERE mi.blob_id = b.id), "
         ~ "EXISTS (SELECT 1 FROM media_text_streams mt WHERE mt.blob_id = b.id), "
-        ~ "EXISTS (SELECT 1 FROM archive_entries ar WHERE ar.blob_id = b.id), "
+        ~ "EXISTS (SELECT 1 FROM archive_indexes ar WHERE ar.blob_id = b.id), "
         ~ "EXISTS (SELECT 1 FROM torrent_info ti WHERE ti.blob_id = b.id) "
         ~ "FROM file_refs f JOIN blobs b ON b.id = f.blob_id WHERE f.id = ?",
         fileReferenceId);
@@ -661,7 +665,7 @@ private Statement prepareCatalogQuery(ref Database db, string selectSql,
         if (options.fileType)
             addOtherCondition("b.file_type IS NOT NULL AND length(b.file_type) > 0");
         if (options.archive)
-            addOtherCondition("EXISTS (SELECT 1 FROM archive_entries a "
+            addOtherCondition("EXISTS (SELECT 1 FROM archive_indexes a "
                 ~ "WHERE a.blob_id = b.id)");
         if (options.torrent)
             addOtherCondition("EXISTS (SELECT 1 FROM torrent_info t "
@@ -760,7 +764,7 @@ private RepositoryBlobFlags loadBlobFlags(ref Database db, long blobId)
         ~ "WHERE blob_id = ?", blobId).empty;
     flags.hasText = !db.execute("SELECT 1 FROM media_text_streams "
         ~ "WHERE blob_id = ?", blobId).empty;
-    flags.hasArchive = !db.execute("SELECT 1 FROM archive_entries "
+    flags.hasArchive = !db.execute("SELECT 1 FROM archive_indexes "
         ~ "WHERE blob_id = ?", blobId).empty;
     flags.hasTorrent = !db.execute("SELECT 1 FROM torrent_info "
         ~ "WHERE blob_id = ?", blobId).empty;
