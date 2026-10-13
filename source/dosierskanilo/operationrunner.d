@@ -1121,7 +1121,8 @@ unittest
     import std.format : format;
     import std.path : baseName, buildNormalizedPath, buildPath, dirSeparator;
     import std.uuid : randomUUID;
-    import dosierskanilo.model.namedbinaryblob : deserializeDataClassJsonWrapperFile;
+    import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION4,
+        deserializeDataClassJsonWrapperFile;
     import dosierskanilo.repository.types : JsonExportOptions;
     import dosierskanilo.testdata : copySyntheticCatalogForTest;
 
@@ -1217,16 +1218,26 @@ unittest
         repository.close();
     auto jsonCatalog = deserializeDataClassJsonWrapperFile(catalogPath);
     auto sqliteCatalog = repository.loadCatalog();
+    assert(jsonCatalog.dataVersion == DATA_CLASS_VERSION4);
     assert(sqliteCatalog.length == 11);
     assert(sqliteCatalog.length == jsonCatalog.dataArray.length);
     size_t referenceCount;
     size_t sharedBlobs;
+    bool nestedJsonIndex;
+    bool nestedSqliteIndex;
     string[string] sqliteDigestsByPath;
     string[string] jsonDigestsByPath;
     auto sourcePrefix = buildNormalizedPath(root) ~ dirSeparator;
     foreach (blob; sqliteCatalog)
     {
         assert(blob.checkSums.hasDigests);
+        foreach (entry; blob.archiveSpecs)
+            if (entry !is null && entry.fileName == "nested.zip")
+            {
+                assert(entry.nestedEntries.length == 1);
+                assert(entry.nestedEntries[0].fileName == "deep/readme.txt");
+                nestedSqliteIndex = true;
+            }
         referenceCount += blob.fileSpecs.length;
         foreach (file; blob.fileSpecs)
         {
@@ -1241,6 +1252,13 @@ unittest
     foreach (blob; jsonCatalog.dataArray)
     {
         assert(blob.checkSums.hasDigests);
+        foreach (entry; blob.archiveSpecs)
+            if (entry !is null && entry.fileName == "nested.zip")
+            {
+                assert(entry.nestedEntries.length == 1);
+                assert(entry.nestedEntries[0].fileName == "deep/readme.txt");
+                nestedJsonIndex = true;
+            }
         foreach (file; blob.fileSpecs)
         {
             auto path = buildNormalizedPath(file.fileName);
@@ -1249,6 +1267,7 @@ unittest
             jsonDigestsByPath[relative] = blob.checkSums.sha1sum_b64;
         }
     }
+    assert(nestedJsonIndex && nestedSqliteIndex);
     assert(referenceCount == 12);
     assert(sharedBlobs == 1);
     string[] sqlitePaths;
@@ -1267,7 +1286,17 @@ unittest
     exportOptions.pathPrefix = "archives";
     repository.exportJson(exportPath, exportOptions);
     auto archiveSubset = deserializeDataClassJsonWrapperFile(exportPath);
+    assert(archiveSubset.dataVersion == DATA_CLASS_VERSION4);
     assert(archiveSubset.dataArray.length == 3);
+    bool exportedNestedArchive;
+    foreach (blob; archiveSubset.dataArray)
+        foreach (entry; blob.archiveSpecs)
+            if (entry !is null && entry.fileName == "nested.zip")
+            {
+                assert(entry.nestedEntries.length == 1);
+                exportedNestedArchive = true;
+            }
+    assert(exportedNestedArchive);
     string[] exportedArchivePaths;
     foreach (blob; archiveSubset.dataArray)
     {

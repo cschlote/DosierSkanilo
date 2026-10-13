@@ -397,6 +397,7 @@ struct CatalogFilter
     bool archive; /// Require archive metadata.
     bool torrent; /// Require torrent metadata.
     bool availableOnly; /// Restrict results to currently available references.
+    bool includeArchiveMembers; /// Include indexed members in file queries.
 }
 
 /** Stable user-visible file order; path breaks ties for size sorts. */
@@ -509,9 +510,15 @@ struct CatalogArchiveEntry
 {
     ArchiveEntryId id; /// Distinguishes duplicate-name occurrences.
     string name; /// Original archive member name for display.
+    string relativePath; /// Normalized member path when it is safe to resolve.
+    size_t index; /// Position in the container's current ordered index.
+    size_t occurrence; /// Occurrence among duplicate normalized paths.
+    bool isDirectory; /// True for an explicit directory entry.
+    bool hasSafePath; /// False for absolute or traversal paths.
     ulong size; /// Uncompressed entry size.
     string modifiedAt; /// Entry timestamp when supplied by the format.
     CatalogContentFingerprint fingerprint; /// Deep-scan digest state/details.
+    ContentId contentId; /// Content identity when deep inspection linked a blob.
 }
 
 /** Torrent descriptor only; it does not imply that the described file exists. */
@@ -527,6 +534,28 @@ struct CatalogArchiveEntryPage
     CatalogArchiveEntry[] entries; /// Detached archive metadata rows.
     CatalogPageCursor nextCursor; /// Forward continuation.
     bool hasMore; /// Additional rows follow this page.
+}
+
+/** One locatable member reference owned by a filesystem archive reference. */
+struct CatalogArchiveMember
+{
+    ReferenceId referenceId; /// Source-scoped identity of this archive occurrence.
+    ContentId contentId; /// Deep-linked payload identity, invalid when not available.
+    ContentLocator locator; /// Structured container-reference and entry identity.
+    string name; /// Original entry name for display.
+    string relativePath; /// Normalized member path within the container.
+    ulong size; /// Known uncompressed size, zero if unavailable.
+    string modifiedAt; /// Member timestamp when available.
+    CatalogReferenceAvailability availability; /// Availability inherited from its container.
+    CatalogContentFingerprint fingerprint; /// Deep checksums when available.
+}
+
+/** One bounded page of locatable members for a selected archive reference. */
+struct CatalogArchiveMemberPage
+{
+    CatalogArchiveMember[] members; /// Detached member references.
+    CatalogPageCursor nextCursor; /// Forward continuation.
+    bool hasMore; /// Additional members follow this page.
 }
 
 /** One bounded page of torrent manifest descriptors. */
@@ -547,7 +576,8 @@ struct CatalogSubsetQuery
 /** Export encodings supported by the backend contract version. */
 enum CatalogExportFormat
 {
-    jsonV3
+    jsonV3,
+    jsonV4
 }
 
 /** Output format and selection details for a filtered subset export. */
@@ -668,6 +698,10 @@ interface CatalogBackend
     CatalogArchiveEntryPage listArchiveEntries(ContentId contentId,
         CatalogPageRequest page = CatalogPageRequest.init);
 
+    /** List bounded, structured member references for one selected container reference. */
+    CatalogArchiveMemberPage listArchiveMembers(ReferenceId containerReferenceId,
+        CatalogPageRequest page = CatalogPageRequest.init);
+
     /** Page through torrent manifest descriptors for one content record. */
     CatalogTorrentEntryPage listTorrentEntries(ContentId contentId,
         CatalogPageRequest page = CatalogPageRequest.init);
@@ -749,6 +783,7 @@ version (unittest)
                 directoryB, 20);
             image.hasImage = true;
             image.hasMedia = true;
+            image.hasArchive = true;
             files = [first, duplicate, third, image];
 
             CatalogDirectory a;
@@ -866,6 +901,13 @@ version (unittest)
                 if (file.directoryId == query.directoryId
                     && matches(file, query.filter))
                     result ~= file;
+            if (query.filter.includeArchiveMembers)
+                foreach (container; files)
+                    if (container.directoryId == query.directoryId
+                        && container.hasArchive)
+                        foreach (member; archiveMembersFor(container))
+                            if (matches(member, query.filter))
+                                result ~= member;
             if (query.sortOrder == CatalogSortOrder.pathDescending)
                 result.reverse;
             else if (query.sortOrder == CatalogSortOrder.sizeAscending)
@@ -893,7 +935,25 @@ version (unittest)
                 ~ (filter.image ? "1" : "0") ~ (filter.text ? "1" : "0")
                 ~ (filter.mediaNegated ? "1" : "0") ~ (filter.fileType ? "1" : "0")
                 ~ (filter.archive ? "1" : "0") ~ (filter.torrent ? "1" : "0")
-                ~ (filter.availableOnly ? "1" : "0");
+                ~ (filter.availableOnly ? "1" : "0")
+                ~ (filter.includeArchiveMembers ? "1" : "0");
+        }
+
+        private CatalogFile[] archiveMembersFor(CatalogFile container) const
+        {
+            auto entryId = ArchiveEntryId(instanceToken ~ ":archive-entry-one");
+            CatalogFile member;
+            member.referenceId = ReferenceId(instanceToken
+                ~ ":archive-reference:" ~ container.referenceId.adapterToken
+                ~ ":" ~ entryId.adapterToken);
+            member.contentId = contentOne;
+            member.directoryId = container.directoryId;
+            member.locator = ContentLocator.entry(container.referenceId, entryId);
+            member.name = "readme.txt";
+            member.relativePath = container.relativePath ~ "!/nested/readme.txt";
+            member.size = 10;
+            member.availability = container.availability;
+            return [member];
         }
 
         private string fileQueryToken(CatalogFileQuery query) const
@@ -979,6 +1039,7 @@ version (unittest)
             result.supportsFilteredExport = result.supportsTreeQueries;
             result.supportsArchiveEntryQueries = true;
             result.supportsTorrentEntryQueries = true;
+            result.supportsFirstClassArchiveReferences = true;
             return result;
         }
 
@@ -993,6 +1054,15 @@ version (unittest)
                     result.fileReferenceCount++;
                     result.aggregateSize += file.size;
                 }
+            if (filter.includeArchiveMembers)
+                foreach (container; files)
+                    if (container.hasArchive)
+                        foreach (member; archiveMembersFor(container))
+                            if (matches(member, filter))
+                            {
+                                ++result.fileReferenceCount;
+                                result.aggregateSize += member.size;
+                            }
             return result;
         }
 
@@ -1101,6 +1171,57 @@ version (unittest)
                 entry.name = "nested/readme.txt";
                 entry.size = 10;
                 result.entries = [entry];
+            }
+            return result;
+        }
+
+        override CatalogArchiveMemberPage listArchiveMembers(
+            ReferenceId containerReferenceId, CatalogPageRequest page = CatalogPageRequest.init)
+        {
+            requireTreeQueries();
+            if (!containerReferenceId.isValid || page.limit == 0)
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.invalidIdentifier,
+                    "Archive member query requires a valid container reference and page.");
+            CatalogFile container;
+            foreach (file; files)
+                if (file.referenceId == containerReferenceId)
+                    container = file;
+            if (!container.referenceId.isValid || !container.hasArchive)
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.invalidIdentifier,
+                    "Reference is not an indexed archive container.");
+            const auto queryToken = sourceToken() ~ "\0archive-members\0"
+                ~ containerReferenceId.adapterToken;
+            if (page.cursor.isValid
+                && (page.cursor.adapterQueryToken != queryToken
+                    || page.cursor.adapterPageSize != page.limit))
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.invalidCursor,
+                    "Archive member cursor does not match this source or query.");
+            const auto start = page.cursor.isValid
+                ? page.cursor.adapterIndex : 0;
+            if (start > 1)
+                throw new CatalogBackendException(CatalogBackendErrorCode.invalidCursor,
+                    "Archive member cursor is outside the result sequence.");
+            CatalogArchiveMemberPage result;
+            if (start == 0)
+            {
+                auto entryId = ArchiveEntryId(instanceToken
+                    ~ ":archive-entry-one");
+                CatalogArchiveMember member;
+                member.referenceId = ReferenceId(instanceToken
+                    ~ ":archive-reference:" ~ containerReferenceId.adapterToken
+                    ~ ":" ~ entryId.adapterToken);
+                member.contentId = contentOne;
+                member.locator = ContentLocator.entry(containerReferenceId, entryId);
+                member.name = "readme.txt";
+                member.relativePath = "nested/readme.txt";
+                member.size = 10;
+                member.availability = container.availability;
+                member.fingerprint.size = 10;
+                member.fingerprint.complete = true;
+                result.members = [member];
             }
             return result;
         }
@@ -1294,7 +1415,7 @@ version (unittest)
         assert(capabilities.supportsFilteredExport);
         assert(capabilities.supportsArchiveEntryQueries);
         assert(capabilities.supportsTorrentEntryQueries);
-        assert(!capabilities.supportsFirstClassArchiveReferences);
+        assert(capabilities.supportsFirstClassArchiveReferences);
 
         const auto root = backend.rootSummary();
         assert(root.childDirectoryCount == 2);
@@ -1376,6 +1497,20 @@ version (unittest)
         auto archivePage = backend.listArchiveEntries(imagePage.files[0].contentId);
         assert(archivePage.entries.length == 1);
         assert(archivePage.entries[0].name == "nested/readme.txt");
+        auto archiveMembers = backend.listArchiveMembers(
+            imagePage.files[0].referenceId);
+        assert(archiveMembers.members.length == 1);
+        assert(archiveMembers.members[0].contentId.isValid);
+        assert(archiveMembers.members[0].locator.kind
+            == ContentLocator.Kind.archiveEntry);
+        assert(archiveMembers.members[0].relativePath == "nested/readme.txt");
+        bool rejectedNonContainer;
+        try
+            backend.listArchiveMembers(firstPage.files[0].referenceId);
+        catch (CatalogBackendException failure)
+            rejectedNonContainer = failure.code
+                == CatalogBackendErrorCode.invalidIdentifier;
+        assert(rejectedNonContainer);
         auto torrentPage = backend.listTorrentEntries(firstPage.files[0].contentId);
         assert(torrentPage.entries.length == 1);
         assert(torrentPage.entries[0].pathComponents == ["payload.bin"]);

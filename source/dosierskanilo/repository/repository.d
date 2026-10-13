@@ -30,7 +30,8 @@ import dosierskanilo.repository.transfer : exportCatalogJson, importCatalogJson,
     loadBlobDetailsFromDatabase, countCatalogQueryFromDatabase,
     listDirectoriesFromDatabase, loadRootSummaryFromDatabase, listFilesFromDatabase,
     listFilesPageFromDatabase, listArchiveEntriesFromDatabase,
-    listTorrentFilesFromDatabase;
+    listTorrentFilesFromDatabase, loadFileReferenceFromDatabase,
+    loadArchiveEntryFromDatabase;
 import dosierskanilo.repository.types;
 
 /** A connection to one `.dosierskanilo` repository. */
@@ -423,6 +424,13 @@ public:
         return listFilesPageFromDatabase(database, options);
     }
 
+    /** Load one physical file reference by its stable repository ID. */
+    RepositoryFile fileReference(long fileReferenceId)
+    {
+        requireOpen();
+        return loadFileReferenceFromDatabase(database, fileReferenceId);
+    }
+
     /** Continue forward from a stable file cursor in the query's sorted result. */
     RepositoryFilePage nextFilesPage(RepositoryFileQuery options,
         RepositoryFileCursor cursor)
@@ -451,6 +459,21 @@ public:
         requireOpen();
         enforce(options.limit > 0, "Archive entry page size must be greater than zero.");
         return listArchiveEntriesFromDatabase(database, options);
+    }
+
+    /** Load one archive index row by stable entry ID. */
+    RepositoryArchiveEntry archiveEntry(long entryId)
+    {
+        requireOpen();
+        return loadArchiveEntryFromDatabase(database, entryId);
+    }
+
+    /** Whether a blob has an archive index, including a known empty index. */
+    bool hasArchiveIndex(long blobId)
+    {
+        requireOpen();
+        return !database.execute("SELECT 1 FROM archive_indexes WHERE blob_id = ?",
+            blobId).empty;
     }
 
     /** List torrent files for one blob using bounded SQL queries. */
@@ -1099,6 +1122,8 @@ unittest
     }
 
     auto repository = Repository.initialize(root);
+    scope (exit)
+        repository.close();
     repository.scan();
     MetadataScanOptions options;
     options.extractMediaInfo = true;
@@ -1197,11 +1222,14 @@ unittest
     }
 
     auto repository = Repository.initialize(root);
+    scope (exit)
+        repository.close();
     repository.scan();
     MetadataScanOptions options;
+    options.calculateChecksums = true;
     options.scanArchives = true;
     options.scanTorrents = true;
-    options.deepArchiveScan = true;
+    options.deepArchiveScan = false;
     size_t passwordPrompts;
     options.archivePasswordCallback = (string archivePath, string reason,
         out string password) {
@@ -1212,7 +1240,6 @@ unittest
         return true;
     };
     auto summary = repository.updateMetadata(options);
-    assert(passwordPrompts == 1);
     assert(summary.archivesUpdated == 1);
     assert(summary.torrentsUpdated == 1);
     assert(summary.failed == 0);
@@ -1230,7 +1257,40 @@ unittest
     assert(archiveBlob.archiveSpecs.length == 0);
     RepositoryArchiveQuery archiveEntriesQuery;
     archiveEntriesQuery.blobId = archiveFiles[0].blobId;
-    assert(repository.listArchiveEntries(archiveEntriesQuery).length > 0);
+    auto archiveEntriesBefore = repository.listArchiveEntries(archiveEntriesQuery);
+    assert(archiveEntriesBefore.length > 0);
+    assert(archiveEntriesBefore[0].hasSafePath);
+    assert(archiveEntriesBefore[0].relativePath == "payload.txt");
+    assert(archiveEntriesBefore[0].contentBlobId == 0,
+        "A shallow index must not invent a member content identity.");
+    const auto stableArchiveEntryId = archiveEntriesBefore[0].id;
+    options.deepArchiveScan = true;
+    repository.updateMetadata(options);
+    assert(passwordPrompts == 1);
+    auto deepArchiveEntries = repository.listArchiveEntries(archiveEntriesQuery);
+    assert(deepArchiveEntries[0].id == stableArchiveEntryId);
+    assert(deepArchiveEntries[0].contentBlobId > 0,
+        "Deep archive checksums should establish a member content identity.");
+    RepositoryFileQuery payloadQuery;
+    payloadQuery.text = "payload.txt";
+    auto physicalPayloads = repository.listFiles(payloadQuery);
+    assert(physicalPayloads.length == 1);
+    assert(deepArchiveEntries[0].contentBlobId == physicalPayloads[0].blobId,
+        "Equal archive and filesystem payloads should reuse one blob.");
+    JsonExportOptions memberDetailsOptions;
+    memberDetailsOptions.allowUnreferencedContent = true;
+    auto memberDetails = repository.loadBlobDetails(
+        deepArchiveEntries[0].contentBlobId, memberDetailsOptions);
+    assert(memberDetails !is null && memberDetails.fileSpecs.length == 1);
+    assert(memberDetails.fileSpecs[0].fileName == "payload.txt");
+    assert(memberDetails.checkSums.hasDigests);
+    options.rescan = true;
+    repository.updateMetadata(options);
+    auto archiveEntriesAfter = repository.listArchiveEntries(archiveEntriesQuery);
+    assert(archiveEntriesAfter.length == deepArchiveEntries.length);
+    assert(archiveEntriesAfter[0].id == stableArchiveEntryId,
+        "An unchanged archive entry should retain its repository identity.");
+    options.rescan = false;
     RepositoryFileQuery torrentQuery;
     torrentQuery.torrent = true;
     torrentQuery.limit = 10;

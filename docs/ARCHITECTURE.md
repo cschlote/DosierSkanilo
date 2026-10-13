@@ -73,7 +73,7 @@ below are frozen.
 | --- | --- | --- |
 | `NamedBinaryBlob` | JSON-compatible record for a payload, checksum/metadata, and one or more `FileSpec`s | Mixes payload and filesystem references; keep as the v3 serializer model, not the future backend interface |
 | `FileSpec` | One physical filesystem path and its observed timestamp | Has no source-kind or archive-entry locator today |
-| `ArchiveSpec` | Basic archive member path, size, timestamp, optional checksums | Nested metadata only; it is not a queryable/deduplicated content blob |
+| `ArchiveSpec` | Versioned archive member metadata, including recursive v4 `nestedEntries` | Serialized compatibility data; runtime member references and content IDs are adapter projections |
 | `TorrentInfo` / `TorrentFileEntry` | Torrent-level facts and torrent member paths | Torrent members are also nested metadata, not ordinary catalog references |
 | `Repository` | Concrete SQLite lifecycle, query, transfer, and synchronous convenience API | SQLite-backed concrete class; no common JSON/SQLite catalog superclass yet |
 | `RepositoryDirectory` / `RepositoryFile` / page DTOs | Typed bounded SQLite read results | Stable cursor IDs are repository identities; GUI JSON projections are separately built |

@@ -33,6 +33,7 @@ public import dosierskanilo.model.filespec;
 enum int DATA_CLASS_VERSION1 = 1; ///< Current version of the NamedBinaryBlob structure, v1
 enum int DATA_CLASS_VERSION2 = 2; ///< Current version of the NamedBinaryBlob structure, v2
 enum int DATA_CLASS_VERSION3 = 3; ///< Current version of the NamedBinaryBlob structure, v3
+enum int DATA_CLASS_VERSION4 = 4; ///< Recursive archive-member representation, v4
 
 /** Wrapper class to serialize an array of NamedBinaryBlob objects
  *
@@ -296,6 +297,12 @@ class NamedBinaryBlob
 		checkSums = other.checkSums;
 		mediaInfoSig = other.mediaInfoSig;
 		archivePassword = other.archivePassword;
+		if (other.archiveSpecs !is null)
+		{
+			archiveSpecs = [];
+			foreach (entry; other.archiveSpecs)
+				archiveSpecs ~= entry is null ? null : entry.dup();
+		}
 	}
 
 	/* ------------------------------------------------------------------- */
@@ -380,8 +387,6 @@ class NamedBinaryBlob
 		auto dc = new NamedBinaryBlob(this);
 		if (dc.mediaInfoSig !is null)
 			dc.mediaInfoSig = dc.mediaInfoSig.dup;
-		if (dc.archiveSpecs !is null)
-			dc.archiveSpecs = dc.archiveSpecs.dup;
 		if (dc.torrentInfo !is null)
 			dc.torrentInfo = dc.torrentInfo.dup;
 		return dc;
@@ -1025,9 +1030,13 @@ NamedBinaryBlobCatalog deserializeDataClassJsonWrapperString(const string serial
 		if (wrapper.dataVersion == DATA_CLASS_VERSION1)
 			wrapper.dataVersion = DATA_CLASS_VERSION2;
 
-		if (wrapper.dataVersion != DATA_CLASS_VERSION2 && wrapper.dataVersion != DATA_CLASS_VERSION3)
+		if (wrapper.dataVersion != DATA_CLASS_VERSION2
+			&& wrapper.dataVersion != DATA_CLASS_VERSION3
+			&& wrapper.dataVersion != DATA_CLASS_VERSION4)
 			assert(false, "Data version mismatch, expected " ~ to!string(
-				DATA_CLASS_VERSION3) ~ " or " ~ to!string(DATA_CLASS_VERSION2) ~ ", got " ~ to!string(wrapper.dataVersion));
+				DATA_CLASS_VERSION2) ~ ", " ~ to!string(DATA_CLASS_VERSION3)
+				~ " or " ~ to!string(DATA_CLASS_VERSION4) ~ ", got "
+				~ to!string(wrapper.dataVersion));
 	}
 	// Check for old plain array JSON
 	else if (serializedData[0] == '[')
@@ -1137,7 +1146,11 @@ void serializeDataClassWrapperFile(string fileName, ref NamedBinaryBlobCatalog w
 	logFLineVerbose("Generate JSON data and write it to file %s", fileName);
 	if (wrapper.dataVersion == 0)
 		wrapper.dataVersion = DATA_CLASS_VERSION3;
-	wrapper.dataVersion = DATA_CLASS_VERSION3;
+	if (wrapper.dataVersion != DATA_CLASS_VERSION4)
+		wrapper.dataVersion = DATA_CLASS_VERSION3;
+	if (wrapper.dataVersion == DATA_CLASS_VERSION3
+		&& containsNestedArchiveEntries(wrapper.dataArray))
+		throw new Exception("Nested archive indexes require JSON version 4.");
 	wrapper.refreshRuntimeMetadata();
 
 	logFLineVerbose("  sort and uniq serialized array by their filenames (use a range)");
@@ -1146,6 +1159,61 @@ void serializeDataClassWrapperFile(string fileName, ref NamedBinaryBlobCatalog w
 	wrapper.dataArray = fixupDataClassArrayOut(uniqSortedDeserializedData);
 	writeJSON!(NamedBinaryBlobWrapper)(fileName, wrapper);
 	wrapper.dataArray = fixupDataClassArrayIn(wrapper.dataArray);
+}
+
+private bool containsNestedArchiveEntries(NamedBinaryBlob[] blobs)
+{
+	foreach (blob; blobs)
+		if (blob !is null && containsNestedArchiveSpecs(blob.archiveSpecs))
+			return true;
+	return false;
+}
+
+private bool containsNestedArchiveSpecs(ArchiveSpec[] entries)
+{
+	foreach (entry; entries)
+		if (entry !is null && (entry.archivePassword.length > 0
+			|| entry.nestedEntries !is null))
+			return true;
+	return false;
+}
+
+@("JSON v4 roundtrips nested archive metadata and v3 refuses to discard it")
+unittest
+{
+	import std.exception : assertThrown;
+	import std.file : exists, remove, tempDir;
+	import std.path : buildPath;
+	import std.uuid : randomUUID;
+
+	const auto fileName = buildPath(tempDir(), "nested-archive-v4-"
+		~ randomUUID().toString() ~ ".json");
+	scope (exit)
+		if (exists(fileName))
+			remove(fileName);
+
+	auto member = new ArchiveSpec("nested/readme.txt", 11, "",
+		CheckSums.init);
+	auto nestedArchive = new ArchiveSpec("nested.zip", 64, "",
+		CheckSums.init);
+	nestedArchive.nestedEntries = [member];
+	auto archive = new ArchiveSpec("container.zip", 128, "",
+		CheckSums.init);
+	archive.nestedEntries = [nestedArchive];
+	auto blob = new NamedBinaryBlob();
+	blob.fileSize = 256;
+	blob.fileSpecs = [new FileSpec("container.zip", "")];
+	blob.archiveSpecs = [archive];
+	auto v4 = NamedBinaryBlobCatalog(DATA_CLASS_VERSION4, [blob]);
+	serializeDataClassWrapperFile(fileName, v4);
+	assert(v4.dataVersion == DATA_CLASS_VERSION4);
+	auto loaded = deserializeDataClassJsonWrapperFile(fileName);
+	assert(loaded.dataVersion == DATA_CLASS_VERSION4);
+	assert(loaded.dataArray[0].archiveSpecs[0].nestedEntries[0]
+		.nestedEntries[0].fileName == "nested/readme.txt");
+
+	auto v3 = NamedBinaryBlobCatalog(DATA_CLASS_VERSION3, [blob]);
+	assertThrown!Exception(serializeDataClassWrapperFile(fileName, v3));
 }
 
 @("deserializeDataClassJsonFile")
@@ -1394,7 +1462,10 @@ void updateArchives(NamedBinaryBlob obj,
 	bool deep = true,
 	shared(bool)* gotCtrlC = null,
 	ProgressCallBack* progressCallBack = null,
-	ArchivePasswordCallback passwordCallback = null)
+	ArchivePasswordCallback passwordCallback = null,
+	size_t depth = 0,
+	size_t maxDepth = 8,
+	string displayArchivePath = "")
 {
 	string getTmpDirPrefix() const
 	{
@@ -1403,8 +1474,8 @@ void updateArchives(NamedBinaryBlob obj,
 		import std.file : tempDir;
 		import std.conv : to;
 
-		return buildPath(tempDir, "dosierskanilo-" ~ thisProcessID.to!string ~ "-" ~ thisThreadID
-				.to!string);
+		return buildPath(tempDir, "dosierskanilo-" ~ thisProcessID.to!string ~ "-"
+			~ thisThreadID.to!string ~ "-archive-depth-" ~ depth.to!string);
 	}
 
 	if (obj.archiveSpecs is null || rescan)
@@ -1433,6 +1504,8 @@ void updateArchives(NamedBinaryBlob obj,
 				auto archiveObj = fileArchive(spec.fileName);
 				if (archiveObj)
 				{
+					const auto archiveDisplayPath = displayArchivePath.length > 0
+						? displayArchivePath : spec.fileName;
 					logLineVerbose();
 					logFLineVerbose("Found archive of type '%s'", archiveObj.fileType);
 					logFLineVerbose("  with file '%s'", spec.fileName);
@@ -1440,49 +1513,70 @@ void updateArchives(NamedBinaryBlob obj,
 					logFLineVerbose("  with 'file' type '%s'", obj.fileType);
 
 					string password = obj.archivePassword;
-					string[] arcfiles;
-					bool passwordPrompted;
-					while (true)
-					{
-						try
-						{
-							arcfiles = archiveObj.getEntries(password);
-							break;
+                    ArchiveEntryDescriptor[] archiveEntries;
+                    bool passwordPrompted;
+                    while (true)
+                    {
+                        try
+                        {
+                            archiveEntries = archiveObj.getEntryDescriptors(password);
+                            enforce(archiveEntries !is null,
+                                "Archive handler returned no entry index for "
+                                ~ spec.fileName);
+                            break;
 						}
 						catch (ArchivePasswordRequiredException ex)
 						{
-							requestPassword(ex.msg, spec.fileName,
+							requestPassword(ex.msg, archiveDisplayPath,
 								passwordCallback, password);
 							passwordPrompted = true;
 						}
 					}
-					if (passwordPrompted)
-						obj.archivePassword = password;
-					logFLine("  with %d entries", arcfiles.length);
-					if (progressCallBack !is null)
-						progressCallBack.fp(0, arcfiles.length);
+                    if (passwordPrompted)
+                        obj.archivePassword = password;
+                    logFLine("  with %d entries", archiveEntries.length);
+                    obj.archiveSpecs = [];
+                    if (progressCallBack !is null)
+                        progressCallBack.fp(0, archiveEntries.length);
 
-					foreach (idx, arcfile; arcfiles)
-					{
-						import std.file : mkdirRecurse, rmdirRecurse;
+                    foreach (idx, descriptor; archiveEntries)
+                    {
+                        import std.file : mkdirRecurse, rmdirRecurse;
 
-						logFLineVerbose("  with archive file '%s'", arcfile);
+                        const auto arcfile = descriptor.name;
+                        logFLineVerbose("  with archive file '%s'", arcfile);
 
-						mkdirRecurse(getTmpDirPrefix);
+                        size_t arcFileSize;
+                        string arcModTimeStr;
+                        string extractedPath;
+                        CheckSums sums = CheckSums();
+                        if (!descriptor.hasSafePath || descriptor.isDirectory
+                            || descriptor.occurrence > 0)
+                        {
+                            auto unscannedEntry = new ArchiveSpec(arcfile,
+                                arcFileSize, arcModTimeStr, sums);
+                            unscannedEntry.entryIndex = idx;
+                            unscannedEntry.occurrence = descriptor.occurrence;
+                            unscannedEntry.hasIndexIdentity = true;
+                            obj.archiveSpecs ~= unscannedEntry;
+                            if (progressCallBack !is null)
+                                progressCallBack.fp(idx + 1, archiveEntries.length);
+                            continue;
+                        }
+
+                        mkdirRecurse(getTmpDirPrefix);
 						scope (exit)
 							if (getTmpDirPrefix.exists)
 								rmdirRecurse(getTmpDirPrefix);
 
-						size_t arcFileSize = 0;
-						string arcModTimeStr = "";
-						CheckSums sums = CheckSums();
-						if (deep)
+                        if (deep)
 						{
 							import std.string : format;
 							import std.path : buildPath;
 							import std.file : getSize, getTimes;
 
-							auto destFile = buildPath(getTmpDirPrefix(), arcfile);
+                            auto destFile = buildPath(getTmpDirPrefix(), arcfile);
+                            extractedPath = destFile;
 
 							bool exOk;
 							bool extractionPasswordPrompted;
@@ -1496,7 +1590,7 @@ void updateArchives(NamedBinaryBlob obj,
 								}
 								catch (ArchivePasswordRequiredException ex)
 								{
-									requestPassword(ex.msg, spec.fileName,
+									requestPassword(ex.msg, archiveDisplayPath,
 										passwordCallback, password);
 									extractionPasswordPrompted = true;
 								}
@@ -1513,7 +1607,7 @@ void updateArchives(NamedBinaryBlob obj,
 							ubyte[] md5sum_s, sha1sum_s, xxh64sum_s;
 							calculatesDigests(gotCtrlC, destFile, &md5sum_s, &sha1sum_s, &xxh64sum_s, progressCallBack);
 							if (progressCallBack !is null)
-								progressCallBack.fp(idx, arcfiles.length);
+                                progressCallBack.fp(idx, archiveEntries.length);
 
 							sums.set_md5sum = md5sum_s;
 							sums.set_sha1sum = sha1sum_s;
@@ -1526,11 +1620,37 @@ void updateArchives(NamedBinaryBlob obj,
 
 							arcFileSize = destFile.getSize;
 						}
-						ArchiveSpec aspec = new ArchiveSpec(arcfile, arcFileSize, arcModTimeStr, sums);
-						obj.archiveSpecs ~= aspec;
+                        ArchiveSpec[] nestedEntries;
+                        string nestedPassword;
+                        if (deep && depth < maxDepth && extractedPath.length > 0)
+                        {
+                            auto nestedArchive = fileArchive(extractedPath);
+                            if (nestedArchive !is null)
+                            {
+                                auto nestedBlob = new NamedBinaryBlob();
+                                nestedBlob.fileSize = arcFileSize;
+                                nestedBlob.fileSpecs = [new FileSpec(extractedPath,
+                                    arcModTimeStr)];
+                                const auto nestedDisplayPath = archiveDisplayPath
+                                    ~ "!/" ~ descriptor.relativePath;
+                                updateArchives(nestedBlob, true, deep, gotCtrlC,
+                                    progressCallBack, passwordCallback, depth + 1,
+                                    maxDepth, nestedDisplayPath);
+                                nestedEntries = nestedBlob.archiveSpecs;
+                                nestedPassword = nestedBlob.archivePassword;
+                            }
+                        }
+                        auto aspec = new ArchiveSpec(arcfile, arcFileSize,
+                            arcModTimeStr, sums);
+                        aspec.entryIndex = idx;
+                        aspec.occurrence = descriptor.occurrence;
+                        aspec.hasIndexIdentity = true;
+                        aspec.nestedEntries = nestedEntries;
+                        aspec.archivePassword = nestedPassword;
+                        obj.archiveSpecs ~= aspec;
 
-						if (progressCallBack !is null)
-							progressCallBack.fp(arcfiles.length, arcfiles.length);
+                        if (progressCallBack !is null)
+                            progressCallBack.fp(idx + 1, archiveEntries.length);
 					}
 					break;
 				}

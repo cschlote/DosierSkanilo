@@ -8,8 +8,10 @@ import std.parallelism : Task, TaskPool, task;
 import std.path : baseName, buildNormalizedPath, dirSeparator;
 import std.string : empty, split;
 
+import dosierskanilo.model.archivespec : ArchiveSpec;
 import dosierskanilo.model.namedbinaryblob : NamedBinaryBlob,
-    NamedBinaryBlobCatalog, cleanupDataClassObjs, deserializeDataClassJsonWrapperFile,
+    DATA_CLASS_VERSION4, NamedBinaryBlobCatalog, cleanupDataClassObjs,
+    deserializeDataClassJsonWrapperFile,
     cleanupInvalidatedDataClassObjs, invalidateDataClassObjs, mergeDataClassObjects,
     updateArchives, updateDigests,
     updateFileType, updateMediaInfo, updateTorrentInfo;
@@ -90,11 +92,30 @@ JsonAnalysisExecutionResult analyzeJsonCatalog(string catalogPath,
 /** Persist a computed JSON catalog after the final safe cancellation checkpoint. */
 bool commitJsonCatalog(string catalogPath, ref NamedBinaryBlobCatalog catalog)
 {
+    if (catalog.dataVersion != DATA_CLASS_VERSION4
+        && containsNestedArchiveMetadata(catalog.dataArray))
+        catalog.dataVersion = DATA_CLASS_VERSION4;
     auto replacementLease = TargetCatalogReplacementLease.acquireJsonCatalog(
         catalogPath);
     scope (exit)
         replacementLease.release();
     return writeStorageJsonFile(catalogPath, catalog);
+}
+
+private bool containsNestedArchiveMetadata(NamedBinaryBlob[] blobs)
+{
+    bool hasNested(ArchiveSpec[] entries)
+    {
+        foreach (entry; entries)
+            if (entry !is null && (entry.archivePassword.length > 0
+                || entry.nestedEntries !is null))
+                return true;
+        return false;
+    }
+    foreach (blob; blobs)
+        if (blob !is null && hasNested(blob.archiveSpecs))
+            return true;
+    return false;
 }
 
 private NamedBinaryBlobCatalog loadJsonCatalog(string catalogPath,

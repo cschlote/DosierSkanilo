@@ -8,6 +8,7 @@ import std.string : split;
 
 import dosierskanilo.operations : OperationControl, OperationKind,
     OperationPhase, OperationProgress, OperationState;
+import dosierskanilo.repository.archiveindex : deleteUnreachableBlobs;
 import dosierskanilo.repository.types;
 
 /** Return duplicate groups without modifying repository state. */
@@ -16,6 +17,7 @@ RepositoryDuplicateGroup[] queryDuplicateGroups(ref Database db, size_t limit = 
     RepositoryDuplicateGroup[] groups;
     auto result = db.execute("SELECT file_size, group_concat(id) FROM blobs "
         ~ "WHERE md5 IS NOT NULL AND sha1 IS NOT NULL AND xxh64 IS NOT NULL "
+        ~ "AND EXISTS (SELECT 1 FROM file_refs f WHERE f.blob_id = blobs.id) "
         ~ "GROUP BY file_size, md5, sha1, xxh64 "
         ~ "HAVING count(*) > 1 ORDER BY file_size, min(id) LIMIT ?",
         cast(long) limit);
@@ -51,6 +53,7 @@ AnalysisSummary analyzeRepository(ref Database db, RepositoryAnalysisOptions opt
         {
             auto groups = db.execute("SELECT group_concat(id) FROM blobs "
                 ~ "WHERE md5 IS NOT NULL AND sha1 IS NOT NULL AND xxh64 IS NOT NULL "
+                ~ "AND EXISTS (SELECT 1 FROM file_refs f WHERE f.blob_id = blobs.id) "
                 ~ "GROUP BY file_size, md5, sha1, xxh64 "
                 ~ "HAVING count(*) > 1");
             string[] duplicateGroups;
@@ -69,17 +72,15 @@ AnalysisSummary analyzeRepository(ref Database db, RepositoryAnalysisOptions opt
                     auto dropId = dropText.to!long;
                     db.execute("UPDATE file_refs SET blob_id = ? "
                         ~ "WHERE blob_id = ?", keepId, dropId);
+                    db.execute("UPDATE archive_entries SET content_blob_id = ? "
+                        ~ "WHERE content_blob_id = ?", keepId, dropId);
                     db.execute("DELETE FROM blobs WHERE id = ?", dropId);
                     summary.mergedBlobs++;
                 }
             }
         }
 
-        summary.orphanedBlobs = cast(size_t) db.execute(
-            "SELECT count(*) FROM blobs WHERE id NOT IN "
-            ~ "(SELECT DISTINCT blob_id FROM file_refs)").oneValue!long;
-        db.execute("DELETE FROM blobs WHERE id NOT IN "
-            ~ "(SELECT DISTINCT blob_id FROM file_refs)");
+        summary.orphanedBlobs = deleteUnreachableBlobs(db);
         db.commit();
     }
     catch (Exception ex)
@@ -131,7 +132,9 @@ AnalysisExecutionResult analyzeRepositoryControlled(ref Database db,
         db.execute("WITH duplicate_groups AS ("
             ~ "SELECT min(id) AS keep_id, file_size, md5, sha1, xxh64 "
             ~ "FROM blobs WHERE md5 IS NOT NULL AND sha1 IS NOT NULL "
-            ~ "AND xxh64 IS NOT NULL GROUP BY file_size, md5, sha1, xxh64 "
+            ~ "AND xxh64 IS NOT NULL AND EXISTS (SELECT 1 FROM file_refs f "
+            ~ "WHERE f.blob_id = blobs.id) "
+            ~ "GROUP BY file_size, md5, sha1, xxh64 "
             ~ "HAVING count(*) > 1) "
             ~ "INSERT INTO temp.analysis_merge_plan (keep_id, drop_id) "
             ~ "SELECT g.keep_id, b.id FROM duplicate_groups g JOIN blobs b "
@@ -182,14 +185,12 @@ AnalysisExecutionResult analyzeRepositoryControlled(ref Database db,
             auto dropId = row.peek!long(1);
             db.execute("UPDATE file_refs SET blob_id = ? WHERE blob_id = ?",
                 keepId, dropId);
+            db.execute("UPDATE archive_entries SET content_blob_id = ? "
+                ~ "WHERE content_blob_id = ?", keepId, dropId);
             db.execute("DELETE FROM blobs WHERE id = ?", dropId);
         }
 
-        execution.summary.orphanedBlobs = cast(size_t) db.execute(
-            "SELECT count(*) FROM blobs WHERE id NOT IN "
-            ~ "(SELECT DISTINCT blob_id FROM file_refs)").oneValue!long;
-        db.execute("DELETE FROM blobs WHERE id NOT IN "
-            ~ "(SELECT DISTINCT blob_id FROM file_refs)");
+        execution.summary.orphanedBlobs = deleteUnreachableBlobs(db);
         // Cancellation is checked before commit. No pause or callback waits
         // while the operation-wide transaction is active.
         if (control !is null && control.cancellationRequested)

@@ -147,7 +147,8 @@ Mismatches are typed `invalidTarget` errors.
 
 The public `CatalogBackend` surface is in `dosierskanilo.catalogbackend`. Its
 directory/file projections, filters, sort order, cursors, content details,
-archive/torrent pages, and subset-export requests use neutral value types. It
+archive/torrent pages, archive-member reference pages, and subset-export requests
+use neutral value types. It
 does not expose SQL statements, d2sqlite3 values, Jsonizer records, GTK types, or
 CLI parser/output types.
 
@@ -161,7 +162,7 @@ CLI parser/output types.
   concurrent-read behavior.
   Unsupported operations/features fail explicitly with
   `CatalogBackendException`; adapters do not silently substitute another mode.
-- `JsonCatalogBackend` reads legacy arrays and JSON versions 1-3. It requires an
+- `JsonCatalogBackend` reads legacy arrays and JSON versions 1-4. It requires an
   explicit filesystem root for tree queries and scans; analysis of an explicit
   catalog can run without one. JSON v3 omits torrent file-list details, so the
   adapter reports torrent-entry queries unsupported when that data is absent.
@@ -217,8 +218,15 @@ is authoritative.
 - SQLite `blobs.id` approximates `ContentId`; `file_refs.id` approximates
   `ReferenceId`; `file_refs.relative_path` is the current filesystem locator.
   These integer IDs remain adapter-private.
-- `RepositoryArchiveEntry` currently exposes a row ID and name/size/time under a
-  blob query. It has no locator chain or duplicate-name identity yet.
+- `RepositoryArchiveEntry` exposes a stable row ID, normalized path, ordered
+  index/duplicate occurrence, size/time/checksums, and a linked content ID after
+  deep extraction. `CatalogBackend.listArchiveMembers` combines that entry ID
+  with a selected container `ReferenceId` to return a structured locator and a
+  stable member-reference ID. Setting `CatalogFilter.includeArchiveMembers`
+  includes safe, deeply indexed member references in the ordinary file query,
+  directory visibility, root summary, and relationship-closed JSON subsets (v3
+  for flat data and v4 when nested entries are selected). Nested locator chains
+  are supported; virtual directory projection remains in WP-13.5.
 - `ArchiveSpec` is legacy nested metadata and `TorrentFileEntry` is torrent
-  metadata only. WP-13.5 defines how archive members become first-class content
-  references without changing those compatibility representations implicitly.
+  metadata only. WP-13.5 adds first-class backend projections without changing
+  those compatibility representations implicitly.

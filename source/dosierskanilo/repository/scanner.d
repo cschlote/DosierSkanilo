@@ -8,6 +8,7 @@ import std.file : SpanMode, dirEntries, isFile;
 import std.path : buildNormalizedPath, buildPath, dirName, dirSeparator;
 import std.string : empty, replace, split;
 
+import dosierskanilo.repository.archiveindex : deleteUnreachableBlobs;
 import dosierskanilo.repository.errors;
 import dosierskanilo.repository.types;
 import dosierskanilo.operations : OperationControl, OperationKind,
@@ -107,8 +108,7 @@ ScanExecutionResult scanRepositoryControlled(ref Database db, string rootPath,
                 "SELECT count(*) FROM file_refs WHERE exists_on_disk = 0")
                 .oneValue!long;
             db.execute("DELETE FROM file_refs WHERE exists_on_disk = 0");
-            db.execute("DELETE FROM blobs WHERE id NOT IN "
-                ~ "(SELECT DISTINCT blob_id FROM file_refs)");
+            deleteUnreachableBlobs(db);
         }
         db.execute("UPDATE repository SET updated_at = ? WHERE id = 1", now);
         if (control !is null && control.cancellationRequested)
@@ -178,7 +178,10 @@ private void upsertFileReference(ref Database db, string relativePath,
             ~ "time_last_modified = ?, exists_on_disk = 1, last_seen_at = ? "
             ~ "WHERE id = ?", newBlobId, modified, now, fileId);
         db.execute("DELETE FROM blobs WHERE id = ? AND NOT EXISTS "
-            ~ "(SELECT 1 FROM file_refs WHERE blob_id = ?)", oldBlobId, oldBlobId);
+            ~ "(SELECT 1 FROM file_refs WHERE blob_id = ?) AND NOT EXISTS "
+            ~ "(SELECT 1 FROM archive_entries WHERE content_blob_id = ?)",
+            oldBlobId, oldBlobId, oldBlobId);
+        deleteUnreachableBlobs(db);
         summary.filesChanged++;
     }
     else

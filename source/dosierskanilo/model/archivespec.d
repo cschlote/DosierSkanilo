@@ -30,8 +30,24 @@ class ArchiveSpec
 		size_t fileSize;
 		string timeLastModified;
 	}
-	@jsonize(JsonizeIn.opt, JsonizeOut.opt)
-	CheckSums checkSums;
+ @jsonize(JsonizeIn.opt, JsonizeOut.opt)
+ CheckSums checkSums;
+    /** Version-4 recursive index of this member when it is itself an archive. */
+    @jsonize(JsonizeIn.opt, JsonizeOut.opt)
+    ArchiveSpec[] nestedEntries;
+    /** Version-4 password accepted while indexing a nested archive member. */
+    @jsonize(JsonizeIn.opt, JsonizeOut.opt)
+    string archivePassword;
+
+    /** Adapter-only identity data; never serialized in JSON v3 or v4. */
+    @jsonize(JsonizeIn.no, JsonizeOut.no)
+    {
+        size_t entryIndex;
+        size_t occurrence;
+        bool hasIndexIdentity;
+        long contentBlobId;
+        string contentIdentity;
+    }
 
 	this()
 	{
@@ -39,6 +55,8 @@ class ArchiveSpec
 		fileSize = 0;
 		timeLastModified = "";
 		checkSums = CheckSums();
+		nestedEntries = null;
+		archivePassword = "";
 	}
 
 	this(string fn, size_t fsize, string modtime, CheckSums sums)
@@ -47,6 +65,8 @@ class ArchiveSpec
 		fileSize = fsize;
 		timeLastModified = modtime;
 		checkSums = sums;
+		nestedEntries = null;
+		archivePassword = "";
 	}
 
 	import std.datetime : SysTime;
@@ -59,6 +79,8 @@ class ArchiveSpec
 		fileSize = fsize;
 		timeLastModified = modtime.toISOExtString;
 		checkSums = sums;
+		nestedEntries = null;
+		archivePassword = "";
 	}
 
 	int opCmp(ArchiveSpec rhs) const pure @safe
@@ -69,6 +91,26 @@ class ArchiveSpec
 			return -1;
 		else
 			return 0;
+	}
+
+	/** Deep-copy this entry, including nested archive member metadata. */
+	ArchiveSpec dup() const
+	{
+		auto result = new ArchiveSpec(fileName, fileSize, timeLastModified,
+			checkSums);
+		result.archivePassword = archivePassword;
+		result.entryIndex = entryIndex;
+		result.occurrence = occurrence;
+		result.hasIndexIdentity = hasIndexIdentity;
+		result.contentBlobId = contentBlobId;
+		result.contentIdentity = contentIdentity;
+		if (nestedEntries !is null)
+		{
+			result.nestedEntries = [];
+			foreach (entry; nestedEntries)
+				result.nestedEntries ~= entry is null ? null : entry.dup();
+		}
+		return result;
 	}
 
 	override string toString() const pure

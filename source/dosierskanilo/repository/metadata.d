@@ -4,17 +4,22 @@ module dosierskanilo.repository.metadata;
 import d2sqlite3;
 
 import std.array : join;
+import std.conv : to;
 import std.path : buildPath;
 import std.parallelism : Task, TaskPool, task;
 import std.string : empty;
 import std.typecons : Nullable;
 
+import dosierarkivo.archive : archiveIndexVersion,
+    normalizeArchiveEntryPath;
 import dosierskanilo.metadata.mediainfosig : MediaInfoSig;
 import dosierskanilo.metadata.torrentinfo : TorrentInfo;
 import dosierskanilo.model.archivespec : ArchiveSpec;
 import dosierskanilo.model.namedbinaryblob;
 import dosierskanilo.operations : OperationControl, OperationKind,
     OperationPhase, OperationProgress, OperationState;
+import dosierskanilo.repository.archiveindex : deleteUnreachableBlobs,
+    ensureArchiveMemberBlob, resolveArchiveMemberBlobLinks;
 import dosierskanilo.repository.types;
 
 private class MetadataWorkItem
@@ -78,6 +83,12 @@ private long[] metadataBlobIds(ref Database db, string filePath)
 MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
     MetadataScanOptions options)
 {
+    scope (exit)
+        if (options.scanArchives)
+        {
+            resolveArchiveMemberBlobLinks(db);
+            deleteUnreachableBlobs(db);
+        }
     if (options.threads > 1)
         return updateRepositoryMetadataParallel(db, rootPath, options);
 
@@ -147,14 +158,16 @@ MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
         }
 
         if (options.scanArchives && (options.rescan
-            || !metadataCompleted(db, blobId, "archives")))
+            || !metadataCompleted(db, blobId, "archives")
+            || !archiveIndexCurrent(db, blobId, options.deepArchiveScan)))
         {
             setMetadataStatus(db, blobId, "archives", "pending", "");
             try
             {
                 updateArchives(blob, options.rescan, options.deepArchiveScan,
                     null, null, options.archivePasswordCallback);
-                persistArchives(db, blobId, blob.archiveSpecs);
+                persistArchives(db, blobId, blob.archiveSpecs,
+                    options.deepArchiveScan);
                 persistArchivePassword(db, blobId, blob.archivePassword);
                 setMetadataStatus(db, blobId, "archives",
                     metadataState(blob.archiveSpecs !is null), "");
@@ -201,6 +214,12 @@ MetadataExecutionResult updateRepositoryMetadataControlled(ref Database db,
     string rootPath, MetadataScanOptions options, OperationControl control,
     ulong operationId)
 {
+    scope (exit)
+        if (options.scanArchives)
+        {
+            resolveArchiveMemberBlobLinks(db);
+            deleteUnreachableBlobs(db);
+        }
     MetadataExecutionResult execution;
     auto blobIds = metadataBlobIds(db, options.filePath);
     auto batchSize = options.threads > 0 ? options.threads * 4 : 1;
@@ -240,7 +259,9 @@ MetadataExecutionResult updateRepositoryMetadataControlled(ref Database db,
             item.doMediaInfo = options.extractMediaInfo
                 && (options.rescan || !metadataCompleted(db, blobId, "media_info"));
             item.doArchives = options.scanArchives
-                && (options.rescan || !metadataCompleted(db, blobId, "archives"));
+                && (options.rescan || !metadataCompleted(db, blobId, "archives")
+                    || !archiveIndexCurrent(db, blobId,
+                        options.deepArchiveScan));
             item.doTorrents = options.scanTorrents
                 && (options.rescan || !metadataCompleted(db, blobId, "torrents"));
             items ~= item;
@@ -420,7 +441,9 @@ private void processMetadataBatch(ref Database db, string rootPath,
         item.doMediaInfo = options.extractMediaInfo
             && (options.rescan || !metadataCompleted(db, blobId, "media_info"));
         item.doArchives = options.scanArchives
-            && (options.rescan || !metadataCompleted(db, blobId, "archives"));
+            && (options.rescan || !metadataCompleted(db, blobId, "archives")
+                || !archiveIndexCurrent(db, blobId,
+                    options.deepArchiveScan));
         item.doTorrents = options.scanTorrents
             && (options.rescan || !metadataCompleted(db, blobId, "torrents"));
         if (!(item.doChecksums || item.doFileType || item.doMediaInfo
@@ -497,7 +520,8 @@ private void persistMetadataWork(ref Database db, MetadataWorkItem item,
         { persistMediaInfo(db, item.blobId, item.blob.mediaInfoSig); });
     finish("archives", item.doArchives, item.blob.archiveSpecs !is null,
         {
-            persistArchives(db, item.blobId, item.blob.archiveSpecs);
+            persistArchives(db, item.blobId, item.blob.archiveSpecs,
+                item.options.deepArchiveScan);
             persistArchivePassword(db, item.blobId, item.blob.archivePassword);
         });
     finish("torrents", item.doTorrents, item.blob.torrentInfo !is null,
@@ -566,6 +590,13 @@ private bool metadataCompleted(ref Database db, long blobId, string kind)
     return state == "completed" || state == "empty";
 }
 
+private bool archiveIndexCurrent(ref Database db, long blobId, bool requireDeep)
+{
+    return !db.execute("SELECT 1 FROM archive_indexes WHERE blob_id = ? "
+        ~ "AND indexer_version = ? AND (? = 0 OR deep_scanned = 1)", blobId,
+        archiveIndexVersion, requireDeep ? 1 : 0).empty;
+}
+
 private string metadataState(bool hasData)
 {
     return hasData ? "completed" : "empty";
@@ -609,23 +640,134 @@ private void persistMediaInfo(ref Database db, long blobId, MediaInfoSig info)
             cast(long) stream.bitRate, stream.duration);
 }
 
-private void persistArchives(ref Database db, long blobId, ArchiveSpec[] entries)
+private void persistArchives(ref Database db, long blobId, ArchiveSpec[] entries,
+    bool deepScanned)
 {
-    db.execute("DELETE FROM archive_entries WHERE blob_id = ?", blobId);
     if (entries is null)
+    {
+        db.execute("DELETE FROM archive_entries WHERE blob_id = ?", blobId);
+        db.execute("DELETE FROM archive_indexes WHERE blob_id = ?", blobId);
         return;
-    foreach (entry; entries)
+    }
+
+    struct ExistingEntry
+    {
+        long id;
+    }
+    ExistingEntry[][string] existingByIdentity;
+    foreach (row; db.execute("SELECT id, normalized_path, path_safe, occurrence "
+        ~ "FROM archive_entries WHERE blob_id = ?", blobId))
+    {
+        auto key = archiveEntryIdentityKey(row.peek!long(2) != 0,
+            row.peek!string(1), cast(size_t) row.peek!long(3));
+        existingByIdentity[key] ~= ExistingEntry(row.peek!long(0));
+    }
+
+    bool[long] retainedIds;
+    bool membershipChanged;
+    size_t[string] occurrences;
+    const bool preserveDeep = !deepScanned
+        && archiveIndexCurrent(db, blobId, true);
+    foreach (entryIndex, entry; entries)
     {
         if (entry is null)
             continue;
-        db.execute("INSERT INTO archive_entries "
-            ~ "(blob_id, file_name, file_size, time_last_modified, md5, "
-            ~ "sha1, xxh64) VALUES (?, ?, ?, ?, ?, ?, ?)", blobId, entry.fileName,
-            cast(long) entry.fileSize, entry.timeLastModified,
-            checksumBlob(entry.checkSums.md5sum_b64),
-            checksumBlob(entry.checkSums.sha1sum_b64),
-            checksumBlob(entry.checkSums.xxh64sum_b64));
+        bool pathSafe;
+        bool isDirectory;
+        const auto normalizedPath = normalizeArchiveEntryPath(entry.fileName,
+            pathSafe, isDirectory);
+        auto identityPath = pathSafe ? normalizedPath : entry.fileName;
+        auto occurrenceKey = (pathSafe ? "safe\0" : "unsafe\0") ~ identityPath;
+        auto occurrence = occurrences.get(occurrenceKey, 0);
+        occurrences[occurrenceKey] = occurrence + 1;
+        const auto identityKey = archiveEntryIdentityKey(pathSafe, identityPath,
+            occurrence);
+        auto md5 = checksumBlob(entry.checkSums.md5sum_b64);
+        auto sha1 = checksumBlob(entry.checkSums.sha1sum_b64);
+        auto xxh64 = checksumBlob(entry.checkSums.xxh64sum_b64);
+        auto memberBlobId = ensureArchiveMemberBlob(db,
+            cast(long) entry.fileSize, md5, sha1, xxh64);
+        entry.entryIndex = entryIndex;
+        entry.occurrence = occurrence;
+        entry.hasIndexIdentity = true;
+        entry.contentBlobId = memberBlobId;
+        entry.contentIdentity = "";
+        Nullable!long memberBlobReference;
+        if (memberBlobId > 0)
+            memberBlobReference = memberBlobId;
+
+        long entryId;
+        if (auto matches = identityKey in existingByIdentity)
+            foreach (existing; *matches)
+                if (existing.id !in retainedIds)
+                {
+                    entryId = existing.id;
+                    break;
+                }
+
+        if (entryId > 0)
+        {
+            if (preserveDeep)
+                db.execute("UPDATE archive_entries SET entry_index = ?, "
+                    ~ "file_name = ?, normalized_path = ?, path_safe = ?, "
+                    ~ "is_directory = ? WHERE id = ?", cast(long) entryIndex,
+                    entry.fileName, identityPath, pathSafe ? 1 : 0,
+                    isDirectory ? 1 : 0, entryId);
+            else
+                db.execute("UPDATE archive_entries SET entry_index = ?, file_name = ?, "
+                    ~ "normalized_path = ?, path_safe = ?, is_directory = ?, "
+                    ~ "file_size = ?, time_last_modified = ?, md5 = ?, sha1 = ?, "
+                    ~ "xxh64 = ?, content_blob_id = ? WHERE id = ?",
+                    cast(long) entryIndex, entry.fileName, identityPath,
+                    pathSafe ? 1 : 0, isDirectory ? 1 : 0,
+                    cast(long) entry.fileSize, entry.timeLastModified,
+                    md5, sha1, xxh64, memberBlobReference, entryId);
+            retainedIds[entryId] = true;
+        }
+        else
+        {
+            membershipChanged = true;
+            db.execute("INSERT INTO archive_entries (blob_id, entry_index, "
+                ~ "occurrence, file_name, normalized_path, path_safe, is_directory, "
+                ~ "file_size, time_last_modified, md5, sha1, xxh64, content_blob_id) "
+                ~ "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", blobId,
+                cast(long) entryIndex, cast(long) occurrence, entry.fileName,
+                identityPath, pathSafe ? 1 : 0, isDirectory ? 1 : 0,
+                cast(long) entry.fileSize, entry.timeLastModified,
+                md5, sha1, xxh64, memberBlobReference);
+            entryId = db.lastInsertRowid;
+            retainedIds[entryId] = true;
+        }
+
+        if (memberBlobId > 0 && (deepScanned || entry.nestedEntries !is null
+            || entry.archivePassword.length > 0))
+        {
+            persistArchivePassword(db, memberBlobId, entry.archivePassword);
+            persistArchives(db, memberBlobId, entry.nestedEntries, deepScanned);
+        }
     }
+    foreach (matches; existingByIdentity.values)
+        foreach (existing; matches)
+            if (existing.id !in retainedIds)
+            {
+                membershipChanged = true;
+                db.execute("DELETE FROM archive_entries WHERE id = ?", existing.id);
+            }
+    const bool indexDeep = deepScanned || (preserveDeep && !membershipChanged);
+    db.execute("INSERT INTO archive_indexes (blob_id, indexer_version, indexed_at, "
+        ~ "deep_scanned) VALUES (?, ?, ?, ?) ON CONFLICT(blob_id) DO UPDATE SET "
+        ~ "indexer_version = excluded.indexer_version, "
+        ~ "indexed_at = excluded.indexed_at, "
+        ~ "deep_scanned = excluded.deep_scanned", blobId,
+        archiveIndexVersion, currentTimestamp(),
+        indexDeep ? 1 : 0);
+}
+
+private string archiveEntryIdentityKey(bool pathSafe, string path,
+    size_t occurrence)
+{
+    return (pathSafe ? "safe\0" : "unsafe\0") ~ path ~ "\0"
+        ~ occurrence.to!string;
 }
 
 private void persistArchivePassword(ref Database db, long blobId, string password)

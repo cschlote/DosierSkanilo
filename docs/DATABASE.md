@@ -4,6 +4,9 @@ This document describes the persistent SQLite repository backend for
 DosierSkanilo. The database represents the current state of one directory tree.
 It does not contain scan history in its first version.
 
+Current schema version: **3**. Version 2 repositories migrate archive rows to
+stable ordered/path-occurrence identities when opened.
+
 ## Goals
 
 - Keep the current state of one repository root and its descendants.
@@ -58,7 +61,7 @@ repository
   -> file_refs -> blobs
                     -> checksums
                     -> media_signature -> media streams
-                    -> archive_entries
+                    -> archive_indexes -> archive_entries -> member blobs
                     -> torrent_info -> torrent_files
 ```
 
@@ -75,6 +78,13 @@ repository
 - `archive_passwords`: Optional clear-text password associated with a blob, added
   in schema version 2. Repository files and JSON exports containing passwords
   are sensitive data.
+- `archive_indexes`: Indexer identity, completion timestamp and whether member
+  checksums were deeply extracted for a container blob. `deep_scanned`
+  distinguishes a shallow name index from a complete deep pass; a later deep
+  metadata request upgrades a shallow index without forcing a rescan.
+- `archive_entries`: Ordered, duplicate-aware member descriptors. Stable row IDs
+  are reconciled by normalized path and occurrence; deep checksums link a member
+  to an existing or newly created content blob through `content_blob_id`.
 - `schema_migrations`: Applied database schema migrations.
 
 `file_refs` replaces the JSON model's mixed single-file and multi-file
@@ -107,9 +117,11 @@ large polymorphic table:
 - `media_audio_streams`
 - `media_text_streams`
 
-`archive_entries` references the archive blob and stores entry path, size,
-modification timestamp and entry checksums. It is a nested metadata relation;
-entries do not yet reference first-class content blobs.
+`archive_entries` references its container blob and stores entry path, size,
+modification timestamp, checksums, and an optional `content_blob_id` for a
+deep-fingerprinted member. `archive_indexes` records indexer version and
+shallow/deep state. A nested archive is indexed by storing its entries against
+the member's content blob.
 
 `torrent_info` references one blob and stores all currently available torrent
 fields, including the fields that version-3 JSON does not currently output.
@@ -159,7 +171,8 @@ The `.dosierskanilo` SQLite repository is the normal working storage for new
 catalogs. JSON remains the complete structured interchange format and the
 interchange boundary between repository and non-repository workflows:
 
-- Import accepts all currently supported legacy and version-3 forms.
+- Import accepts all currently supported legacy and version-4 forms, including
+  recursively indexed nested archive metadata.
 - Import runs inside one SQLite transaction.
 - Export can select all data or a filtered relationship closure.
 - A filtered export includes the selected file references, their blobs and the

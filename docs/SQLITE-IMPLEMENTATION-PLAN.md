@@ -59,11 +59,11 @@ and transport controls, not user-visible SQL pages. JSON can use an in-memory
 index; SQLite should use stable keyset/cursor queries. Both sources must expose
 the same DTOs, filter semantics, sort order, stable IDs, and logical navigation.
 
-## Current Implementation Snapshot (2026-10-10)
+## Current Implementation Snapshot (2026-10-12)
 
 Implemented in the backend:
 
-- The repository lifecycle, normalized SQLite schema, JSON v0-v3 import/export,
+- The repository lifecycle, normalized SQLite schema, JSON v0-v4 import/export,
   scanner persistence core, SQL-based analysis, and explicit SQLite/JSON CLI
   modes.
 - Typed directory, file, blob-summary, archive-entry, and torrent-file DTOs.
@@ -96,6 +96,10 @@ WP-13.1 freezes the catalog domain model and WP-13.2 declares the storage-neutra
 `CatalogBackend` interface and DTOs in `source/dosierskanilo/catalogbackend.d`.
 WP-13.3 implements the JSON v0-v3 adapter. WP-13.4 adds the SQLite adapter over
 the public `Repository` facade and an explicit default factory for both targets.
+WP-13.5 adds stable archive entry identities, shallow-to-deep upgrades, reusable
+member content blobs, recursive nested scanning/import, and JSON v4 nested
+`ArchiveSpec` trees while preserving v3 payloads. Virtual directory projection
+and selected-member extraction/preview remain in progress.
 
 The backend library tests and GUI tests/build are separate checks. GUI-specific
 status, test commands, and remaining UI integration tests are maintained in
@@ -103,8 +107,8 @@ the GUI plan at `https://gitlab.vahanus.net/dlang/dosierskanilo-gui/blob/main/do
 
 Last verified on this snapshot:
 
-- Backend: `dub test --config=library --compiler=ldc2` — 123 passed;
-  `dub build --config=library --compiler=ldc2` passed.
+- Backend: `dub test --config=library --compiler=ldc2` — 126 passed;
+  library and CLI builds passed.
 - GUI: `dub test --compiler=ldc2` — 61 tests; `dub build
   --compiler=ldc2` passed.
 - CLI: `dub build --config=cli --compiler=ldc2` and
@@ -1354,7 +1358,7 @@ tracked until a deliberate history-cleanup decision is made.
 
 ## WP-13: Storage-Neutral Catalog API and First-Class Archive Content
 
-Status: `[-]` (WP-13.1 through WP-13.4 complete; WP-13.5 is next.)
+Status: `[-]` (WP-13.1 through WP-13.4 complete; WP-13.5 is in progress.)
 
 The product goal is to index one directory tree, enrich its binary content with
 metadata, identify duplicate payloads, and expose filtered logical subsets to
@@ -1365,23 +1369,23 @@ that interface, but generic SQL support is not an initial compatibility promise.
 
 Current implementation facts and limitations:
 
-- `NamedBinaryBlob` is both the JSON v3 serializer record and an in-memory
+- `NamedBinaryBlob` is the JSON v3/v4 serializer record and an in-memory
   content-plus-filesystem-reference object. `FileSpec` stores a physical path
   and observed timestamp.
 - `Repository` is a concrete SQLite class with public typed queries and
   synchronous convenience methods. `JsonCatalogBackend` adapts current JSON
-  v0-v3 deserialization, queries, subset export, and shared operations; the
+  v0-v4 deserialization, queries, subset export, and shared operations; the
   existing JSON CLI still uses the same services through the operation runner.
 - The GUI owns `DirectorySource` and adapts JSON projections plus `Repository`
   DTOs. There is not yet one backend catalog/query superclass.
-- `ArchiveSpec` is nested under the containing `NamedBinaryBlob`; it stores the
-  inner path, size, timestamp, and optional checksums, not a normal blob ID or
-  reference. `torrentInfo.files` is likewise nested metadata.
-- `FileArchive.getEntries()` returns entry names. Deep `updateArchives()` scans
-  each entry by extracting it to a temporary directory and hashing it. It does
-  not persist an entry-list fingerprint or incrementally reconcile stable entry
-  identities. `ArchiveSpec[]` is replaced on a forced rescan; archive entries
-  are not yet queryable/deduplicated as ordinary file content.
+- `ArchiveSpec` is nested under the containing `NamedBinaryBlob`; version 4
+  recursively represents nested entry metadata. Adapter projections supply
+  runtime content/reference IDs, while `torrentInfo.files` remains nested metadata.
+- `FileArchive.getEntries()` returns typed entry descriptors. Deep
+  `updateArchives()` extracts entries to temporary files, fingerprints them, and
+  recursively indexes nested archives. SQLite reconciles stable path/occurrence
+  IDs and links member content blobs; duplicate occurrences unsupported by an
+  extractor are not assigned deep fingerprints.
 
 ### Frozen product invariants
 
@@ -1471,7 +1475,7 @@ are exported, and the fake backend contract test passes.
 
 Status: `[x]`
 
-- [x] Wrap current v0-v3 deserialization, migration, and v3 serialization behind
+- [x] Wrap current v0-v4 deserialization, migration, and v3/v4 serialization behind
   the catalog interface without changing accepted input/output behavior.
 - [x] Build/reuse a JSON source index for directory, reference, blob, filter,
   cursor, detail, and selected-subset queries.
@@ -1528,6 +1532,48 @@ compares root counts/size, filtering, paging in both directions, lazy metadata,
 archive/torrent pages, subset export, missing-reference analysis, and availability.
 
 ### WP-13.5: Promote archive members into searchable content references
+
+#### WP-13.5.1: Stable archive-index foundation
+
+- [x] Add typed archive member descriptors with safe normalized paths, ordered
+  positions, duplicate occurrences, and optional format metadata separate from
+  extraction.
+- [x] Migrate schema version 2 repositories to version 3 while preserving
+  existing archive row IDs and assigning an explicit archive-index version.
+- [x] Reconcile unchanged archive members by normalized path and occurrence so
+  rescans retain their entry IDs; remove stale index rows after successful scans.
+- [x] Track shallow versus deep indexing and upgrade shallow indexes when a
+  later metadata request asks for member checksums.
+- [x] Link deeply fingerprinted members to existing content blobs or create a
+  reusable member content row; retain such rows through archive reachability.
+- [x] Expose member content IDs and checksums through bounded archive-entry
+  pages; JSON and SQLite adapters share normalized names and duplicate identity.
+- [x] Expose bounded member-reference pages with a `ReferenceId` and structured
+  `ArchiveEntryLocator` for the selected container reference.
+- [x] Define JSON v4's recursive nested-entry shape; keep v3 as the default and
+  reject v3 writes that would drop nested entries.
+- [x] Include deep-indexed safe members in ordinary file queries, root summaries
+  and directory visibility when requested; preserve forward/backward keyset pages.
+- [x] Export a selected member subset through its physical container reference
+  and selected `ArchiveSpec` rows, using JSON v4 when nested metadata is needed.
+
+The remaining WP-13.5 work is virtual directory projection inside containers
+and selected-member extraction/preview.
+`CatalogFilter.includeArchiveMembers` currently opts deep-indexed safe entries
+into the regular file sequence; their display paths use `container!/member` while
+their `ContentLocator` remains structural. Subset export retains the selected
+entry rows below the physical container reference in JSON v3 or v4 as required.
+Deep scanning recursively indexes nested archives. Duplicate-name
+entries are listed distinctly; handlers that cannot select a duplicate
+occurrence for extraction do not claim a deep fingerprint for it.
+
+WP-13.5 verification: `dub test --config=library --compiler=ldc2` — 126 passed.
+Coverage checks safe path normalization, duplicate occurrence assignment,
+version-2-to-3 migration, shallow-to-deep upgrade, recursive nested indexing,
+stable row identity after rescan, archive-member content deduplication against a
+filesystem file, bounded member locators, mixed file-query cursor pages, and
+flat/nested subset-export closure across JSON and SQLite adapters, including a
+nested JSON-v4 subset import back into SQLite.
 
 - [ ] Extend the archive adapter API to return bounded typed entry descriptors
   (stable entry identity, normalized name/path, size, timestamp, and optional

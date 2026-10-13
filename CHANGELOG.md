@@ -13,6 +13,23 @@ They represent the functional evolution and are intentionally summarized.
   opaque domain IDs/locators, common bounded query/detail/export DTOs, and typed
   capability errors. Added JSON v0-v3 and SQLite `CatalogBackend` adapters, with
   explicit storage-mode factory routing and filtered subset export.
+- Archive indexes now use normalized member paths plus duplicate occurrence for
+  stable entry IDs across rescans. Schema version 3 migrates existing archive
+  metadata, and deep-fingerprinted members link to reusable content blobs; a
+  shallow index is upgraded when a later scan requests deep checksums.
+- JSON and SQLite archive-entry pages expose normalized paths, occurrence/index
+  values and linked member content IDs when complete checksums are available.
+- Added bounded archive-member reference pages with stable member-reference IDs
+  and structured container/entry locators.
+- Added JSON v4's recursive `nestedEntries` shape and a roundtrip reader/writer;
+  v3 writes now reject nested data instead of silently dropping it. Deep scans
+  recursively extract and index nested archives, exposing structured nested
+  member locators through the JSON and SQLite adapters. SQLite imports now
+  persist nested version-4 archive indexes recursively.
+- Deep-indexed archive members can now be included in JSON/SQLite file queries,
+  directory visibility, root summaries and relationship-closed JSON subset
+  exports (v3 for flat data, v4 when nested metadata is selected); their locators
+  remain container/entry values rather than display paths.
 - Added optional per-Blob archive passwords to JSON catalogs and SQLite
   repositories, with a schema-version-2 migration and filename-based repository
   updates.
