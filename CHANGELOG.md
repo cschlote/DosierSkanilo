@@ -9,9 +9,11 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+## Release 26.11.0 - 2026-10-13
+
 - Added the storage-neutral `CatalogBackend` contract, explicit factory boundary,
   opaque domain IDs/locators, common bounded query/detail/export DTOs, and typed
-  capability errors. Added JSON v0-v3 and SQLite `CatalogBackend` adapters, with
+  capability errors. Added JSON v0-v4 and SQLite `CatalogBackend` adapters, with
   explicit storage-mode factory routing and filtered subset export.
 - Archive indexes now use normalized member paths plus duplicate occurrence for
   stable entry IDs across rescans. Schema version 3 migrates existing archive
@@ -42,8 +44,7 @@ They represent the functional evolution and are intentionally summarized.
 - Repository metadata scans can now be scoped to one repository-relative file,
   enabling consumers to scan a selected archive without rescanning the catalog.
 - Added frontend-neutral scan, metadata, and analysis request, progress,
-  cancellation-control, validation, and result types as the first WP-09 API
-  contract. Existing operations remain synchronous until subsequent WP-09 slices.
+  cancellation-control, validation, and result types as the WP-09 API contract.
 - Extended the shared operation control contract with safe-checkpoint
   pause/resume requests, pause availability, acknowledgement states, and
   cancellation precedence while paused.
