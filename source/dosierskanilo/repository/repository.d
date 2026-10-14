@@ -722,10 +722,10 @@ unittest
     repository.close();
 }
 
-@("repository imports an actual version-2 wrapper and exports migrated version-3 data")
+@("repository imports a version-2 wrapper and exports JSON v5 virtual members")
 unittest
 {
-    import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION3,
+    import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION5,
         deserializeDataClassJsonWrapperFile;
     import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir;
     import std.path : buildPath;
@@ -734,7 +734,7 @@ unittest
     auto fixture = buildPath(tempDir(), "repository-json-v2-roundtrip-"
         ~ randomUUID().toString());
     auto root = buildPath(fixture, "repository");
-    auto exported = buildPath(fixture, "exported-v3.json");
+    auto exported = buildPath(fixture, "exported-v5.json");
     mkdirRecurse(root);
     scope (exit)
     {
@@ -767,19 +767,26 @@ unittest
 
     repository.exportJson(exported);
     auto roundtrip = deserializeDataClassJsonWrapperFile(exported);
-    assert(roundtrip.dataVersion == DATA_CLASS_VERSION3);
-    assert(roundtrip.dataArray.length == 1);
-    assert(roundtrip.dataArray[0].fileSize == blob.fileSize);
-    assert(roundtrip.dataArray[0].getFirstFileName == "v2/sample.rar");
-    assert(roundtrip.dataArray[0].archiveSpecs.length == 1);
-    assert(roundtrip.dataArray[0].archiveSpecs[0].fileName == "payload.bin");
+    assert(roundtrip.dataVersion == DATA_CLASS_VERSION5);
+    assert(roundtrip.dataArray.length == 2);
+    bool foundContainer;
+    bool foundMember;
+    foreach (record; roundtrip.dataArray)
+        foreach (spec; record.fileSpecs)
+        {
+            foundContainer = foundContainer
+                || spec.fileName == "v2/sample.rar";
+            foundMember = foundMember
+                || spec.fileName == "v2/sample.rar!/payload.bin";
+        }
+    assert(foundContainer && foundMember);
 }
 
 @("filtered JSON export preserves selected blob relationship closure")
 unittest
 {
     import std.algorithm.searching : startsWith;
-    import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION3,
+	import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION5,
         deserializeDataClassJsonWrapperFile;
     import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
     import std.path : buildPath;
@@ -821,7 +828,7 @@ unittest
     repository.exportJson(exported, exportOptions);
 
     auto exportedCatalog = deserializeDataClassJsonWrapperFile(exported);
-    assert(exportedCatalog.dataVersion == DATA_CLASS_VERSION3);
+    assert(exportedCatalog.dataVersion == DATA_CLASS_VERSION5);
     assert(exportedCatalog.dataArray.length == 1,
         "only the blob referenced by the selected paths should be exported");
     auto selectedBlob = exportedCatalog.dataArray[0];
@@ -1197,6 +1204,7 @@ unittest
 unittest
 {
     import dosierskanilo.model.namedbinaryblob : deserializeDataClassJsonFile;
+    import std.algorithm.searching : canFind;
     import std.file : copy, exists, mkdirRecurse, remove, rmdirRecurse, tempDir, write;
     import std.path : buildPath;
     import std.process : execute;
@@ -1309,17 +1317,18 @@ unittest
     auto blobs = deserializeDataClassJsonFile(exported);
     bool foundArchive;
     bool foundTorrent;
+    bool foundVirtualMember;
     foreach (blob; blobs)
     {
-        if (blob.archiveSpecs.length > 0)
-        {
+        if (blob.archivePassword == "repository-secret")
             foundArchive = true;
-            assert(blob.archivePassword == "repository-secret");
-        }
+        foreach (spec; blob.fileSpecs)
+            if (spec.fileName.canFind("!/"))
+                foundVirtualMember = true;
         if (blob.torrentInfo !is null)
             foundTorrent = true;
     }
-    assert(foundArchive);
+    assert(foundArchive && foundVirtualMember);
     assert(foundTorrent);
 }
 

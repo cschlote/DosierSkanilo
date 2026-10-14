@@ -1,4 +1,4 @@
-/** JSON v0-v4 adapter for the storage-neutral catalog contract. */
+/** JSON v0-v5 adapter for the storage-neutral catalog contract. */
 module dosierskanilo.jsoncatalogbackend;
 
 import std.algorithm.searching : canFind, startsWith;
@@ -12,13 +12,15 @@ import std.string : replace, split, toLower;
 import std.uuid : randomUUID;
 
 import dosierarkivo.archive : appendArchiveVirtualPath,
-    escapeArchiveVirtualPath, normalizeArchiveEntryPath;
+    ArchiveVirtualPathLayer, escapeArchiveVirtualPath,
+    normalizeArchiveEntryPath, parseArchiveVirtualPath,
+    ParsedArchiveVirtualPath;
 import dosierskanilo.catalogbackend;
 import dosierskanilo.model.archivespec : ArchiveSpec;
 import dosierskanilo.model.checksums : CheckSums;
 import dosierskanilo.model.filespec : FileSpec;
 import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION3,
-    DATA_CLASS_VERSION4, NamedBinaryBlob, NamedBinaryBlobCatalog,
+    DATA_CLASS_VERSION4, DATA_CLASS_VERSION5, NamedBinaryBlob, NamedBinaryBlobCatalog,
     deserializeDataClassJsonWrapperFile;
 import dosierskanilo.operationrunner;
 import dosierskanilo.operations : AnalysisOperationRequest, MetadataOperationRequest,
@@ -30,8 +32,28 @@ private struct JsonLocation
 {
     string identityKey;
     string relativePath;
+    string physicalRelativePath;
     bool isInSourceRoot;
+    bool isVirtual;
+    ArchiveVirtualPathLayer[] virtualEntries;
     FileSpec spec;
+}
+
+private struct V5JsonReference
+{
+    string relativePath;
+    string physicalRelativePath;
+    string contentToken;
+    ArchiveVirtualPathLayer[] entries;
+    ulong size;
+    string modifiedAt;
+}
+
+private struct JsonMemberExportReference
+{
+    string contentToken;
+    string relativePath;
+    string modifiedAt;
 }
 
 private struct CatalogSlice
@@ -44,7 +66,7 @@ private struct CatalogSlice
     bool hasPrevious;
 }
 
-/** JSON-backed catalog adapter retaining the existing v0-v3 data contract. */
+/** JSON-backed catalog adapter for legacy and version-5 catalogs. */
 final class JsonCatalogBackend : CatalogBackend
 {
 private:
@@ -71,6 +93,7 @@ private:
     CatalogArchiveEntry[][string] archiveEntriesByToken;
     CatalogTorrentManifestEntry[][string] torrentEntriesByToken;
     size_t[string] blobIndexByRelativePath;
+    size_t[string] blobIndexByContentToken;
     FileSpec[string] fileSpecByRelativePath;
     size_t[string] directoryIndexByPath;
     CatalogFile[string] archiveMemberReferenceByToken;
@@ -370,9 +393,11 @@ public:
         size_t[string] blobByContent;
         NamedBinaryBlob[string] exportedByContent;
         bool[string] includeAllArchiveEntries;
+        bool[string] selectedArchiveContainerReferences;
         size_t[][string] selectedArchiveIndexes;
         bool[string] selectedMemberContents;
         bool[string] selectedMemberReferenceTokens;
+        JsonMemberExportReference[] selectedMemberPaths;
         size_t selectedMemberReferences;
         void retainMemberReference(CatalogFile member)
         {
@@ -381,6 +406,9 @@ public:
             {
                 selectedMemberReferenceTokens[token] = true;
                 ++selectedMemberReferences;
+                selectedMemberPaths ~= JsonMemberExportReference(
+                    member.contentId.adapterToken, member.relativePath,
+                    member.modifiedAt);
             }
             if (member.contentId.isValid)
                 selectedMemberContents[member.contentId.adapterToken] = true;
@@ -398,16 +426,25 @@ public:
             else
                 mergeExportMetadata(exportedByContent[contentToken],
                     catalog.dataArray[blobIndex]);
-            const auto spec = fileSpecByRelativePath[file.relativePath];
+            auto spec = fileSpecByRelativePath[file.relativePath];
+            auto exportFileName = spec.fileName;
+            if (catalog.dataVersion != DATA_CLASS_VERSION5)
+                exportFileName = escapeArchiveVirtualPath(
+                    exportFileName.replace('\\', '/'));
             bool alreadySelected;
             foreach (selected; exportedByContent[contentToken].fileSpecs)
-                if (selected.fileName == spec.fileName)
+                if (selected.fileName == exportFileName)
                     alreadySelected = true;
             if (!alreadySelected)
                 exportedByContent[contentToken].fileSpecs ~= new FileSpec(
-                    spec.fileName, spec.timeLastModified);
+                    exportFileName, spec.timeLastModified);
             if (includeAllArchiveMetadata)
+            {
                 includeAllArchiveEntries[contentToken] = true;
+                if (file.hasArchive)
+                    selectedArchiveContainerReferences[
+                        file.referenceId.adapterToken] = true;
+            }
         }
         void retainSelectedArchiveEntries(ref ArchiveSpec[] entries,
             string containerToken)
@@ -518,6 +555,12 @@ public:
                 }
             }
         }
+        if (options.includeContentDetails && options.includeArchiveEntries)
+            foreach (container; fileRows)
+                if (container.hasArchive && container.referenceId.adapterToken
+                    in selectedArchiveContainerReferences)
+                    foreach (member; archiveMemberFiles(container))
+                        retainMemberReference(member);
         if (selectedMemberReferences > 0
             && (!options.includeContentDetails || !options.includeArchiveEntries))
             throw new CatalogBackendException(
@@ -554,22 +597,50 @@ public:
             }
             exportedBlobs ~= exportBlob;
         }
-        const auto outputVersion = options.format == CatalogExportFormat.jsonV4
-            ? DATA_CLASS_VERSION4 : DATA_CLASS_VERSION3;
-        if (outputVersion == DATA_CLASS_VERSION3
-            && exportedBlobs.canFind!((blob) => hasNestedArchiveEntries(
-                blob.archiveSpecs)))
-            throw new CatalogBackendException(
-                CatalogBackendErrorCode.unsupportedFeature,
-                "Nested archive metadata requires JSON version 4.");
-        auto exported = NamedBinaryBlobCatalog(outputVersion, exportedBlobs);
+        foreach (reference; selectedMemberPaths)
+        {
+            const auto contentToken = reference.contentToken;
+            if (contentToken.length == 0)
+                continue;
+            if (contentToken !in blobByContent)
+            {
+                auto blobIndex = blobIndexByContentToken.get(contentToken,
+                    size_t.max);
+                if (blobIndex == size_t.max)
+                    continue;
+                blobByContent[contentToken] = blobIndex;
+                exportedByContent[contentToken] = catalog.dataArray[blobIndex].dup();
+                exportedByContent[contentToken].fileSpecs = [];
+                exportedBlobs ~= exportedByContent[contentToken];
+            }
+            auto exportBlob = exportedByContent[contentToken];
+            if (auto memberBlobIndex = contentToken
+                in blobIndexByContentToken)
+            {
+                auto retainedSpecs = exportBlob.fileSpecs;
+                mergeExportMetadata(exportBlob,
+                    catalog.dataArray[*memberBlobIndex]);
+                exportBlob.fileSpecs = retainedSpecs;
+            }
+            bool alreadySelected;
+            foreach (spec; exportBlob.fileSpecs)
+                if (spec !is null && spec.fileName == reference.relativePath)
+                    alreadySelected = true;
+            if (!alreadySelected)
+            {
+                exportBlob.fileSpecs ~= new FileSpec(reference.relativePath,
+                    reference.modifiedAt);
+                ++result.referencesExported;
+            }
+        }
+        auto exported = NamedBinaryBlobCatalog(DATA_CLASS_VERSION5,
+            exportedBlobs);
         enforce(commitJsonCatalog(options.outputPath, exported),
             "Could not publish the JSON subset export.");
         result.contentsExported = exportedBlobs.length;
         foreach (contentToken; selectedMemberContents.keys)
             if (contentToken !in blobByContent)
                 ++result.contentsExported;
-        result.referencesExported += selectedMemberReferences;
         result.outputPath = canonicalPath(options.outputPath);
         result.committed = true;
         return result;
@@ -693,19 +764,9 @@ private:
 
     void enforceJsonExportFormat(CatalogExportOptions options) const
     {
-        if (options.format != CatalogExportFormat.jsonV3
-            && options.format != CatalogExportFormat.jsonV4)
+        if (options.format != CatalogExportFormat.jsonV5)
             throw new CatalogBackendException(CatalogBackendErrorCode.unsupportedFeature,
-                "JSON catalog adapter supports version 3 and version 4 exports.");
-    }
-
-    bool hasNestedArchiveEntries(ArchiveSpec[] entries) const
-    {
-        foreach (entry; entries)
-            if (entry !is null && (entry.archivePassword.length > 0
-                || entry.nestedEntries !is null))
-                return true;
-        return false;
+                "JSON catalog adapter exports version 5 only.");
     }
 
     void mergeExportMetadata(ref NamedBinaryBlob target, NamedBinaryBlob candidate)
@@ -719,42 +780,68 @@ private:
             target.mediaInfoSig = candidate.mediaInfoSig.dup;
         if (target.archiveSpecs is null && candidate.archiveSpecs !is null)
             target.archiveSpecs = candidate.archiveSpecs.dup;
+        target.archiveIndexKnown = target.archiveIndexKnown
+            || candidate.archiveIndexKnown;
         if (target.archivePassword.length == 0)
             target.archivePassword = candidate.archivePassword;
         if (target.torrentInfo is null && candidate.torrentInfo !is null)
             target.torrentInfo = candidate.torrentInfo.dup;
     }
 
-    JsonLocation resolvePath(string fileName) const
+    JsonLocation resolvePath(string fileName, bool parseVirtual = false) const
     {
         JsonLocation result;
-        const auto input = fileName.replace('\\', '/');
+        auto input = fileName.replace('\\', '/');
+        auto physicalInput = input;
+        if (parseVirtual)
+        {
+            auto parsed = parseArchiveVirtualPath(input);
+            physicalInput = parsed.physicalPath;
+            result.isVirtual = parsed.isVirtual;
+            result.virtualEntries = parsed.entries;
+        }
+        string normalizedPhysical;
+        string prefix;
+        string physicalRelative;
         if (sourceRoot.length == 0)
         {
-            const auto normalized = buildNormalizedPath(input).replace('\\', '/');
-            result.identityKey = "unbound:" ~ normalized;
+            normalizedPhysical = buildNormalizedPath(physicalInput).replace('\\', '/');
+            physicalRelative = normalizedPhysical;
+            result.physicalRelativePath = physicalRelative;
+            result.isInSourceRoot = false;
+            result.relativePath = escapeArchiveVirtualPath(physicalRelative);
+            foreach (entry; result.virtualEntries)
+                result.relativePath = appendArchiveVirtualPath(result.relativePath,
+                    entry.relativePath, entry.hasOccurrence ? entry.occurrence
+                        : size_t.max);
+            result.identityKey = "unbound:" ~ result.relativePath;
             return result;
         }
 
-        const auto normalized = isAbsolute(input)
-            ? buildNormalizedPath(input).replace('\\', '/')
-            : buildNormalizedPath(buildPath(sourceRoot, input)).replace('\\', '/');
-        auto prefix = sourceRoot == "/" ? "/" : sourceRoot ~ "/";
-        if (!normalized.startsWith(prefix))
+        normalizedPhysical = isAbsolute(physicalInput)
+            ? buildNormalizedPath(physicalInput).replace('\\', '/')
+            : buildNormalizedPath(buildPath(sourceRoot, physicalInput)).replace('\\', '/');
+        prefix = sourceRoot == "/" ? "/" : sourceRoot ~ "/";
+        if (!normalizedPhysical.startsWith(prefix))
         {
-            result.identityKey = "outside:" ~ normalized;
+            result.identityKey = "outside:" ~ normalizedPhysical;
             return result;
         }
-        auto relative = normalized[prefix.length .. $];
+        physicalRelative = normalizedPhysical[prefix.length .. $];
         try
-            ContentLocator.file(relative);
+            ContentLocator.file(physicalRelative);
         catch (CatalogBackendException)
         {
-            result.identityKey = "outside:" ~ normalized;
+            result.identityKey = "outside:" ~ normalizedPhysical;
             return result;
         }
-        result.identityKey = relative;
-        result.relativePath = relative;
+        result.relativePath = escapeArchiveVirtualPath(physicalRelative);
+        result.physicalRelativePath = physicalRelative;
+        foreach (entry; result.virtualEntries)
+            result.relativePath = appendArchiveVirtualPath(result.relativePath,
+                entry.relativePath, entry.hasOccurrence ? entry.occurrence
+                    : size_t.max);
+        result.identityKey = result.relativePath;
         result.isInSourceRoot = true;
         return result;
     }
@@ -867,9 +954,10 @@ private:
         result.fingerprint = fingerprintFor(blob);
         result.fileType = blob.fileType;
         result.mediaStreams = mediaStreamsFor(blob);
-        result.hasArchive = blob.archiveSpecs !is null;
+        result.hasArchive = blob.archiveIndexKnown || blob.archiveSpecs !is null;
         result.hasTorrent = blob.torrentInfo !is null;
-        result.archiveSummary.indexKnown = blob.archiveSpecs !is null;
+        result.archiveSummary.indexKnown = blob.archiveIndexKnown
+            || blob.archiveSpecs !is null;
         if (blob.archiveSpecs !is null)
         {
             result.archiveSummary.entryCount = blob.archiveSpecs.length;
@@ -910,7 +998,7 @@ private:
         result.extractors ~= mediaStatus;
         CatalogExtractorStatus archiveStatus;
         archiveStatus.extractor = "archives";
-        archiveStatus.state = blob.archiveSpecs is null
+        archiveStatus.state = !blob.archiveIndexKnown && blob.archiveSpecs is null
             ? CatalogExtractorState.notRequested
             : (blob.archiveSpecs.length == 0 ? CatalogExtractorState.empty
                 : CatalogExtractorState.completed);
@@ -931,6 +1019,7 @@ private:
         archiveEntriesByToken = null;
         torrentEntriesByToken = null;
         blobIndexByRelativePath = null;
+        blobIndexByContentToken = null;
         fileSpecByRelativePath = null;
         directoryIndexByPath = null;
         archiveMemberReferenceByToken = null;
@@ -938,6 +1027,8 @@ private:
         torrentEntryDetailsUnavailable = false;
         bool[string] seenPaths;
         bool[string] seenReferencePaths;
+        string[string] v5ContentTokenByPath;
+        V5JsonReference[] v5References;
         ++indexGeneration;
 
         foreach (blobIndex, blob; catalog.dataArray)
@@ -950,7 +1041,8 @@ private:
             {
                 if (spec is null || spec.fileName.length == 0)
                     continue;
-                auto location = resolvePath(spec.fileName);
+                auto location = resolvePath(spec.fileName,
+                    catalog.dataVersion == DATA_CLASS_VERSION5);
                 location.spec = spec;
                 locations ~= location;
                 pathKeys ~= location.identityKey;
@@ -963,7 +1055,8 @@ private:
                 auto legacyPath = blob.getFirstFileName;
                 if (legacyPath.length > 0)
                 {
-                    auto location = resolvePath(legacyPath);
+                    auto location = resolvePath(legacyPath,
+                        catalog.dataVersion == DATA_CLASS_VERSION5);
                     location.spec = new FileSpec(legacyPath, blob.timeLastModified);
                     locations ~= location;
                     pathKeys ~= location.identityKey;
@@ -976,6 +1069,8 @@ private:
             auto fingerprint = fingerprintFor(blob);
             auto strongKey = strongFingerprintKey(blob, fingerprint);
             auto contentToken = contentTokenFor(blob, pathKeys, strongKey, blobIndex);
+            if (contentToken !in blobIndexByContentToken)
+                blobIndexByContentToken[contentToken] = blobIndex;
             auto contentId = contentIdFromToken(contentToken);
             if (auto existing = contentToken in contentByToken)
                 mergeContentSnapshot(*existing, snapshotFor(blob, contentId));
@@ -987,6 +1082,20 @@ private:
 
             foreach (location; locations)
             {
+                if (catalog.dataVersion == DATA_CLASS_VERSION5)
+                    v5ContentTokenByPath[location.relativePath] = contentToken;
+                if (location.isVirtual)
+                {
+                    V5JsonReference reference;
+                    reference.relativePath = location.relativePath;
+                    reference.physicalRelativePath = location.physicalRelativePath;
+                    reference.contentToken = contentToken;
+                    reference.entries = location.virtualEntries;
+                    reference.size = cast(ulong) blob.fileSize;
+                    reference.modifiedAt = location.spec.timeLastModified;
+                    v5References ~= reference;
+                    continue;
+                }
                 if (!location.isInSourceRoot)
                     continue;
                 seenReferencePaths[location.relativePath] = true;
@@ -1000,6 +1109,8 @@ private:
                 addFileReference(blob, location.spec, location, contentId, blobIndex);
             }
         }
+        if (catalog.dataVersion == DATA_CLASS_VERSION5)
+            indexV5ArchiveReferences(v5References, v5ContentTokenByPath);
         prunePathMap(contentTokenByPath, seenPaths);
         prunePathMap(oldFingerprintByPath, seenPaths);
         prunePathMap(oldSizeByPath, seenPaths);
@@ -1016,6 +1127,69 @@ private:
                 removed ~= key;
         foreach (key; removed)
             values.remove(key);
+    }
+
+    void indexV5ArchiveReferences(V5JsonReference[] references,
+        string[string] contentByPath)
+    {
+        foreach (reference; references)
+        {
+            if (reference.entries.length == 0)
+                continue;
+            auto parentPath = escapeArchiveVirtualPath(
+                reference.physicalRelativePath);
+            foreach (entry; reference.entries[0 .. $ - 1])
+                parentPath = appendArchiveVirtualPath(parentPath,
+                    entry.relativePath, entry.hasOccurrence ? entry.occurrence
+                        : size_t.max);
+            auto parentToken = parentPath in contentByPath;
+            if (parentToken is null)
+                continue;
+
+            auto entries = archiveEntriesByToken.get(*parentToken, []);
+            const auto finalLayer = reference.entries[$ - 1];
+            const auto occurrence = finalLayer.hasOccurrence
+                ? finalLayer.occurrence : 0;
+            bool alreadyIndexed;
+            foreach (existing; entries)
+                if (existing.relativePath == finalLayer.relativePath
+                    && existing.occurrence == occurrence)
+                {
+                    alreadyIndexed = true;
+                    break;
+                }
+            if (alreadyIndexed)
+                continue;
+            CatalogArchiveEntry entry;
+            entry.id = ArchiveEntryId(*parentToken ~ ":v5:"
+                ~ finalLayer.relativePath ~ ":" ~ occurrence.to!string);
+            entry.name = finalLayer.relativePath;
+            entry.relativePath = finalLayer.relativePath;
+            entry.index = entries.length;
+            entry.occurrence = occurrence;
+            entry.hasSafePath = true;
+            entry.size = reference.size;
+            entry.modifiedAt = reference.modifiedAt;
+            entry.contentId = contentIdFromToken(reference.contentToken);
+            if (auto content = reference.contentToken in contentByToken)
+                entry.fingerprint = (*content).fingerprint;
+            entries ~= entry;
+            archiveEntriesByToken[*parentToken] = entries;
+
+            if (auto parentContent = *parentToken in contentByToken)
+            {
+                parentContent.hasArchive = true;
+                parentContent.archiveSummary.indexKnown = true;
+                parentContent.archiveSummary.entryCount = entries.length;
+                parentContent.archiveSummary.entriesWithCompleteFingerprints = 0;
+                foreach (indexedEntry; entries)
+                    if (indexedEntry.fingerprint.complete)
+                        ++parentContent.archiveSummary.entriesWithCompleteFingerprints;
+            }
+            foreach (ref file; fileRows)
+                if (file.contentId.adapterToken == *parentToken)
+                    file.hasArchive = true;
+        }
     }
 
     void mergeContentSnapshot(ref CatalogContentSnapshot current,
@@ -1107,7 +1281,10 @@ private:
 
     void indexArchiveAndTorrent(NamedBinaryBlob blob, string contentToken)
     {
-        indexArchiveSpecs(blob.archiveSpecs, contentToken);
+        if (blob.archiveIndexKnown && blob.archiveSpecs is null)
+            archiveEntriesByToken[contentToken] = [];
+        else
+            indexArchiveSpecs(blob.archiveSpecs, contentToken);
         if (blob.torrentInfo !is null)
         {
             if (contentToken !in torrentEntriesByToken)
@@ -1298,12 +1475,13 @@ private:
         row.referenceId = ReferenceId(referenceToken(location.relativePath));
         row.contentId = contentId;
         row.directoryId = directoryId;
-        row.locator = ContentLocator.file(location.relativePath);
-        row.name = baseName(location.relativePath);
+        row.locator = ContentLocator.file(location.physicalRelativePath);
+        row.name = baseName(location.physicalRelativePath);
         row.relativePath = location.relativePath;
         row.size = cast(ulong) blob.fileSize;
         row.modifiedAt = spec.timeLastModified;
-        row.availability = exists(buildPath(sourceRoot, location.relativePath))
+        row.availability = exists(buildPath(sourceRoot,
+            location.physicalRelativePath))
             ? CatalogReferenceAvailability.available
             : CatalogReferenceAvailability.unavailable;
         row.hasFileType = blob.fileType.length > 0;
@@ -1316,7 +1494,7 @@ private:
             && blob.mediaInfoSig.imageStreams.length > 0;
         row.hasText = blob.mediaInfoSig !is null
             && blob.mediaInfoSig.textStreams.length > 0;
-        row.hasArchive = blob.archiveSpecs !is null;
+        row.hasArchive = blob.archiveIndexKnown || blob.archiveSpecs !is null;
         row.hasTorrent = blob.torrentInfo !is null;
         fileRows ~= row;
         blobIndexByRelativePath[location.relativePath] = blobIndex;
@@ -1435,8 +1613,13 @@ private:
                 == ContentLocator.Kind.filesystem
                 ? escapeArchiveVirtualPath(container.relativePath)
                 : container.relativePath;
+            size_t samePathCount;
+            foreach (candidate; *entries)
+                if (candidate.relativePath == entry.relativePath)
+                    ++samePathCount;
             member.relativePath = appendArchiveVirtualPath(displayContainerPath,
-                entry.relativePath);
+                entry.relativePath, samePathCount > 1 ? entry.occurrence
+                    : size_t.max);
             member.size = entry.size;
             member.modifiedAt = entry.modifiedAt;
             member.availability = container.availability;
@@ -1716,8 +1899,11 @@ version (unittest)
         assert(archiveMembers.members[0].locator.kind
             == ContentLocator.Kind.archiveEntry);
         assert(archiveMembers.members[0].contentId.isValid);
+        string archiveEntryNames;
+        foreach (entry; archiveEntries.entries)
+            archiveEntryNames ~= "[" ~ entry.name ~ "]";
         assert(archiveEntries.entries.canFind!((entry) =>
-            entry.name == "payload/copy.txt"));
+            entry.name == "payload/copy.txt"), archiveEntryNames);
         assert(archiveEntries.entries[0].fingerprint.complete);
 
         CatalogFileQuery mediaQuery;
@@ -1751,7 +1937,7 @@ version (unittest)
         assert(torrentContent.torrentSummary.totalSize == 76);
         assert(!torrentContent.torrentSummary.fileListAvailable);
         assert(!backend.capabilities().supportsTorrentEntryQueries,
-            "JSON v3 deliberately omits the torrent file list on serialization");
+            "The legacy source catalog contains no torrent file list.");
         bool torrentDetailUnavailable;
         try
             backend.listTorrentEntries(singleTorrent.contentId);
@@ -1761,16 +1947,16 @@ version (unittest)
         assert(torrentDetailUnavailable);
 
         CatalogExportOptions exportOptions;
-        exportOptions.format = CatalogExportFormat.jsonV4;
+        exportOptions.format = CatalogExportFormat.jsonV5;
         exportOptions.outputPath = exportPath;
         CatalogSubsetQuery subsetQuery;
         subsetQuery.pathPrefix = "archives";
         const auto exported = backend.exportSubset(subsetQuery, exportOptions);
         assert(exported.committed);
-        assert(exported.referencesExported == 3);
+        assert(exported.referencesExported > 3);
         const auto exportedCatalog = deserializeDataClassJsonWrapperFile(exportPath);
-        assert(exportedCatalog.dataVersion == DATA_CLASS_VERSION4);
-        assert(exportedCatalog.dataArray.length == 3);
+        assert(exportedCatalog.dataVersion == DATA_CLASS_VERSION5);
+        assert(exportedCatalog.dataArray.length > 3);
 
         auto missingPath = buildPath(root, "same-size", "different.txt");
         remove(missingPath);

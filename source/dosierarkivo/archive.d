@@ -81,7 +81,7 @@ struct ArchiveEntryDescriptor
 }
 
 /** Normalize a member name without permitting absolute or traversal paths. */
-string normalizeArchiveEntryPath(string name, out bool safe, out bool isDirectory)
+string normalizeArchiveEntryPath(string name, out bool safe, out bool isDirectory) @safe
 {
     import std.string : replace, split;
 
@@ -109,7 +109,7 @@ string normalizeArchiveEntryPath(string name, out bool safe, out bool isDirector
 }
 
 /** Escape literal exclamation marks in a path used in archive display paths. */
-string escapeArchiveVirtualPath(string path)
+string escapeArchiveVirtualPath(string path) @safe
 {
     import std.string : replace;
 
@@ -122,7 +122,7 @@ string escapeArchiveVirtualPath(string path)
  * are zero based and omitted when the path is unambiguous.
  */
 string appendArchiveVirtualPath(string containerPath, string entryPath,
-    size_t occurrence = size_t.max)
+    size_t occurrence = size_t.max) @safe
 {
     import std.conv : to;
 
@@ -146,7 +146,7 @@ struct ParsedArchiveVirtualPath
     string physicalPath;
     ArchiveVirtualPathLayer[] entries;
 
-    @property bool isVirtual() const
+    @property bool isVirtual() const @safe
     {
         return entries.length > 0;
     }
@@ -158,7 +158,7 @@ struct ParsedArchiveVirtualPath
  * Throws: Exception when a literal marker is not escaped or an occurrence
  * suffix is malformed.
  */
-ParsedArchiveVirtualPath parseArchiveVirtualPath(string path)
+ParsedArchiveVirtualPath parseArchiveVirtualPath(string path) @safe
 {
     import std.conv : to;
 

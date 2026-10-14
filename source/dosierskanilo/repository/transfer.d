@@ -11,8 +11,9 @@ import std.path : baseName, buildNormalizedPath, dirName, isAbsolute;
 import std.string : empty, replace, split;
 import std.typecons : Nullable;
 
-import dosierarkivo.archive : archiveIndexVersion,
-    normalizeArchiveEntryPath;
+import dosierarkivo.archive : appendArchiveVirtualPath, archiveIndexVersion,
+    ArchiveVirtualPathLayer, escapeArchiveVirtualPath,
+    normalizeArchiveEntryPath, parseArchiveVirtualPath;
 import dosierskanilo.metadata.mediainfosig;
 import dosierskanilo.metadata.torrentinfo;
 import dosierskanilo.model.namedbinaryblob;
@@ -21,6 +22,126 @@ import dosierskanilo.repository.archiveindex : deleteUnreachableBlobs,
 import dosierskanilo.repository.errors;
 import dosierskanilo.repository.types;
 
+private struct V5ArchiveTransferReference
+{
+    string physicalRelativePath;
+    string canonicalPath;
+    ArchiveVirtualPathLayer[] entries;
+    NamedBinaryBlob blob;
+    FileSpec spec;
+}
+
+private NamedBinaryBlob[] restoreLegacyArchiveIndexes(string rootPath,
+    NamedBinaryBlob[] blobs)
+{
+    NamedBinaryBlob[] physicalBlobs;
+    NamedBinaryBlob[string] rootBlobByPath;
+    NamedBinaryBlob[string] blobByVirtualPath;
+    V5ArchiveTransferReference[] virtualReferences;
+
+    string canonicalVirtualPath(string physicalRelativePath,
+        const(ArchiveVirtualPathLayer[]) entries)
+    {
+        auto result = escapeArchiveVirtualPath(physicalRelativePath);
+        foreach (entry; entries)
+            result = appendArchiveVirtualPath(result, entry.relativePath,
+                entry.hasOccurrence ? entry.occurrence : size_t.max);
+        return result;
+    }
+
+    foreach (blob; blobs)
+    {
+        if (blob is null)
+            continue;
+        FileSpec[] physicalSpecs;
+        foreach (spec; blob.fileSpecs)
+        {
+            if (spec is null || spec.fileName.empty)
+                continue;
+            const auto parsed = parseArchiveVirtualPath(spec.fileName);
+            const auto relativePhysicalPath = repositoryRelativePath(rootPath,
+                parsed.physicalPath);
+            if (parsed.isVirtual)
+            {
+                auto reference = V5ArchiveTransferReference(
+                    relativePhysicalPath,
+                    canonicalVirtualPath(relativePhysicalPath, parsed.entries),
+                    parsed.entries.dup, blob, spec);
+                virtualReferences ~= reference;
+                blobByVirtualPath[reference.canonicalPath] = blob;
+            }
+            else
+            {
+                spec.fileName = relativePhysicalPath;
+                physicalSpecs ~= spec;
+                rootBlobByPath[relativePhysicalPath] = blob;
+            }
+        }
+        blob.fileSpecs = physicalSpecs;
+        if (physicalSpecs.length > 0)
+            physicalBlobs ~= blob;
+    }
+
+    void appendLayers(ref ArchiveSpec[] nodes,
+        V5ArchiveTransferReference reference, string parentPath,
+        size_t layerIndex)
+    {
+        enforce(layerIndex < reference.entries.length,
+            "Invalid virtual archive path while importing JSON v5.");
+        const auto layer = reference.entries[layerIndex];
+        const auto canonicalPath = appendArchiveVirtualPath(parentPath,
+            layer.relativePath, layer.hasOccurrence ? layer.occurrence
+                : size_t.max);
+        auto source = blobByVirtualPath.get(canonicalPath, null);
+        enforce(source !is null,
+            "JSON v5 archive path is missing an intermediate content record: "
+            ~ canonicalPath);
+
+        const auto occurrence = layer.hasOccurrence ? layer.occurrence : 0;
+        ArchiveSpec member;
+        foreach (candidate; nodes)
+            if (candidate !is null && candidate.fileName == layer.relativePath
+                && candidate.occurrence == occurrence)
+            {
+                member = candidate;
+                break;
+            }
+        if (member is null)
+        {
+            member = new ArchiveSpec(layer.relativePath, source.fileSize,
+                source.getFirstFileModDate, source.checkSums);
+            member.entryIndex = nodes.length;
+            member.occurrence = occurrence;
+            member.hasIndexIdentity = true;
+            member.archivePassword = source.archivePassword;
+            if (source.archiveIndexKnown || source.archiveSpecs !is null)
+                member.nestedEntries = [];
+            nodes ~= member;
+        }
+        if (layerIndex + 1 < reference.entries.length)
+        {
+            if (member.nestedEntries is null)
+                member.nestedEntries = [];
+            appendLayers(member.nestedEntries, reference, canonicalPath,
+                layerIndex + 1);
+        }
+    }
+
+    foreach (reference; virtualReferences)
+    {
+        auto rootBlob = rootBlobByPath.get(reference.physicalRelativePath, null);
+        enforce(rootBlob !is null,
+            "JSON v5 archive member has no physical container reference: "
+            ~ reference.canonicalPath);
+        rootBlob.archiveIndexKnown = true;
+        if (rootBlob.archiveSpecs is null)
+            rootBlob.archiveSpecs = [];
+        appendLayers(rootBlob.archiveSpecs, reference,
+            escapeArchiveVirtualPath(reference.physicalRelativePath), 0);
+    }
+    return physicalBlobs;
+}
+
 /** Import a JSON catalog into an open repository database. */
 void importCatalogJson(ref Database db, string rootPath, string jsonFile,
     JsonImportOptions options)
@@ -28,6 +149,9 @@ void importCatalogJson(ref Database db, string rootPath, string jsonFile,
     auto catalog = deserializeDataClassJsonWrapperFile(jsonFile);
     if (!options.replaceExisting)
         throw new RepositoryException("Appending JSON data is not implemented yet.");
+    if (catalog.dataVersion == DATA_CLASS_VERSION5)
+        catalog.dataArray = restoreLegacyArchiveIndexes(rootPath,
+            catalog.dataArray);
 
     try
     {
@@ -61,27 +185,8 @@ void exportCatalogJson(ref Database db, string rootPath, string jsonFile,
     JsonExportOptions options)
 {
     auto blobs = loadCatalogFromDatabase(db, rootPath, options);
-    const auto exportVersion = containsNestedArchiveMetadata(blobs)
-        ? DATA_CLASS_VERSION4 : DATA_CLASS_VERSION3;
-    auto wrapper = NamedBinaryBlobCatalog(exportVersion, blobs);
+    auto wrapper = NamedBinaryBlobCatalog(DATA_CLASS_VERSION3, blobs);
     serializeDataClassWrapperFile(jsonFile, wrapper);
-}
-
-private bool containsNestedArchiveMetadata(NamedBinaryBlob[] blobs)
-{
-    foreach (blob; blobs)
-        if (blob !is null && containsNestedArchiveSpecs(blob.archiveSpecs))
-            return true;
-    return false;
-}
-
-private bool containsNestedArchiveSpecs(ArchiveSpec[] entries)
-{
-    foreach (entry; entries)
-        if (entry !is null && (entry.archivePassword.length > 0
-            || entry.nestedEntries !is null))
-            return true;
-    return false;
 }
 
 /** Load repository data into the existing domain model for library consumers. */
@@ -816,10 +921,11 @@ private void insertBlob(ref Database db, string rootPath, NamedBinaryBlob blob)
     }
 
     insertMediaInfo(db, id, blob.mediaInfoSig);
-    if (blob.archiveSpecs !is null)
+    if (blob.archiveSpecs !is null || blob.archiveIndexKnown)
     {
         long[long] activeContainers;
-        insertArchiveSpecs(db, id, blob.archiveSpecs, activeContainers);
+        insertArchiveSpecs(db, id, blob.archiveSpecs is null ? []
+            : blob.archiveSpecs, activeContainers);
     }
     insertTorrentInfo(db, id, blob.torrentInfo);
 }

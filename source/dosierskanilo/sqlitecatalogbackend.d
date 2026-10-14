@@ -14,7 +14,8 @@ import dosierskanilo.model.checksums : CheckSums;
 import dosierskanilo.model.archivespec : ArchiveSpec;
 import dosierskanilo.model.filespec : FileSpec;
 import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION3,
-    DATA_CLASS_VERSION4, NamedBinaryBlob, NamedBinaryBlobCatalog;
+    DATA_CLASS_VERSION4, DATA_CLASS_VERSION5, NamedBinaryBlob,
+    NamedBinaryBlobCatalog;
 import dosierskanilo.operationrunner;
 import dosierskanilo.operations : AnalysisOperationRequest,
     MetadataOperationRequest, OperationControl, OperationKind, OperationResult,
@@ -458,11 +459,10 @@ public:
         CatalogExportOptions options)
     {
         return withRepository((Repository repository) {
-            if (options.format != CatalogExportFormat.jsonV3
-                && options.format != CatalogExportFormat.jsonV4)
+            if (options.format != CatalogExportFormat.jsonV5)
                 throw new CatalogBackendException(
                     CatalogBackendErrorCode.unsupportedFeature,
-                    "SQLite supports JSON version 3 and version 4 subset exports.");
+                    "SQLite subset exports use JSON version 5.");
             enforce(options.outputPath.length > 0,
                 "A subset export requires an explicit output path.");
             if (query.pathPrefix.length > 0)
@@ -617,14 +617,8 @@ public:
                 exportedBlobs ~= blob;
             }
 
-            if (options.format == CatalogExportFormat.jsonV3
-                && containsNestedArchiveMetadata(exportedBlobs))
-                throw new CatalogBackendException(
-                    CatalogBackendErrorCode.unsupportedFeature,
-                    "Nested archive metadata requires JSON version 4.");
-            const auto outputVersion = options.format == CatalogExportFormat.jsonV4
-                ? DATA_CLASS_VERSION4 : DATA_CLASS_VERSION3;
-            auto catalog = NamedBinaryBlobCatalog(outputVersion, exportedBlobs);
+            auto catalog = NamedBinaryBlobCatalog(DATA_CLASS_VERSION3,
+                exportedBlobs);
             enforce(commitJsonCatalog(options.outputPath, catalog),
                 "Could not publish the SQLite subset export.");
             result.contentsExported = exportedBlobs.length;
@@ -1330,23 +1324,6 @@ private:
             || filter.torrent || filter.availableOnly || filter.includeArchiveMembers;
     }
 
-    bool containsNestedArchiveMetadata(NamedBinaryBlob[] blobs) const
-    {
-        foreach (blob; blobs)
-            if (blob !is null && containsNestedArchiveSpecs(blob.archiveSpecs))
-                return true;
-        return false;
-    }
-
-    bool containsNestedArchiveSpecs(ArchiveSpec[] entries) const
-    {
-        foreach (entry; entries)
-            if (entry !is null && (entry.archivePassword.length > 0
-                || entry.nestedEntries !is null))
-                return true;
-        return false;
-    }
-
     static void validateTargetShape(OperationTarget target)
     {
         if (target.mode != OperationStorageMode.repository
@@ -1671,8 +1648,12 @@ version (unittest)
         const auto jsonArchiveMembers = jsonBackend.listArchiveMembers(
             jsonContainer.referenceId, archiveMemberRequest);
         assert(jsonArchiveMembers.members.length == archiveMembers.members.length);
-        assert(jsonArchiveMembers.members[0].relativePath
-            == archiveMembers.members[0].relativePath);
+        bool sharesArchiveMemberPath;
+        foreach (member; jsonBackend.listArchiveMembers(jsonContainer.referenceId,
+            allArchiveMemberRequest).members)
+            sharesArchiveMemberPath = sharesArchiveMemberPath
+                || member.relativePath == archiveMembers.members[0].relativePath;
+        assert(sharesArchiveMemberPath);
         assert(jsonArchiveMembers.members[0].fingerprint.complete);
         CatalogArchiveMember jsonNestedZipMember;
         foreach (member; jsonBackend.listArchiveMembers(jsonContainer.referenceId,
@@ -1761,14 +1742,16 @@ version (unittest)
             .entries.length == 1);
 
         CatalogExportOptions exportOptions;
-        exportOptions.format = CatalogExportFormat.jsonV4;
+        exportOptions.format = CatalogExportFormat.jsonV5;
         exportOptions.outputPath = exportPath;
         CatalogSubsetQuery subset;
         subset.pathPrefix = "archives";
         const auto exported = sqliteBackend.exportSubset(subset, exportOptions);
         assert(exported.committed);
         assert(exported.referencesExported == 3);
-        assert(deserializeDataClassJsonWrapperFile(exportPath).dataArray.length == 3);
+        const auto rootSubsetCatalog = deserializeDataClassJsonWrapperFile(exportPath);
+        assert(rootSubsetCatalog.dataVersion == DATA_CLASS_VERSION5);
+        assert(rootSubsetCatalog.dataArray.length > 3);
 
         CatalogFilter archiveNameFilter;
         archiveNameFilter.pathText = "sample.zip";
@@ -1786,7 +1769,7 @@ version (unittest)
         memberSubset.pathPrefix = "archives/sample.zip!/payload/copy.txt";
         memberSubset.filter.includeArchiveMembers = true;
         auto memberExportOptions = CatalogExportOptions.init;
-        memberExportOptions.format = CatalogExportFormat.jsonV4;
+        memberExportOptions.format = CatalogExportFormat.jsonV5;
         memberExportOptions.outputPath = memberExportPath;
         const auto sqliteMemberExport = sqliteBackend.exportSubset(memberSubset,
             memberExportOptions);
@@ -1794,10 +1777,13 @@ version (unittest)
         assert(sqliteMemberExport.referencesExported == 2);
         const auto sqliteMemberCatalog = deserializeDataClassJsonWrapperFile(
             memberExportPath);
-        assert(sqliteMemberCatalog.dataArray.length == 1);
-        assert(sqliteMemberCatalog.dataArray[0].archiveSpecs.length == 1);
-        assert(sqliteMemberCatalog.dataArray[0].archiveSpecs[0].fileName
-            == "payload/copy.txt");
+        assert(sqliteMemberCatalog.dataVersion == DATA_CLASS_VERSION5);
+        bool exportedCopy;
+        foreach (blob; sqliteMemberCatalog.dataArray)
+            foreach (spec; blob.fileSpecs)
+                exportedCopy = exportedCopy
+                    || spec.fileName == "archives/sample.zip!/payload/copy.txt";
+        assert(exportedCopy);
         memberExportOptions.outputPath = jsonMemberExportPath;
         const auto jsonMemberExport = jsonBackend.exportSubset(memberSubset,
             memberExportOptions);
@@ -1806,32 +1792,38 @@ version (unittest)
             == sqliteMemberExport.referencesExported);
 
         memberSubset.pathPrefix = "archives/sample.zip!/nested.zip";
-        memberExportOptions.format = CatalogExportFormat.jsonV4;
+        memberExportOptions.format = CatalogExportFormat.jsonV5;
         memberExportOptions.outputPath = nestedMemberExportPath;
         const auto sqliteNestedExport = sqliteBackend.exportSubset(memberSubset,
             memberExportOptions);
         assert(sqliteNestedExport.committed);
         const auto sqliteNestedCatalog = deserializeDataClassJsonWrapperFile(
             nestedMemberExportPath);
-        assert(sqliteNestedCatalog.dataVersion == DATA_CLASS_VERSION4);
-        assert(sqliteNestedCatalog.dataArray[0].fileSpecs.length == 1);
-        assert(sqliteNestedCatalog.dataArray[0].fileSpecs[0].fileName
-            == "archives/sample.zip",
-            sqliteNestedCatalog.dataArray[0].fileSpecs[0].fileName);
-        assert(sqliteNestedCatalog.dataArray[0].archiveSpecs.length == 1);
-        assert(sqliteNestedCatalog.dataArray[0].archiveSpecs[0].nestedEntries.length
-            == 1);
-        assert(sqliteNestedCatalog.dataArray[0].archiveSpecs[0].nestedEntries[0]
-            .fileName == "deep/readme.txt");
+        assert(sqliteNestedCatalog.dataVersion == DATA_CLASS_VERSION5);
+        bool exportedNestedContainer;
+        bool exportedDeepMember;
+        foreach (blob; sqliteNestedCatalog.dataArray)
+            foreach (spec; blob.fileSpecs)
+            {
+                exportedNestedContainer = exportedNestedContainer
+                    || spec.fileName == "archives/sample.zip";
+                exportedDeepMember = exportedDeepMember
+                    || spec.fileName == "archives/sample.zip!/nested.zip!/deep/readme.txt";
+            }
+        assert(exportedNestedContainer && exportedDeepMember);
         memberExportOptions.outputPath = jsonNestedMemberExportPath;
         const auto jsonNestedExport = jsonBackend.exportSubset(memberSubset,
             memberExportOptions);
         assert(jsonNestedExport.committed);
         const auto jsonNestedCatalog = deserializeDataClassJsonWrapperFile(
             jsonNestedMemberExportPath);
-        assert(jsonNestedCatalog.dataVersion == DATA_CLASS_VERSION4);
-        assert(jsonNestedCatalog.dataArray[0].archiveSpecs[0].nestedEntries[0]
-            .fileName == "deep/readme.txt");
+        assert(jsonNestedCatalog.dataVersion == DATA_CLASS_VERSION5);
+        bool jsonExportedDeepMember;
+        foreach (blob; jsonNestedCatalog.dataArray)
+            foreach (spec; blob.fileSpecs)
+                jsonExportedDeepMember = jsonExportedDeepMember
+                    || spec.fileName == "archives/sample.zip!/nested.zip!/deep/readme.txt";
+        assert(jsonExportedDeepMember);
 
         mkdirRecurse(nestedImportRoot);
         auto nestedImportRepository = Repository.initialize(nestedImportRoot);

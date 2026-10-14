@@ -39,7 +39,7 @@ class ArchiveSpec
     @jsonize(JsonizeIn.opt, JsonizeOut.opt)
     string archivePassword;
 
-    /** Adapter-only identity data; never serialized in JSON v3 or v4. */
+    /** Adapter-only identity data; never serialized in JSON catalogs. */
     @jsonize(JsonizeIn.no, JsonizeOut.no)
     {
         size_t entryIndex;

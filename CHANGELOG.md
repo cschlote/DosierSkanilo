@@ -9,6 +9,12 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- JSON catalogs now write version 5: safe archive members are ordinary virtual
+  file references with escaped paths and duplicate occurrences, while archive
+  index state is retained separately. Version 0–4 catalogs remain readable;
+  JSON/SQLite exports and JSON catalog queries now project virtual members
+  through the common reference model.
+
 ## Release 26.11.0 - 2026-10-13
 
 - Added the storage-neutral `CatalogBackend` contract, explicit factory boundary,

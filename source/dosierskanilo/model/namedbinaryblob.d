@@ -20,6 +20,8 @@ import std.string : startsWith;
 import jsonizer;
 
 import dosierarkivo;
+import dosierarkivo.archive : appendArchiveVirtualPath,
+    escapeArchiveVirtualPath, normalizeArchiveEntryPath, parseArchiveVirtualPath;
 import dosierskanilo.logging;
 import dosierskanilo.options;
 import dosierskanilo.progress;
@@ -32,8 +34,9 @@ public import dosierskanilo.model.filespec;
 
 enum int DATA_CLASS_VERSION1 = 1; ///< Current version of the NamedBinaryBlob structure, v1
 enum int DATA_CLASS_VERSION2 = 2; ///< Current version of the NamedBinaryBlob structure, v2
-enum int DATA_CLASS_VERSION3 = 3; ///< Current version of the NamedBinaryBlob structure, v3
+enum int DATA_CLASS_VERSION3 = 3; ///< Legacy NamedBinaryBlob representation, v3
 enum int DATA_CLASS_VERSION4 = 4; ///< Recursive archive-member representation, v4
+enum int DATA_CLASS_VERSION5 = 5; ///< Current virtual-reference representation, v5
 
 /** Wrapper class to serialize an array of NamedBinaryBlob objects
  *
@@ -119,17 +122,21 @@ mixin template payloadHelpers()
 	Task!(updateTorrentInfo, NamedBinaryBlob)* task_torrentscan; ///< Pointer to torrent scan job
 }
 
-/** Legacy JSON domain record for one binary payload and its known file paths.
+/** JSON domain record for binary content and its known file references.
  *
  * This JSON/Jsonizer type combines payload properties with `FileSpec[]`
  * filesystem references and optional metadata. It is the current interchange
- * representation; the storage-neutral content/reference model is planned in
- * WP-13. Checksum properties serialize as Base64 strings.
+ * representation. JSON v5 stores archive members as ordinary virtual
+ * `FileSpec` references; older nested archive indexes are promoted when
+ * writing. Checksum properties serialize as Base64 strings.
  */
 class NamedBinaryBlob
 {
 	/* Add code needed for JSON serialization */
 	mixin JsonizeMe;
+
+	/** True when FileSpec names use the JSON-v5 archive virtual path grammar. */
+	bool fileSpecsUseArchiveVirtualGrammar;
 
 	/* ------------------------------------------------------------------- */
 	/* Some helper vars not serialized */
@@ -157,6 +164,7 @@ class NamedBinaryBlob
 		string fileType; /// Output of 'file' CLI tool.
 		MediaInfoSig mediaInfoSig; ///< Parsed media info signature
 		ArchiveSpec[] archiveSpecs; /// Contents of an archive
+		bool archiveIndexKnown; /// JSON v5 archive-index state, including empty indexes
 		string archivePassword; /// Optional password used to inspect this archive
 		TorrentInfo torrentInfo; /// Extracted torrent information
 	}
@@ -197,6 +205,8 @@ class NamedBinaryBlob
 		mediaInfo = null; // More humand readable format
 		mediaInfoSig = null; // MediaInfo as JSON fields
 		archiveSpecs = null; // Contents of an archive
+		archiveIndexKnown = false;
+		fileSpecsUseArchiveVirtualGrammar = false;
 		archivePassword = ""; // Optional archive password
 		torrentInfo = null; // Extracted torrent information
 	}
@@ -295,8 +305,12 @@ class NamedBinaryBlob
 		fileSize = other.fileSize;
 		timeLastModified = other.timeLastModified;
 		checkSums = other.checkSums;
+		fileType = other.fileType;
 		mediaInfoSig = other.mediaInfoSig;
+		torrentInfo = other.torrentInfo;
 		archivePassword = other.archivePassword;
+		archiveIndexKnown = other.archiveIndexKnown;
+		fileSpecsUseArchiveVirtualGrammar = other.fileSpecsUseArchiveVirtualGrammar;
 		if (other.archiveSpecs !is null)
 		{
 			archiveSpecs = [];
@@ -368,6 +382,8 @@ class NamedBinaryBlob
 	{
 		import std.algorithm : any;
 
+		if (fileSpecsUseArchiveVirtualGrammar)
+			return getExistingFiles().length == 0;
 		bool rc = false;
 		if (fileSpecs.length == 0)
 			rc = true;
@@ -444,9 +460,32 @@ class NamedBinaryBlob
 		FileSpec[] rs = null;
 		if (fileSpecs.length)
 		{
-			rs = fileSpecs.sort.filter!(a => a.exists).array;
+			if (!fileSpecsUseArchiveVirtualGrammar)
+				rs = fileSpecs.sort.filter!(a => a.exists).array;
+			else
+				foreach (spec; fileSpecs)
+				{
+					const auto path = physicalPathForSpec(spec);
+					if (path.length > 0 && exists(path))
+						rs ~= new FileSpec(path, spec.timeLastModified);
+				}
+			if (rs.length > 1)
+				rs.sort;
 		}
 		return rs;
+	}
+
+	private string physicalPathForSpec(FileSpec spec) const @safe
+	{
+		if (spec is null || spec.fileName.length == 0)
+			return "";
+		try
+		{
+			auto parsed = parseArchiveVirtualPath(spec.fileName);
+			return parsed.isVirtual ? "" : parsed.physicalPath;
+		}
+		catch (Exception)
+			return "";
 	}
 
 	/** Get the first existing filename from sorted file entries.
@@ -473,6 +512,10 @@ class NamedBinaryBlob
 		auto found = this.fileSpecs.find!(matcher, FileSpec[], string)(filename);
 		if (found.length)
 			rc = true;
+		if (!rc && fileSpecsUseArchiveVirtualGrammar)
+			foreach (spec; fileSpecs)
+				if (physicalPathForSpec(spec) == filename)
+					return true;
 		return rc;
 	}
 
@@ -486,8 +529,11 @@ class NamedBinaryBlob
 		auto found = this.fileSpecs.find!(matcher, FileSpec[], string)(filename);
 		if (found.length)
 			return found[0];
-		else
-			return null;
+		if (fileSpecsUseArchiveVirtualGrammar)
+			foreach (spec; fileSpecs)
+				if (physicalPathForSpec(spec) == filename)
+					return spec;
+		return null;
 	}
 
 	/** Add a FileSpec by its filename
@@ -500,12 +546,14 @@ class NamedBinaryBlob
 	 */
 	FileSpec addFileSpec(string filename, string timeLastModified) @safe
 	{
-		import std.string : format;
+		import std.string : format, replace;
 
 		enforce(!this.hasFileName(filename),
 			"FileSpec with filename '%s' already exists.".format(filename));
 
-		auto fs = new FileSpec(filename, timeLastModified);
+		auto fileNameToStore = fileSpecsUseArchiveVirtualGrammar
+			? escapeArchiveVirtualPath(filename.replace('\\', '/')) : filename;
+		auto fs = new FileSpec(fileNameToStore, timeLastModified);
 		this.fileSpecs ~= fs;
 		this.fileSpecs.sort;
 		return fs;
@@ -531,8 +579,14 @@ class NamedBinaryBlob
 			this.fileSpecs.sort;
 			return fs;
 		}
-		else
-			return null;
+		if (fileSpecsUseArchiveVirtualGrammar)
+			foreach (index, spec; fileSpecs)
+				if (physicalPathForSpec(spec) == filename)
+				{
+					fileSpecs = fileSpecs[0 .. index] ~ fileSpecs[index + 1 .. $];
+					return spec;
+				}
+		return null;
 	}
 
 }
@@ -1032,10 +1086,12 @@ NamedBinaryBlobCatalog deserializeDataClassJsonWrapperString(const string serial
 
 		if (wrapper.dataVersion != DATA_CLASS_VERSION2
 			&& wrapper.dataVersion != DATA_CLASS_VERSION3
-			&& wrapper.dataVersion != DATA_CLASS_VERSION4)
+			&& wrapper.dataVersion != DATA_CLASS_VERSION4
+			&& wrapper.dataVersion != DATA_CLASS_VERSION5)
 			assert(false, "Data version mismatch, expected " ~ to!string(
 				DATA_CLASS_VERSION2) ~ ", " ~ to!string(DATA_CLASS_VERSION3)
-				~ " or " ~ to!string(DATA_CLASS_VERSION4) ~ ", got "
+				~ ", " ~ to!string(DATA_CLASS_VERSION4) ~ " or "
+				~ to!string(DATA_CLASS_VERSION5) ~ ", got "
 				~ to!string(wrapper.dataVersion));
 	}
 	// Check for old plain array JSON
@@ -1051,6 +1107,10 @@ NamedBinaryBlobCatalog deserializeDataClassJsonWrapperString(const string serial
 		assert(false, "Unknow JSON format?");
 
 	wrapper.dataArray = fixupDataClassArrayIn(wrapper.dataArray);
+	if (wrapper.dataVersion == DATA_CLASS_VERSION5)
+		foreach (blob; wrapper.dataArray)
+			if (blob !is null)
+				blob.fileSpecsUseArchiveVirtualGrammar = true;
 	logFLineVerbose("  got %d entries in array after deserialization() of archive data.", wrapper.dataArray.length);
 
 	return wrapper;
@@ -1134,6 +1194,124 @@ NamedBinaryBlob[] deserializeDataClassJsonFile(string fileName, bool verbose = f
 	return deserializeDataClassJsonString(serializedData);
 }
 
+private string canonicalV5FilePath(string fileName, bool fromLegacyVersion)
+{
+	import std.string : replace;
+
+	if (fromLegacyVersion)
+		return escapeArchiveVirtualPath(fileName.replace('\\', '/'));
+
+	const auto parsed = parseArchiveVirtualPath(fileName);
+	auto result = escapeArchiveVirtualPath(parsed.physicalPath);
+	foreach (entry; parsed.entries)
+		result = appendArchiveVirtualPath(result, entry.relativePath,
+			entry.hasOccurrence ? entry.occurrence : size_t.max);
+	return result;
+}
+
+private string archiveVirtualIdentityKey(string path)
+{
+	return "safe\0" ~ path;
+}
+
+private void appendArchiveMemberBlobs(ref NamedBinaryBlob[] result,
+	ArchiveSpec[] entries, string containerPath, size_t depth = 0)
+{
+	enforce(depth < 32,
+		"Nested archive conversion exceeds the maximum depth.");
+	size_t[string] pathCounts;
+	foreach (entry; entries)
+	{
+		if (entry is null)
+			continue;
+		bool safe;
+		bool isDirectory;
+		const auto path = normalizeArchiveEntryPath(entry.fileName, safe,
+			isDirectory);
+		if (safe && !isDirectory)
+		{
+			const auto key = archiveVirtualIdentityKey(path);
+			pathCounts[key] = pathCounts.get(key, 0) + 1;
+		}
+	}
+
+	size_t[string] nextOccurrence;
+	foreach (entry; entries)
+	{
+		if (entry is null)
+			continue;
+		bool safe;
+		bool isDirectory;
+		const auto path = normalizeArchiveEntryPath(entry.fileName, safe,
+			isDirectory);
+		if (!safe || isDirectory)
+			continue;
+
+		const auto key = archiveVirtualIdentityKey(path);
+		size_t occurrence;
+		if (entry.hasIndexIdentity)
+			occurrence = entry.occurrence;
+		else
+			occurrence = nextOccurrence.get(key, 0);
+		nextOccurrence[key] = occurrence + 1;
+		const bool includeOccurrence = pathCounts.get(key, 0) > 1
+			|| occurrence > 0;
+		const auto memberPath = appendArchiveVirtualPath(containerPath, path,
+			includeOccurrence ? occurrence : size_t.max);
+
+		auto member = new NamedBinaryBlob();
+		member.fileSize = entry.fileSize;
+		member.checkSums = entry.checkSums;
+		member.fileSpecs = [new FileSpec(memberPath, entry.timeLastModified)];
+		member.archivePassword = entry.archivePassword;
+		member.archiveIndexKnown = entry.nestedEntries !is null
+			|| entry.archivePassword.length > 0;
+		member.fileSpecsUseArchiveVirtualGrammar = true;
+		result ~= member;
+
+		if (entry.nestedEntries !is null)
+			appendArchiveMemberBlobs(result, entry.nestedEntries, memberPath,
+				depth + 1);
+	}
+}
+
+/** Convert legacy nested ArchiveSpec trees into ordinary JSON-v5 blob references. */
+private NamedBinaryBlob[] normalizeV5Catalog(NamedBinaryBlob[] blobs,
+	bool sourceAlreadyV5)
+{
+	NamedBinaryBlob[] records;
+	foreach (blob; blobs)
+	{
+		if (blob is null)
+			continue;
+		fixupDataClassArrayIn([blob]);
+		foreach (spec; blob.fileSpecs)
+			if (spec !is null && spec.fileName.length > 0)
+				spec.fileName = canonicalV5FilePath(spec.fileName,
+					!sourceAlreadyV5);
+		blob.fileSpecsUseArchiveVirtualGrammar = true;
+
+		auto archiveEntries = blob.archiveSpecs;
+		if (archiveEntries !is null && blob.fileSpecs.length == 0)
+			throw new Exception("An archive index cannot be promoted without a "
+				~ "containing FileSpec reference.");
+		if (archiveEntries !is null)
+		{
+			blob.archiveIndexKnown = true;
+			blob.archiveSpecs = null;
+		}
+		records ~= blob;
+
+		if (archiveEntries !is null)
+			foreach (containerSpec; blob.fileSpecs)
+				if (containerSpec !is null && containerSpec.fileName.length > 0)
+					appendArchiveMemberBlobs(records, archiveEntries,
+						containerSpec.fileName);
+	}
+
+	return sortDataClassArrayByFileName(records);
+}
+
 /** Serialize the wrapper object into a JSON file.
  *
  * Store the wrapper data in a JSON file.
@@ -1145,12 +1323,13 @@ void serializeDataClassWrapperFile(string fileName, ref NamedBinaryBlobCatalog w
 {
 	logFLineVerbose("Generate JSON data and write it to file %s", fileName);
 	if (wrapper.dataVersion == 0)
-		wrapper.dataVersion = DATA_CLASS_VERSION3;
-	if (wrapper.dataVersion != DATA_CLASS_VERSION4)
-		wrapper.dataVersion = DATA_CLASS_VERSION3;
-	if (wrapper.dataVersion == DATA_CLASS_VERSION3
-		&& containsNestedArchiveEntries(wrapper.dataArray))
-		throw new Exception("Nested archive indexes require JSON version 4.");
+		wrapper.dataVersion = DATA_CLASS_VERSION5;
+	if (wrapper.dataVersion < DATA_CLASS_VERSION2
+		|| wrapper.dataVersion > DATA_CLASS_VERSION5)
+		throw new Exception("Unsupported JSON catalog version.");
+	const bool sourceAlreadyV5 = wrapper.dataVersion == DATA_CLASS_VERSION5;
+	wrapper.dataArray = normalizeV5Catalog(wrapper.dataArray, sourceAlreadyV5);
+	wrapper.dataVersion = DATA_CLASS_VERSION5;
 	wrapper.refreshRuntimeMetadata();
 
 	logFLineVerbose("  sort and uniq serialized array by their filenames (use a range)");
@@ -1159,61 +1338,107 @@ void serializeDataClassWrapperFile(string fileName, ref NamedBinaryBlobCatalog w
 	wrapper.dataArray = fixupDataClassArrayOut(uniqSortedDeserializedData);
 	writeJSON!(NamedBinaryBlobWrapper)(fileName, wrapper);
 	wrapper.dataArray = fixupDataClassArrayIn(wrapper.dataArray);
+	foreach (blob; wrapper.dataArray)
+		if (blob !is null)
+			blob.fileSpecsUseArchiveVirtualGrammar = true;
 }
 
-private bool containsNestedArchiveEntries(NamedBinaryBlob[] blobs)
-{
-	foreach (blob; blobs)
-		if (blob !is null && containsNestedArchiveSpecs(blob.archiveSpecs))
-			return true;
-	return false;
-}
-
-private bool containsNestedArchiveSpecs(ArchiveSpec[] entries)
-{
-	foreach (entry; entries)
-		if (entry !is null && (entry.archivePassword.length > 0
-			|| entry.nestedEntries !is null))
-			return true;
-	return false;
-}
-
-@("JSON v4 roundtrips nested archive metadata and v3 refuses to discard it")
+@("JSON v5 promotes nested and duplicate archive members to virtual references")
 unittest
 {
-	import std.exception : assertThrown;
 	import std.file : exists, remove, tempDir;
 	import std.path : buildPath;
 	import std.uuid : randomUUID;
 
-	const auto fileName = buildPath(tempDir(), "nested-archive-v4-"
+	const auto fileName = buildPath(tempDir(), "nested-archive-v5-"
 		~ randomUUID().toString() ~ ".json");
 	scope (exit)
 		if (exists(fileName))
 			remove(fileName);
 
 	auto member = new ArchiveSpec("nested/readme.txt", 11, "",
+		CheckSums("md5", "sha1", "xxh64"));
+	auto duplicateMember = new ArchiveSpec("nested/readme.txt", 11, "",
+		CheckSums("md5", "sha1", "xxh64"));
+	auto deepMember = new ArchiveSpec("deep/readme!.txt", 5, "",
 		CheckSums.init);
 	auto nestedArchive = new ArchiveSpec("nested.zip", 64, "",
 		CheckSums.init);
-	nestedArchive.nestedEntries = [member];
-	auto archive = new ArchiveSpec("container.zip", 128, "",
-		CheckSums.init);
-	archive.nestedEntries = [nestedArchive];
+	nestedArchive.nestedEntries = [deepMember];
 	auto blob = new NamedBinaryBlob();
 	blob.fileSize = 256;
-	blob.fileSpecs = [new FileSpec("container.zip", "")];
-	blob.archiveSpecs = [archive];
+	blob.fileSpecs = [new FileSpec("container!.zip", "")];
+	blob.archiveSpecs = [member, duplicateMember, nestedArchive];
 	auto v4 = NamedBinaryBlobCatalog(DATA_CLASS_VERSION4, [blob]);
 	serializeDataClassWrapperFile(fileName, v4);
-	assert(v4.dataVersion == DATA_CLASS_VERSION4);
+	assert(v4.dataVersion == DATA_CLASS_VERSION5);
 	auto loaded = deserializeDataClassJsonWrapperFile(fileName);
-	assert(loaded.dataVersion == DATA_CLASS_VERSION4);
-	assert(loaded.dataArray[0].archiveSpecs[0].nestedEntries[0]
-		.nestedEntries[0].fileName == "nested/readme.txt");
+	assert(loaded.dataVersion == DATA_CLASS_VERSION5);
+	assert(loaded.dataArray.length == 5);
+	string[] virtualPaths;
+	bool foundArchiveIndexMarker;
+	foreach (record; loaded.dataArray)
+	{
+		foundArchiveIndexMarker = foundArchiveIndexMarker
+			|| record.archiveIndexKnown;
+		foreach (spec; record.fileSpecs)
+			virtualPaths ~= spec.fileName;
+	}
+	assert(virtualPaths.canFind("container!!.zip"));
+	assert(virtualPaths.canFind("container!!.zip!/nested/readme.txt!~0"));
+	assert(virtualPaths.canFind("container!!.zip!/nested/readme.txt!~1"));
+	assert(virtualPaths.canFind("container!!.zip!/nested.zip"));
+	assert(virtualPaths.canFind("container!!.zip!/nested.zip!/deep/readme!!.txt"));
+	assert(foundArchiveIndexMarker);
+}
 
-	auto v3 = NamedBinaryBlobCatalog(DATA_CLASS_VERSION3, [blob]);
-	assertThrown!Exception(serializeDataClassWrapperFile(fileName, v3));
+@("JSON v5 decodes escaped physical exclamation marks for filesystem access")
+unittest
+{
+	import std.file : exists, getSize, remove, tempDir, write;
+	import std.path : buildPath;
+	import std.uuid : randomUUID;
+
+	const auto token = randomUUID().toString();
+	const auto physicalPath = buildPath(tempDir(), "physical-literal!-"
+		~ token ~ ".txt");
+	const auto jsonPath = buildPath(tempDir(), "physical-literal-json-"
+		~ token ~ ".json");
+	scope (exit)
+	{
+		if (exists(physicalPath))
+			remove(physicalPath);
+		if (exists(jsonPath))
+			remove(jsonPath);
+	}
+	write(physicalPath, "v5 physical path");
+	auto blob = new NamedBinaryBlob();
+	blob.fileSize = cast(size_t) getSize(physicalPath);
+	blob.fileSpecs = [new FileSpec(physicalPath, "")];
+	auto emptyArchive = new NamedBinaryBlob();
+	emptyArchive.fileSpecs = [new FileSpec("empty!.zip", "")];
+	emptyArchive.archiveIndexKnown = true;
+	auto catalog = NamedBinaryBlobCatalog(DATA_CLASS_VERSION3,
+		[blob, emptyArchive]);
+	serializeDataClassWrapperFile(jsonPath, catalog);
+	auto loaded = deserializeDataClassJsonWrapperFile(jsonPath);
+	assert(loaded.dataVersion == DATA_CLASS_VERSION5);
+	assert(loaded.dataArray.length == 2);
+	bool foundPhysicalPath;
+	bool foundEmptyArchiveIndex;
+	foreach (restored; loaded.dataArray)
+	{
+		foreach (spec; restored.fileSpecs)
+			if (spec.fileName == escapeArchiveVirtualPath(physicalPath))
+			{
+				foundPhysicalPath = true;
+				assert(restored.getFirstExistingFileName == physicalPath);
+				assert(restored.hasFileName(physicalPath));
+			}
+		foundEmptyArchiveIndex = foundEmptyArchiveIndex
+			|| restored.archiveIndexKnown;
+	}
+	assert(foundPhysicalPath && foundEmptyArchiveIndex);
 }
 
 @("deserializeDataClassJsonFile")
@@ -1296,6 +1521,9 @@ version (unittest)
 		json.object.remove("mediaInfoVersion");
 		json0.object.remove("fileUtilityVersion");
 		json0.object.remove("mediaInfoVersion");
+		assert(json.object["dataVersion"].integer == DATA_CLASS_VERSION5);
+		json.object.remove("dataVersion");
+		json0.object.remove("dataVersion");
 		assert(json == json0, "Parsed JSON does not match expected JSON.\nGot:\n" ~ json.toString ~ "\nExpected:\n" ~ json0
 				.toString);
 	}
@@ -1310,7 +1538,31 @@ unittest
 @("(de)serializeDataClassArrayFile 2 - archive serialization")
 unittest
 {
-	testSerializeDataClassArrayFile(test_json_v2_archive, 1, json_file_v2_archive);
+	import std.file : exists, remove, tempDir;
+	import std.path : buildPath;
+	import std.uuid : randomUUID;
+
+	const auto fileName = buildPath(tempDir(), "archive-json-v5-"
+		~ randomUUID().toString() ~ ".json");
+	scope (exit)
+		if (exists(fileName))
+			remove(fileName);
+	fileName.serializeDataClassArrayFile(
+		deserializeDataClassJsonString(test_json_v2_archive));
+	auto loaded = deserializeDataClassJsonWrapperFile(fileName);
+	assert(loaded.dataVersion == DATA_CLASS_VERSION5);
+	bool foundArchive;
+	bool foundMember;
+	string paths;
+	foreach (blob; loaded.dataArray)
+		foreach (spec; blob.fileSpecs)
+		{
+			paths ~= "[" ~ spec.fileName ~ "]";
+			foundArchive = foundArchive || spec.fileName == "test.rar";
+			foundMember = foundMember || spec.fileName == "test.rar!/urtzel.bin";
+		}
+	assert(foundArchive, paths);
+	assert(foundMember, paths);
 }
 
 @("(de)serializeDataClassArrayFile 3 - torrentInfo serialization")

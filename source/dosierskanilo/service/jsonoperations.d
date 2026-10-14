@@ -6,11 +6,12 @@ import std.datetime.systime;
 import std.file : DirEntry, SpanMode, dirEntries, isFile;
 import std.parallelism : Task, TaskPool, task;
 import std.path : baseName, buildNormalizedPath, dirSeparator;
-import std.string : empty, split;
+import std.string : empty, replace, split;
 
-import dosierskanilo.model.archivespec : ArchiveSpec;
+import dosierarkivo.archive : escapeArchiveVirtualPath,
+    parseArchiveVirtualPath;
 import dosierskanilo.model.namedbinaryblob : NamedBinaryBlob,
-    DATA_CLASS_VERSION4, NamedBinaryBlobCatalog, cleanupDataClassObjs,
+    DATA_CLASS_VERSION5, NamedBinaryBlobCatalog,
     deserializeDataClassJsonWrapperFile,
     cleanupInvalidatedDataClassObjs, invalidateDataClassObjs, mergeDataClassObjects,
     updateArchives, updateDigests,
@@ -54,8 +55,10 @@ JsonScanExecutionResult scanJsonCatalog(string catalogPath, string filesystemRoo
 {
     JsonScanExecutionResult execution;
     execution.catalog = loadJsonCatalog(catalogPath, forceOverwrite);
-    if (!scanJsonDirectory(filesystemRoot, scanOptions, execution.catalog.dataArray,
-        control, operationId, execution.scanSummary))
+    if (!scanJsonDirectory(filesystemRoot, scanOptions,
+        execution.catalog.dataVersion == DATA_CLASS_VERSION5,
+        execution.catalog.dataArray, control, operationId,
+        execution.scanSummary))
     {
         execution.cancelled = true;
         return execution;
@@ -84,6 +87,7 @@ JsonAnalysisExecutionResult analyzeJsonCatalog(string catalogPath,
         return execution;
     }
     if (!analyzeJsonRecords(execution.catalog.dataArray, analysisOptions,
+        execution.catalog.dataVersion == DATA_CLASS_VERSION5,
         control, operationId, execution.analysisSummary))
         execution.cancelled = true;
     return execution;
@@ -92,9 +96,6 @@ JsonAnalysisExecutionResult analyzeJsonCatalog(string catalogPath,
 /** Persist a computed JSON catalog after the final safe cancellation checkpoint. */
 bool commitJsonCatalog(string catalogPath, ref NamedBinaryBlobCatalog catalog)
 {
-    if (catalog.dataVersion != DATA_CLASS_VERSION4
-        && containsNestedArchiveMetadata(catalog.dataArray))
-        catalog.dataVersion = DATA_CLASS_VERSION4;
     auto replacementLease = TargetCatalogReplacementLease.acquireJsonCatalog(
         catalogPath);
     scope (exit)
@@ -102,43 +103,27 @@ bool commitJsonCatalog(string catalogPath, ref NamedBinaryBlobCatalog catalog)
     return writeStorageJsonFile(catalogPath, catalog);
 }
 
-private bool containsNestedArchiveMetadata(NamedBinaryBlob[] blobs)
-{
-    bool hasNested(ArchiveSpec[] entries)
-    {
-        foreach (entry; entries)
-            if (entry !is null && (entry.archivePassword.length > 0
-                || entry.nestedEntries !is null))
-                return true;
-        return false;
-    }
-    foreach (blob; blobs)
-        if (blob !is null && hasNested(blob.archiveSpecs))
-            return true;
-    return false;
-}
-
 private NamedBinaryBlobCatalog loadJsonCatalog(string catalogPath,
     bool forceOverwrite)
 {
     import std.file : exists;
-    import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION3;
+    import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION5;
 
     if (!exists(catalogPath))
-        return NamedBinaryBlobCatalog(DATA_CLASS_VERSION3, []);
+        return NamedBinaryBlobCatalog(DATA_CLASS_VERSION5, []);
     try
         return deserializeDataClassJsonWrapperFile(catalogPath);
     catch (Exception ex)
     {
         if (!forceOverwrite)
             throw ex;
-        return NamedBinaryBlobCatalog(DATA_CLASS_VERSION3, []);
+        return NamedBinaryBlobCatalog(DATA_CLASS_VERSION5, []);
     }
 }
 
 private bool scanJsonDirectory(string root, RepositoryScanOptions options,
-    ref NamedBinaryBlob[] blobs, OperationControl control, ulong operationId,
-    ref ScanSummary summary)
+    bool pathsUseV5Grammar, ref NamedBinaryBlob[] blobs,
+    OperationControl control, ulong operationId, ref ScanSummary summary)
 {
     if (!reportJsonProgress(control, operationId, OperationKind.scan,
         OperationPhase.discovering, 0, 0, false, "Scanning filesystem.", ""))
@@ -152,10 +137,13 @@ private bool scanJsonDirectory(string root, RepositoryScanOptions options,
         if (isFile(entry.name))
         {
             summary.filesFound++;
+            auto storedFileName = pathsUseV5Grammar
+                ? escapeArchiveVirtualPath(entry.name.replace('\\', '/'))
+                : entry.name;
             NamedBinaryBlob existing;
             foreach (blob; blobs)
             {
-                if (blob !is null && blob.hasFileName(entry.name))
+                if (blob !is null && blob.hasFileName(storedFileName))
                 {
                     existing = blob;
                     break;
@@ -164,13 +152,15 @@ private bool scanJsonDirectory(string root, RepositoryScanOptions options,
 
             if (existing is null)
             {
-                blobs ~= new NamedBinaryBlob(entry.name, entry.size,
+                auto added = new NamedBinaryBlob(storedFileName, entry.size,
                     entry.timeLastModified);
+                added.fileSpecsUseArchiveVirtualGrammar = pathsUseV5Grammar;
+                blobs ~= added;
                 summary.filesAdded++;
             }
             else
             {
-                auto fileSpec = existing.getFileSpec(entry.name);
+                auto fileSpec = existing.getFileSpec(storedFileName);
                 auto modified = entry.timeLastModified.toISOExtString;
                 if (existing.fileSize != entry.size
                     || fileSpec.timeLastModified != modified)
@@ -253,7 +243,8 @@ private JsonMetadataWork prepareJsonMetadataWork(NamedBinaryBlob blob,
     item.doFileType = options.detectFileTypes && blob.fileType.empty;
     item.doMediaInfo = options.extractMediaInfo
         && (blob.mediaInfoSig is null || options.rescan);
-    item.doArchives = options.scanArchives && blob.archiveSpecs is null;
+    item.doArchives = options.scanArchives && !blob.archiveIndexKnown
+        && blob.archiveSpecs is null;
     item.doTorrents = options.scanTorrents && blob.torrentInfo is null;
     return item;
 }
@@ -359,7 +350,8 @@ private JsonMetadataExecutionResult updateJsonMetadata(ref NamedBinaryBlob[] blo
             if (item.doMediaInfo && item.blob.mediaInfoSig !is null
                 && !item.blob.mediaInfoSig.empty)
                 execution.summary.mediaInfoUpdated++;
-            if (item.doArchives && item.blob.archiveSpecs !is null)
+            if (item.doArchives && (item.blob.archiveIndexKnown
+                || item.blob.archiveSpecs !is null))
                 execution.summary.archivesUpdated++;
             if (item.doTorrents && item.blob.torrentInfo !is null)
                 execution.summary.torrentsUpdated++;
@@ -384,18 +376,23 @@ private JsonMetadataExecutionResult updateJsonMetadata(ref NamedBinaryBlob[] blo
 }
 
 private bool analyzeJsonRecords(ref NamedBinaryBlob[] blobs,
-    RepositoryAnalysisOptions options, OperationControl control, ulong operationId,
+    RepositoryAnalysisOptions options, bool sourceIsV5,
+    OperationControl control, ulong operationId,
     ref AnalysisSummary summary)
 {
     size_t missingRecords;
     foreach (blob; blobs)
-        if (blob !is null && blob.isBlobOrphaned)
+        if (blob !is null && jsonBlobIsOrphaned(blob, sourceIsV5))
             missingRecords++;
     summary.missingFiles = missingRecords;
     if (options.dropMissing)
     {
         summary.droppedFiles = missingRecords;
-        blobs = cleanupDataClassObjs(blobs);
+        NamedBinaryBlob[] retained;
+        foreach (blob; blobs)
+            if (blob !is null && !jsonBlobIsOrphaned(blob, sourceIsV5))
+                retained ~= blob;
+        blobs = retained;
     }
     if (!reportJsonProgress(control, operationId, OperationKind.analyze,
         OperationPhase.analysisMissingFiles, missingRecords, blobs.length, true,
@@ -405,7 +402,8 @@ private bool analyzeJsonRecords(ref NamedBinaryBlob[] blobs,
     NamedBinaryBlob[][size_t] sizeGroups;
     foreach (blob; blobs)
     {
-        if (blob !is null && blob.checkSums.hasDigests)
+        if (blob !is null && blob.checkSums.hasDigests
+            && jsonBlobHasFilesystemReference(blob, sourceIsV5))
             sizeGroups[blob.fileSize] ~= blob;
     }
 
@@ -462,6 +460,55 @@ private bool analyzeJsonRecords(ref NamedBinaryBlob[] blobs,
     return reportJsonProgress(control, operationId, OperationKind.analyze,
         OperationPhase.analysisCleanup, blobs.length, blobs.length, true,
         "JSON analysis completed.", "");
+}
+
+private bool jsonBlobIsOrphaned(NamedBinaryBlob blob, bool sourceIsV5)
+{
+    if (!sourceIsV5 || blob.fileSpecs.length == 0)
+        return blob.isBlobOrphaned;
+    if (blob.getExistingFiles().length > 0)
+        return false;
+    bool hasVirtualReference;
+    bool hasFilesystemReference;
+    foreach (spec; blob.fileSpecs)
+    {
+        if (spec is null || spec.fileName.empty)
+            continue;
+        bool isVirtual;
+        try
+            isVirtual = parseArchiveVirtualPath(spec.fileName).isVirtual;
+        catch (Exception)
+        {
+            // Keep malformed v5 paths on the normal filesystem validation path.
+        }
+        if (isVirtual)
+        {
+            hasVirtualReference = true;
+            continue;
+        }
+        hasFilesystemReference = true;
+    }
+    return hasFilesystemReference && !hasVirtualReference;
+}
+
+private bool jsonBlobHasFilesystemReference(NamedBinaryBlob blob,
+    bool sourceIsV5)
+{
+    if (!sourceIsV5 || blob.fileSpecs.length == 0)
+        return true;
+    foreach (spec; blob.fileSpecs)
+    {
+        if (spec is null || spec.fileName.empty)
+            continue;
+        try
+        {
+            if (!parseArchiveVirtualPath(spec.fileName).isVirtual)
+                return true;
+        }
+        catch (Exception)
+            return true;
+    }
+    return false;
 }
 
 private bool reportJsonProgress(OperationControl control, ulong operationId,

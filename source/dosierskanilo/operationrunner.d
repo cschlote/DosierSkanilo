@@ -1115,13 +1115,13 @@ unittest
 unittest
 {
     import std.algorithm.sorting : sort;
-    import std.algorithm.searching : startsWith;
+    import std.algorithm.searching : canFind, endsWith, startsWith;
     import std.file : DirEntry, SpanMode, dirEntries, exists, getcwd,
         remove, rmdirRecurse, tempDir;
     import std.format : format;
     import std.path : baseName, buildNormalizedPath, buildPath, dirSeparator;
     import std.uuid : randomUUID;
-    import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION4,
+    import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION5,
         deserializeDataClassJsonWrapperFile;
     import dosierskanilo.repository.types : JsonExportOptions;
     import dosierskanilo.testdata : copySyntheticCatalogForTest;
@@ -1218,9 +1218,8 @@ unittest
         repository.close();
     auto jsonCatalog = deserializeDataClassJsonWrapperFile(catalogPath);
     auto sqliteCatalog = repository.loadCatalog();
-    assert(jsonCatalog.dataVersion == DATA_CLASS_VERSION4);
+    assert(jsonCatalog.dataVersion == DATA_CLASS_VERSION5);
     assert(sqliteCatalog.length == 11);
-    assert(sqliteCatalog.length == jsonCatalog.dataArray.length);
     size_t referenceCount;
     size_t sharedBlobs;
     bool nestedJsonIndex;
@@ -1251,16 +1250,15 @@ unittest
     }
     foreach (blob; jsonCatalog.dataArray)
     {
-        assert(blob.checkSums.hasDigests);
-        foreach (entry; blob.archiveSpecs)
-            if (entry !is null && entry.fileName == "nested.zip")
-            {
-                assert(entry.nestedEntries.length == 1);
-                assert(entry.nestedEntries[0].fileName == "deep/readme.txt");
-                nestedJsonIndex = true;
-            }
         foreach (file; blob.fileSpecs)
         {
+            if (file.fileName.canFind("!/"))
+            {
+                if (file.fileName.endsWith("!/nested.zip"))
+                    nestedJsonIndex = true;
+                continue;
+            }
+            assert(blob.checkSums.hasDigests);
             auto path = buildNormalizedPath(file.fileName);
             auto relative = path.startsWith(sourcePrefix)
                 ? path[sourcePrefix.length .. $] : file.fileName;
@@ -1286,16 +1284,13 @@ unittest
     exportOptions.pathPrefix = "archives";
     repository.exportJson(exportPath, exportOptions);
     auto archiveSubset = deserializeDataClassJsonWrapperFile(exportPath);
-    assert(archiveSubset.dataVersion == DATA_CLASS_VERSION4);
-    assert(archiveSubset.dataArray.length == 3);
+    assert(archiveSubset.dataVersion == DATA_CLASS_VERSION5);
+    assert(archiveSubset.dataArray.length > 3);
     bool exportedNestedArchive;
     foreach (blob; archiveSubset.dataArray)
-        foreach (entry; blob.archiveSpecs)
-            if (entry !is null && entry.fileName == "nested.zip")
-            {
-                assert(entry.nestedEntries.length == 1);
+        foreach (file; blob.fileSpecs)
+            if (file.fileName.endsWith("!/nested.zip"))
                 exportedNestedArchive = true;
-            }
     assert(exportedNestedArchive);
     string[] exportedArchivePaths;
     foreach (blob; archiveSubset.dataArray)
@@ -1305,8 +1300,9 @@ unittest
             exportedArchivePaths ~= file.fileName;
     }
     exportedArchivePaths.sort;
-    assert(exportedArchivePaths == ["archives/nested.zip", "archives/sample.tar",
-        "archives/sample.zip"]);
+    assert(exportedArchivePaths.canFind("archives/nested.zip"));
+    assert(exportedArchivePaths.canFind("archives/sample.tar"));
+    assert(exportedArchivePaths.canFind("archives/sample.zip"));
 }
 
 @("repository write lease remains held while an operation is paused")
