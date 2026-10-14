@@ -132,18 +132,21 @@ the member's content blob.
 The planned v4 migration will convert safe, indexed members to ordinary
 `file_refs` whose canonical paths encode archive layers with `!/`. Literal `!`
 characters are escaped as `!!`; duplicate path occurrences use the `!~N`
-suffix. The migration retains normal `blobs`, `file_refs`, and `directories`,
-moves archive extractor/version/depth state to the existing `metadata_status` table,
-and drops `archive_entries` and `archive_indexes`. It adds no archive-specific
-tables or columns. Its existing `metadata_kind` and `extractor_version` values
-distinguish archive indexer and shallow/deep completion. The GUI extraction cache
-is session data and is never stored in SQLite.
+suffix. The migration retains normal `blobs`, `file_refs`, and physical
+`directories`, moves archive extractor/version/depth state to the existing
+`metadata_status` table, and drops `archive_entries` and `archive_indexes`. Its
+existing `metadata_kind` and `extractor_version` values distinguish archive
+indexer and shallow/deep completion; no archive-specific table or column is
+added. The GUI extraction cache is session data and is never stored in SQLite.
 
 An archive-member `file_ref` is not a path to an extracted cache file. Its
 availability and locator are resolved through the encoded container chain. Scan
 and metadata operations use a leased cache path as temporary extractor input,
 then persist results against the member's ordinary blob ID. Byte-identical
 occurrences share a blob while retaining separate virtual references.
+Member references keep the physical container's `directory_id`; the TreeView
+projects inner path components beneath the expandable archive file row rather
+than storing archive directories as additional rows.
 
 `torrent_info` references one blob and stores all currently available torrent
 fields, including the fields that version-3 JSON does not currently output.

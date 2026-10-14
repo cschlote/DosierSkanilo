@@ -1602,8 +1602,10 @@ catalogs remain readable, and no new `ArchiveSpec` entry list is emitted.
 #### WP-13.5.3: SQLite schema v4 virtual references
 
 - [ ] Migrate schema-v3 `archive_entries` into normal `file_refs` paths using the
-  virtual path grammar; preserve/reuse `blobs` and deep content links. Build the
-  virtual directory rows in the existing `directories` table.
+  virtual path grammar; preserve/reuse `blobs` and deep content links. A virtual
+  member reference retains its physical container's `directory_id`; inner
+  directories are projected beneath the archive file row in the TreeView, not
+  persisted as sibling/virtual directory rows.
 - [ ] Preserve duplicate occurrence identities with `!~N` virtual-path suffixes
   and stable file-reference IDs. Reconcile members by container reference,
   normalized member path, and occurrence.
@@ -1621,7 +1623,8 @@ catalogs remain readable, and no new `ArchiveSpec` entry list is emitted.
   nested archives, duplicate names, shared content blobs, and transactional rollback.
 
 **Exit:** schema v4 contains no archive-entry/index tables; safe archive members
-are normal `file_refs` linked to normal `blobs`.
+are normal `file_refs` linked to normal `blobs`, with no virtual directory rows
+added to the database.
 
 #### WP-13.5.4: Shared extraction cache and member scraping
 
