@@ -132,9 +132,10 @@ shape does not persist an entry's own `NamedBinaryBlob` identity or path-referen
 record. The JSON adapter derives source-scoped member references and content IDs
 from deep checksums for the lifetime of an open catalog. Version 4 can additionally
 persist nested entry metadata; runtime reference identities are rebuilt on open.
-The backend projects virtual member references through the common catalog API.
-The expandable GTK archive TreeView and shared extraction cache remain planned
-under WP-13.5 and the GUI archive workflow plan.
+The backend projects virtual member references through the common catalog API
+and uses a session-scoped extraction cache for deep scraping. The expandable GTK
+archive TreeView and previewer integration with that cache remain planned under
+WP-13.5 and the GUI archive workflow plan.
 
 The current shallow archive scan records entry names only; size, timestamp and
 checksums are populated by deep scanning, which extracts entries to temporary

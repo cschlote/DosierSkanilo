@@ -18,6 +18,7 @@ import std.uuid;
 import dosierskanilo.logging;
 import dosierarkivo.archive : ArchivePasswordCallback;
 import dosierskanilo.model.namedbinaryblob;
+import dosierskanilo.membercontentcache : MemberContentCache;
 import dosierskanilo.options;
 import dosierskanilo.progress;
 
@@ -246,7 +247,9 @@ bool runScannerJobs(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCt
                     obj.task_archiveScan = task!updateArchives(obj,
                         argsArray.argRescanMediaSig, argsArray.argScanArchives > 1,
                         &gotCtrlC, cast(ProgressCallBack*) null,
-                        cast(ArchivePasswordCallback) null);
+                        cast(ArchivePasswordCallback) null, cast(size_t) 0,
+                        cast(size_t) 8, "", cast(MemberContentCache) null,
+                        argsArray.argDoFileTypes, argsArray.argDoMediaSig);
                     myTaskPool.put(obj.task_archiveScan);
                 }
                 if (argsArray.argScanTorrents && obj.torrentInfo is null)
@@ -342,7 +345,9 @@ bool runScannerJobs(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCt
                 {
                     ProgressCallBack cb = ProgressCallBack(&progressCallBack);
 
-                    updateArchives(obj, false, argsArray.argScanArchives > 1, &gotCtrlC, &cb);
+                    updateArchives(obj, false, argsArray.argScanArchives > 1,
+                        &gotCtrlC, &cb, null, 0, 8, "", null,
+                        argsArray.argDoFileTypes, argsArray.argDoMediaSig);
                 }
                 if (argsArray.argScanTorrents && obj.torrentInfo is null)
                 {

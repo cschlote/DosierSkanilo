@@ -9,6 +9,7 @@ module dosierskanilo.model.archivespec;
 import jsonizer;
 
 public import dosierskanilo.model.checksums;
+import dosierskanilo.metadata.mediainfosig : MediaInfoSig;
 
 import std.format : format;
 
@@ -38,6 +39,10 @@ class ArchiveSpec
     /** Version-4 password accepted while indexing a nested archive member. */
     @jsonize(JsonizeIn.opt, JsonizeOut.opt)
     string archivePassword;
+
+    /** Scraped member metadata held in-memory until v5 promotion. */
+    string fileType;
+    MediaInfoSig mediaInfoSig;
 
     /** Adapter-only identity data; never serialized in JSON catalogs. */
     @jsonize(JsonizeIn.no, JsonizeOut.no)
@@ -94,11 +99,14 @@ class ArchiveSpec
 	}
 
 	/** Deep-copy this entry, including nested archive member metadata. */
-	ArchiveSpec dup() const
+	ArchiveSpec dup()
 	{
 		auto result = new ArchiveSpec(fileName, fileSize, timeLastModified,
 			checkSums);
-		result.archivePassword = archivePassword;
+        result.archivePassword = archivePassword;
+        result.fileType = fileType;
+        if (mediaInfoSig !is null)
+            result.mediaInfoSig = mediaInfoSig;
 		result.entryIndex = entryIndex;
 		result.occurrence = occurrence;
 		result.hasIndexIdentity = hasIndexIdentity;

@@ -17,6 +17,8 @@ They represent the functional evolution and are intentionally summarized.
 - SQLite schema v4 migrates safe archive members into ordinary `file_refs`,
   keeps their physical `directory_id`, moves archive index/depth state into
   `metadata_status`, and removes `archive_entries`/`archive_indexes`.
+- Deep archive scraping now uses a bounded, session-scoped extraction cache with
+  coalesced requests and explicit leases; cache paths remain transient.
 
 ## Release 26.11.0 - 2026-10-13
 

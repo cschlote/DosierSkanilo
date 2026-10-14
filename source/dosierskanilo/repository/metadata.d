@@ -66,7 +66,8 @@ private void runMetadataWork(MetadataWorkItem item)
         attempt("archives", {
             updateArchives(item.blob, item.options.rescan,
                 item.options.deepArchiveScan, null, null,
-                item.options.archivePasswordCallback);
+                item.options.archivePasswordCallback, 0, 8, "", null,
+                item.options.detectFileTypes, item.options.extractMediaInfo);
         });
     if (item.doTorrents)
         attempt("torrents", { updateTorrentInfo(item.blob, item.options.rescan); });
@@ -182,9 +183,10 @@ MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
             try
             {
                 updateArchives(blob, options.rescan, options.deepArchiveScan,
-                    null, null, options.archivePasswordCallback);
+                    null, null, options.archivePasswordCallback, 0, 8, "", null,
+                    options.detectFileTypes, options.extractMediaInfo);
                 persistArchives(db, blobId, blob.archiveSpecs,
-                    options.deepArchiveScan);
+                    options.deepArchiveScan, summary);
                 persistArchivePassword(db, blobId, blob.archivePassword);
                 setMetadataStatus(db, blobId, "archives",
                     blob.archiveSpecs is null ? "not_archive" : "completed", "");
@@ -540,7 +542,7 @@ private void persistMetadataWork(ref Database db, MetadataWorkItem item,
     finish("archives", item.doArchives, item.blob.archiveSpecs !is null,
         {
             persistArchives(db, item.blobId, item.blob.archiveSpecs,
-                item.options.deepArchiveScan);
+                item.options.deepArchiveScan, summary);
             persistArchivePassword(db, item.blobId, item.blob.archivePassword);
         });
     finish("torrents", item.doTorrents, item.blob.torrentInfo !is null,
@@ -696,7 +698,7 @@ private void persistMediaInfo(ref Database db, long blobId, MediaInfoSig info)
 }
 
 private void persistArchives(ref Database db, long blobId, ArchiveSpec[] entries,
-    bool deepScanned)
+    bool deepScanned, ref MetadataSummary summary)
 {
     if (entries is null)
     {
@@ -739,6 +741,8 @@ private void persistArchives(ref Database db, long blobId, ArchiveSpec[] entries
     const bool preserveDeep = !deepScanned
         && archiveIndexCurrent(db, blobId, true);
     bool[string] desiredPaths;
+    bool[long] persistedMemberFileTypes;
+    bool[long] persistedMemberMedia;
 
     long memberBlobIdFor(ArchiveSpec entry, string memberPath,
         bool preserveMember)
@@ -843,6 +847,28 @@ private void persistArchives(ref Database db, long blobId, ArchiveSpec[] entries
             entry.contentIdentity = "";
             writeMember(memberPath, memberBlobId, parent,
                 entry.timeLastModified);
+            if (entry.fileType.length > 0)
+            {
+                db.execute("UPDATE blobs SET file_type = ? WHERE id = ?",
+                    entry.fileType, memberBlobId);
+                setMetadataStatus(db, memberBlobId, "file_type", "completed", "");
+                if (memberBlobId !in persistedMemberFileTypes)
+                {
+                    persistedMemberFileTypes[memberBlobId] = true;
+                    ++summary.fileTypesUpdated;
+                }
+            }
+            if (entry.mediaInfoSig !is null)
+            {
+                persistMediaInfo(db, memberBlobId, entry.mediaInfoSig);
+                setMetadataStatus(db, memberBlobId, "media_info",
+                    metadataState(!entry.mediaInfoSig.empty), "");
+                if (!entry.mediaInfoSig.empty && memberBlobId !in persistedMemberMedia)
+                {
+                    persistedMemberMedia[memberBlobId] = true;
+                    ++summary.mediaInfoUpdated;
+                }
+            }
             if (entry.archivePassword.length > 0)
                 persistArchivePassword(db, memberBlobId, entry.archivePassword);
 

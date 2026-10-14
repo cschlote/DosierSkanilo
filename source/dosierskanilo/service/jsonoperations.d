@@ -10,6 +10,7 @@ import std.string : empty, replace, split;
 
 import dosierarkivo.archive : escapeArchiveVirtualPath,
     parseArchiveVirtualPath;
+import dosierskanilo.model.archivespec : ArchiveSpec;
 import dosierskanilo.model.namedbinaryblob : NamedBinaryBlob,
     DATA_CLASS_VERSION5, NamedBinaryBlobCatalog,
     deserializeDataClassJsonWrapperFile,
@@ -227,7 +228,9 @@ private void runJsonMetadataWork(JsonMetadataWork item)
         updateMediaInfo(item.blob, item.options.rescan);
     if (item.doArchives)
         updateArchives(item.blob, item.options.rescan, item.options.deepArchiveScan,
-            item.cancellationFlag, null, item.options.archivePasswordCallback);
+            item.cancellationFlag, null, item.options.archivePasswordCallback,
+            0, 8, "", null, item.options.detectFileTypes,
+            item.options.extractMediaInfo);
     if (item.doTorrents)
         updateTorrentInfo(item.blob);
 }
@@ -349,9 +352,15 @@ private JsonMetadataExecutionResult updateJsonMetadata(ref NamedBinaryBlob[] blo
                 execution.summary.checksumsUpdated++;
             if (item.doFileType && item.blob.fileType.length > 0)
                 execution.summary.fileTypesUpdated++;
+            if (item.doArchives && item.options.detectFileTypes)
+                execution.summary.fileTypesUpdated +=
+                    countArchiveFileTypes(item.blob.archiveSpecs);
             if (item.doMediaInfo && item.blob.mediaInfoSig !is null
                 && !item.blob.mediaInfoSig.empty)
                 execution.summary.mediaInfoUpdated++;
+            if (item.doArchives && item.options.extractMediaInfo)
+                execution.summary.mediaInfoUpdated +=
+                    countArchiveMediaInfo(item.blob.archiveSpecs);
             if (item.doArchives && (item.blob.archiveIndexKnown
                 || item.blob.archiveSpecs !is null))
                 execution.summary.archivesUpdated++;
@@ -375,6 +384,34 @@ private JsonMetadataExecutionResult updateJsonMetadata(ref NamedBinaryBlob[] blo
     }
     execution.cancelled = cancellationRequested(control);
     return execution;
+}
+
+private size_t countArchiveFileTypes(ArchiveSpec[] entries)
+{
+    size_t result;
+    foreach (entry; entries)
+    {
+        if (entry is null)
+            continue;
+        if (entry.fileType.length > 0)
+            ++result;
+        result += countArchiveFileTypes(entry.nestedEntries);
+    }
+    return result;
+}
+
+private size_t countArchiveMediaInfo(ArchiveSpec[] entries)
+{
+    size_t result;
+    foreach (entry; entries)
+    {
+        if (entry is null)
+            continue;
+        if (entry.mediaInfoSig !is null && !entry.mediaInfoSig.empty)
+            ++result;
+        result += countArchiveMediaInfo(entry.nestedEntries);
+    }
+    return result;
 }
 
 private bool analyzeJsonRecords(ref NamedBinaryBlob[] blobs,

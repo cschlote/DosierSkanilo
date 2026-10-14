@@ -22,9 +22,13 @@ import jsonizer;
 import dosierarkivo;
 import dosierarkivo.archive : appendArchiveVirtualPath,
     escapeArchiveVirtualPath, normalizeArchiveEntryPath, parseArchiveVirtualPath;
+import dosierskanilo.catalogbackend : ArchiveEntryId, ContentId,
+    ContentLocator, ReferenceId;
 import dosierskanilo.logging;
 import dosierskanilo.options;
 import dosierskanilo.progress;
+import dosierskanilo.membercontentcache : MemberContentCache,
+    MemberContentLease, sharedMemberContentCache;
 import dosierskanilo.metadata.digests;
 import dosierskanilo.metadata.mediainfosig;
 import dosierskanilo.metadata.torrentinfo;
@@ -118,7 +122,9 @@ mixin template payloadHelpers()
 	Task!(updateDigests, NamedBinaryBlob, shared(bool)*, ProgressCallBack*)* task_hashme; ///< Pointer to hashing job
 	Task!(updateFileType, NamedBinaryBlob)* task_filetype; /// Query filetype with 'file' utility
 	Task!(updateMediaInfo, NamedBinaryBlob, bool)* task_mediasig; ///< Pointer to mediasig job
-	Task!(updateArchives, NamedBinaryBlob, bool, bool, shared(bool)*, ProgressCallBack*, ArchivePasswordCallback)* task_archiveScan; ///< Pointer to archive scan job
+	Task!(updateArchives, NamedBinaryBlob, bool, bool, shared(bool)*, ProgressCallBack*,
+		ArchivePasswordCallback, size_t, size_t, string, MemberContentCache, bool,
+		bool)* task_archiveScan; ///< Pointer to archive scan job
 	Task!(updateTorrentInfo, NamedBinaryBlob)* task_torrentscan; ///< Pointer to torrent scan job
 }
 
@@ -1265,6 +1271,9 @@ private void appendArchiveMemberBlobs(ref NamedBinaryBlob[] result,
 		auto member = new NamedBinaryBlob();
 		member.fileSize = entry.fileSize;
 		member.checkSums = entry.checkSums;
+		member.fileType = entry.fileType;
+		if (entry.mediaInfoSig !is null)
+			member.mediaInfoSig = entry.mediaInfoSig.dup;
 		member.fileSpecs = [new FileSpec(memberPath, entry.timeLastModified)];
 		member.archivePassword = entry.archivePassword;
 		member.archiveIndexKnown = entry.nestedEntries !is null
@@ -1743,12 +1752,8 @@ void updateMediaInfo(NamedBinaryBlob obj, bool rescan = false)
 {
 	if (obj.mediaInfoSig is null || rescan)
 	{
-		import std.algorithm.sorting : sort;
-		import std.file : exists;
-
 		if (obj.fileSize) // Empty files surely have no info at all....
 		{
-			auto filespecs = obj.fileSpecs.sort;
 			foreach (spec; obj.getExistingFiles)
 			{
 				obj.mediaInfoSig = getMediaTypeSignature(spec.fileName);
@@ -1784,6 +1789,19 @@ unittest
  *   gotCtrlC = shared bool pointer to check for Ctrl-C interrupt
  *   progressCallBack = callback function to report progress
  */
+private string archiveCacheIdentity(NamedBinaryBlob blob,
+	string physicalPath, string displayPath)
+{
+	import std.conv : to;
+
+	if (blob.checkSums.hasDigests)
+		return "fingerprint:" ~ blob.fileSize.to!string ~ ":"
+			~ blob.checkSums.md5sum_b64 ~ ":" ~ blob.checkSums.sha1sum_b64
+			~ ":" ~ blob.checkSums.xxh64sum_b64;
+	return "path:" ~ (displayPath.length > 0 ? displayPath : physicalPath)
+		~ "\0" ~ blob.fileSize.to!string ~ "\0" ~ blob.getFirstFileModDate;
+}
+
 void updateArchives(NamedBinaryBlob obj,
 	bool rescan = false,
 	bool deep = true,
@@ -1792,18 +1810,18 @@ void updateArchives(NamedBinaryBlob obj,
 	ArchivePasswordCallback passwordCallback = null,
 	size_t depth = 0,
 	size_t maxDepth = 8,
-	string displayArchivePath = "")
+	string displayArchivePath = "",
+	MemberContentCache memberCache = null,
+	bool inspectMemberFileType = false,
+	bool inspectMemberMediaInfo = false)
 {
-	string getTmpDirPrefix() const
-	{
-		import std.process : thisProcessID, thisThreadID;
-		import std.path : buildPath;
-		import std.file : tempDir;
-		import std.conv : to;
+	import std.conv : to;
+	import core.atomic : atomicLoad;
+	import std.file : getSize, getTimes;
+	import std.string : format;
 
-		return buildPath(tempDir, "dosierskanilo-" ~ thisProcessID.to!string ~ "-"
-			~ thisThreadID.to!string ~ "-archive-depth-" ~ depth.to!string);
-	}
+	if (memberCache is null)
+		memberCache = sharedMemberContentCache();
 
 	if (obj.archiveSpecs is null || rescan)
 	{
@@ -1833,6 +1851,10 @@ void updateArchives(NamedBinaryBlob obj,
 				{
 					const auto archiveDisplayPath = displayArchivePath.length > 0
 						? displayArchivePath : spec.fileName;
+					const auto containerCacheKey = archiveCacheIdentity(obj,
+						spec.fileName, archiveDisplayPath);
+					const auto containerCacheIdentity = archiveCacheIdentity(obj,
+						spec.fileName, archiveDisplayPath);
 					logLineVerbose();
 					logFLineVerbose("Found archive of type '%s'", archiveObj.fileType);
 					logFLineVerbose("  with file '%s'", spec.fileName);
@@ -1863,22 +1885,31 @@ void updateArchives(NamedBinaryBlob obj,
                         obj.archivePassword = password;
                     logFLine("  with %d entries", archiveEntries.length);
                     obj.archiveSpecs = [];
+                    size_t[string] safePathCounts;
+                    foreach (descriptor; archiveEntries)
+                        if (descriptor.hasSafePath && !descriptor.isDirectory)
+                            safePathCounts[descriptor.relativePath] =
+                                safePathCounts.get(descriptor.relativePath, 0) + 1;
                     if (progressCallBack !is null)
                         progressCallBack.fp(0, archiveEntries.length);
 
                     foreach (idx, descriptor; archiveEntries)
                     {
-                        import std.file : mkdirRecurse, rmdirRecurse;
-
                         const auto arcfile = descriptor.name;
                         logFLineVerbose("  with archive file '%s'", arcfile);
 
                         size_t arcFileSize;
                         string arcModTimeStr;
                         string extractedPath;
+                        string memberFileType;
+                        MediaInfoSig memberMediaInfo;
+                        MemberContentLease extractionLease;
+                        scope (exit)
+                            if (extractionLease !is null)
+                                extractionLease.release();
                         CheckSums sums = CheckSums();
                         if (!descriptor.hasSafePath || descriptor.isDirectory
-                            || descriptor.occurrence > 0)
+                            || safePathCounts.get(descriptor.relativePath, 0) > 1)
                         {
                             auto unscannedEntry = new ArchiveSpec(arcfile,
                                 arcFileSize, arcModTimeStr, sums);
@@ -1891,28 +1922,37 @@ void updateArchives(NamedBinaryBlob obj,
                             continue;
                         }
 
-                        mkdirRecurse(getTmpDirPrefix);
-						scope (exit)
-							if (getTmpDirPrefix.exists)
-								rmdirRecurse(getTmpDirPrefix);
-
                         if (deep)
 						{
-							import std.string : format;
-							import std.path : buildPath;
-							import std.file : getSize, getTimes;
-
-                            auto destFile = buildPath(getTmpDirPrefix(), arcfile);
-                            extractedPath = destFile;
-
 							bool exOk;
 							bool extractionPasswordPrompted;
 							while (true)
 							{
 								try
 								{
-									exOk = archiveObj.extractEntry(arcfile,
-										getTmpDirPrefix(), password);
+										const auto occurrence = descriptor.occurrence
+											.to!string;
+									const auto fallbackIdentity = containerCacheKey
+										~ "!/" ~ descriptor.relativePath ~ "!~" ~ occurrence;
+									const auto cacheContainer = ReferenceId(
+										"scanner-container:" ~ containerCacheKey);
+									const auto cacheEntry = ArchiveEntryId(
+										"scanner-entry:" ~ descriptor.relativePath
+										~ ":" ~ occurrence);
+									const auto locator = ContentLocator.entry(cacheContainer,
+										cacheEntry);
+								extractionLease = memberCache.acquire(locator,
+										ContentId.init, fallbackIdentity,
+										descriptor.relativePath,
+												descriptor.hasSize ? descriptor.size : 0,
+										(string destinationDirectory) {
+											if (gotCtrlC !is null && atomicLoad(*gotCtrlC))
+												return false;
+											return archiveObj.extractEntry(arcfile,
+												destinationDirectory, password);
+										}, gotCtrlC);
+									exOk = extractionLease !is null;
+									extractedPath = extractionLease.path;
 									break;
 								}
 								catch (ArchivePasswordRequiredException ex)
@@ -1922,17 +1962,14 @@ void updateArchives(NamedBinaryBlob obj,
 									extractionPasswordPrompted = true;
 								}
 							}
-							if (extractionPasswordPrompted)
-								obj.archivePassword = password;
-							enforce(exOk, "Failed to extract archive entry '%s' from archive '%s'".format(arcfile, spec
-									.fileName));
-							enforce(destFile.exists, destFile);
+									if (extractionPasswordPrompted)
+									obj.archivePassword = password;
+								enforce(exOk, "Failed to extract archive entry '%s' from archive '%s'".format(arcfile, spec
+										.fileName));
 
-							import dosierskanilo.metadata.digests;
-							import std.stdio : File;
-
-							ubyte[] md5sum_s, sha1sum_s, xxh64sum_s;
-							calculatesDigests(gotCtrlC, destFile, &md5sum_s, &sha1sum_s, &xxh64sum_s, progressCallBack);
+								import dosierskanilo.metadata.digests;
+								ubyte[] md5sum_s, sha1sum_s, xxh64sum_s;
+								calculatesDigests(gotCtrlC, extractedPath, &md5sum_s, &sha1sum_s, &xxh64sum_s, progressCallBack);
 							if (progressCallBack !is null)
                                 progressCallBack.fp(idx, archiveEntries.length);
 
@@ -1940,12 +1977,30 @@ void updateArchives(NamedBinaryBlob obj,
 							sums.set_sha1sum = sha1sum_s;
 							sums.set_xxh64 = xxh64sum_s;
 
-							SysTime arcAccessTime;
-							SysTime arcModTime;
-							destFile.getTimes(arcAccessTime, arcModTime);
-							arcModTimeStr = arcModTime.toISOExtString;
+								SysTime arcAccessTime;
+								SysTime arcModTime;
+								extractedPath.getTimes(arcAccessTime, arcModTime);
+								arcModTimeStr = arcModTime.toISOExtString;
 
-							arcFileSize = destFile.getSize;
+								arcFileSize = extractedPath.getSize;
+								auto extractedBlob = new NamedBinaryBlob(
+									[new FileSpec(extractedPath, arcModTimeStr)],
+									arcFileSize);
+								extractedBlob.checkSums = sums;
+								if (inspectMemberFileType)
+									try
+										updateFileType(extractedBlob, true);
+									catch (Exception failure)
+										logFLineVerbose("Could not detect file type for archive member '%s': %s",
+											arcfile, failure.msg);
+								if (inspectMemberMediaInfo)
+									try
+										updateMediaInfo(extractedBlob, true);
+									catch (Exception failure)
+										logFLineVerbose("Could not extract MediaInfo for archive member '%s': %s",
+											arcfile, failure.msg);
+								memberFileType = extractedBlob.fileType;
+								memberMediaInfo = extractedBlob.mediaInfoSig;
 						}
                         ArchiveSpec[] nestedEntries;
                         string nestedPassword;
@@ -1956,13 +2011,17 @@ void updateArchives(NamedBinaryBlob obj,
                             {
                                 auto nestedBlob = new NamedBinaryBlob();
                                 nestedBlob.fileSize = arcFileSize;
+                                nestedBlob.checkSums = sums;
                                 nestedBlob.fileSpecs = [new FileSpec(extractedPath,
                                     arcModTimeStr)];
-                                const auto nestedDisplayPath = archiveDisplayPath
-                                    ~ "!/" ~ descriptor.relativePath;
+                                const auto nestedDisplayPath = appendArchiveVirtualPath(
+                                    archiveDisplayPath, descriptor.relativePath,
+                                    descriptor.occurrence > 0
+                                        ? descriptor.occurrence : size_t.max);
                                 updateArchives(nestedBlob, true, deep, gotCtrlC,
                                     progressCallBack, passwordCallback, depth + 1,
-                                    maxDepth, nestedDisplayPath);
+                                    maxDepth, nestedDisplayPath, memberCache,
+                                    inspectMemberFileType, inspectMemberMediaInfo);
                                 nestedEntries = nestedBlob.archiveSpecs;
                                 nestedPassword = nestedBlob.archivePassword;
                             }
@@ -1974,6 +2033,9 @@ void updateArchives(NamedBinaryBlob obj,
                         aspec.hasIndexIdentity = true;
                         aspec.nestedEntries = nestedEntries;
                         aspec.archivePassword = nestedPassword;
+                        aspec.fileType = memberFileType;
+                        if (memberMediaInfo !is null)
+                            aspec.mediaInfoSig = memberMediaInfo.dup;
                         obj.archiveSpecs ~= aspec;
 
                         if (progressCallBack !is null)
@@ -2083,6 +2145,7 @@ unittest
 	import std.process : execute, Config;
 	import std.uuid : randomUUID;
 	import dosierarkivo.archive : ArchivePasswordCallback;
+	import dosierskanilo.membercontentcache : MemberContentCache;
 
 	auto root = buildPath(tempDir(), "dosierskanilo-encrypted-archive-"
 		~ randomUUID().toString());
@@ -2110,7 +2173,10 @@ unittest
 		password = "archive-secret";
 		return true;
 	};
-	updateArchives(blob, true, true, null, null, callback);
+	auto successfulCache = new MemberContentCache(buildPath(root, "cache-success"));
+	updateArchives(blob, true, true, null, null, callback, 0, 8, "",
+		successfulCache);
+	successfulCache.close();
 	assert(prompts == 1);
 	assert(blob.archivePassword == "archive-secret");
 	assert(blob.archiveSpecs.length == 1);
@@ -2130,8 +2196,10 @@ unittest
 		}
 		return false;
 	};
+	auto rejectedCache = new MemberContentCache(buildPath(root, "cache-rejected"));
 	assertThrown!ArchivePasswordCancelledException(updateArchives(rejectedBlob,
-		true, true, null, null, rejectWrongPassword));
+		true, true, null, null, rejectWrongPassword, 0, 8, "", rejectedCache));
+	rejectedCache.close();
 	assert(rejectedPrompts == 2);
 	assert(rejectedBlob.archivePassword.length == 0,
 		"a cancelled wrong-password attempt must not be persisted");

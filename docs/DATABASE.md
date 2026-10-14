@@ -127,9 +127,10 @@ added. The GUI extraction cache is session data and is never stored in SQLite.
 
 An archive-member `file_ref` is not a path to an extracted cache file. Its
 availability and locator are resolved through the encoded container chain. The
-current metadata scanner still uses its temporary extraction flow; the shared
-leased cache service is tracked separately in WP-13.5.4. Byte-identical
-occurrences may share a blob while retaining separate virtual references.
+backend's deep scraper uses a leased session cache and persists results against
+the member's ordinary blob ID; its path is not serialized. The GUI previewer is
+planned to use the same service. Byte-identical occurrences may share a blob
+while retaining separate virtual references.
 Member references keep the physical container's `directory_id`; the TreeView
 projects inner path components beneath the expandable archive file row rather
 than storing archive directories as additional rows.

@@ -1566,7 +1566,7 @@ structured even though display paths use `container!/member`. JSON v5 and SQLite
 schema v4 now persist member references as normal `file_refs`; the shared cache
 and GTK workflow remain planned work.
 
-WP-13.5 verification: `dub test --config=library --compiler=ldc2` — 128 passed.
+WP-13.5 verification: `dub test --config=library --compiler=ldc2` — 131 passed.
 Coverage checks safe path normalization, duplicate occurrence assignment,
 version-2-to-3 migration, shallow-to-deep upgrade, recursive nested indexing,
 stable row identity after rescan, archive-member content deduplication against a
@@ -1626,27 +1626,27 @@ added to the database. The CLI uses the common v5 writer for repository export.
 
 #### WP-13.5.4: Shared extraction cache and member scraping
 
-- [ ] Add a storage-neutral member-content lease/service keyed by `ContentLocator`.
-  The GUI previewer and backend scrapers acquire the same cached file and
-  release/pin it through one lifecycle API; no temporary path is serialized.
-- [ ] Key cached files by content identity when known, otherwise by the structured
+- [x] Add a storage-neutral member-content lease/service keyed by `ContentLocator`.
+  Backend scrapers use its acquire/release lifecycle; the GUI previewer will join
+  the same API in WP-13.5.5. No temporary path is serialized.
+- [x] Key cached files by content identity when known, otherwise by the structured
   container/entry occurrence chain. Coalesce concurrent requests for one key.
-- [ ] During an explicit deep archive scan, process every safely selectable
+- [x] During an explicit deep archive scan, process each safely selectable
   non-directory member, reusing its cached extraction for checksums and each
   selected metadata extractor (file type, MediaInfo, nested archive scan), then
   persist results to the member's normal content blob.
-- [ ] Resolve nested member locators one container layer at a time. Extract each
+- [x] Resolve nested member locators one container layer at a time. Extract each
   intermediate archive into the same cache, pin it while the child extraction is
   active, and release it when no preview/extractor uses it.
 - [ ] Support extraction of a precise duplicate occurrence in DosierArkivo; do
   not claim a deep fingerprint for a duplicate that an adapter cannot select.
-- [ ] Bound cache bytes and concurrent work, deduplicate in-flight requests, pin
-  active previews, and make operations cancellable and disk-full safe.
-- [ ] Never persist the cache path as a source reference. Document per-session
-  cache roots, startup cleanup of stale owned sessions, and orderly shutdown.
+- [x] Bound cache bytes and concurrent work, coalesce in-flight requests, pin
+  active leases, and make extraction cancellation and disk-full failures safe.
+- [x] Never persist cache paths as source references. Use per-session cache roots,
+  clean stale unlocked sessions at startup, and remove the owned session at close.
 
-**Exit:** scraper, checksum, file-type, MediaInfo, and preview operations obtain
-member bytes through the same cache service; durable references remain virtual.
+**Exit pending:** GUI preview operations have not yet joined the cache service, and
+precise duplicate occurrence extraction remains unsupported by the archive adapters.
 
 #### WP-13.5.5: Expandable archive TreeView and cache preferences
 

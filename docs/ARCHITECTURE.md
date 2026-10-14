@@ -305,13 +305,13 @@ gap is exact occurrence selection: `extractEntry()` accepts a member name, so
 adapters cannot claim deep fingerprints for duplicate-name occurrences they
 cannot select.
 
-The remaining WP-13.5 work is a shared leased extraction cache and GTK navigation.
-The canonical spelling uses `!/` for container transitions, `!!`
-for a literal exclamation mark, and `!~N` for duplicate occurrences; structured
-locators remain the identity. The same session extraction cache must serve
-checksums, file type, MediaInfo, and preview. Its paths are scratch inputs only,
-never durable file references; cache cleanup waits until previews and worker jobs
-have released their leases.
+The backend deep scraper now uses a shared leased extraction cache for checksums,
+file type, MediaInfo, and nested indexing. GTK preview integration and precise
+duplicate-occurrence extraction remain follow-up work. The canonical spelling
+uses `!/` for container transitions, `!!` for a literal exclamation mark, and
+`!~N` for duplicate occurrences; structured locators remain the identity. Cache
+paths are scratch inputs only, never durable file references; cache cleanup waits
+until active leases are released.
 
 ## 7. Torrent Handling
 

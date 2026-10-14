@@ -1247,6 +1247,7 @@ unittest
     repository.scan();
     MetadataScanOptions options;
     options.calculateChecksums = true;
+    options.detectFileTypes = true;
     options.scanArchives = true;
     options.scanTorrents = true;
     options.deepArchiveScan = false;
@@ -1316,6 +1317,7 @@ unittest
     }
     assert(foundPhysicalPayload && foundVirtualPayload);
     assert(memberDetails.checkSums.hasDigests);
+    assert(memberDetails.fileType.length > 0);
     options.rescan = true;
     repository.updateMetadata(options);
     auto archiveEntriesAfter = repository.listArchiveEntries(archiveEntriesQuery);
