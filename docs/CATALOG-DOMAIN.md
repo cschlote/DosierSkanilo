@@ -1,7 +1,9 @@
 # Catalog Domain Values and Locators
 
-Status: WP-13.1/WP-13.2 decisions and WP-13.3/WP-13.4 JSON/SQLite adapters are
-implemented; first-class archive references remain tracked as WP-13.5.
+Status: WP-13.1 through WP-13.4 and the first WP-13.5 archive-index slices are
+implemented. The next WP-13.5 slices replace persisted member lists with normal
+virtual `FileSpec` references, migrate SQLite to those references, and add a
+shared extraction cache plus GUI navigation.
 
 This document freezes the concepts needed by a storage-neutral catalog API.
 It distinguishes payload identity from the places where that payload is
@@ -100,9 +102,9 @@ incidental Jsonizer field.
   chains even though their content IDs may be shared.
 - A rendered path such as
   `archives/photos.zip!/nested.zip!/readme.txt` is presentation only. `!/`
-  separates archive layers and `!!` encodes a literal exclamation mark inside a
-  path component, so the display spelling can be split unambiguously. The
-  resulting names still do not identify entries; typed locators remain
+  separates archive layers, `!!` encodes a literal exclamation mark, and `!~N`
+  encodes a zero-based duplicate-name occurrence. Literal display names omit the
+  occurrence suffix. The resulting path is reversible, but typed locators remain
   authoritative for identity.
 - An extracted member can share a `ContentId` with a physical file or another
   archive member. Each address remains a separate `ContentReference`.
@@ -216,11 +218,14 @@ is authoritative.
 
 ## Mapping from the current implementation
 
-- `NamedBinaryBlob` approximates `ContentBlob` but also owns `FileSpec[]` physical
-  references and nested `ArchiveSpec[]`; it is mutable and JSON-versioned.
+- `NamedBinaryBlob` approximates `ContentBlob` but also owns `FileSpec[]` source
+  references; it is mutable and JSON-versioned. JSON v0-v4 nested `ArchiveSpec[]`
+  remains an import-compatibility shape; planned v5 stores members as normal
+  content records with virtual `FileSpec` paths.
 - SQLite `blobs.id` approximates `ContentId`; `file_refs.id` approximates
-  `ReferenceId`; `file_refs.relative_path` is the current filesystem locator.
-  These integer IDs remain adapter-private.
+  `ReferenceId`; schema v3 currently uses physical `file_refs.relative_path`.
+  Planned schema v4 uses that field for physical and virtual path layers. These
+  integer IDs remain adapter-private.
 - `RepositoryArchiveEntry` exposes a stable row ID, normalized path, ordered
   index/duplicate occurrence, size/time/checksums, and a linked content ID after
   deep extraction. `CatalogBackend.listArchiveMembers` combines that entry ID
@@ -232,6 +237,10 @@ is authoritative.
   for flat data and v4 when nested entries are selected). Nested locator chains
   are supported. The TreeView can expand the existing file row and group member
   paths beneath it without adding a database directory relation.
-- `ArchiveSpec` is legacy nested metadata and `TorrentFileEntry` is torrent
-  metadata only. WP-13.5 adds first-class backend projections without changing
-  those compatibility representations implicitly.
+- `ArchiveSpec` is the current JSON v0-v4 compatibility representation. The
+  planned JSON v5 writer stores each scraped member as a normal content record
+  with a virtual `FileSpec`; legacy nested `ArchiveSpec` trees remain readable.
+- SQL schema v3 currently persists ordered entries in `archive_entries` and
+  content links in `archive_indexes`. WP-13.5 plans to migrate those values into
+  virtual file references and remove both archive-specific tables, reusing
+  `file_refs`, `blobs`, `directories`, and `metadata_status`.

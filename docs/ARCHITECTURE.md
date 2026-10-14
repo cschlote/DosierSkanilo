@@ -71,9 +71,9 @@ below are frozen.
 
 | Type | Current responsibility | Boundary/limitation |
 | --- | --- | --- |
-| `NamedBinaryBlob` | JSON-compatible record for a payload, checksum/metadata, and one or more `FileSpec`s | Mixes payload and filesystem references; keep as the v3 serializer model, not the future backend interface |
-| `FileSpec` | One physical filesystem path and its observed timestamp | Has no source-kind or archive-entry locator today |
-| `ArchiveSpec` | Versioned archive member metadata, including recursive v4 `nestedEntries` | Serialized compatibility data; runtime member references and content IDs are adapter projections |
+| `NamedBinaryBlob` | JSON-compatible record for a payload, checksum/metadata, and one or more `FileSpec`s | Compatibility serializer model; v5 will use it for archive-member content records too |
+| `FileSpec` | Currently one physical filesystem path and its observed timestamp | Planned v5 also uses the path string for `!/`-encoded archive locations; typed locators remain the operation identity |
+| `ArchiveSpec` | Legacy JSON v0-v4 archive member metadata, including recursive v4 `nestedEntries` | Planned JSON v5 stores each scraped member as a normal blob with a virtual `FileSpec` path |
 | `TorrentInfo` / `TorrentFileEntry` | Torrent-level facts and torrent member paths | Torrent members are also nested metadata, not ordinary catalog references |
 | `Repository` | Concrete SQLite lifecycle, query, transfer, and synchronous convenience API | SQLite-backed concrete class; no common JSON/SQLite catalog superclass yet |
 | `RepositoryDirectory` / `RepositoryFile` / page DTOs | Typed bounded SQLite read results | Stable cursor IDs are repository identities; GUI JSON projections are separately built |
@@ -97,22 +97,18 @@ filesystem string. The displayed virtual path is a presentation of that locator,
 not its identity. Nested archives can extend the locator with a parent-entry
 chain.
 
-The archive locator design must define how duplicate names inside one archive
-are distinguished (for example, a stable entry ID/ordinal in addition to the
-normalized path). It must also define what archive operations cache: the
-container content identity, entry-list fingerprint, extractor/version state,
-and per-entry content identity. Size, timestamp, or archive CRC may help decide
-whether to recheck an entry, but are not a substitute for the catalog's strong
-content digest when merging arbitrary payloads.
+Duplicate-name occurrences are encoded in virtual paths with `!~N`; literal
+exclamation marks are escaped as `!!`. Complete fingerprints may deduplicate
+content, but each occurrence keeps a distinct virtual reference. Cache keys use
+content identity when known and otherwise the structured container/entry chain.
 
-`dosierarkivo.FileArchive` is the format adapter: today it lists names and
-extracts one entry to a destination directory. It does not define catalog
-identity, persistence, or virtual path semantics. The future API should add a
-bounded entry descriptor and per-entry/stream extraction contract before
-`ArchiveSpec` is replaced. That permits listing without unpacking the entire
-archive, hashing entries in bounded batches, previewing a selected entry on
-demand, and rescanning only entries invalidated by a changed container or
-extractor version.
+`dosierarkivo.FileArchive` returns typed entry descriptors and extracts entries
+to a destination path, but extraction currently selects by member name and does
+not reliably select every duplicate occurrence. WP-13.5 will add exact-occurrence
+extraction and a shared bounded session cache. Scraping, MediaInfo, and preview
+will consume the same extracted file; cache paths will never be persisted as
+source references. Listing remains lazy and selected-entry extraction remains
+on demand.
 
 ## Layer Order for API Refinement
 
@@ -301,22 +297,21 @@ The implementation sequence is tracked in
 - Backends: `zip`, `tar`, `rar`, `7z`
 - `getEntries()` and `extractEntry()` interface
 
-`updateArchives()` currently lists an archive, extracts entries one at a time to
-a temporary directory when deep scanning is enabled, calculates checksums, and
-stores basic metadata in `ArchiveSpec[]` attached to the containing
-`NamedBinaryBlob`. `ArchiveSpec` is not a first-class `NamedBinaryBlob`: archive
-entries cannot yet participate in the normal blob deduplication, path query, or
-metadata operation APIs. The scanner does not persist an archive fingerprint or
-per-entry stable identity beyond the container blob and entry path.
+`FileArchive` now returns typed entry descriptors and can extract members to a
+destination directory. Deep `updateArchives()` recursively indexes nested
+archives, and schema v3 links fully fingerprinted members to reusable content
+blobs. JSON v4 persists nested `ArchiveSpec` trees. The remaining extractor gap
+is exact occurrence selection: `extractEntry()` accepts a member name, so
+adapters cannot claim deep fingerprints for duplicate-name occurrences they
+cannot select.
 
-The desired content model treats an archive as a container whose entries are
-virtual content references. Each entry should resolve to a content blob and use
-a structured locator containing its parent/container identity and archive path;
-an ambiguous synthetic filesystem path is not the identity. Indexing should
-support bounded listing and per-entry/on-demand extraction, reuse unchanged
-entry metadata, and refresh only when the container content changes. The
-concrete locator, duplicate-entry policy, nested-archive behavior, and streaming
-extraction contract are staged under WP-13 before schema/API changes.
+WP-13.5 promotes extracted members to ordinary content records with virtual path
+references. The canonical spelling uses `!/` for container transitions, `!!`
+for a literal exclamation mark, and `!~N` for duplicate occurrences; structured
+locators remain the identity. The same session extraction cache must serve
+checksums, file type, MediaInfo, and preview. Its paths are scratch inputs only,
+never durable file references; cache cleanup waits until previews and worker jobs
+have released their leases.
 
 ## 7. Torrent Handling
 

@@ -132,8 +132,8 @@ shape does not persist an entry's own `NamedBinaryBlob` identity or path-referen
 record. The JSON adapter derives source-scoped member references and content IDs
 from deep checksums for the lifetime of an open catalog. Version 4 can additionally
 persist nested entry metadata; runtime reference identities are rebuilt on open.
-Virtual directory projection remains in WP-13.5 of
-`SQLITE-IMPLEMENTATION-PLAN.md`.
+The expandable archive-file TreeView, virtual member records, and extraction
+cache are planned under WP-13.5 and the GUI archive workflow plan.
 
 The current shallow archive scan records entry names only; size, timestamp and
 checksums are populated by deep scanning, which extracts entries to temporary
@@ -164,6 +164,52 @@ file row as expandable and group its member paths in the UI.
 Adapter-generated virtual member paths use `!/` to separate an archive from its
 member path. Literal `!` characters within physical or member path components are
 escaped as `!!`; persisted JSON `ArchiveSpec.fileName` values remain unchanged.
+
+## Planned Version 5: Virtual Archive References
+
+WP-13.5 plans JSON v5 as the normal-content representation for archive members.
+Each safely scraped non-directory member becomes a top-level `NamedBinaryBlob`
+record with one or more virtual `FileSpec.fileName` references. The path grammar is:
+
+- `!/` starts the next archive layer.
+- `!!` encodes a literal `!` in a path component.
+- `!~N` encodes the zero-based occurrence only when same-name entries collide;
+  the TreeView displays the original member name without that suffix.
+
+In v5, `FileSpec.fileName` uses this escaping for all path components, including
+physical paths that contain `!`. Readers decode each path layer before resolving
+physical paths; virtual layers are resolved through the archive-member chain.
+
+For example, a scanned member can be represented as an ordinary blob record:
+
+```json
+{
+    "dataVersion": 5,
+    "dataArray": [{
+        "fileSize": 1234,
+        "checkSums": { "md5sum_b64": "...", "sha1sum_b64": "...", "xxh64sum_b64": "..." },
+        "fileSpecs": [{ "fileName": "archives/photos.zip!/images/picture.jpg" }],
+        "fileType": "JPEG image data"
+    }]
+}
+```
+
+For example, an entry named `same!.txt`, second among duplicate names, can be
+stored as `archive.zip!/same!!.txt!~1`. The path provides a reversible reference
+spelling; the backend still uses its structured locator and occurrence identity
+for extraction and content resolution. Byte-identical member occurrences retain
+distinct virtual references while sharing one content blob. The v5 writer groups
+by complete content identity, not by the first virtual filename, so two
+same-display-name entries with different bytes are not discarded.
+
+New v5 writes will not store archive member lists in `archiveSpecs`. Readers keep
+accepting v0-v4; importing a v4 nested `ArchiveSpec` tree converts it to normal
+member blob records and virtual references, carrying forward entry checksums,
+nested archive passwords, and nested member references. The SQLite schema-v4
+migration is planned to migrate existing archive rows into virtual `file_refs`,
+retain normal blob/content links, and remove `archive_entries` and
+`archive_indexes` rather than adding new archive-specific tables. Cache paths are
+session-local and never serialized as file references.
 
 ### Torrent Information
 

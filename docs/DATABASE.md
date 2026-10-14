@@ -5,7 +5,8 @@ DosierSkanilo. The database represents the current state of one directory tree.
 It does not contain scan history in its first version.
 
 Current schema version: **3**. Version 2 repositories migrate archive rows to
-stable ordered/path-occurrence identities when opened.
+stable ordered/path-occurrence identities when opened. WP-13.5 plans schema
+version 4 to replace those archive-specific rows with virtual file references.
 
 ## Goals
 
@@ -75,6 +76,9 @@ repository
   content identity data.
 - `file_refs`: A path, modification timestamp and existence/observation state
   pointing to a blob.
+- `metadata_status`: Per-blob extractor state, version, scan time, and last error.
+  Planned schema v4 records archive index version and shallow/deep completion
+  here rather than in archive-specific tables.
 - `archive_passwords`: Optional clear-text password associated with a blob, added
   in schema version 2. Repository files and JSON exports containing passwords
   are sensitive data.
@@ -122,6 +126,24 @@ modification timestamp, checksums, and an optional `content_blob_id` for a
 deep-fingerprinted member. `archive_indexes` records indexer version and
 shallow/deep state. A nested archive is indexed by storing its entries against
 the member's content blob.
+
+### Planned schema version 4: virtual archive references
+
+The planned v4 migration will convert safe, indexed members to ordinary
+`file_refs` whose canonical paths encode archive layers with `!/`. Literal `!`
+characters are escaped as `!!`; duplicate path occurrences use the `!~N`
+suffix. The migration retains normal `blobs`, `file_refs`, and `directories`,
+moves archive extractor/version/depth state to the existing `metadata_status` table,
+and drops `archive_entries` and `archive_indexes`. It adds no archive-specific
+tables or columns. Its existing `metadata_kind` and `extractor_version` values
+distinguish archive indexer and shallow/deep completion. The GUI extraction cache
+is session data and is never stored in SQLite.
+
+An archive-member `file_ref` is not a path to an extracted cache file. Its
+availability and locator are resolved through the encoded container chain. Scan
+and metadata operations use a leased cache path as temporary extractor input,
+then persist results against the member's ordinary blob ID. Byte-identical
+occurrences share a blob while retaining separate virtual references.
 
 `torrent_info` references one blob and stores all currently available torrent
 fields, including the fields that version-3 JSON does not currently output.
@@ -232,9 +254,10 @@ transaction, keyset-query, migration, and binary-type capabilities another SQL
 engine would need. The staged design is tracked as WP-13 in
 `SQLITE-IMPLEMENTATION-PLAN.md`.
 
-The archive schema currently stores `archive_entries` as metadata children of a
-container blob. It does not yet represent every archive member as an ordinary
-content blob/reference; see the archive-indexing design in the backend plan.
+Schema v3 stores `archive_entries` as metadata children of a container blob and
+links deeply fingerprinted members to ordinary content blobs. WP-13.5 replaces
+that archive-specific relation with virtual `file_refs`; see the migration plan
+in `SQLITE-IMPLEMENTATION-PLAN.md`.
 
 ## API and Package Versioning
 
