@@ -7,7 +7,9 @@
 module dosierarkivo.tararchive;
 
 import std.algorithm : filter;
+import std.algorithm.searching : canFind;
 import std.array : array;
+import std.conv : to;
 import std.file : exists, getcwd, remove;
 import std.path : buildPath;
 import std.process : execute, executeShell;
@@ -43,6 +45,26 @@ class FileArchiveTar : FileArchive
         return true;
     }
 
+    override @property bool supportsEntryOccurrence() const
+    {
+        return executeShell("tar --help").output.canFind("--occurrence");
+    }
+
+    override bool extractEntry(ArchiveEntryDescriptor descriptor, string destDir,
+        string password = "")
+    {
+        if (!descriptor.hasDuplicateName)
+            return extractEntry(descriptor.name, destDir, password);
+        if (!supportsEntryOccurrence)
+            return false;
+        const auto tarPath = buildPath(getcwd(), this.fileName);
+        const auto occurrenceOption = "--occurrence="
+            ~ (descriptor.occurrence + 1).to!string;
+        const auto rc = execute(["tar", "--extract", "--file=" ~ tarPath,
+            "--directory=" ~ destDir, occurrenceOption, descriptor.name]);
+        return rc.status == 0;
+    }
+
     version (unittest)
     {
         enum string fn = tarFileName;
@@ -72,4 +94,44 @@ unittest
 
     auto obj = fileArchive(tarFileName);
     testAbstractImpl(obj);
+}
+
+@("tar duplicate occurrence extraction selects exact content")
+unittest
+{
+    import std.file : exists, mkdirRecurse, readText, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.process : execute;
+    import std.uuid : randomUUID;
+
+    const auto root = buildPath(tempDir(), "tar-duplicate-occurrence-"
+        ~ randomUUID().toString());
+    const auto firstSource = buildPath(root, "source-first");
+    const auto secondSource = buildPath(root, "source-second");
+    const auto archivePath = buildPath(root, "duplicate.tar");
+    const auto firstOutput = buildPath(root, "output-first");
+    const auto secondOutput = buildPath(root, "output-second");
+    mkdirRecurse(firstSource);
+    mkdirRecurse(secondSource);
+    mkdirRecurse(firstOutput);
+    mkdirRecurse(secondOutput);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    write(buildPath(firstSource, "same.txt"), "first occurrence");
+    write(buildPath(secondSource, "same.txt"), "second occurrence");
+    const auto created = execute(["tar", "-cf", archivePath, "-C", firstSource,
+        "same.txt", "-C", secondSource, "same.txt"]);
+    assert(created.status == 0, created.output);
+
+    auto archive = new FileArchiveTar(archivePath);
+    assert(archive.supportsEntryOccurrence);
+    auto entries = archive.getEntryDescriptors();
+    assert(entries.length == 2);
+    assert(entries[0].hasDuplicateName && entries[1].hasDuplicateName);
+    assert(entries[0].occurrence == 0 && entries[1].occurrence == 1);
+    assert(archive.extractEntry(entries[0], firstOutput));
+    assert(archive.extractEntry(entries[1], secondOutput));
+    assert(readText(buildPath(firstOutput, "same.txt")) == "first occurrence");
+    assert(readText(buildPath(secondOutput, "same.txt")) == "second occurrence");
 }

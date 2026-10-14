@@ -78,6 +78,7 @@ struct ArchiveEntryDescriptor
     bool hasModifiedAt; /// Whether `modifiedAt` came from archive metadata.
     bool isDirectory; /// True for an explicit directory entry.
     bool hasSafePath; /// False for absolute or traversal paths that cannot be indexed.
+    bool hasDuplicateName; /// True when another entry has the same normalized path.
 }
 
 /** Normalize a member name without permitting absolute or traversal paths. */
@@ -338,6 +339,19 @@ abstract class FileArchive
             occurrences[occurrenceKey] = descriptor.occurrence + 1;
             result ~= descriptor;
         }
+        size_t[string] pathCounts;
+        foreach (descriptor; result)
+        {
+            const auto identityPath = descriptor.hasSafePath
+                ? descriptor.relativePath : descriptor.name;
+            pathCounts[identityPath] = pathCounts.get(identityPath, 0) + 1;
+        }
+        foreach (ref descriptor; result)
+        {
+            const auto identityPath = descriptor.hasSafePath
+                ? descriptor.relativePath : descriptor.name;
+            descriptor.hasDuplicateName = pathCounts.get(identityPath, 0) > 1;
+        }
         return result;
     }
 
@@ -353,6 +367,21 @@ abstract class FileArchive
      *   true on success, false on failure
      */
     bool extractEntry(string filename, string destDir, string password = "")
+    {
+        return false;
+    }
+
+    /** Extract one descriptor occurrence when the format adapter can select it. */
+    bool extractEntry(ArchiveEntryDescriptor descriptor, string destDir,
+        string password = "")
+    {
+        if (descriptor.hasDuplicateName)
+            return false;
+        return extractEntry(descriptor.name, destDir, password);
+    }
+
+    /** Whether this adapter can select a particular duplicate-name occurrence. */
+    @property bool supportsEntryOccurrence() const
     {
         return false;
     }

@@ -209,7 +209,9 @@ nested archive passwords, and nested member references. The optional
 state when no `ArchiveSpec` list is written. SQLite schema v4 stores virtual
 members as normal `file_refs`, keeps their physical `directory_id`, and moves
 index state to `metadata_status`; the schema contains no archive-entry/index
-tables. Cache paths are session-local and never serialized as file references.
+tables. Deep checksums are emitted for duplicate-name members only when the
+archive adapter can extract that exact occurrence. Cache paths are session-local
+and never serialized as file references.
 
 ### Torrent Information
 

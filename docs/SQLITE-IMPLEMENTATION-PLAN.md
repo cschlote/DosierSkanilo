@@ -1358,8 +1358,8 @@ tracked until a deliberate history-cleanup decision is made.
 
 ## WP-13: Storage-Neutral Catalog API and First-Class Archive Content
 
-Status: `[-]` (WP-13.1 through WP-13.5.3 complete; shared extraction/cache and
-TreeView integration remain.)
+Status: `[-]` (WP-13.1 through WP-13.5.3 complete; the backend cache is in
+progress and GUI preview/TreeView integration remains.)
 
 The product goal is to index one directory tree, enrich its binary content with
 metadata, identify duplicate payloads, and expose filtered logical subsets to
@@ -1566,7 +1566,7 @@ structured even though display paths use `container!/member`. JSON v5 and SQLite
 schema v4 now persist member references as normal `file_refs`; the shared cache
 and GTK workflow remain planned work.
 
-WP-13.5 verification: `dub test --config=library --compiler=ldc2` — 131 passed.
+WP-13.5 verification: `dub test --config=library --compiler=ldc2` — 134 passed.
 Coverage checks safe path normalization, duplicate occurrence assignment,
 version-2-to-3 migration, shallow-to-deep upgrade, recursive nested indexing,
 stable row identity after rescan, archive-member content deduplication against a
@@ -1638,8 +1638,10 @@ added to the database. The CLI uses the common v5 writer for repository export.
 - [x] Resolve nested member locators one container layer at a time. Extract each
   intermediate archive into the same cache, pin it while the child extraction is
   active, and release it when no preview/extractor uses it.
-- [ ] Support extraction of a precise duplicate occurrence in DosierArkivo; do
-  not claim a deep fingerprint for a duplicate that an adapter cannot select.
+- [x] Support precise duplicate occurrence extraction through DosierArkivo's
+  descriptor overload. ZIP (when Python 3 is available) and TAR (when the tar
+  utility supports `--occurrence`) select exact entries; other adapters report
+  the capability as unavailable, so those entries remain without deep digests.
 - [x] Bound cache bytes and concurrent work, coalesce in-flight requests, pin
   active leases, and make extraction cancellation and disk-full failures safe.
 - [x] Never persist cache paths as source references. Use per-session cache roots,

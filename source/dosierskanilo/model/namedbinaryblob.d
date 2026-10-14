@@ -28,7 +28,8 @@ import dosierskanilo.logging;
 import dosierskanilo.options;
 import dosierskanilo.progress;
 import dosierskanilo.membercontentcache : MemberContentCache,
-    MemberContentLease, sharedMemberContentCache;
+    MemberContentLease, MemberContentNotExtractableException,
+    sharedMemberContentCache;
 import dosierskanilo.metadata.digests;
 import dosierskanilo.metadata.mediainfosig;
 import dosierskanilo.metadata.torrentinfo;
@@ -1885,11 +1886,6 @@ void updateArchives(NamedBinaryBlob obj,
                         obj.archivePassword = password;
                     logFLine("  with %d entries", archiveEntries.length);
                     obj.archiveSpecs = [];
-                    size_t[string] safePathCounts;
-                    foreach (descriptor; archiveEntries)
-                        if (descriptor.hasSafePath && !descriptor.isDirectory)
-                            safePathCounts[descriptor.relativePath] =
-                                safePathCounts.get(descriptor.relativePath, 0) + 1;
                     if (progressCallBack !is null)
                         progressCallBack.fp(0, archiveEntries.length);
 
@@ -1908,8 +1904,13 @@ void updateArchives(NamedBinaryBlob obj,
                             if (extractionLease !is null)
                                 extractionLease.release();
                         CheckSums sums = CheckSums();
+                        if (descriptor.hasDuplicateName
+                            && !archiveObj.supportsEntryOccurrence)
+                            logFLineVerbose("Archive adapter cannot select duplicate occurrence %d of '%s'; leaving it without a deep fingerprint.",
+                                descriptor.occurrence, descriptor.relativePath);
                         if (!descriptor.hasSafePath || descriptor.isDirectory
-                            || safePathCounts.get(descriptor.relativePath, 0) > 1)
+                            || (descriptor.hasDuplicateName
+                                && !archiveObj.supportsEntryOccurrence))
                         {
                             auto unscannedEntry = new ArchiveSpec(arcfile,
                                 arcFileSize, arcModTimeStr, sums);
@@ -1923,85 +1924,112 @@ void updateArchives(NamedBinaryBlob obj,
                         }
 
                         if (deep)
-						{
-							bool exOk;
-							bool extractionPasswordPrompted;
-							while (true)
-							{
-								try
-								{
-										const auto occurrence = descriptor.occurrence
-											.to!string;
-									const auto fallbackIdentity = containerCacheKey
-										~ "!/" ~ descriptor.relativePath ~ "!~" ~ occurrence;
-									const auto cacheContainer = ReferenceId(
-										"scanner-container:" ~ containerCacheKey);
-									const auto cacheEntry = ArchiveEntryId(
-										"scanner-entry:" ~ descriptor.relativePath
-										~ ":" ~ occurrence);
-									const auto locator = ContentLocator.entry(cacheContainer,
-										cacheEntry);
-								extractionLease = memberCache.acquire(locator,
-										ContentId.init, fallbackIdentity,
-										descriptor.relativePath,
-												descriptor.hasSize ? descriptor.size : 0,
-										(string destinationDirectory) {
-											if (gotCtrlC !is null && atomicLoad(*gotCtrlC))
-												return false;
-											return archiveObj.extractEntry(arcfile,
-												destinationDirectory, password);
-										}, gotCtrlC);
-									exOk = extractionLease !is null;
-									extractedPath = extractionLease.path;
-									break;
-								}
-								catch (ArchivePasswordRequiredException ex)
-								{
-									requestPassword(ex.msg, archiveDisplayPath,
-										passwordCallback, password);
-									extractionPasswordPrompted = true;
-								}
-							}
-									if (extractionPasswordPrompted)
-									obj.archivePassword = password;
-								enforce(exOk, "Failed to extract archive entry '%s' from archive '%s'".format(arcfile, spec
-										.fileName));
+                        {
+                            bool exOk;
+                            bool extractionPasswordPrompted;
+                            bool occurrenceNotExtractable;
+                            while (true)
+                            {
+                                try
+                                {
+                                    const auto occurrence = descriptor.occurrence
+                                        .to!string;
+                                    const auto fallbackIdentity = containerCacheKey
+                                        ~ "!/" ~ descriptor.relativePath ~ "!~" ~ occurrence;
+                                    const auto cacheContainer = ReferenceId(
+                                        "scanner-container:" ~ containerCacheKey);
+                                    const auto cacheEntry = ArchiveEntryId(
+                                        "scanner-entry:" ~ descriptor.relativePath
+                                        ~ ":" ~ occurrence);
+                                    const auto locator = ContentLocator.entry(
+                                        cacheContainer, cacheEntry);
+                                    extractionLease = memberCache.acquire(locator,
+                                        ContentId.init, fallbackIdentity,
+                                        descriptor.relativePath,
+                                        descriptor.hasSize ? descriptor.size : 0,
+                                        (string destinationDirectory) {
+                                            if (gotCtrlC !is null
+                                                && atomicLoad(*gotCtrlC))
+                                                return false;
+                                            return archiveObj.extractEntry(descriptor,
+                                                destinationDirectory, password);
+                                        }, gotCtrlC);
+                                    exOk = extractionLease !is null;
+                                    extractedPath = extractionLease.path;
+                                    break;
+                                }
+                                catch (ArchivePasswordRequiredException ex)
+                                {
+                                    requestPassword(ex.msg, archiveDisplayPath,
+                                        passwordCallback, password);
+                                    extractionPasswordPrompted = true;
+                                }
+                                catch (MemberContentNotExtractableException failure)
+                                {
+                                    if (gotCtrlC !is null && atomicLoad(*gotCtrlC))
+                                        throw new Exception("Archive scan was cancelled.");
+                                    if (!descriptor.hasDuplicateName)
+                                        throw failure;
+                                    occurrenceNotExtractable = true;
+                                    break;
+                                }
+                            }
+                            if (extractionPasswordPrompted)
+                                obj.archivePassword = password;
+                            if (occurrenceNotExtractable)
+                            {
+                                logFLineVerbose("Archive adapter could not select duplicate occurrence %d of '%s'; leaving it without a deep fingerprint.",
+                                    descriptor.occurrence, descriptor.relativePath);
+                                auto unscannedEntry = new ArchiveSpec(arcfile,
+                                    arcFileSize, arcModTimeStr, sums);
+                                unscannedEntry.entryIndex = idx;
+                                unscannedEntry.occurrence = descriptor.occurrence;
+                                unscannedEntry.hasIndexIdentity = true;
+                                obj.archiveSpecs ~= unscannedEntry;
+                                if (progressCallBack !is null)
+                                    progressCallBack.fp(idx + 1,
+                                        archiveEntries.length);
+                                continue;
+                            }
+                            enforce(exOk, "Failed to extract archive entry '%s' from archive '%s'".format(arcfile,
+                                spec.fileName));
 
-								import dosierskanilo.metadata.digests;
-								ubyte[] md5sum_s, sha1sum_s, xxh64sum_s;
-								calculatesDigests(gotCtrlC, extractedPath, &md5sum_s, &sha1sum_s, &xxh64sum_s, progressCallBack);
-							if (progressCallBack !is null)
+                            import dosierskanilo.metadata.digests;
+                            ubyte[] md5sum_s, sha1sum_s, xxh64sum_s;
+                            calculatesDigests(gotCtrlC, extractedPath,
+                                &md5sum_s, &sha1sum_s, &xxh64sum_s,
+                                progressCallBack);
+                            if (progressCallBack !is null)
                                 progressCallBack.fp(idx, archiveEntries.length);
 
-							sums.set_md5sum = md5sum_s;
-							sums.set_sha1sum = sha1sum_s;
-							sums.set_xxh64 = xxh64sum_s;
+                            sums.set_md5sum = md5sum_s;
+                            sums.set_sha1sum = sha1sum_s;
+                            sums.set_xxh64 = xxh64sum_s;
 
-								SysTime arcAccessTime;
-								SysTime arcModTime;
-								extractedPath.getTimes(arcAccessTime, arcModTime);
-								arcModTimeStr = arcModTime.toISOExtString;
-
-								arcFileSize = extractedPath.getSize;
-								auto extractedBlob = new NamedBinaryBlob(
-									[new FileSpec(extractedPath, arcModTimeStr)],
-									arcFileSize);
-								extractedBlob.checkSums = sums;
-								if (inspectMemberFileType)
-									try
-										updateFileType(extractedBlob, true);
-									catch (Exception failure)
-										logFLineVerbose("Could not detect file type for archive member '%s': %s",
-											arcfile, failure.msg);
-								if (inspectMemberMediaInfo)
-									try
-										updateMediaInfo(extractedBlob, true);
-									catch (Exception failure)
-										logFLineVerbose("Could not extract MediaInfo for archive member '%s': %s",
-											arcfile, failure.msg);
-								memberFileType = extractedBlob.fileType;
-								memberMediaInfo = extractedBlob.mediaInfoSig;
-						}
+                            SysTime arcAccessTime;
+                            SysTime arcModTime;
+                            extractedPath.getTimes(arcAccessTime, arcModTime);
+                            arcModTimeStr = arcModTime.toISOExtString;
+                            arcFileSize = extractedPath.getSize;
+                            auto extractedBlob = new NamedBinaryBlob(
+                                [new FileSpec(extractedPath, arcModTimeStr)],
+                                arcFileSize);
+                            extractedBlob.checkSums = sums;
+                            if (inspectMemberFileType)
+                                try
+                                    updateFileType(extractedBlob, true);
+                                catch (Exception failure)
+                                    logFLineVerbose("Could not detect file type for archive member '%s': %s",
+                                        arcfile, failure.msg);
+                            if (inspectMemberMediaInfo)
+                                try
+                                    updateMediaInfo(extractedBlob, true);
+                                catch (Exception failure)
+                                    logFLineVerbose("Could not extract MediaInfo for archive member '%s': %s",
+                                        arcfile, failure.msg);
+                            memberFileType = extractedBlob.fileType;
+                            memberMediaInfo = extractedBlob.mediaInfoSig;
+                        }
                         ArchiveSpec[] nestedEntries;
                         string nestedPassword;
                         if (deep && depth < maxDepth && extractedPath.length > 0)
@@ -2203,6 +2231,42 @@ unittest
 	assert(rejectedPrompts == 2);
 	assert(rejectedBlob.archivePassword.length == 0,
 		"a cancelled wrong-password attempt must not be persisted");
+}
+
+@("deep archive scan fingerprints selectable duplicate occurrences")
+unittest
+{
+	import std.file : exists, getSize, mkdirRecurse, rmdirRecurse, tempDir;
+	import std.path : buildPath;
+	import std.process : execute, executeShell;
+	import std.uuid : randomUUID;
+
+	if (executeShell("command -v python3").status != 0)
+		return;
+	const auto root = buildPath(tempDir(), "archive-cache-duplicate-scan-"
+		~ randomUUID().toString());
+	const auto archivePath = buildPath(root, "duplicate.zip");
+	mkdirRecurse(root);
+	scope (exit)
+		if (exists(root))
+			rmdirRecurse(root);
+	const auto createScript = "import sys, zipfile; z=zipfile.ZipFile(sys.argv[1], 'w'); "
+		~ "z.writestr('same.txt', 'first occurrence'); "
+		~ "z.writestr('same.txt', 'second occurrence'); z.close()";
+	const auto created = execute(["python3", "-c", createScript, archivePath]);
+	assert(created.status == 0, created.output);
+	auto blob = new NamedBinaryBlob();
+	blob.fileSize = cast(size_t) getSize(archivePath);
+	blob.fileSpecs = [new FileSpec(archivePath, "")];
+	auto cache = new MemberContentCache(buildPath(root, "cache"));
+	scope (exit)
+		cache.close();
+	updateArchives(blob, true, true, null, null, null, 0, 8, "", cache);
+	assert(blob.archiveSpecs.length == 2);
+	assert(blob.archiveSpecs[0].occurrence == 0);
+	assert(blob.archiveSpecs[1].occurrence == 1);
+	assert(blob.archiveSpecs[0].checkSums.hasDigests);
+	assert(blob.archiveSpecs[1].checkSums.hasDigests);
 }
 
 /** Get torrent info for file, if missing

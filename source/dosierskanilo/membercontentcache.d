@@ -24,6 +24,15 @@ import dosierskanilo.operationlease : OperationTargetBusyException,
 /// Materialize one safely normalized member into the provided directory.
 alias MemberContentMaterializer = bool delegate(string destinationDirectory);
 
+/** Raised when an archive adapter cannot select the requested entry occurrence. */
+class MemberContentNotExtractableException : Exception
+{
+    this(string message)
+    {
+        super(message);
+    }
+}
+
 private class CachedMember
 {
     string directory;
@@ -183,7 +192,10 @@ public:
             auto extracted = materialize(entry.directory);
             if (cancellationRequested(cancellation))
                 throw new Exception("Archive member extraction was cancelled.");
-            if (!extracted || !exists(entry.filePath) || !isFile(entry.filePath))
+            if (!extracted)
+                throw new MemberContentNotExtractableException(
+                    "Archive adapter could not select this member occurrence.");
+            if (!exists(entry.filePath) || !isFile(entry.filePath))
                 throw new Exception("Archive member materializer produced no file.");
             const auto actualSize = getSize(entry.filePath);
             if (actualSize > maximumBytes)

@@ -19,6 +19,9 @@ They represent the functional evolution and are intentionally summarized.
   `metadata_status`, and removes `archive_entries`/`archive_indexes`.
 - Deep archive scraping now uses a bounded, session-scoped extraction cache with
   coalesced requests and explicit leases; cache paths remain transient.
+- ZIP and TAR extraction can select exact duplicate-name occurrences when the
+  required tool support is available; unsupported adapters avoid deep-hashing
+  ambiguous duplicate members.
 
 ## Release 26.11.0 - 2026-10-13
 

@@ -306,8 +306,10 @@ adapters cannot claim deep fingerprints for duplicate-name occurrences they
 cannot select.
 
 The backend deep scraper now uses a shared leased extraction cache for checksums,
-file type, MediaInfo, and nested indexing. GTK preview integration and precise
-duplicate-occurrence extraction remain follow-up work. The canonical spelling
+file type, MediaInfo, and nested indexing. GTK preview integration remains
+follow-up work. ZIP and TAR adapters can select precise duplicate occurrences
+when their tools support it; other formats leave duplicate entries without deep
+fingerprints. The canonical spelling
 uses `!/` for container transitions, `!!` for a literal exclamation mark, and
 `!~N` for duplicate occurrences; structured locators remain the identity. Cache
 paths are scratch inputs only, never durable file references; cache cleanup waits
