@@ -243,8 +243,10 @@ private JsonMetadataWork prepareJsonMetadataWork(NamedBinaryBlob blob,
     item.doFileType = options.detectFileTypes && blob.fileType.empty;
     item.doMediaInfo = options.extractMediaInfo
         && (blob.mediaInfoSig is null || options.rescan);
-    item.doArchives = options.scanArchives && !blob.archiveIndexKnown
-        && blob.archiveSpecs is null;
+    item.doArchives = options.scanArchives
+        && (options.rescan || (blob.archiveSpecs is null
+            && (!blob.archiveIndexKnown
+                || (options.deepArchiveScan && !blob.archiveIndexDeep))));
     item.doTorrents = options.scanTorrents && blob.torrentInfo is null;
     return item;
 }

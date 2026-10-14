@@ -8,7 +8,10 @@ import std.file : SpanMode, dirEntries, isFile;
 import std.path : buildNormalizedPath, buildPath, dirName, dirSeparator;
 import std.string : empty, replace, split;
 
-import dosierskanilo.repository.archiveindex : deleteUnreachableBlobs;
+import dosierarkivo.archive : escapeArchiveVirtualPath,
+    parseArchiveVirtualPath;
+import dosierskanilo.repository.archiveindex : deleteUnreachableBlobs,
+    isVirtualFileReferenceSql;
 import dosierskanilo.repository.errors;
 import dosierskanilo.repository.types;
 import dosierskanilo.operations : OperationControl, OperationKind,
@@ -35,7 +38,8 @@ ScanExecutionResult scanRepositoryControlled(ref Database db, string rootPath,
     scope (exit)
         clearScanStage(db);
     db.execute("INSERT INTO temp.scan_missing_candidates (id, relative_path) "
-        ~ "SELECT id, relative_path FROM file_refs WHERE exists_on_disk = 1");
+        ~ "SELECT id, relative_path FROM file_refs WHERE exists_on_disk = 1 "
+        ~ "AND NOT (" ~ isVirtualFileReferenceSql("relative_path") ~ ")");
 
     if (!reportScanProgress(control, operationId, OperationPhase.discovering,
         0, "Scanning filesystem."))
@@ -57,12 +61,13 @@ ScanExecutionResult scanRepositoryControlled(ref Database db, string rootPath,
             {
                 summary.filesFound++;
                 auto modified = entry.timeLastModified.toISOExtString;
+                const auto canonicalRelative = escapeArchiveVirtualPath(relative);
                 db.execute("INSERT OR REPLACE INTO temp.scan_stage_files "
                     ~ "(relative_path, file_size, time_last_modified) "
-                    ~ "VALUES (?, ?, ?)", relative, cast(long) entry.size,
+                    ~ "VALUES (?, ?, ?)", canonicalRelative, cast(long) entry.size,
                     modified);
                 db.execute("DELETE FROM temp.scan_missing_candidates "
-                    ~ "WHERE relative_path = ?", relative);
+                    ~ "WHERE relative_path = ?", canonicalRelative);
             }
             else
             {
@@ -144,7 +149,9 @@ private void upsertFileReference(ref Database db, string relativePath,
         db.execute("INSERT INTO blobs (file_size) VALUES (?)",
             cast(long) fileSize);
         auto blobId = db.lastInsertRowid;
-        auto directoryId = ensureDirectory(db, dirName(relativePath));
+        const auto physicalRelative = parseArchiveVirtualPath(
+            relativePath).physicalPath;
+        auto directoryId = ensureDirectory(db, dirName(physicalRelative));
         if (directoryId == 0)
         {
             db.execute("INSERT INTO file_refs "
@@ -161,6 +168,7 @@ private void upsertFileReference(ref Database db, string relativePath,
                 relativePath, modified, now);
         }
         summary.filesAdded++;
+        updateVirtualReferencesAvailability(db, relativePath, true, now);
         return;
     }
 
@@ -174,13 +182,13 @@ private void upsertFileReference(ref Database db, string relativePath,
         db.execute("INSERT INTO blobs (file_size) VALUES (?)",
             cast(long) fileSize);
         auto newBlobId = db.lastInsertRowid;
+        deleteVirtualDescendants(db, relativePath);
         db.execute("UPDATE file_refs SET blob_id = ?, "
             ~ "time_last_modified = ?, exists_on_disk = 1, last_seen_at = ? "
             ~ "WHERE id = ?", newBlobId, modified, now, fileId);
         db.execute("DELETE FROM blobs WHERE id = ? AND NOT EXISTS "
-            ~ "(SELECT 1 FROM file_refs WHERE blob_id = ?) AND NOT EXISTS "
-            ~ "(SELECT 1 FROM archive_entries WHERE content_blob_id = ?)",
-            oldBlobId, oldBlobId, oldBlobId);
+            ~ "(SELECT 1 FROM file_refs WHERE blob_id = ?)",
+            oldBlobId, oldBlobId);
         deleteUnreachableBlobs(db);
         summary.filesChanged++;
     }
@@ -189,6 +197,40 @@ private void upsertFileReference(ref Database db, string relativePath,
         db.execute("UPDATE file_refs SET exists_on_disk = 1, "
             ~ "last_seen_at = ? WHERE id = ?", now, fileId);
     }
+    updateVirtualReferencesAvailability(db, relativePath, true, now);
+}
+
+private void deleteVirtualDescendants(ref Database db, string containerPath)
+{
+    const auto prefix = containerPath ~ "!/";
+    long[] staleIds;
+    foreach (row; db.execute("SELECT id FROM file_refs WHERE "
+        ~ "substr(relative_path, 1, ?) = ?",
+        cast(long) prefix.length, prefix))
+        staleIds ~= row.peek!long(0);
+    foreach (id; staleIds)
+        db.execute("DELETE FROM file_refs WHERE id = ?", id);
+}
+
+private void updateVirtualReferencesAvailability(ref Database db,
+    string physicalRelativePath, bool available, string now)
+{
+    const auto physical = parseArchiveVirtualPath(physicalRelativePath).physicalPath;
+    long[] memberIds;
+    foreach (row; db.execute("SELECT id, relative_path FROM file_refs WHERE "
+        ~ isVirtualFileReferenceSql("relative_path")))
+    {
+        const auto parsed = parseArchiveVirtualPath(row.peek!string(1));
+        if (parsed.physicalPath == physical)
+            memberIds ~= row.peek!long(0);
+    }
+    foreach (memberId; memberIds)
+        if (now.length == 0)
+            db.execute("UPDATE file_refs SET exists_on_disk = ? WHERE id = ?",
+                available ? 1 : 0, memberId);
+        else
+            db.execute("UPDATE file_refs SET exists_on_disk = ?, last_seen_at = ? "
+                ~ "WHERE id = ?", available ? 1 : 0, now, memberId);
 }
 
 private void resetScanStage(ref Database db)
@@ -252,7 +294,9 @@ private bool stageMissingReferences(ref Database db, string rootPath,
         afterId = candidate.id;
         if (pickHidden || !hasHiddenComponent(candidate.relativePath))
         {
-            if (!existsOnDisk(rootPath, candidate.relativePath))
+            const auto physicalRelative = parseArchiveVirtualPath(
+                candidate.relativePath).physicalPath;
+            if (!existsOnDisk(rootPath, physicalRelative))
             {
                 db.execute("INSERT INTO temp.scan_stage_missing (id) VALUES (?)",
                     candidate.id);
@@ -291,8 +335,12 @@ private void applyStagedMissing(ref Database db)
     auto missing = db.execute("SELECT id FROM temp.scan_stage_missing ORDER BY id");
     foreach (row; missing)
     {
+        const auto id = row.peek!long(0);
+        const auto path = db.execute("SELECT relative_path FROM file_refs "
+            ~ "WHERE id = ?", id).oneValue!string;
         db.execute("UPDATE file_refs SET exists_on_disk = 0 WHERE id = ?",
-            row.peek!long(0));
+            id);
+        updateVirtualReferencesAvailability(db, path, false, "");
     }
 }
 

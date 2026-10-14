@@ -60,10 +60,10 @@ The central relationship is:
 repository
   -> directories
   -> file_refs -> blobs
-                    -> checksums
-                    -> media_signature -> media streams
-                    -> archive_indexes -> archive_entries -> member blobs
-                    -> torrent_info -> torrent_files
+                     -> checksums
+                     -> media_signature -> media streams
+                     -> virtual file_refs -> member blobs
+                     -> torrent_info -> torrent_files
 ```
 
 ### Core Tables
@@ -77,18 +77,10 @@ repository
 - `file_refs`: A path, modification timestamp and existence/observation state
   pointing to a blob.
 - `metadata_status`: Per-blob extractor state, version, scan time, and last error.
-  Planned schema v4 records archive index version and shallow/deep completion
-  here rather than in archive-specific tables.
+  Schema v4 records archive-index state and shallow/deep completion here.
 - `archive_passwords`: Optional clear-text password associated with a blob, added
   in schema version 2. Repository files and JSON exports containing passwords
   are sensitive data.
-- `archive_indexes`: Indexer identity, completion timestamp and whether member
-  checksums were deeply extracted for a container blob. `deep_scanned`
-  distinguishes a shallow name index from a complete deep pass; a later deep
-  metadata request upgrades a shallow index without forcing a rescan.
-- `archive_entries`: Ordered, duplicate-aware member descriptors. Stable row IDs
-  are reconciled by normalized path and occurrence; deep checksums link a member
-  to an existing or newly created content blob through `content_blob_id`.
 - `schema_migrations`: Applied database schema migrations.
 
 `file_refs` replaces the JSON model's mixed single-file and multi-file
@@ -121,15 +113,9 @@ large polymorphic table:
 - `media_audio_streams`
 - `media_text_streams`
 
-`archive_entries` references its container blob and stores entry path, size,
-modification timestamp, checksums, and an optional `content_blob_id` for a
-deep-fingerprinted member. `archive_indexes` records indexer version and
-shallow/deep state. A nested archive is indexed by storing its entries against
-the member's content blob.
+### Schema version 4: virtual archive references
 
-### Planned schema version 4: virtual archive references
-
-The planned v4 migration will convert safe, indexed members to ordinary
+The v3-to-v4 migration converts safe, indexed members to ordinary
 `file_refs` whose canonical paths encode archive layers with `!/`. Literal `!`
 characters are escaped as `!!`; duplicate path occurrences use the `!~N`
 suffix. The migration retains normal `blobs`, `file_refs`, and physical
@@ -140,10 +126,10 @@ indexer and shallow/deep completion; no archive-specific table or column is
 added. The GUI extraction cache is session data and is never stored in SQLite.
 
 An archive-member `file_ref` is not a path to an extracted cache file. Its
-availability and locator are resolved through the encoded container chain. Scan
-and metadata operations use a leased cache path as temporary extractor input,
-then persist results against the member's ordinary blob ID. Byte-identical
-occurrences share a blob while retaining separate virtual references.
+availability and locator are resolved through the encoded container chain. The
+current metadata scanner still uses its temporary extraction flow; the shared
+leased cache service is tracked separately in WP-13.5.4. Byte-identical
+occurrences may share a blob while retaining separate virtual references.
 Member references keep the physical container's `directory_id`; the TreeView
 projects inner path components beneath the expandable archive file row rather
 than storing archive directories as additional rows.
@@ -257,10 +243,10 @@ transaction, keyset-query, migration, and binary-type capabilities another SQL
 engine would need. The staged design is tracked as WP-13 in
 `SQLITE-IMPLEMENTATION-PLAN.md`.
 
-Schema v3 stores `archive_entries` as metadata children of a container blob and
-links deeply fingerprinted members to ordinary content blobs. WP-13.5 replaces
-that archive-specific relation with virtual `file_refs`; see the migration plan
-in `SQLITE-IMPLEMENTATION-PLAN.md`.
+Schema v3 stored `archive_entries` as metadata children of a container blob and
+linked deeply fingerprinted members to ordinary content blobs. Schema v4
+replaces that archive-specific relation with virtual `file_refs`; the migration
+is documented in `SQLITE-IMPLEMENTATION-PLAN.md`.
 
 ## API and Package Versioning
 
@@ -295,6 +281,7 @@ The detailed, checkable work breakdown is maintained in
 7. Add CLI commands for repository discovery, initialization and scanning.
 8. Add compatibility tests for JSON round trips and database migrations.
 
-These phases record the SQLite rollout sequence and are complete. Subsequent
-storage-neutral API and archive-content work is planned separately under WP-13;
-the existing JSON v3 format remains the compatibility boundary during that work.
+These phases record the SQLite rollout sequence and are complete. WP-13.1 through
+WP-13.5.3 add the storage-neutral API, JSON v5 and SQLite schema v4. The shared
+extraction cache and GTK archive navigation remain follow-up work; JSON v0-v4
+remain readable compatibility inputs.

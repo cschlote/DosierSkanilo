@@ -1,9 +1,8 @@
 # JSON Storage Format
 
 This document describes the JSON formats used by DosierSkanilo for import and
-export. Version 3 remains the default for ordinary writes. Version 4 adds a
-recursive representation for nested archive entries and is selected explicitly
-when such data is exported.
+export. The current writer emits version 5. Readers continue to accept JSON
+versions 0-4 and legacy root arrays.
 
 JSON is a compatibility and exchange format. It is not intended to be the
 primary query store for large repositories. The `.dosierskanilo` SQLite
@@ -18,13 +17,13 @@ The current format writes one JSON object:
 ```json
 {
     "dataArray": [],
-    "dataVersion": 3,
+    "dataVersion": 5,
     "fileUtilityVersion": "file-5.47",
     "mediaInfoVersion": "MediaInfoLib - v26.01"
 }
 ```
 
-- `dataVersion` (integer): Storage schema version. Current value: `3`.
+- `dataVersion` (integer): Storage schema version. Current value: `5`.
 - `dataArray` (array): Array of binary-content records.
 - `fileUtilityVersion` (optional string): Version of the external `file`
   utility used for the scan.
@@ -36,24 +35,25 @@ metadata. They are not a version of the JSON schema itself.
 
 ## Binary Content Records
 
-Each element of `dataArray` represents one binary payload. Several filesystem
-paths can refer to the same payload after duplicate analysis. In the current
-format, those references are filesystem paths; archive members are still nested
-metadata rather than first-class blob references.
+Each element of `dataArray` represents one binary payload. Several physical or
+virtual references can refer to the same payload after duplicate analysis.
 
 - `fileSize` (integer): Payload size in bytes.
 - `checkSums` (optional object): MD5, SHA1 and XXH64 values encoded as
   Base64 strings.
 - `fileType` (optional string): Output of the `file` utility.
-- `fileName` (optional string): Single filesystem path. Used when the record
-  has one path.
-- `timeLastModified` (optional string): ISO timestamp belonging to `fileName`.
-- `fileSpecs` (optional array): Filesystem paths and timestamps. Used when the
-  record has multiple paths.
+- `fileName` (optional string): Legacy single filesystem path. Accepted on input;
+  current writes use `fileSpecs` for every reference.
+- `timeLastModified` (optional string): Legacy timestamp belonging to `fileName`.
+- `fileSpecs` (optional array): Physical or virtual reference paths and timestamps.
 - `mediaInfoSig` (optional object): Structured image, video, audio and text
   stream metadata.
-- `archiveSpecs` (optional array): Metadata and checksums for entries inside an
-  archive.
+- `archiveSpecs` (optional array): Legacy v0-v4 archive-entry metadata. Accepted
+  on input; v5 promotes safe members to ordinary content records.
+- `archiveIndexKnown` (optional boolean): Whether an archive index was completed,
+  including a known empty index.
+- `archiveIndexDeep` (optional boolean): Whether member content was deeply
+  inspected for checksums.
 - `archivePassword` (optional string): Password associated with the archive
   blob and reused by archive inspection. Version 3 catalogs can contain this
   value, so catalogs carrying passwords should be treated as sensitive files.
@@ -88,8 +88,7 @@ The in-memory model always normalizes paths to `fileSpecs` objects:
 ]
 ```
 
-For compatibility, the writer uses the shorter representation for exactly one
-path:
+Legacy writers used the shorter representation for exactly one path:
 
 ```json
 {
@@ -98,8 +97,9 @@ path:
 }
 ```
 
-This is an output optimization, not a different domain concept. On input,
-both forms are converted to `fileSpecs` by `fixupDataClassArrayIn()`.
+This is an input compatibility shape, not a different domain concept. On input,
+both forms are converted to `fileSpecs` by `fixupDataClassArrayIn()`. JSON v5
+always writes `fileSpecs`, including for a single physical or virtual reference.
 
 ### MediaInfo
 
@@ -132,15 +132,17 @@ shape does not persist an entry's own `NamedBinaryBlob` identity or path-referen
 record. The JSON adapter derives source-scoped member references and content IDs
 from deep checksums for the lifetime of an open catalog. Version 4 can additionally
 persist nested entry metadata; runtime reference identities are rebuilt on open.
-The expandable archive-file TreeView, virtual member records, and extraction
-cache are planned under WP-13.5 and the GUI archive workflow plan.
+The backend projects virtual member references through the common catalog API.
+The expandable GTK archive TreeView and shared extraction cache remain planned
+under WP-13.5 and the GUI archive workflow plan.
 
 The current shallow archive scan records entry names only; size, timestamp and
 checksums are populated by deep scanning, which extracts entries to temporary
 files. An `ArchiveSpec` with zero/empty values can therefore mean “listed but not
 deeply inspected,” not necessarily an empty member. Typed archive descriptors
-now report safe normalized paths and duplicate occurrence; deep-index state is
-stored separately by SQLite, while JSON v3 retains its legacy sentinel values.
+report safe normalized paths and duplicate occurrence. V5 stores the empty-index
+state and shallow/deep completion explicitly; SQLite schema v4 stores that state
+in `metadata_status`.
 
 ## Version 4: Nested Archive Entries
 
@@ -149,13 +151,10 @@ add an optional `nestedEntries` array whose elements use the same entry shape,
 recursively describing a member that is itself an archive.
 
 - Readers accept versions 1-4 and legacy root arrays.
-- Writers default to version 3. Version 4 is selected through
-  `CatalogExportFormat.jsonV4` or an explicitly versioned wrapper.
-- A version-3 write containing nested archive entries fails rather than silently
-  discarding them.
-- SQLite JSON import persists nested version-4 indexes recursively. Nested
-  container entries require complete content fingerprints, and imports reject
-  cyclic metadata or nesting deeper than 32 levels.
+- Version 4 is retained as an input-compatibility shape; current writers emit
+  version 5.
+- Version-4 nested `ArchiveSpec` trees are promoted to virtual `FileSpec`
+  references on v5 export or repository import.
 
 Deep scans recursively extract and index nested archives, and both adapters expose
 nested locator chains and member queries. A TreeView can treat the existing archive
@@ -165,11 +164,11 @@ Adapter-generated virtual member paths use `!/` to separate an archive from its
 member path. Literal `!` characters within physical or member path components are
 escaped as `!!`; persisted JSON `ArchiveSpec.fileName` values remain unchanged.
 
-## Planned Version 5: Virtual Archive References
+## Version 5: Virtual Archive References
 
-WP-13.5 plans JSON v5 as the normal-content representation for archive members.
-Each safely scraped non-directory member becomes a top-level `NamedBinaryBlob`
-record with one or more virtual `FileSpec.fileName` references. The path grammar is:
+JSON v5 is the normal-content representation for archive members. Each safely
+scraped non-directory member becomes a top-level `NamedBinaryBlob` record with
+one or more virtual `FileSpec.fileName` references. The path grammar is:
 
 - `!/` starts the next archive layer.
 - `!!` encodes a literal `!` in a path component.
@@ -198,18 +197,18 @@ For example, an entry named `same!.txt`, second among duplicate names, can be
 stored as `archive.zip!/same!!.txt!~1`. The path provides a reversible reference
 spelling; the backend still uses its structured locator and occurrence identity
 for extraction and content resolution. Byte-identical member occurrences retain
-distinct virtual references while sharing one content blob. The v5 writer groups
-by complete content identity, not by the first virtual filename, so two
-same-display-name entries with different bytes are not discarded.
+distinct virtual references; complete fingerprints may share a content blob.
+The writer does not merge records merely because their display names match.
 
-New v5 writes will not store archive member lists in `archiveSpecs`. Readers keep
+V5 writes do not store archive member lists in `archiveSpecs`. Readers keep
 accepting v0-v4; importing a v4 nested `ArchiveSpec` tree converts it to normal
 member blob records and virtual references, carrying forward entry checksums,
-nested archive passwords, and nested member references. The SQLite schema-v4
-migration is planned to migrate existing archive rows into virtual `file_refs`,
-retain normal blob/content links, and remove `archive_entries` and
-`archive_indexes` rather than adding new archive-specific tables. Cache paths are
-session-local and never serialized as file references.
+nested archive passwords, and nested member references. The optional
+`archiveIndexKnown` and `archiveIndexDeep` fields retain empty-index and scan-depth
+state when no `ArchiveSpec` list is written. SQLite schema v4 stores virtual
+members as normal `file_refs`, keeps their physical `directory_id`, and moves
+index state to `metadata_status`; the schema contains no archive-entry/index
+tables. Cache paths are session-local and never serialized as file references.
 
 ### Torrent Information
 

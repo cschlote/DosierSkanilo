@@ -165,6 +165,7 @@ class NamedBinaryBlob
 		MediaInfoSig mediaInfoSig; ///< Parsed media info signature
 		ArchiveSpec[] archiveSpecs; /// Contents of an archive
 		bool archiveIndexKnown; /// JSON v5 archive-index state, including empty indexes
+		bool archiveIndexDeep; /// True when member metadata was extracted deeply
 		string archivePassword; /// Optional password used to inspect this archive
 		TorrentInfo torrentInfo; /// Extracted torrent information
 	}
@@ -206,6 +207,7 @@ class NamedBinaryBlob
 		mediaInfoSig = null; // MediaInfo as JSON fields
 		archiveSpecs = null; // Contents of an archive
 		archiveIndexKnown = false;
+		archiveIndexDeep = false;
 		fileSpecsUseArchiveVirtualGrammar = false;
 		archivePassword = ""; // Optional archive password
 		torrentInfo = null; // Extracted torrent information
@@ -310,6 +312,7 @@ class NamedBinaryBlob
 		torrentInfo = other.torrentInfo;
 		archivePassword = other.archivePassword;
 		archiveIndexKnown = other.archiveIndexKnown;
+		archiveIndexDeep = other.archiveIndexDeep;
 		fileSpecsUseArchiveVirtualGrammar = other.fileSpecsUseArchiveVirtualGrammar;
 		if (other.archiveSpecs !is null)
 		{
@@ -1266,6 +1269,8 @@ private void appendArchiveMemberBlobs(ref NamedBinaryBlob[] result,
 		member.archivePassword = entry.archivePassword;
 		member.archiveIndexKnown = entry.nestedEntries !is null
 			|| entry.archivePassword.length > 0;
+		member.archiveIndexDeep = entry.nestedEntries !is null
+			&& archiveEntriesHaveCompleteChecksums(entry.nestedEntries);
 		member.fileSpecsUseArchiveVirtualGrammar = true;
 		result ~= member;
 
@@ -1298,6 +1303,8 @@ private NamedBinaryBlob[] normalizeV5Catalog(NamedBinaryBlob[] blobs,
 		if (archiveEntries !is null)
 		{
 			blob.archiveIndexKnown = true;
+			blob.archiveIndexDeep = archiveEntriesHaveCompleteChecksums(
+				archiveEntries);
 			blob.archiveSpecs = null;
 		}
 		records ~= blob;
@@ -1312,6 +1319,58 @@ private NamedBinaryBlob[] normalizeV5Catalog(NamedBinaryBlob[] blobs,
 	return sortDataClassArrayByFileName(records);
 }
 
+private bool archiveEntriesHaveCompleteChecksums(ArchiveSpec[] entries)
+{
+	foreach (entry; entries)
+	{
+		if (entry is null)
+			continue;
+		bool safe;
+		bool isDirectory;
+		normalizeArchiveEntryPath(entry.fileName, safe, isDirectory);
+		if (!safe || isDirectory)
+			continue;
+		if (!entry.checkSums.hasDigests)
+			return false;
+		if (entry.nestedEntries !is null
+			&& !archiveEntriesHaveCompleteChecksums(entry.nestedEntries))
+			return false;
+	}
+	return true;
+}
+
+private NamedBinaryBlob[] fixupDataClassArrayOutV5(
+	NamedBinaryBlob[] dataArray)
+{
+	foreach (ref obj; dataArray)
+	{
+		obj.fileName = null;
+		obj.timeLastModified = null;
+		obj.fileNames = null;
+		obj.md5sum_b64 = null;
+		obj.sha1sum_b64 = null;
+		obj.xxh64sum_b64 = null;
+		obj.mediaInfo = null;
+		normalizeJpegImageMediaInfo(obj);
+		if (obj.mediaInfoSig !is null && obj.mediaInfoSig.empty)
+			obj.mediaInfoSig = null;
+		if (obj.torrentInfo !is null && obj.torrentInfo.magnetURI.empty)
+			obj.torrentInfo = null;
+	}
+	return dataArray;
+}
+
+/** Promote a deserialized version-0..5 catalog to the canonical JSON-v5 model. */
+void upgradeDataClassCatalogToV5(ref NamedBinaryBlobCatalog wrapper)
+{
+	if (wrapper.dataVersion < DATA_CLASS_VERSION2
+		|| wrapper.dataVersion > DATA_CLASS_VERSION5)
+		throw new Exception("Unsupported JSON catalog version.");
+	const bool sourceAlreadyV5 = wrapper.dataVersion == DATA_CLASS_VERSION5;
+	wrapper.dataArray = normalizeV5Catalog(wrapper.dataArray, sourceAlreadyV5);
+	wrapper.dataVersion = DATA_CLASS_VERSION5;
+}
+
 /** Serialize the wrapper object into a JSON file.
  *
  * Store the wrapper data in a JSON file.
@@ -1324,18 +1383,13 @@ void serializeDataClassWrapperFile(string fileName, ref NamedBinaryBlobCatalog w
 	logFLineVerbose("Generate JSON data and write it to file %s", fileName);
 	if (wrapper.dataVersion == 0)
 		wrapper.dataVersion = DATA_CLASS_VERSION5;
-	if (wrapper.dataVersion < DATA_CLASS_VERSION2
-		|| wrapper.dataVersion > DATA_CLASS_VERSION5)
-		throw new Exception("Unsupported JSON catalog version.");
-	const bool sourceAlreadyV5 = wrapper.dataVersion == DATA_CLASS_VERSION5;
-	wrapper.dataArray = normalizeV5Catalog(wrapper.dataArray, sourceAlreadyV5);
-	wrapper.dataVersion = DATA_CLASS_VERSION5;
+	upgradeDataClassCatalogToV5(wrapper);
 	wrapper.refreshRuntimeMetadata();
 
 	logFLineVerbose("  sort and uniq serialized array by their filenames (use a range)");
 	auto sortedDeserializedData_rng = sortDataClassArrayByFileName(wrapper.dataArray);
 	auto uniqSortedDeserializedData = uniqDataClassArrayByFileName(sortedDeserializedData_rng);
-	wrapper.dataArray = fixupDataClassArrayOut(uniqSortedDeserializedData);
+	wrapper.dataArray = fixupDataClassArrayOutV5(uniqSortedDeserializedData);
 	writeJSON!(NamedBinaryBlobWrapper)(fileName, wrapper);
 	wrapper.dataArray = fixupDataClassArrayIn(wrapper.dataArray);
 	foreach (blob; wrapper.dataArray)
@@ -1490,7 +1544,7 @@ version (unittest)
 	{
 		import std.conv : to;
 		import std.file : mkdirRecurse, readText, remove, tempDir;
-		import std.json : parseJSON;
+		import std.json : JSONValue, parseJSON;
 		import std.path : buildPath;
 		import std.uuid : randomUUID;
 
@@ -1514,6 +1568,27 @@ version (unittest)
 
 		auto jsonstring0 = expectedJsonFile.readText;
 		auto json0 = jsonstring0.parseJSON;
+		void normalizeSingleFileSpecShape(ref typeof(json) value)
+		{
+			auto records = value.object["dataArray"].array;
+			foreach (ref record; records)
+			{
+				if ("fileSpecs" in record.object || !("fileName" in record.object))
+					continue;
+				JSONValue[string] fileSpecObject;
+				fileSpecObject["fileName"] = record.object["fileName"];
+				if ("timeLastModified" in record.object)
+					fileSpecObject["timeLastModified"] =
+						record.object["timeLastModified"];
+				auto fileSpec = JSONValue(fileSpecObject);
+				record.object["fileSpecs"] = JSONValue([fileSpec]);
+				record.object.remove("fileName");
+				record.object.remove("timeLastModified");
+			}
+			value.object["dataArray"] = JSONValue(records);
+		}
+		normalizeSingleFileSpecShape(json);
+		normalizeSingleFileSpecShape(json0);
 
 		// Tool versions are environment-dependent and are not part of the
 		// serialized data contract covered by these fixtures.

@@ -5,13 +5,15 @@ import d2sqlite3;
 
 import std.array : join;
 import std.conv : to;
+import std.exception : enforce;
 import std.path : buildPath;
 import std.parallelism : Task, TaskPool, task;
-import std.string : empty;
+import std.string : empty, endsWith, replace, startsWith;
 import std.typecons : Nullable;
 
 import dosierarkivo.archive : archiveIndexVersion,
-    normalizeArchiveEntryPath;
+    appendArchiveVirtualPath, escapeArchiveVirtualPath,
+    normalizeArchiveEntryPath, parseArchiveVirtualPath;
 import dosierskanilo.metadata.mediainfosig : MediaInfoSig;
 import dosierskanilo.metadata.torrentinfo : TorrentInfo;
 import dosierskanilo.model.archivespec : ArchiveSpec;
@@ -19,8 +21,17 @@ import dosierskanilo.model.namedbinaryblob;
 import dosierskanilo.operations : OperationControl, OperationKind,
     OperationPhase, OperationProgress, OperationState;
 import dosierskanilo.repository.archiveindex : deleteUnreachableBlobs,
-    ensureArchiveMemberBlob, resolveArchiveMemberBlobLinks;
+    ensureArchiveMemberBlob, isVirtualFileReferenceSql,
+    resolveArchiveMemberBlobLinks;
 import dosierskanilo.repository.types;
+
+private struct VirtualContainerReference
+{
+    Nullable!long directoryId;
+    string relativePath;
+    bool existsOnDisk;
+    string lastSeenAt;
+}
 
 private class MetadataWorkItem
 {
@@ -66,14 +77,20 @@ private long[] metadataBlobIds(ref Database db, string filePath)
     long[] blobIds;
     if (filePath.empty)
     {
-        foreach (row; db.execute("SELECT id FROM blobs ORDER BY id"))
+        foreach (row; db.execute("SELECT DISTINCT b.id FROM blobs b "
+            ~ "JOIN file_refs f ON f.blob_id = b.id WHERE "
+            ~ "NOT (" ~ isVirtualFileReferenceSql("f.relative_path") ~ ") "
+            ~ "ORDER BY b.id"))
             blobIds ~= row.peek!long(0);
     }
     else
     {
+        const auto canonical = escapeArchiveVirtualPath(filePath.replace('\\', '/'));
         foreach (row; db.execute("SELECT DISTINCT b.id FROM blobs b "
             ~ "JOIN file_refs f ON f.blob_id = b.id "
-            ~ "WHERE f.relative_path = ? ORDER BY b.id", filePath))
+            ~ "WHERE f.relative_path = ? AND "
+            ~ "NOT (" ~ isVirtualFileReferenceSql("f.relative_path") ~ ") "
+            ~ "ORDER BY b.id", canonical))
             blobIds ~= row.peek!long(0);
     }
     return blobIds;
@@ -170,7 +187,7 @@ MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
                     options.deepArchiveScan);
                 persistArchivePassword(db, blobId, blob.archivePassword);
                 setMetadataStatus(db, blobId, "archives",
-                    metadataState(blob.archiveSpecs !is null), "");
+                    blob.archiveSpecs is null ? "not_archive" : "completed", "");
                 if (blob.archiveSpecs !is null)
                     summary.archivesUpdated++;
             }
@@ -499,7 +516,9 @@ private void persistMetadataWork(ref Database db, MetadataWorkItem item,
             return;
         }
         persist();
-        setMetadataStatus(db, item.blobId, kind, metadataState(hasData), "");
+        const auto state = kind == "archives" && !hasData
+            ? "not_archive" : metadataState(hasData);
+        setMetadataStatus(db, item.blobId, kind, state, "");
         if (hasData)
         {
             if (kind == "checksums") summary.checksumsUpdated++;
@@ -550,9 +569,32 @@ private NamedBinaryBlob loadBlob(ref Database db, string rootPath, long blobId)
     foreach (row; refs)
     {
         auto modified = row.peek!(Nullable!string)(1);
+        const auto storedPath = row.peek!string(0);
+        const auto parsed = parseArchiveVirtualPath(storedPath);
+        auto fileName = escapeArchiveVirtualPath(buildPath(rootPath,
+            parsed.physicalPath));
+        foreach (entry; parsed.entries)
+            fileName = appendArchiveVirtualPath(fileName, entry.relativePath,
+                entry.hasOccurrence ? entry.occurrence : size_t.max);
         blob.fileSpecs ~= new FileSpec(
-            buildPath(rootPath, row.peek!string(0)),
+            fileName,
             modified.isNull ? "" : modified.get);
+    }
+    blob.fileSpecsUseArchiveVirtualGrammar = true;
+    auto archiveStatus = db.execute("SELECT state, extractor_version "
+        ~ "FROM metadata_status WHERE blob_id = ? AND metadata_kind = 'archives'",
+        blobId);
+    if (!archiveStatus.empty)
+    {
+        auto statusRow = archiveStatus.front;
+        const auto state = statusRow.peek!string(0);
+        if (state == "completed" || state == "empty")
+        {
+            blob.archiveIndexKnown = true;
+            const auto extractor = statusRow.peek!(Nullable!string)(1);
+            blob.archiveIndexDeep = !extractor.isNull
+                && extractor.get.endsWith(":deep");
+        }
     }
     return blob.fileSpecs.length == 0 ? null : blob;
 }
@@ -587,14 +629,27 @@ private bool metadataCompleted(ref Database db, long blobId, string kind)
     if (result.empty)
         return false;
     auto state = result.front.peek!string(0);
-    return state == "completed" || state == "empty";
+    return state == "completed" || state == "empty"
+        || (kind == "archives" && state == "not_archive");
 }
 
 private bool archiveIndexCurrent(ref Database db, long blobId, bool requireDeep)
 {
-    return !db.execute("SELECT 1 FROM archive_indexes WHERE blob_id = ? "
-        ~ "AND indexer_version = ? AND (? = 0 OR deep_scanned = 1)", blobId,
-        archiveIndexVersion, requireDeep ? 1 : 0).empty;
+    auto result = db.execute("SELECT state, extractor_version FROM metadata_status "
+        ~ "WHERE blob_id = ? AND metadata_kind = 'archives'", blobId);
+    if (result.empty)
+        return false;
+    auto row = result.front;
+    const auto state = row.peek!string(0);
+    if (state == "not_archive")
+        return true;
+    if (state != "completed" && state != "empty")
+        return false;
+    const auto extractor = row.peek!(Nullable!string)(1);
+    if (extractor.isNull
+        || !extractor.get.startsWith(archiveIndexVersion ~ ":"))
+        return false;
+    return !requireDeep || extractor.get.endsWith(":deep");
 }
 
 private string metadataState(bool hasData)
@@ -645,129 +700,199 @@ private void persistArchives(ref Database db, long blobId, ArchiveSpec[] entries
 {
     if (entries is null)
     {
-        db.execute("DELETE FROM archive_entries WHERE blob_id = ?", blobId);
-        db.execute("DELETE FROM archive_indexes WHERE blob_id = ?", blobId);
+        string[] containerPaths;
+        foreach (row; db.execute("SELECT relative_path FROM file_refs "
+            ~ "WHERE blob_id = ?", blobId))
+            containerPaths ~= row.peek!string(0).idup;
+        foreach (path; containerPaths)
+        {
+            const auto prefix = path ~ "!/";
+            long[] staleIds;
+            foreach (row; db.execute("SELECT id FROM file_refs WHERE "
+                ~ "substr(relative_path, 1, ?) = ?",
+                cast(long) prefix.length, prefix))
+                staleIds ~= row.peek!long(0);
+            foreach (staleId; staleIds)
+                db.execute("DELETE FROM file_refs WHERE id = ?", staleId);
+        }
+        db.execute("DELETE FROM metadata_status WHERE blob_id = ? "
+            ~ "AND metadata_kind = 'archives'", blobId);
         return;
     }
 
-    struct ExistingEntry
+    VirtualContainerReference[] containers;
+    foreach (row; db.execute("SELECT directory_id, relative_path, exists_on_disk, "
+        ~ "last_seen_at FROM file_refs WHERE blob_id = ? ORDER BY relative_path",
+        blobId))
     {
-        long id;
+        VirtualContainerReference container;
+        container.directoryId = row.peek!(Nullable!long)(0);
+        container.relativePath = row.peek!string(1).idup;
+        container.existsOnDisk = row.peek!long(2) != 0;
+        const auto lastSeen = row.peek!(Nullable!string)(3);
+        container.lastSeenAt = lastSeen.isNull ? "" : lastSeen.get.idup;
+        containers ~= container;
     }
-    ExistingEntry[][string] existingByIdentity;
-    foreach (row; db.execute("SELECT id, normalized_path, path_safe, occurrence "
-        ~ "FROM archive_entries WHERE blob_id = ?", blobId))
-    {
-        auto key = archiveEntryIdentityKey(row.peek!long(2) != 0,
-            row.peek!string(1), cast(size_t) row.peek!long(3));
-        existingByIdentity[key] ~= ExistingEntry(row.peek!long(0));
-    }
+    if (containers.length == 0)
+        return;
 
-    bool[long] retainedIds;
-    bool membershipChanged;
-    size_t[string] occurrences;
     const bool preserveDeep = !deepScanned
         && archiveIndexCurrent(db, blobId, true);
-    foreach (entryIndex, entry; entries)
+    bool[string] desiredPaths;
+
+    long memberBlobIdFor(ArchiveSpec entry, string memberPath,
+        bool preserveMember)
     {
-        if (entry is null)
-            continue;
-        bool pathSafe;
-        bool isDirectory;
-        const auto normalizedPath = normalizeArchiveEntryPath(entry.fileName,
-            pathSafe, isDirectory);
-        auto identityPath = pathSafe ? normalizedPath : entry.fileName;
-        auto occurrenceKey = (pathSafe ? "safe\0" : "unsafe\0") ~ identityPath;
-        auto occurrence = occurrences.get(occurrenceKey, 0);
-        occurrences[occurrenceKey] = occurrence + 1;
-        const auto identityKey = archiveEntryIdentityKey(pathSafe, identityPath,
-            occurrence);
+        auto existing = db.execute("SELECT f.blob_id, b.file_size, b.md5, "
+            ~ "b.sha1, b.xxh64 FROM file_refs f JOIN blobs b ON b.id = f.blob_id "
+            ~ "WHERE f.relative_path = ?", memberPath);
         auto md5 = checksumBlob(entry.checkSums.md5sum_b64);
         auto sha1 = checksumBlob(entry.checkSums.sha1sum_b64);
         auto xxh64 = checksumBlob(entry.checkSums.xxh64sum_b64);
-        auto memberBlobId = ensureArchiveMemberBlob(db,
-            cast(long) entry.fileSize, md5, sha1, xxh64);
-        entry.entryIndex = entryIndex;
-        entry.occurrence = occurrence;
-        entry.hasIndexIdentity = true;
-        entry.contentBlobId = memberBlobId;
-        entry.contentIdentity = "";
-        Nullable!long memberBlobReference;
-        if (memberBlobId > 0)
-            memberBlobReference = memberBlobId;
-
-        long entryId;
-        if (auto matches = identityKey in existingByIdentity)
-            foreach (existing; *matches)
-                if (existing.id !in retainedIds)
-                {
-                    entryId = existing.id;
-                    break;
-                }
-
-        if (entryId > 0)
+        if (entry.checkSums.hasDigests)
+            return ensureArchiveMemberBlob(db, cast(long) entry.fileSize,
+                md5, sha1, xxh64);
+        if (!existing.empty)
         {
-            if (preserveDeep)
-                db.execute("UPDATE archive_entries SET entry_index = ?, "
-                    ~ "file_name = ?, normalized_path = ?, path_safe = ?, "
-                    ~ "is_directory = ? WHERE id = ?", cast(long) entryIndex,
-                    entry.fileName, identityPath, pathSafe ? 1 : 0,
-                    isDirectory ? 1 : 0, entryId);
-            else
-                db.execute("UPDATE archive_entries SET entry_index = ?, file_name = ?, "
-                    ~ "normalized_path = ?, path_safe = ?, is_directory = ?, "
-                    ~ "file_size = ?, time_last_modified = ?, md5 = ?, sha1 = ?, "
-                    ~ "xxh64 = ?, content_blob_id = ? WHERE id = ?",
-                    cast(long) entryIndex, entry.fileName, identityPath,
-                    pathSafe ? 1 : 0, isDirectory ? 1 : 0,
-                    cast(long) entry.fileSize, entry.timeLastModified,
-                    md5, sha1, xxh64, memberBlobReference, entryId);
-            retainedIds[entryId] = true;
+            auto row = existing.front;
+            const auto oldMd5 = row.peek!(Nullable!Blob)(2);
+            const auto oldSha1 = row.peek!(Nullable!Blob)(3);
+            const auto oldXxh64 = row.peek!(Nullable!Blob)(4);
+            if (row.peek!long(1) == cast(long) entry.fileSize
+                && (preserveMember || (!oldMd5.isNull && !oldSha1.isNull
+                    && !oldXxh64.isNull)))
+                return row.peek!long(0);
         }
-        else
+        db.execute("INSERT INTO blobs (file_size, md5, sha1, xxh64) "
+            ~ "VALUES (?, ?, ?, ?)", cast(long) entry.fileSize,
+            md5, sha1, xxh64);
+        return db.lastInsertRowid;
+    }
+
+    void writeMember(string memberPath, long memberBlobId,
+        VirtualContainerReference container, string modifiedAt)
+    {
+        Nullable!string modified;
+        if (modifiedAt.length > 0)
+            modified = Nullable!string(modifiedAt);
+        Nullable!string lastSeen;
+        if (container.lastSeenAt.length > 0)
+            lastSeen = Nullable!string(container.lastSeenAt);
+        db.execute("INSERT INTO file_refs (blob_id, directory_id, relative_path, "
+            ~ "time_last_modified, exists_on_disk, last_seen_at) "
+            ~ "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(relative_path) DO UPDATE SET "
+            ~ "blob_id = excluded.blob_id, directory_id = excluded.directory_id, "
+            ~ "time_last_modified = excluded.time_last_modified, "
+            ~ "exists_on_disk = excluded.exists_on_disk, "
+            ~ "last_seen_at = excluded.last_seen_at", memberBlobId,
+            container.directoryId, memberPath, modified,
+            container.existsOnDisk ? 1 : 0, lastSeen);
+        desiredPaths[memberPath] = true;
+    }
+
+    void writeEntries(VirtualContainerReference parent, ArchiveSpec[] children,
+        size_t depth, bool preserveContainerDeep)
+    {
+        enforce(depth < 32, "Nested archive indexing exceeds the maximum depth.");
+        size_t[string] pathCounts;
+        foreach (entry; children)
         {
-            membershipChanged = true;
-            db.execute("INSERT INTO archive_entries (blob_id, entry_index, "
-                ~ "occurrence, file_name, normalized_path, path_safe, is_directory, "
-                ~ "file_size, time_last_modified, md5, sha1, xxh64, content_blob_id) "
-                ~ "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", blobId,
-                cast(long) entryIndex, cast(long) occurrence, entry.fileName,
-                identityPath, pathSafe ? 1 : 0, isDirectory ? 1 : 0,
-                cast(long) entry.fileSize, entry.timeLastModified,
-                md5, sha1, xxh64, memberBlobReference);
-            entryId = db.lastInsertRowid;
-            retainedIds[entryId] = true;
+            if (entry is null)
+                continue;
+            bool safe;
+            bool isDirectory;
+            const auto path = normalizeArchiveEntryPath(entry.fileName, safe,
+                isDirectory);
+            if (safe && !isDirectory)
+                pathCounts[path] = pathCounts.get(path, 0) + 1;
         }
 
-        if (memberBlobId > 0 && (deepScanned || entry.nestedEntries !is null
-            || entry.archivePassword.length > 0))
+        size_t[string] occurrences;
+        foreach (entryIndex, entry; children)
         {
-            persistArchivePassword(db, memberBlobId, entry.archivePassword);
-            persistArchives(db, memberBlobId, entry.nestedEntries, deepScanned);
+            if (entry is null)
+                continue;
+            bool safe;
+            bool isDirectory;
+            const auto path = normalizeArchiveEntryPath(entry.fileName, safe,
+                isDirectory);
+            if (!safe || isDirectory)
+                continue;
+            auto occurrence = entry.hasIndexIdentity ? entry.occurrence
+                : occurrences.get(path, 0);
+            occurrences[path] = occurrence + 1;
+            entry.entryIndex = entryIndex;
+            entry.occurrence = occurrence;
+            entry.hasIndexIdentity = true;
+            const auto memberPath = appendArchiveVirtualPath(parent.relativePath,
+                path, pathCounts.get(path, 0) > 1 || occurrence > 0
+                    ? occurrence : size_t.max);
+            entry.fileName = path;
+            bool preserveMemberDeep;
+            if (!deepScanned)
+            {
+                auto existingMember = db.execute("SELECT blob_id FROM file_refs "
+                    ~ "WHERE relative_path = ?", memberPath);
+                if (!existingMember.empty)
+                    preserveMemberDeep = archiveIndexCurrent(db,
+                        existingMember.front.peek!long(0), true);
+            }
+            auto memberBlobId = memberBlobIdFor(entry, memberPath,
+                preserveContainerDeep || preserveMemberDeep);
+            entry.contentBlobId = memberBlobId;
+            entry.contentIdentity = "";
+            writeMember(memberPath, memberBlobId, parent,
+                entry.timeLastModified);
+            if (entry.archivePassword.length > 0)
+                persistArchivePassword(db, memberBlobId, entry.archivePassword);
+
+            if (entry.nestedEntries !is null)
+            {
+                VirtualContainerReference nested;
+                nested.directoryId = parent.directoryId;
+                nested.relativePath = memberPath;
+                nested.existsOnDisk = parent.existsOnDisk;
+                nested.lastSeenAt = parent.lastSeenAt;
+                writeEntries(nested, entry.nestedEntries,
+                    depth + 1, !deepScanned
+                        && archiveIndexCurrent(db, memberBlobId, true));
+            }
+            else if (preserveContainerDeep || preserveMemberDeep)
+            {
+                const auto descendantPrefix = memberPath ~ "!/";
+                foreach (row; db.execute("SELECT relative_path FROM file_refs "
+                    ~ "WHERE substr(relative_path, 1, ?) = ?",
+                    cast(long) descendantPrefix.length, descendantPrefix))
+                    desiredPaths[row.peek!string(0)] = true;
+            }
         }
     }
-    foreach (matches; existingByIdentity.values)
-        foreach (existing; matches)
-            if (existing.id !in retainedIds)
-            {
-                membershipChanged = true;
-                db.execute("DELETE FROM archive_entries WHERE id = ?", existing.id);
-            }
-    const bool indexDeep = deepScanned || (preserveDeep && !membershipChanged);
-    db.execute("INSERT INTO archive_indexes (blob_id, indexer_version, indexed_at, "
-        ~ "deep_scanned) VALUES (?, ?, ?, ?) ON CONFLICT(blob_id) DO UPDATE SET "
-        ~ "indexer_version = excluded.indexer_version, "
-        ~ "indexed_at = excluded.indexed_at, "
-        ~ "deep_scanned = excluded.deep_scanned", blobId,
-        archiveIndexVersion, currentTimestamp(),
-        indexDeep ? 1 : 0);
-}
 
-private string archiveEntryIdentityKey(bool pathSafe, string path,
-    size_t occurrence)
-{
-    return (pathSafe ? "safe\0" : "unsafe\0") ~ path ~ "\0"
-        ~ occurrence.to!string;
+    foreach (container; containers)
+        writeEntries(container, entries, 0, preserveDeep);
+
+    foreach (container; containers)
+    {
+        const auto descendantPrefix = container.relativePath ~ "!/";
+        long[] staleIds;
+        foreach (row; db.execute("SELECT id, relative_path FROM file_refs "
+            ~ "WHERE substr(relative_path, 1, ?) = ?",
+            cast(long) descendantPrefix.length, descendantPrefix))
+            if (row.peek!string(1) !in desiredPaths)
+                staleIds ~= row.peek!long(0);
+        foreach (staleId; staleIds)
+            db.execute("DELETE FROM file_refs WHERE id = ?", staleId);
+    }
+
+    const auto extractorVersion = archiveIndexVersion
+        ~ (deepScanned || preserveDeep ? ":deep" : ":shallow");
+    const auto state = entries.length == 0 ? "empty" : "completed";
+    db.execute("INSERT INTO metadata_status (blob_id, metadata_kind, state, "
+        ~ "extractor_version, scanned_at, error_message) VALUES (?, 'archives', "
+        ~ "?, ?, ?, NULL) ON CONFLICT(blob_id, metadata_kind) DO UPDATE SET "
+        ~ "state = excluded.state, extractor_version = excluded.extractor_version, "
+        ~ "scanned_at = excluded.scanned_at, error_message = NULL", blobId, state,
+        extractorVersion, currentTimestamp());
 }
 
 private void persistArchivePassword(ref Database db, long blobId, string password)

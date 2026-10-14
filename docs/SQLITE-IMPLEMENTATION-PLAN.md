@@ -59,11 +59,11 @@ and transport controls, not user-visible SQL pages. JSON can use an in-memory
 index; SQLite should use stable keyset/cursor queries. Both sources must expose
 the same DTOs, filter semantics, sort order, stable IDs, and logical navigation.
 
-## Current Implementation Snapshot (2026-10-12)
+## Current Implementation Snapshot (2026-10-14)
 
 Implemented in the backend:
 
-- The repository lifecycle, normalized SQLite schema, JSON v0-v4 import/export,
+- The repository lifecycle, SQLite schema v4, JSON v0-v5 import/export,
   scanner persistence core, SQL-based analysis, and explicit SQLite/JSON CLI
   modes.
 - Typed directory, file, blob-summary, archive-entry, and torrent-file DTOs.
@@ -96,12 +96,10 @@ WP-13.1 freezes the catalog domain model and WP-13.2 declares the storage-neutra
 `CatalogBackend` interface and DTOs in `source/dosierskanilo/catalogbackend.d`.
 WP-13.3 implements the JSON v0-v3 adapter. WP-13.4 adds the SQLite adapter over
 the public `Repository` facade and an explicit default factory for both targets.
-WP-13.5 currently provides stable archive-entry identities, shallow-to-deep
-upgrades, reusable member content blobs, recursive nested scanning/import, JSON
-v4 nested `ArchiveSpec` trees, and escaped archive display paths. The next slices
-replace persisted member lists with ordinary virtual file references, migrate
-SQLite to those references without archive-specific tables, and add a shared
-extraction cache used by scraping and the GUI TreeView/Previewer.
+WP-13.5.1 through WP-13.5.3 provide stable archive-entry identities, recursive
+nested scanning, JSON v5 virtual member references, and SQLite schema v4
+file-reference migration without archive-specific tables. The next slices add a
+shared extraction cache used by scraping and the GUI TreeView/Previewer.
 
 The backend library tests and GUI tests/build are separate checks. GUI-specific
 status, test commands, and remaining UI integration tests are maintained in
@@ -1360,7 +1358,8 @@ tracked until a deliberate history-cleanup decision is made.
 
 ## WP-13: Storage-Neutral Catalog API and First-Class Archive Content
 
-Status: `[-]` (WP-13.1 through WP-13.4 complete; WP-13.5 is in progress.)
+Status: `[-]` (WP-13.1 through WP-13.5.3 complete; shared extraction/cache and
+TreeView integration remain.)
 
 The product goal is to index one directory tree, enrich its binary content with
 metadata, identify duplicate payloads, and expose filtered logical subsets to
@@ -1371,25 +1370,23 @@ that interface, but generic SQL support is not an initial compatibility promise.
 
 Current implementation facts and limitations:
 
-- `NamedBinaryBlob` is the JSON v3/v4 serializer record and an in-memory
-  content-plus-filesystem-reference object. Current `FileSpec` values store
-  physical paths and observed timestamps; planned JSON v5 will allow canonical
-  virtual archive paths in those same references.
+- `NamedBinaryBlob` is the JSON v5 serializer record and an in-memory
+  content-plus-reference object. `FileSpec` values store physical or canonical
+  virtual archive paths and observed timestamps.
 - `Repository` is a concrete SQLite class with public typed queries and
-  synchronous convenience methods. `JsonCatalogBackend` adapts current JSON
-  v0-v4 deserialization, queries, subset export, and shared operations; the
+  synchronous convenience methods. `JsonCatalogBackend` adapts JSON v0-v5
+  deserialization, queries, subset export, and shared operations; the
   existing JSON CLI still uses the same services through the operation runner.
 - The GUI owns `DirectorySource` and adapts JSON projections plus `Repository`
   DTOs. There is not yet one backend catalog/query superclass.
-- `ArchiveSpec` is nested under the containing `NamedBinaryBlob`; version 4
-  recursively represents nested entry metadata. WP-13.5 keeps it as a legacy
-  input representation and plans to emit normal member blobs/references in JSON
-  v5. `torrentInfo.files` remains nested metadata.
+- `ArchiveSpec` remains the v0-v4 import-compatibility representation. JSON v5
+  promotes safe members to normal content/reference records. `torrentInfo.files`
+  remains nested metadata.
 - `FileArchive.getEntries()` returns typed entry descriptors. Deep
   `updateArchives()` extracts entries to temporary files, fingerprints them, and
-  recursively indexes nested archives. SQLite reconciles stable path/occurrence
-  IDs and links member content blobs; duplicate occurrences unsupported by an
-  extractor are not assigned deep fingerprints.
+  recursively indexes nested archives. SQLite now stores member references in
+  `file_refs`; the shared extraction cache remains a follow-up. Duplicate
+  occurrences unsupported by an extractor are not assigned deep fingerprints.
 
 ### Frozen product invariants
 
@@ -1481,8 +1478,8 @@ are exported, and the fake backend contract test passes.
 
 Status: `[x]`
 
-- [x] Wrap current v0-v4 deserialization, migration, and v3/v4 serialization behind
-  the catalog interface without changing accepted input/output behavior.
+- [x] Wrap legacy v0-v4 deserialization and the initial v3/v4 serializer behind
+  the catalog interface; WP-13.5.2 subsequently moved current writes to v5.
 - [x] Build/reuse a JSON source index for directory, reference, blob, filter,
   cursor, detail, and selected-subset queries.
 - [x] Preserve unavailable source paths unless explicitly removed; verify the
@@ -1493,7 +1490,7 @@ Status: `[x]`
 
 **Exit:** JSON mode implements the common reads and operations with parity tests,
 keeps its explicit catalog/root isolation, and preserves legacy fixtures. **Met:**
-the JSON adapter tests cover v0-v3 reads, generated-catalog scans/metadata,
+the JSON adapter tests cover v0-v5 reads/writes, generated-catalog scans/metadata,
 queries/cursors, details, subset exports, operation outcomes, and missing-source
 retention/removal.
 
@@ -1556,20 +1553,20 @@ archive/torrent pages, subset export, missing-reference analysis, and availabili
   pages; JSON and SQLite adapters share normalized names and duplicate identity.
 - [x] Expose bounded member-reference pages with a `ReferenceId` and structured
   `ArchiveEntryLocator` for the selected container reference.
-- [x] Define JSON v4's recursive nested-entry shape; keep v3 as the default and
-  reject v3 writes that would drop nested entries.
+- [x] Define JSON v4's recursive nested-entry shape; it remains a legacy reader
+  format after JSON v5 became the current writer format.
 - [x] Include deep-indexed safe members in ordinary file queries, root summaries
   and directory visibility when requested; preserve forward/backward keyset pages.
 - [x] Export a selected member subset through its physical container reference
   and selected `ArchiveSpec` rows, using JSON v4 when nested metadata is needed.
 
-Current `CatalogFilter.includeArchiveMembers` opts deep-indexed safe entries into
+Current `CatalogFilter.includeArchiveMembers` opts safe virtual references into
 the regular file sequence, root summaries, and subset exports. Their locators are
-structured even though display paths use `container!/member`. The release format
-is still JSON v3/v4 and SQLite schema v3; the work packages below describe the
-planned reference-model transition.
+structured even though display paths use `container!/member`. JSON v5 and SQLite
+schema v4 now persist member references as normal `file_refs`; the shared cache
+and GTK workflow remain planned work.
 
-WP-13.5 verification: `dub test --config=library --compiler=ldc2` — 127 passed.
+WP-13.5 verification: `dub test --config=library --compiler=ldc2` — 128 passed.
 Coverage checks safe path normalization, duplicate occurrence assignment,
 version-2-to-3 migration, shallow-to-deep upgrade, recursive nested indexing,
 stable row identity after rescan, archive-member content deduplication against a
@@ -1580,51 +1577,52 @@ escaping.
 
 #### WP-13.5.2: Virtual member references and JSON v5
 
-- [ ] Define the canonical path grammar: `!/` separates container/member layers,
+- [x] Define the canonical path grammar: `!/` separates container/member layers,
   `!!` escapes a literal `!`, and `!~N` identifies a duplicate occurrence. Tree
   labels show the original name, not the occurrence suffix.
-- [ ] Write every scraped safe non-directory member as a normal top-level
+- [x] Write every scraped safe non-directory member as a normal top-level
   `NamedBinaryBlob` with a virtual `FileSpec` path. Derive archive/container
   status from existing file-type and metadata-status information rather than a
   new flag. Complete equal fingerprints may share one blob while each archive
   occurrence keeps a distinct reference.
-- [ ] Stop writing archive member lists in `archiveSpecs`; retain v0-v4 readers
+- [x] Stop writing archive member lists in `archiveSpecs`; retain v0-v4 readers
   and convert their nested `ArchiveSpec` values to virtual member references on
   import or v5 export.
-- [ ] Teach JSON indexing, search, duplicate handling, export, and source
+- [x] Teach JSON indexing, search, duplicate handling, export, and source
   resolution to parse virtual paths without calling filesystem APIs on them.
-- [ ] Test nested paths, literal markers, duplicate-name occurrences, aliases to
+- [x] Test nested paths, literal markers, duplicate-name occurrences, aliases to
   physical files with matching content, legacy conversion, and v5 round trips.
 
 **Exit:** JSON v5 stores archive members as ordinary blob/reference records; v0-v4
-catalogs remain readable, and no new `ArchiveSpec` entry list is emitted.
+catalogs remain readable, and no new `ArchiveSpec` entry list is emitted. Empty
+archive-index state and shallow/deep completion are retained in v5 metadata.
 
 #### WP-13.5.3: SQLite schema v4 virtual references
 
-- [ ] Migrate schema-v3 `archive_entries` into normal `file_refs` paths using the
+- [x] Migrate schema-v3 `archive_entries` into normal `file_refs` paths using the
   virtual path grammar; preserve/reuse `blobs` and deep content links. A virtual
   member reference retains its physical container's `directory_id`; inner
   directories are projected beneath the archive file row in the TreeView, not
   persisted as sibling/virtual directory rows.
-- [ ] Preserve duplicate occurrence identities with `!~N` virtual-path suffixes
+- [x] Preserve duplicate occurrence identities with `!~N` virtual-path suffixes
   and stable file-reference IDs. Reconcile members by container reference,
   normalized member path, and occurrence.
-- [ ] Commit archive member reconciliation per container. Remove stale member
+- [x] Commit archive member reconciliation per container. Remove stale member
   references only after a successful index; preserve them after extraction or
   password failures unless the caller explicitly requests `dropMissing`.
-- [ ] Move archive-index completion/version state, including shallow/deep
+- [x] Move archive-index completion/version state, including shallow/deep
   completion, into the existing `metadata_status` `metadata_kind` and
   `extractor_version` values; remove `archive_entries` and `archive_indexes`.
   Do not add archive-specific tables or columns.
-- [ ] Derive archive/member queries, `hasArchive`, availability, summaries,
+- [x] Derive archive/member queries, `hasArchive`, availability, summaries,
   cursor pages, import/export, reachability, and cleanup from ordinary virtual
   references. Resolve availability through the physical root/container chain.
-- [ ] Test v2/v3 migrations, empty archives, unsafe entries, missing containers,
+- [x] Test v2/v3 migrations, empty archives, unsafe entries, missing containers,
   nested archives, duplicate names, shared content blobs, and transactional rollback.
 
 **Exit:** schema v4 contains no archive-entry/index tables; safe archive members
 are normal `file_refs` linked to normal `blobs`, with no virtual directory rows
-added to the database.
+added to the database. The CLI uses the common v5 writer for repository export.
 
 #### WP-13.5.4: Shared extraction cache and member scraping
 

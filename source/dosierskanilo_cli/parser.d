@@ -30,8 +30,8 @@ the be the same.
 It also utilizes the 'file' utility to determine filetypes, and can
 calculate media signatures for audio and video files.
 
-It can store its results in a JSON file, and read them back later on. It has
-also some analysis functions to find duplicate files, missing files, etc.
+It stores results in JSON v5 catalogs, reads older JSON v0-v4 catalogs, and
+analyzes duplicate content and missing references.
 
 The repository mode stores the current state in a `.dosierskanilo` SQLite
 repository and keeps JSON available for import and export.
@@ -43,10 +43,10 @@ Commands:
     metadata   Extract metadata in a repository
     analyze    Analyze a repository
     info       Show repository information
-    list       List repository blobs
+    list       List repository content references, including virtual members
     duplicates List duplicate blob groups
-    import     Import JSON into a repository
-    export     Export a repository as JSON
+    import     Import JSON v0-v5 into a repository
+    export     Export a repository as JSON v5
 
     json scan ROOT CATALOG.json
     json analyze CATALOG.json
@@ -218,7 +218,7 @@ ParsedCommandLine parseCommandLine(string[] args)
             "image", "Require image metadata", &argsarray.argQueryImage,
             "text-stream", "Require text or subtitle metadata", &argsarray.argQueryTextStream,
             "file-type", "Require file type metadata", &argsarray.argQueryFileType,
-            "archive", "Require archive metadata", &argsarray.argQueryArchive,
+            "archive", "Require a known archive index", &argsarray.argQueryArchive,
             "torrent", "Require torrent metadata", &argsarray.argQueryTorrent,
             "duplicate-limit", "Maximum number of duplicate groups", &argsarray.argDuplicateLimit,
             "format", "Repository query output format: table or json", &argsarray.argOutputFormat,

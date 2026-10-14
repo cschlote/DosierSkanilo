@@ -4,142 +4,30 @@ module dosierskanilo.repository.transfer;
 import d2sqlite3;
 
 import std.algorithm : reverse, startsWith;
+import std.algorithm.searching : canFind;
 import std.array : join;
 import std.base64 : Base64;
+import std.conv : to;
 import std.exception : enforce;
 import std.path : baseName, buildNormalizedPath, dirName, isAbsolute;
-import std.string : empty, replace, split;
+import std.string : empty, endsWith, replace, split;
 import std.typecons : Nullable;
 
 import dosierarkivo.archive : appendArchiveVirtualPath, archiveIndexVersion,
-    ArchiveVirtualPathLayer, escapeArchiveVirtualPath,
-    normalizeArchiveEntryPath, parseArchiveVirtualPath;
+    escapeArchiveVirtualPath, parseArchiveVirtualPath,
+    ParsedArchiveVirtualPath;
 import dosierskanilo.metadata.mediainfosig;
 import dosierskanilo.metadata.torrentinfo;
 import dosierskanilo.model.namedbinaryblob;
 import dosierskanilo.repository.archiveindex : deleteUnreachableBlobs,
-    ensureArchiveMemberBlob, resolveArchiveMemberBlobLinks;
+    isVirtualFileReferenceSql, resolveArchiveMemberBlobLinks;
 import dosierskanilo.repository.errors;
 import dosierskanilo.repository.types;
 
-private struct V5ArchiveTransferReference
+private struct ImportedArchiveIndex
 {
-    string physicalRelativePath;
-    string canonicalPath;
-    ArchiveVirtualPathLayer[] entries;
-    NamedBinaryBlob blob;
-    FileSpec spec;
-}
-
-private NamedBinaryBlob[] restoreLegacyArchiveIndexes(string rootPath,
-    NamedBinaryBlob[] blobs)
-{
-    NamedBinaryBlob[] physicalBlobs;
-    NamedBinaryBlob[string] rootBlobByPath;
-    NamedBinaryBlob[string] blobByVirtualPath;
-    V5ArchiveTransferReference[] virtualReferences;
-
-    string canonicalVirtualPath(string physicalRelativePath,
-        const(ArchiveVirtualPathLayer[]) entries)
-    {
-        auto result = escapeArchiveVirtualPath(physicalRelativePath);
-        foreach (entry; entries)
-            result = appendArchiveVirtualPath(result, entry.relativePath,
-                entry.hasOccurrence ? entry.occurrence : size_t.max);
-        return result;
-    }
-
-    foreach (blob; blobs)
-    {
-        if (blob is null)
-            continue;
-        FileSpec[] physicalSpecs;
-        foreach (spec; blob.fileSpecs)
-        {
-            if (spec is null || spec.fileName.empty)
-                continue;
-            const auto parsed = parseArchiveVirtualPath(spec.fileName);
-            const auto relativePhysicalPath = repositoryRelativePath(rootPath,
-                parsed.physicalPath);
-            if (parsed.isVirtual)
-            {
-                auto reference = V5ArchiveTransferReference(
-                    relativePhysicalPath,
-                    canonicalVirtualPath(relativePhysicalPath, parsed.entries),
-                    parsed.entries.dup, blob, spec);
-                virtualReferences ~= reference;
-                blobByVirtualPath[reference.canonicalPath] = blob;
-            }
-            else
-            {
-                spec.fileName = relativePhysicalPath;
-                physicalSpecs ~= spec;
-                rootBlobByPath[relativePhysicalPath] = blob;
-            }
-        }
-        blob.fileSpecs = physicalSpecs;
-        if (physicalSpecs.length > 0)
-            physicalBlobs ~= blob;
-    }
-
-    void appendLayers(ref ArchiveSpec[] nodes,
-        V5ArchiveTransferReference reference, string parentPath,
-        size_t layerIndex)
-    {
-        enforce(layerIndex < reference.entries.length,
-            "Invalid virtual archive path while importing JSON v5.");
-        const auto layer = reference.entries[layerIndex];
-        const auto canonicalPath = appendArchiveVirtualPath(parentPath,
-            layer.relativePath, layer.hasOccurrence ? layer.occurrence
-                : size_t.max);
-        auto source = blobByVirtualPath.get(canonicalPath, null);
-        enforce(source !is null,
-            "JSON v5 archive path is missing an intermediate content record: "
-            ~ canonicalPath);
-
-        const auto occurrence = layer.hasOccurrence ? layer.occurrence : 0;
-        ArchiveSpec member;
-        foreach (candidate; nodes)
-            if (candidate !is null && candidate.fileName == layer.relativePath
-                && candidate.occurrence == occurrence)
-            {
-                member = candidate;
-                break;
-            }
-        if (member is null)
-        {
-            member = new ArchiveSpec(layer.relativePath, source.fileSize,
-                source.getFirstFileModDate, source.checkSums);
-            member.entryIndex = nodes.length;
-            member.occurrence = occurrence;
-            member.hasIndexIdentity = true;
-            member.archivePassword = source.archivePassword;
-            if (source.archiveIndexKnown || source.archiveSpecs !is null)
-                member.nestedEntries = [];
-            nodes ~= member;
-        }
-        if (layerIndex + 1 < reference.entries.length)
-        {
-            if (member.nestedEntries is null)
-                member.nestedEntries = [];
-            appendLayers(member.nestedEntries, reference, canonicalPath,
-                layerIndex + 1);
-        }
-    }
-
-    foreach (reference; virtualReferences)
-    {
-        auto rootBlob = rootBlobByPath.get(reference.physicalRelativePath, null);
-        enforce(rootBlob !is null,
-            "JSON v5 archive member has no physical container reference: "
-            ~ reference.canonicalPath);
-        rootBlob.archiveIndexKnown = true;
-        if (rootBlob.archiveSpecs is null)
-            rootBlob.archiveSpecs = [];
-        appendLayers(rootBlob.archiveSpecs, reference,
-            escapeArchiveVirtualPath(reference.physicalRelativePath), 0);
-    }
-    return physicalBlobs;
+    long blobId;
+    bool deep;
 }
 
 /** Import a JSON catalog into an open repository database. */
@@ -149,17 +37,26 @@ void importCatalogJson(ref Database db, string rootPath, string jsonFile,
     auto catalog = deserializeDataClassJsonWrapperFile(jsonFile);
     if (!options.replaceExisting)
         throw new RepositoryException("Appending JSON data is not implemented yet.");
-    if (catalog.dataVersion == DATA_CLASS_VERSION5)
-        catalog.dataArray = restoreLegacyArchiveIndexes(rootPath,
-            catalog.dataArray);
+    upgradeDataClassCatalogToV5(catalog);
 
     try
     {
         db.begin();
         clearCatalog(db);
 
-        foreach (blob; catalog.dataArray)
-            insertBlob(db, rootPath, blob);
+        ImportedArchiveIndex[] archiveIndexes;
+        foreach (physicalPass; [true, false])
+            foreach (blob; catalog.dataArray)
+            {
+                if (blob is null || hasPhysicalFileReference(blob)
+                    != physicalPass)
+                    continue;
+                const auto blobId = insertBlob(db, rootPath, blob);
+                if (blob.archiveIndexKnown)
+                    archiveIndexes ~= ImportedArchiveIndex(blobId,
+                        blob.archiveIndexDeep);
+            }
+        persistImportedArchiveStatuses(db, archiveIndexes);
         resolveArchiveMemberBlobLinks(db);
         deleteUnreachableBlobs(db);
 
@@ -185,7 +82,7 @@ void exportCatalogJson(ref Database db, string rootPath, string jsonFile,
     JsonExportOptions options)
 {
     auto blobs = loadCatalogFromDatabase(db, rootPath, options);
-    auto wrapper = NamedBinaryBlobCatalog(DATA_CLASS_VERSION3, blobs);
+    auto wrapper = NamedBinaryBlobCatalog(DATA_CLASS_VERSION5, blobs);
     serializeDataClassWrapperFile(jsonFile, wrapper);
 }
 
@@ -241,10 +138,12 @@ RepositoryDirectory[] listDirectoriesFromDatabase(ref Database db,
     auto statement = db.prepare(
         "SELECT d.id, d.parent_id, d.name, d.relative_path, "
         ~ "(SELECT count(*) FROM directories child WHERE child.parent_id = d.id), "
-        ~ "(SELECT count(*) FROM file_refs f WHERE f.directory_id = d.id), "
+        ~ "(SELECT count(*) FROM file_refs f WHERE f.directory_id = d.id AND "
+        ~ "NOT (" ~ isVirtualFileReferenceSql("f.relative_path") ~ ")), "
         ~ "COALESCE((SELECT sum(b.file_size) FROM file_refs f "
-        ~ "JOIN blobs b ON b.id = f.blob_id WHERE f.relative_path = d.relative_path "
-        ~ "OR f.relative_path LIKE d.relative_path || '/%'), 0) "
+        ~ "JOIN blobs b ON b.id = f.blob_id WHERE (f.relative_path = d.relative_path "
+        ~ "OR f.relative_path LIKE d.relative_path || '/%') "
+        ~ "AND NOT (" ~ isVirtualFileReferenceSql("f.relative_path") ~ ")), 0) "
         ~ "FROM directories d WHERE "
         ~ (options.parentId == 0 ? "d.parent_id IS NULL" : "d.parent_id = :parent_id")
         ~ directoryFilterSql(options)
@@ -271,9 +170,11 @@ RepositoryRootSummary loadRootSummaryFromDatabase(ref Database db)
 {
     auto result = db.execute("SELECT "
         ~ "(SELECT count(*) FROM directories WHERE parent_id IS NULL), "
-        ~ "(SELECT count(*) FROM file_refs WHERE directory_id IS NULL), "
+        ~ "(SELECT count(*) FROM file_refs WHERE directory_id IS NULL AND "
+        ~ "NOT (" ~ isVirtualFileReferenceSql("relative_path") ~ ")), "
         ~ "COALESCE((SELECT sum(b.file_size) FROM file_refs f "
-        ~ "JOIN blobs b ON b.id = f.blob_id), 0)");
+        ~ "JOIN blobs b ON b.id = f.blob_id WHERE "
+        ~ "NOT (" ~ isVirtualFileReferenceSql("f.relative_path") ~ ")), 0)");
     auto row = result.front;
     return RepositoryRootSummary(cast(size_t) row.peek!long(0),
         cast(size_t) row.peek!long(1), cast(ulong) row.peek!long(2));
@@ -286,11 +187,12 @@ private string directoryFilterSql(RepositoryDirectoryQuery options)
         && !options.torrent && !options.availableOnly)
         return "";
 
-    string sql = " AND " ~ (options.includeArchiveMembers ? "(" : "")
-        ~ "EXISTS (WITH RECURSIVE subtree(id) AS (SELECT d.id UNION ALL "
+    string sql = " AND EXISTS (WITH RECURSIVE subtree(id) AS (SELECT d.id UNION ALL "
         ~ "SELECT child.id FROM directories child JOIN subtree s ON child.parent_id = s.id) "
         ~ "SELECT 1 FROM file_refs f JOIN blobs b ON b.id = f.blob_id "
         ~ "WHERE f.directory_id IN (SELECT id FROM subtree)";
+    if (!options.includeArchiveMembers)
+        sql ~= " AND NOT (" ~ isVirtualFileReferenceSql("f.relative_path") ~ ")";
     if (!options.text.empty)
         sql ~= options.caseSensitive
             ? " AND instr(f.relative_path, :directory_text) > 0"
@@ -309,54 +211,13 @@ private string directoryFilterSql(RepositoryDirectoryQuery options)
 
     string[] other;
     if (options.fileType) other ~= "(b.file_type IS NOT NULL AND length(b.file_type) > 0)";
-    if (options.archive) other ~= "EXISTS (SELECT 1 FROM archive_indexes a WHERE a.blob_id = b.id)";
+    if (options.archive) other ~= "EXISTS (SELECT 1 FROM metadata_status a "
+        ~ "WHERE a.blob_id = b.id AND a.metadata_kind = 'archives' "
+        ~ "AND a.state IN ('completed', 'empty'))";
     if (options.torrent) other ~= "EXISTS (SELECT 1 FROM torrent_info t WHERE t.blob_id = b.id)";
     if (other.length > 0)
         sql ~= " AND (" ~ other.join(" OR ") ~ ")";
-    if (!options.includeArchiveMembers)
-        return sql ~ ")";
-
-    sql ~= ") OR EXISTS (WITH RECURSIVE subtree(id) AS (SELECT d.id UNION ALL "
-        ~ "SELECT child.id FROM directories child JOIN subtree s ON child.parent_id = s.id), "
-        ~ "members(directory_id, relative_path, blob_id, present, depth) AS ("
-        ~ "SELECT COALESCE(c.directory_id, 0), replace(c.relative_path, '!', '!!') "
-        ~ "|| '!/' || replace(a.normalized_path, '!', '!!'), "
-        ~ "a.content_blob_id, c.exists_on_disk, 1 FROM file_refs c "
-        ~ "JOIN archive_entries a ON a.blob_id = c.blob_id "
-        ~ "WHERE a.path_safe = 1 AND a.is_directory = 0 "
-        ~ "AND a.content_blob_id IS NOT NULL UNION ALL "
-        ~ "SELECT m.directory_id, m.relative_path || '!/' "
-        ~ "|| replace(a.normalized_path, '!', '!!'), "
-        ~ "a.content_blob_id, m.present, m.depth + 1 FROM members m "
-        ~ "JOIN archive_entries a ON a.blob_id = m.blob_id "
-        ~ "WHERE m.depth < 32 AND a.path_safe = 1 AND a.is_directory = 0 "
-        ~ "AND a.content_blob_id IS NOT NULL) "
-        ~ "SELECT 1 FROM members m JOIN blobs b ON b.id = m.blob_id "
-        ~ "WHERE m.directory_id IN (SELECT id FROM subtree)";
-    if (!options.text.empty)
-        sql ~= options.caseSensitive
-            ? " AND instr(m.relative_path, :directory_text) > 0"
-            : " AND instr(lower(m.relative_path), lower(:directory_text)) > 0";
-    if (options.availableOnly)
-        sql ~= " AND m.present = 1";
-    string[] memberMedia;
-    if (options.video) memberMedia ~= "EXISTS (SELECT 1 FROM media_video_streams x WHERE x.blob_id = b.id)";
-    if (options.audio) memberMedia ~= "EXISTS (SELECT 1 FROM media_audio_streams x WHERE x.blob_id = b.id)";
-    if (options.image) memberMedia ~= "EXISTS (SELECT 1 FROM media_image_streams x WHERE x.blob_id = b.id)";
-    if (options.textStream) memberMedia ~= "EXISTS (SELECT 1 FROM media_text_streams x WHERE x.blob_id = b.id)";
-    if (memberMedia.length > 0)
-        sql ~= options.mediaNegated ? " AND NOT (" ~ memberMedia.join(" OR ") ~ ")"
-            : " AND (" ~ memberMedia.join(" OR ") ~ ")";
-    string[] memberOther;
-    if (options.fileType)
-        memberOther ~= "(b.file_type IS NOT NULL AND length(b.file_type) > 0)";
-    if (options.archive)
-        memberOther ~= "EXISTS (SELECT 1 FROM archive_indexes x WHERE x.blob_id = b.id)";
-    if (options.torrent)
-        memberOther ~= "EXISTS (SELECT 1 FROM torrent_info x WHERE x.blob_id = b.id)";
-    if (memberOther.length > 0)
-        sql ~= " AND (" ~ memberOther.join(" OR ") ~ ")";
-    return sql ~ "))";
+    return sql ~ ")";
 }
 
 private void bindDirectoryFilter(ref Statement statement, RepositoryDirectoryQuery options)
@@ -374,57 +235,27 @@ RepositoryFile[] listFilesFromDatabase(ref Database db, RepositoryFileQuery opti
 /** List one keyset-paged file chunk and report continuation state. */
 RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuery options)
 {
-    auto sql = "WITH RECURSIVE archive_rows (id, directory_id, blob_id, "
-        ~ "relative_path, modified_at, present, archive_member, "
-        ~ "container_reference_id, archive_entry_id, archive_container_blob_id, "
-        ~ "archive_entry_index, archive_container_identity, depth) AS ("
-        ~ "SELECT -a.id, COALESCE(c.directory_id, 0), a.content_blob_id, "
-        ~ "replace(c.relative_path, '!', '!!') || '!/' "
-        ~ "|| replace(a.normalized_path, '!', '!!'), a.time_last_modified, "
-        ~ "c.exists_on_disk, 1, c.id, a.id, a.blob_id, a.entry_index, "
-        ~ "'p' || CAST(c.id AS TEXT), 1 FROM file_refs c "
-        ~ "JOIN archive_entries a ON a.blob_id = c.blob_id "
-        ~ "WHERE a.path_safe = 1 AND a.is_directory = 0 "
-        ~ "AND a.content_blob_id IS NOT NULL"
-        ~ (options.includeArchiveMembers ? "" : " AND 0")
-        ~ " UNION ALL SELECT -a.id, r.directory_id, a.content_blob_id, "
-        ~ "r.relative_path || '!/' || replace(a.normalized_path, '!', '!!'), "
-        ~ "a.time_last_modified, "
-        ~ "r.present, 1, 0, a.id, a.blob_id, a.entry_index, "
-        ~ "r.archive_container_identity || ':' || r.archive_entry_id, "
-        ~ "r.depth + 1 FROM archive_rows r JOIN archive_entries a "
-        ~ "ON a.blob_id = r.blob_id WHERE r.depth < 32 "
-        ~ "AND a.path_safe = 1 AND a.is_directory = 0 "
-        ~ "AND a.content_blob_id IS NOT NULL), file_rows AS ("
-        ~ "SELECT f.id AS id, COALESCE(f.directory_id, 0) AS directory_id, "
-        ~ "f.blob_id AS blob_id, f.relative_path AS relative_path, "
-        ~ "f.time_last_modified AS modified_at, f.exists_on_disk AS present, "
-        ~ "0 AS archive_member, 0 AS container_reference_id, "
-        ~ "0 AS archive_entry_id, 0 AS archive_container_blob_id, "
-        ~ "0 AS archive_entry_index, '' AS archive_container_identity "
-        ~ "FROM file_refs f UNION ALL SELECT id, directory_id, blob_id, "
-        ~ "relative_path, modified_at, present, archive_member, "
-        ~ "container_reference_id, archive_entry_id, archive_container_blob_id, "
-        ~ "archive_entry_index, archive_container_identity FROM archive_rows) "
-        ~ "SELECT f.id, f.directory_id, f.blob_id, f.relative_path, "
-        ~ "f.modified_at, f.present, b.file_size "
-        ~ ", (b.file_type IS NOT NULL AND length(b.file_type) > 0) "
-        ~ ", EXISTS (SELECT 1 FROM media_signatures ms WHERE ms.blob_id = b.id) "
-        ~ ", EXISTS (SELECT 1 FROM media_video_streams mv WHERE mv.blob_id = b.id) "
-        ~ ", EXISTS (SELECT 1 FROM media_audio_streams ma WHERE ma.blob_id = b.id) "
-        ~ ", EXISTS (SELECT 1 FROM media_image_streams mi WHERE mi.blob_id = b.id) "
-        ~ ", EXISTS (SELECT 1 FROM media_text_streams mt WHERE mt.blob_id = b.id) "
-        ~ ", EXISTS (SELECT 1 FROM archive_indexes ar WHERE ar.blob_id = b.id) "
-        ~ ", EXISTS (SELECT 1 FROM torrent_info ti WHERE ti.blob_id = b.id) "
-        ~ ", f.archive_member, f.container_reference_id, f.archive_entry_id, "
-        ~ "f.archive_container_blob_id, f.archive_entry_index, "
-        ~ "f.archive_container_identity FROM file_rows f "
-        ~ "JOIN blobs b ON b.id = f.blob_id WHERE f.directory_id = :directory_id";
+    auto sql = "SELECT f.id, COALESCE(f.directory_id, 0), f.blob_id, "
+        ~ "f.relative_path, f.time_last_modified, f.exists_on_disk, b.file_size, "
+        ~ "(b.file_type IS NOT NULL AND length(b.file_type) > 0), "
+        ~ "EXISTS (SELECT 1 FROM media_signatures ms WHERE ms.blob_id = b.id), "
+        ~ "EXISTS (SELECT 1 FROM media_video_streams mv WHERE mv.blob_id = b.id), "
+        ~ "EXISTS (SELECT 1 FROM media_audio_streams ma WHERE ma.blob_id = b.id), "
+        ~ "EXISTS (SELECT 1 FROM media_image_streams mi WHERE mi.blob_id = b.id), "
+        ~ "EXISTS (SELECT 1 FROM media_text_streams mt WHERE mt.blob_id = b.id), "
+        ~ "EXISTS (SELECT 1 FROM metadata_status ar WHERE ar.blob_id = b.id "
+        ~ "AND ar.metadata_kind = 'archives' AND ar.state IN ('completed', 'empty')), "
+        ~ "EXISTS (SELECT 1 FROM torrent_info ti WHERE ti.blob_id = b.id), "
+        ~ "CASE WHEN " ~ isVirtualFileReferenceSql("f.relative_path") ~ " "
+        ~ "THEN 1 ELSE 0 END, 0, 0, 0, 0, '' FROM file_refs f "
+        ~ "JOIN blobs b ON b.id = f.blob_id WHERE COALESCE(f.directory_id, 0) = :directory_id";
+    if (!options.includeArchiveMembers)
+        sql ~= " AND NOT (" ~ isVirtualFileReferenceSql("f.relative_path") ~ ")";
     if (!options.text.empty)
         sql ~= options.caseSensitive ? " AND instr(f.relative_path, :text) > 0"
             : " AND instr(lower(f.relative_path), lower(:text)) > 0";
     if (options.availableOnly)
-        sql ~= " AND f.present = 1";
+        sql ~= " AND f.exists_on_disk = 1";
     string[] mediaConditions;
     if (options.video)
         mediaConditions ~= "EXISTS (SELECT 1 FROM media_video_streams mv WHERE mv.blob_id = b.id)";
@@ -442,7 +273,9 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
     if (options.fileType)
         otherConditions ~= "(b.file_type IS NOT NULL AND length(b.file_type) > 0)";
     if (options.archive)
-        otherConditions ~= "EXISTS (SELECT 1 FROM archive_indexes ar WHERE ar.blob_id = b.id)";
+        otherConditions ~= "EXISTS (SELECT 1 FROM metadata_status ar "
+            ~ "WHERE ar.blob_id = b.id AND ar.metadata_kind = 'archives' "
+            ~ "AND ar.state IN ('completed', 'empty'))";
     if (options.torrent)
         otherConditions ~= "EXISTS (SELECT 1 FROM torrent_info ti WHERE ti.blob_id = b.id)";
     if (otherConditions.length > 0)
@@ -514,8 +347,8 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
     foreach (row; statement.execute())
     {
         auto modified = row.peek!(Nullable!string)(4);
-        page.files ~= RepositoryFile(row.peek!long(0), row.peek!long(1), row.peek!long(2),
-            baseName(row.peek!string(3)), row.peek!string(3), cast(ulong) row.peek!long(6),
+        auto file = RepositoryFile(row.peek!long(0), row.peek!long(1), row.peek!long(2),
+            "", row.peek!string(3), cast(ulong) row.peek!long(6),
             modified.isNull ? "" : modified.get, row.peek!long(5) != 0,
             row.peek!long(7) != 0, row.peek!long(8) != 0, row.peek!long(9) != 0,
             row.peek!long(10) != 0, row.peek!long(11) != 0, row.peek!long(12) != 0,
@@ -523,6 +356,7 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
             row.peek!long(15) != 0, row.peek!long(16), row.peek!long(17),
             row.peek!long(18), cast(size_t) row.peek!long(19),
             row.peek!string(20));
+        page.files ~= hydrateVirtualFileReference(db, file);
     }
     if (page.files.length > options.limit)
     {
@@ -540,6 +374,50 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
     return page;
 }
 
+private RepositoryFile hydrateVirtualFileReference(ref Database db,
+    RepositoryFile file)
+{
+    const auto parsed = parseArchiveVirtualPath(file.relativePath);
+    if (!parsed.isVirtual)
+    {
+        file.name = baseName(parsed.physicalPath);
+        return file;
+    }
+
+    const auto finalLayer = parsed.entries[$ - 1];
+    const auto parentPath = parentArchivePath(file.relativePath);
+    auto parent = db.execute("SELECT id, blob_id, relative_path FROM file_refs "
+        ~ "WHERE relative_path = ?", parentPath);
+    file.name = baseName(finalLayer.relativePath);
+    file.archiveMember = true;
+    file.archiveEntryId = file.id;
+    file.archiveEntryIndex = file.id > 0 ? cast(size_t) file.id : 0;
+    file.archiveContainerIdentity = archiveReferenceIdentityForPath(db,
+        parentPath);
+    if (!parent.empty)
+    {
+        file.containerReferenceId = parent.front.peek!long(0);
+        file.archiveContainerBlobId = parent.front.peek!long(1);
+    }
+    return file;
+}
+
+private string archiveReferenceIdentityForPath(ref Database db, string path,
+    size_t depth = 0)
+{
+    enforce(depth < 32, "Archive reference identity exceeds the maximum depth.");
+    auto result = db.execute("SELECT id FROM file_refs WHERE relative_path = ?",
+        path);
+    if (result.empty)
+        return "";
+    const auto parsed = parseArchiveVirtualPath(path);
+    if (!parsed.isVirtual)
+        return "p" ~ result.front.peek!long(0).to!string;
+    const auto parentIdentity = archiveReferenceIdentityForPath(db,
+        parentArchivePath(path), depth + 1);
+    return parentIdentity ~ ":" ~ result.front.peek!long(0).to!string;
+}
+
 /** Load one physical reference by its stable repository ID. */
 RepositoryFile loadFileReferenceFromDatabase(ref Database db, long fileReferenceId)
 {
@@ -551,7 +429,8 @@ RepositoryFile loadFileReferenceFromDatabase(ref Database db, long fileReference
         ~ "EXISTS (SELECT 1 FROM media_audio_streams ma WHERE ma.blob_id = b.id), "
         ~ "EXISTS (SELECT 1 FROM media_image_streams mi WHERE mi.blob_id = b.id), "
         ~ "EXISTS (SELECT 1 FROM media_text_streams mt WHERE mt.blob_id = b.id), "
-        ~ "EXISTS (SELECT 1 FROM archive_indexes ar WHERE ar.blob_id = b.id), "
+        ~ "EXISTS (SELECT 1 FROM metadata_status ar WHERE ar.blob_id = b.id "
+        ~ "AND ar.metadata_kind = 'archives' AND ar.state IN ('completed', 'empty')), "
         ~ "EXISTS (SELECT 1 FROM torrent_info ti WHERE ti.blob_id = b.id) "
         ~ "FROM file_refs f JOIN blobs b ON b.id = f.blob_id WHERE f.id = ?",
         fileReferenceId);
@@ -559,52 +438,67 @@ RepositoryFile loadFileReferenceFromDatabase(ref Database db, long fileReference
         return RepositoryFile.init;
     auto row = result.front;
     auto modified = row.peek!(Nullable!string)(4);
-    return RepositoryFile(row.peek!long(0), row.peek!long(1), row.peek!long(2),
-        baseName(row.peek!string(3)), row.peek!string(3),
+    auto file = RepositoryFile(row.peek!long(0), row.peek!long(1), row.peek!long(2),
+        "", row.peek!string(3),
         cast(ulong) row.peek!long(6), modified.isNull ? "" : modified.get,
         row.peek!long(5) != 0, row.peek!long(7) != 0,
         row.peek!long(8) != 0, row.peek!long(9) != 0,
         row.peek!long(10) != 0, row.peek!long(11) != 0,
         row.peek!long(12) != 0, row.peek!long(13) != 0,
         row.peek!long(14) != 0, false, 0, 0, 0, 0, "");
+    return hydrateVirtualFileReference(db, file);
 }
 
 /** List archive entries for one blob without loading the complete blob. */
 RepositoryArchiveEntry[] listArchiveEntriesFromDatabase(ref Database db,
     RepositoryArchiveQuery options)
 {
-    auto statement = db.prepare("SELECT id, entry_index, occurrence, file_name, "
-        ~ "normalized_path, path_safe, is_directory, file_size, "
-        ~ "time_last_modified, md5, sha1, xxh64, content_blob_id "
-        ~ "FROM archive_entries WHERE blob_id = ? ORDER BY entry_index "
-        ~ "LIMIT ? OFFSET ?");
-    statement.bind(1, options.blobId);
-    statement.bind(2, cast(long) options.limit);
-    statement.bind(3, cast(long) options.offset);
-    RepositoryArchiveEntry[] result;
-    foreach (row; statement.execute())
+    string[] containerPaths;
+    foreach (row; db.execute("SELECT relative_path FROM file_refs WHERE blob_id = ? "
+        ~ "ORDER BY relative_path", options.blobId))
+        containerPaths ~= row.peek!string(0).idup;
+    RepositoryArchiveEntry[] allEntries;
+    bool[string] seenIdentity;
+    foreach (row; db.execute("SELECT f.id, f.relative_path, f.time_last_modified, "
+        ~ "b.id, b.file_size, b.md5, b.sha1, b.xxh64 FROM file_refs f "
+        ~ "JOIN blobs b ON b.id = f.blob_id ORDER BY f.relative_path"))
     {
-        auto modified = row.peek!(Nullable!string)(8);
+        const auto path = row.peek!string(1);
+        ParsedArchiveVirtualPath parsed;
+        try
+            parsed = parseArchiveVirtualPath(path);
+        catch (Exception)
+            continue;
+        if (!parsed.isVirtual || !containerPaths.canFind(parentArchivePath(path)))
+            continue;
+        const auto layer = parsed.entries[$ - 1];
+        const auto identity = layer.relativePath ~ "\0"
+            ~ (layer.hasOccurrence ? layer.occurrence.to!string : "0");
+        if (identity in seenIdentity)
+            continue;
+        seenIdentity[identity] = true;
         RepositoryArchiveEntry entry;
         entry.id = row.peek!long(0);
         entry.containerBlobId = options.blobId;
-        entry.entryIndex = cast(size_t) row.peek!long(1);
-        entry.occurrence = cast(size_t) row.peek!long(2);
-        entry.name = row.peek!string(3);
-        entry.relativePath = row.peek!string(4);
-        entry.hasSafePath = row.peek!long(5) != 0;
-        if (!entry.hasSafePath)
-            entry.relativePath = "";
-        entry.isDirectory = row.peek!long(6) != 0;
-        entry.size = cast(ulong) row.peek!long(7);
-        entry.modifiedAt = modified.isNull ? "" : modified.get;
-        entry.checkSums.md5sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(9));
-        entry.checkSums.sha1sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(10));
-        entry.checkSums.xxh64sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(11));
-        auto contentBlobId = row.peek!(Nullable!long)(12);
-        entry.contentBlobId = contentBlobId.isNull ? 0 : contentBlobId.get;
-        result ~= entry;
+        entry.entryIndex = allEntries.length;
+        entry.occurrence = layer.hasOccurrence ? layer.occurrence : 0;
+        entry.name = layer.relativePath;
+        entry.relativePath = layer.relativePath;
+        entry.hasSafePath = true;
+        entry.size = cast(ulong) row.peek!long(4);
+        const auto modified = row.peek!(Nullable!string)(2);
+        entry.modifiedAt = modified.isNull ? "" : modified.get.idup;
+        entry.checkSums.md5sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(5));
+        entry.checkSums.sha1sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(6));
+        entry.checkSums.xxh64sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(7));
+        entry.contentBlobId = row.peek!long(3);
+        allEntries ~= entry;
     }
+    const auto start = options.offset < allEntries.length
+        ? options.offset : allEntries.length;
+    const auto end = options.limit > allEntries.length - start
+        ? allEntries.length : start + options.limit;
+    auto result = allEntries[start .. end];
     return result;
 }
 
@@ -612,32 +506,40 @@ RepositoryArchiveEntry[] listArchiveEntriesFromDatabase(ref Database db,
 RepositoryArchiveEntry loadArchiveEntryFromDatabase(ref Database db,
     long archiveEntryId)
 {
-    auto result = db.execute("SELECT id, blob_id, entry_index, occurrence, "
-        ~ "file_name, normalized_path, path_safe, is_directory, file_size, "
-        ~ "time_last_modified, md5, sha1, xxh64, content_blob_id "
-        ~ "FROM archive_entries WHERE id = ?", archiveEntryId);
+    auto result = db.execute("SELECT f.id, f.blob_id, f.relative_path, "
+        ~ "f.time_last_modified, b.file_size, b.md5, b.sha1, b.xxh64 "
+        ~ "FROM file_refs f JOIN blobs b ON b.id = f.blob_id WHERE f.id = ?",
+        archiveEntryId);
     if (result.empty)
         return RepositoryArchiveEntry.init;
     auto row = result.front;
+    ParsedArchiveVirtualPath parsed;
+    try
+        parsed = parseArchiveVirtualPath(row.peek!string(2));
+    catch (Exception)
+        return RepositoryArchiveEntry.init;
+    if (!parsed.isVirtual)
+        return RepositoryArchiveEntry.init;
+    const auto layer = parsed.entries[$ - 1];
+    const auto containerPath = parentArchivePath(row.peek!string(2));
+    auto container = db.execute("SELECT blob_id FROM file_refs WHERE relative_path = ?",
+        containerPath);
     RepositoryArchiveEntry entry;
     entry.id = row.peek!long(0);
-    entry.containerBlobId = row.peek!long(1);
-    entry.entryIndex = cast(size_t) row.peek!long(2);
-    entry.occurrence = cast(size_t) row.peek!long(3);
-    entry.name = row.peek!string(4);
-    entry.relativePath = row.peek!string(5);
-    entry.hasSafePath = row.peek!long(6) != 0;
-    if (!entry.hasSafePath)
-        entry.relativePath = "";
-    entry.isDirectory = row.peek!long(7) != 0;
-    entry.size = cast(ulong) row.peek!long(8);
-    const auto modified = row.peek!(Nullable!string)(9);
+    entry.containerBlobId = container.empty ? 0
+        : container.front.peek!long(0);
+    entry.entryIndex = cast(size_t) row.peek!long(0);
+    entry.occurrence = layer.hasOccurrence ? layer.occurrence : 0;
+    entry.name = layer.relativePath;
+    entry.relativePath = layer.relativePath;
+    entry.hasSafePath = true;
+    entry.size = cast(ulong) row.peek!long(4);
+    const auto modified = row.peek!(Nullable!string)(3);
     entry.modifiedAt = modified.isNull ? "" : modified.get;
-    entry.checkSums.md5sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(10));
-    entry.checkSums.sha1sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(11));
-    entry.checkSums.xxh64sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(12));
-    const auto contentBlobId = row.peek!(Nullable!long)(13);
-    entry.contentBlobId = contentBlobId.isNull ? 0 : contentBlobId.get;
+    entry.checkSums.md5sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(5));
+    entry.checkSums.sha1sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(6));
+    entry.checkSums.xxh64sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(7));
+    entry.contentBlobId = row.peek!long(1);
     return entry;
 }
 
@@ -770,8 +672,9 @@ private Statement prepareCatalogQuery(ref Database db, string selectSql,
         if (options.fileType)
             addOtherCondition("b.file_type IS NOT NULL AND length(b.file_type) > 0");
         if (options.archive)
-            addOtherCondition("EXISTS (SELECT 1 FROM archive_indexes a "
-                ~ "WHERE a.blob_id = b.id)");
+            addOtherCondition("EXISTS (SELECT 1 FROM metadata_status a "
+                ~ "WHERE a.blob_id = b.id AND a.metadata_kind = 'archives' "
+                ~ "AND a.state IN ('completed', 'empty'))");
         if (options.torrent)
             addOtherCondition("EXISTS (SELECT 1 FROM torrent_info t "
                 ~ "WHERE t.blob_id = b.id)");
@@ -843,12 +746,13 @@ NamedBinaryBlob loadBlobDetailsFromDatabase(ref Database db, string rootPath,
     blob.fileType = fileType;
     blob.archivePassword = archivePassword;
     blob.fileSpecs = paths;
+    blob.fileSpecsUseArchiveVirtualGrammar = true;
 
     if (options.includeDetails)
     {
         loadMediaInfo(db, blobId, blob);
         if (options.includeArchiveEntries)
-            loadArchiveSpecs(db, blobId, blob);
+            loadArchiveIndexState(db, blobId, blob);
         loadTorrentInfo(db, blobId, blob, options.includeTorrentFiles);
     }
     return blob;
@@ -869,8 +773,9 @@ private RepositoryBlobFlags loadBlobFlags(ref Database db, long blobId)
         ~ "WHERE blob_id = ?", blobId).empty;
     flags.hasText = !db.execute("SELECT 1 FROM media_text_streams "
         ~ "WHERE blob_id = ?", blobId).empty;
-    flags.hasArchive = !db.execute("SELECT 1 FROM archive_indexes "
-        ~ "WHERE blob_id = ?", blobId).empty;
+    flags.hasArchive = !db.execute("SELECT 1 FROM metadata_status "
+        ~ "WHERE blob_id = ? AND metadata_kind = 'archives' "
+        ~ "AND state IN ('completed', 'empty')", blobId).empty;
     flags.hasTorrent = !db.execute("SELECT 1 FROM torrent_info "
         ~ "WHERE blob_id = ?", blobId).empty;
     return flags;
@@ -883,7 +788,75 @@ private void clearCatalog(ref Database db)
     db.execute("DELETE FROM blobs");
 }
 
-private void insertBlob(ref Database db, string rootPath, NamedBinaryBlob blob)
+private bool hasPhysicalFileReference(NamedBinaryBlob blob)
+{
+    foreach (spec; blob.fileSpecs)
+    {
+        if (spec is null || spec.fileName.empty)
+            continue;
+        try
+        {
+            if (!parseArchiveVirtualPath(spec.fileName).isVirtual)
+                return true;
+        }
+        catch (Exception)
+            return true;
+    }
+    return false;
+}
+
+private void persistImportedArchiveStatuses(ref Database db,
+    ImportedArchiveIndex[] archiveIndexes)
+{
+    string[] referencePaths;
+    foreach (row; db.execute("SELECT relative_path FROM file_refs"))
+        referencePaths ~= row.peek!string(0).idup;
+
+    foreach (archive; archiveIndexes)
+    {
+        bool hasEntries;
+        foreach (row; db.execute("SELECT relative_path FROM file_refs "
+            ~ "WHERE blob_id = ?", archive.blobId))
+        {
+            auto containerPath = row.peek!string(0);
+            foreach (candidate; referencePaths)
+                if (parentArchivePath(candidate) == containerPath)
+                {
+                    hasEntries = true;
+                    break;
+                }
+            if (hasEntries)
+                break;
+        }
+        const auto state = hasEntries ? "completed" : "empty";
+        const auto extractorVersion = archiveIndexVersion
+            ~ (archive.deep ? ":deep" : ":shallow");
+        db.execute("INSERT INTO metadata_status (blob_id, metadata_kind, state, "
+            ~ "extractor_version, scanned_at, error_message) VALUES (?, 'archives', "
+            ~ "?, ?, ?, NULL) ON CONFLICT(blob_id, metadata_kind) DO UPDATE SET "
+            ~ "state = excluded.state, extractor_version = excluded.extractor_version, "
+            ~ "scanned_at = excluded.scanned_at, error_message = NULL",
+            archive.blobId, state, extractorVersion, currentTimestamp());
+    }
+}
+
+private string parentArchivePath(string path)
+{
+    ParsedArchiveVirtualPath parsed;
+    try
+        parsed = parseArchiveVirtualPath(path);
+    catch (Exception)
+        return "";
+    if (parsed.entries.length == 0)
+        return "";
+    auto result = escapeArchiveVirtualPath(parsed.physicalPath);
+    foreach (entry; parsed.entries[0 .. $ - 1])
+        result = appendArchiveVirtualPath(result, entry.relativePath,
+            entry.hasOccurrence ? entry.occurrence : size_t.max);
+    return result;
+}
+
+private long insertBlob(ref Database db, string rootPath, NamedBinaryBlob blob)
 {
     auto md5 = encodeBase64(blob.checkSums.md5sum_b64);
     auto sha1 = encodeBase64(blob.checkSums.sha1sum_b64);
@@ -901,9 +874,34 @@ private void insertBlob(ref Database db, string rootPath, NamedBinaryBlob blob)
     {
         if (spec is null || spec.fileName.empty)
             continue;
-        auto relative = repositoryRelativePath(rootPath, spec.fileName);
-        auto directoryId = ensureDirectory(db, dirName(relative));
-        if (directoryId == 0)
+        auto parsed = parseArchiveVirtualPath(spec.fileName);
+        const auto physicalRelativePath = repositoryRelativePath(rootPath,
+            parsed.physicalPath);
+        string relative;
+        Nullable!long directoryId;
+        if (parsed.isVirtual)
+        {
+            relative = escapeArchiveVirtualPath(physicalRelativePath);
+            foreach (entry; parsed.entries)
+                relative = appendArchiveVirtualPath(relative, entry.relativePath,
+                    entry.hasOccurrence ? entry.occurrence : size_t.max);
+            auto physicalReference = db.execute("SELECT directory_id FROM file_refs "
+                ~ "WHERE relative_path = ?", escapeArchiveVirtualPath(
+                    physicalRelativePath));
+            enforce(!physicalReference.empty,
+                "JSON v5 archive member has no physical container reference: "
+                ~ spec.fileName);
+            directoryId = physicalReference.front.peek!(Nullable!long)(0);
+        }
+        else
+        {
+            relative = escapeArchiveVirtualPath(physicalRelativePath);
+            const auto directory = ensureDirectory(db,
+                dirName(physicalRelativePath));
+            if (directory > 0)
+                directoryId = Nullable!long(directory);
+        }
+        if (directoryId.isNull)
         {
             db.execute("INSERT INTO file_refs "
                 ~ "(blob_id, relative_path, time_last_modified, "
@@ -915,89 +913,14 @@ private void insertBlob(ref Database db, string rootPath, NamedBinaryBlob blob)
             db.execute("INSERT INTO file_refs "
                 ~ "(blob_id, directory_id, relative_path, time_last_modified, "
                 ~ "exists_on_disk, last_seen_at) VALUES (?, ?, ?, ?, 1, ?)",
-                id, directoryId, relative, spec.timeLastModified,
+                id, directoryId.get, relative, spec.timeLastModified,
                 currentTimestamp());
         }
     }
 
     insertMediaInfo(db, id, blob.mediaInfoSig);
-    if (blob.archiveSpecs !is null || blob.archiveIndexKnown)
-    {
-        long[long] activeContainers;
-        insertArchiveSpecs(db, id, blob.archiveSpecs is null ? []
-            : blob.archiveSpecs, activeContainers);
-    }
     insertTorrentInfo(db, id, blob.torrentInfo);
-}
-
-private void insertArchiveSpecs(ref Database db, long containerBlobId,
-    ArchiveSpec[] entries, ref long[long] activeContainers)
-{
-    if (containerBlobId in activeContainers)
-        throw new RepositoryException(
-            "Nested archive metadata contains a cyclic content identity.");
-    if (activeContainers.length >= 32)
-        throw new RepositoryException(
-            "Nested archive metadata exceeds the maximum import depth.");
-    activeContainers[containerBlobId] = true;
-    scope (exit)
-        activeContainers.remove(containerBlobId);
-
-    db.execute("DELETE FROM archive_entries WHERE blob_id = ?", containerBlobId);
-    db.execute("DELETE FROM archive_indexes WHERE blob_id = ?", containerBlobId);
-    size_t[string] archiveOccurrences;
-    bool archiveDeepScanned = true;
-    foreach (entryIndex, entry; entries)
-    {
-        if (entry is null)
-            continue;
-        bool pathSafe;
-        bool isDirectory;
-        const auto normalizedPath = normalizeArchiveEntryPath(entry.fileName,
-            pathSafe, isDirectory);
-        auto storedPath = pathSafe ? normalizedPath : entry.fileName;
-        const auto occurrenceKey = (pathSafe ? "safe\0" : "unsafe\0")
-            ~ storedPath;
-        const auto occurrence = archiveOccurrences.get(occurrenceKey, 0);
-        archiveOccurrences[occurrenceKey] = occurrence + 1;
-        const auto memberMd5 = encodeBase64(entry.checkSums.md5sum_b64);
-        const auto memberSha1 = encodeBase64(entry.checkSums.sha1sum_b64);
-        const auto memberXxh64 = encodeBase64(entry.checkSums.xxh64sum_b64);
-        const auto memberBlobId = ensureArchiveMemberBlob(db,
-            cast(long) entry.fileSize, memberMd5, memberSha1, memberXxh64);
-        if (!isDirectory && memberBlobId == 0)
-            archiveDeepScanned = false;
-        if (memberBlobId == 0 && (entry.nestedEntries !is null
-            || entry.archivePassword.length > 0))
-            throw new RepositoryException("Nested archive metadata requires a "
-                ~ "complete content fingerprint for its container entry.");
-        Nullable!long memberBlobReference;
-        if (memberBlobId > 0)
-            memberBlobReference = memberBlobId;
-        db.execute("INSERT INTO archive_entries (blob_id, entry_index, occurrence, "
-            ~ "file_name, normalized_path, path_safe, is_directory, file_size, "
-            ~ "time_last_modified, md5, sha1, xxh64, content_blob_id) "
-            ~ "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", containerBlobId,
-            cast(long) entryIndex, cast(long) occurrence, entry.fileName,
-            storedPath, pathSafe ? 1 : 0, isDirectory ? 1 : 0,
-            cast(long) entry.fileSize, entry.timeLastModified,
-            memberMd5, memberSha1, memberXxh64, memberBlobReference);
-
-        if (memberBlobId > 0 && entry.archivePassword.length > 0)
-            db.execute("INSERT INTO archive_passwords (blob_id, password) "
-                ~ "VALUES (?, ?) ON CONFLICT(blob_id) DO UPDATE SET "
-                ~ "password = excluded.password", memberBlobId,
-                entry.archivePassword);
-        if (memberBlobId > 0 && entry.nestedEntries !is null)
-            insertArchiveSpecs(db, memberBlobId, entry.nestedEntries,
-                activeContainers);
-    }
-    db.execute("INSERT INTO archive_indexes (blob_id, indexer_version, indexed_at, "
-        ~ "deep_scanned) VALUES (?, ?, ?, ?) ON CONFLICT(blob_id) DO UPDATE SET "
-        ~ "indexer_version = excluded.indexer_version, "
-        ~ "indexed_at = excluded.indexed_at, "
-        ~ "deep_scanned = excluded.deep_scanned", containerBlobId,
-        archiveIndexVersion, currentTimestamp(), archiveDeepScanned ? 1 : 0);
+    return id;
 }
 
 private long ensureDirectory(ref Database db, string relativeDirectory)
@@ -1119,7 +1042,13 @@ private FileSpec[] loadFileSpecs(ref Database db, long blobId, string rootPath,
         if (options.absolutePaths)
         {
             import std.path : buildPath;
-            fileName = buildPath(rootPath, fileName);
+            const auto parsed = parseArchiveVirtualPath(fileName);
+            fileName = escapeArchiveVirtualPath(buildPath(rootPath,
+                parsed.physicalPath));
+            foreach (entry; parsed.entries)
+                fileName = appendArchiveVirtualPath(fileName,
+                    entry.relativePath, entry.hasOccurrence ? entry.occurrence
+                        : size_t.max);
         }
         specs ~= new FileSpec(fileName,
             modified.isNull ? "" : modified.get);
@@ -1164,50 +1093,21 @@ private void loadMediaInfo(ref Database db, long blobId, ref NamedBinaryBlob blo
     blob.mediaInfoSig = info;
 }
 
-private void loadArchiveSpecs(ref Database db, long blobId, ref NamedBinaryBlob blob)
+private void loadArchiveIndexState(ref Database db, long blobId,
+    ref NamedBinaryBlob blob)
 {
-    if (db.execute("SELECT 1 FROM archive_indexes WHERE blob_id = ?",
-        blobId).empty)
+    auto result = db.execute("SELECT state, extractor_version FROM metadata_status "
+        ~ "WHERE blob_id = ? AND metadata_kind = 'archives'", blobId);
+    if (result.empty)
         return;
-    blob.archiveSpecs = loadArchiveSpecsFromDatabase(db, blobId, 0);
-}
-
-private ArchiveSpec[] loadArchiveSpecsFromDatabase(ref Database db,
-    long blobId, size_t depth)
-{
-    enforce(depth < 32, "Nested archive index exceeds the maximum load depth.");
-    ArchiveSpec[] result;
-    foreach (row; db.execute("SELECT entry_index, occurrence, file_name, file_size, "
-        ~ "time_last_modified, md5, sha1, xxh64, content_blob_id "
-        ~ "FROM archive_entries "
-        ~ "WHERE blob_id = ? ORDER BY entry_index", blobId))
-    {
-        auto modified = row.peek!(Nullable!string)(4);
-        auto entry = new ArchiveSpec(row.peek!string(2),
-            cast(size_t) row.peek!long(3), modified.isNull ? "" : modified.get,
-            CheckSums());
-        entry.entryIndex = cast(size_t) row.peek!long(0);
-        entry.occurrence = cast(size_t) row.peek!long(1);
-        entry.hasIndexIdentity = true;
-        entry.checkSums.md5sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(5));
-        entry.checkSums.sha1sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(6));
-        entry.checkSums.xxh64sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(7));
-        const auto memberBlobId = row.peek!(Nullable!long)(8);
-        if (!memberBlobId.isNull)
-        {
-            entry.contentBlobId = memberBlobId.get;
-            auto password = db.execute("SELECT password FROM archive_passwords "
-                ~ "WHERE blob_id = ?", memberBlobId.get);
-            if (!password.empty)
-                entry.archivePassword = password.front.peek!string(0);
-            if (!db.execute("SELECT 1 FROM archive_indexes WHERE blob_id = ?",
-                memberBlobId.get).empty)
-                entry.nestedEntries = loadArchiveSpecsFromDatabase(db,
-                    memberBlobId.get, depth + 1);
-        }
-        result ~= entry;
-    }
-    return result;
+    auto row = result.front;
+    const auto state = row.peek!string(0);
+    if (state != "completed" && state != "empty")
+        return;
+    blob.archiveIndexKnown = true;
+    const auto extractorVersion = row.peek!(Nullable!string)(1);
+    if (!extractorVersion.isNull)
+        blob.archiveIndexDeep = extractorVersion.get.endsWith(":deep");
 }
 
 private void loadTorrentInfo(ref Database db, long blobId, ref NamedBinaryBlob blob,

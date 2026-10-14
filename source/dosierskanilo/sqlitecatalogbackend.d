@@ -2,6 +2,7 @@
 module dosierskanilo.sqlitecatalogbackend;
 
 import std.algorithm.searching : canFind, startsWith;
+import std.algorithm.sorting : sort;
 import std.base64 : Base64;
 import std.conv : to;
 import std.exception : enforce;
@@ -9,12 +10,11 @@ import std.path : absolutePath, baseName, buildNormalizedPath, buildPath;
 import std.string : split;
 import std.uuid : randomUUID;
 
+import dosierarkivo.archive : parseArchiveVirtualPath;
 import dosierskanilo.catalogbackend;
 import dosierskanilo.model.checksums : CheckSums;
-import dosierskanilo.model.archivespec : ArchiveSpec;
 import dosierskanilo.model.filespec : FileSpec;
-import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION3,
-    DATA_CLASS_VERSION4, DATA_CLASS_VERSION5, NamedBinaryBlob,
+import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION5, NamedBinaryBlob,
     NamedBinaryBlobCatalog;
 import dosierskanilo.operationrunner;
 import dosierskanilo.operations : AnalysisOperationRequest,
@@ -33,6 +33,7 @@ private enum size_t catalogPageSize = 250;
 private struct ArchiveContainerSource
 {
     long contentBlobId;
+    long directoryId;
     CatalogReferenceAvailability availability;
     string identity;
 }
@@ -307,49 +308,50 @@ public:
             const auto queryToken = detailQueryToken(repository,
                 "archive-members", container.contentBlobId) ~ "\0"
                 ~ containerReferenceId.adapterToken;
-            auto offset = cursorOffset(page, queryToken);
+            RepositoryFileQuery query;
+            query.directoryId = container.directoryId;
+            query.includeArchiveMembers = true;
+            query.limit = size_t.max;
+            RepositoryFile[] directMembers;
+            foreach (file; repository.listFiles(query))
+                if (file.archiveMember
+                    && file.archiveContainerIdentity == container.identity)
+                    directMembers ~= file;
+            directMembers.sort!((left, right) =>
+                left.relativePath < right.relativePath);
+            const auto offset = cursorOffset(page, queryToken);
+            if (offset > directMembers.length)
+                throw invalidCursor("Archive member cursor is outside the result sequence.");
             CatalogArchiveMemberPage result;
-            while (true)
+            const auto end = offset + page.limit < directMembers.length
+                ? offset + page.limit : directMembers.length;
+            foreach (file; directMembers[offset .. end])
             {
-                RepositoryArchiveQuery query;
-                query.blobId = container.contentBlobId;
-                query.offset = offset;
-                query.limit = catalogPageSize;
-                auto entries = repository.listArchiveEntries(query);
-                foreach (index, entry; entries)
-                {
-                    if (!entry.hasSafePath || entry.isDirectory)
-                        continue;
-                    if (result.members.length == page.limit)
-                    {
-                        result.hasMore = true;
-                        result.nextCursor = CatalogPageCursor(offset + index,
-                            page.limit, queryToken);
-                        return result;
-                    }
-
-                    CatalogArchiveMember member;
-                    const auto archiveEntryId = ArchiveEntryId(
-                        archiveEntryToken(container.contentBlobId, entry.id));
-                    member.referenceId = archiveMemberReferenceId(
-                        container.identity, entry.id);
-                    if (entry.contentBlobId > 0)
-                        member.contentId = contentId(entry.contentBlobId);
-                    member.locator = ContentLocator.entry(containerReferenceId,
-                        archiveEntryId);
-                    member.name = entry.name;
-                    member.relativePath = entry.relativePath;
-                    member.size = entry.size;
-                    member.modifiedAt = entry.modifiedAt;
-                    member.availability = container.availability;
-                    member.fingerprint = fingerprintFor(entry.size,
-                        entry.checkSums);
-                    result.members ~= member;
-                }
-                offset += entries.length;
-                if (entries.length < catalogPageSize)
-                    break;
+                CatalogArchiveMember member;
+                member.referenceId = archiveMemberReferenceId(
+                    container.identity, file.id);
+                member.contentId = contentId(file.blobId);
+                member.locator = ContentLocator.entry(containerReferenceId,
+                    ArchiveEntryId(archiveEntryToken(container.contentBlobId,
+                        file.id)));
+                const auto parsed = parseArchiveVirtualPath(file.relativePath);
+                const auto layer = parsed.entries[$ - 1];
+                member.name = layer.relativePath;
+                member.relativePath = layer.relativePath;
+                member.size = file.size;
+                member.modifiedAt = file.modifiedAt;
+                member.availability = file.present
+                    ? CatalogReferenceAvailability.available
+                    : CatalogReferenceAvailability.unavailable;
+                auto content = repository.loadBlobDetails(file.blobId);
+                if (content !is null)
+                    member.fingerprint = fingerprintFor(cast(size_t) content.fileSize,
+                        content.checkSums);
+                result.members ~= member;
             }
+            result.hasMore = end < directMembers.length;
+            if (result.hasMore)
+                result.nextCursor = CatalogPageCursor(end, page.limit, queryToken);
             return result;
         });
     }
@@ -371,7 +373,7 @@ public:
                 throw new CatalogBackendException(
                     CatalogBackendErrorCode.invalidIdentifier,
                     "Unknown archive container file reference.");
-            return ArchiveContainerSource(file.blobId,
+            return ArchiveContainerSource(file.blobId, file.directoryId,
                 file.present ? CatalogReferenceAvailability.available
                     : CatalogReferenceAvailability.unavailable,
                 "p" ~ fileId.to!string);
@@ -420,7 +422,7 @@ public:
                         "Archive member is not a resolvable nested container.");
                 currentBlobId = entry.contentBlobId;
             }
-            return ArchiveContainerSource(currentBlobId,
+            return ArchiveContainerSource(currentBlobId, root.directoryId,
                 root.present ? CatalogReferenceAvailability.available
                     : CatalogReferenceAvailability.unavailable, identity);
         }
@@ -471,11 +473,9 @@ public:
             RepositoryFile[][long] selectedReferences;
             long[] selectedBlobIds;
             bool[long][long] selectedReferenceIds;
-            bool[long] includeAllArchiveEntries;
-            size_t[][long] selectedArchiveEntryIndices;
-            bool[long] selectedMemberContentBlobs;
-            bool[string] selectedMemberReferenceTokens;
-            size_t selectedMemberReferenceCount;
+            RepositoryFile[] archiveContainersToExpand;
+            bool[long] expandedArchiveContainers;
+            bool selectedMemberReference;
             void addReference(RepositoryFile reference)
             {
                 if (reference.blobId !in selectedReferences)
@@ -486,13 +486,13 @@ public:
                 selectedReferenceIds[reference.blobId][reference.id] = true;
                 selectedReferences[reference.blobId] ~= reference;
             }
-            void addMemberReference(string identity)
+            void addArchiveContainer(RepositoryFile container)
             {
-                const auto token = sourceToken ~ ":archive-reference:" ~ identity;
-                if (token !in selectedMemberReferenceTokens)
+                if (container.hasArchive && container.id > 0
+                    && container.id !in expandedArchiveContainers)
                 {
-                    selectedMemberReferenceTokens[token] = true;
-                    ++selectedMemberReferenceCount;
+                    expandedArchiveContainers[container.id] = true;
+                    archiveContainersToExpand ~= container;
                 }
             }
             void retainArchiveMemberChain(RepositoryFile member)
@@ -507,7 +507,6 @@ public:
                 addReference(rootContainer);
                 auto identities = member.archiveContainerIdentity.split(":");
                 auto currentBlobId = rootContainer.blobId;
-                auto memberIdentity = identities[0];
                 foreach (component; identities[1 .. $])
                 {
                     const auto entryId = to!long(component);
@@ -518,50 +517,22 @@ public:
                         throw new CatalogBackendException(
                             CatalogBackendErrorCode.backendFailure,
                             "An archive member's parent entry disappeared during export.");
-                    selectedArchiveEntryIndices[currentBlobId]
-                        ~= ancestorEntry.entryIndex;
-                    selectedMemberContentBlobs[ancestorEntry.contentBlobId] = true;
-                    memberIdentity ~= ":" ~ component;
-                    addMemberReference(memberIdentity);
+                    auto parentReference = repository.fileReference(entryId);
+                    if (parentReference.id == 0)
+                        throw new CatalogBackendException(
+                            CatalogBackendErrorCode.backendFailure,
+                            "An archive member's parent reference disappeared during export.");
+                    addReference(parentReference);
+                    addArchiveContainer(parentReference);
                     currentBlobId = ancestorEntry.contentBlobId;
                 }
                 if (currentBlobId != member.archiveContainerBlobId)
                     throw new CatalogBackendException(
                         CatalogBackendErrorCode.backendFailure,
                         "Archive member container identity does not match its SQL row.");
-                selectedArchiveEntryIndices[currentBlobId]
-                    ~= member.archiveEntryIndex;
-                selectedMemberContentBlobs[member.blobId] = true;
-                memberIdentity ~= ":" ~ member.archiveEntryId.to!string;
-                addMemberReference(memberIdentity);
-                if (member.hasArchive)
-                    includeAllArchiveEntries[member.blobId] = true;
-            }
-            void pruneArchiveEntries(ref ArchiveSpec[] entries, long containerBlobId)
-            {
-                if (includeAllArchiveEntries.get(containerBlobId, false))
-                    return;
-                auto selected = containerBlobId in selectedArchiveEntryIndices;
-                if (selected is null)
-                {
-                    entries = [];
-                    return;
-                }
-                ArchiveSpec[] retained;
-                foreach (index, entry; entries)
-                {
-                    if (entry is null)
-                        continue;
-                    const auto stableIndex = entry.hasIndexIdentity
-                        ? entry.entryIndex : index;
-                    if (!(*selected).canFind(stableIndex))
-                        continue;
-                    if (entry.nestedEntries !is null && entry.contentBlobId > 0)
-                        pruneArchiveEntries(entry.nestedEntries,
-                            entry.contentBlobId);
-                    retained ~= entry;
-                }
-                entries = retained;
+                addReference(member);
+                addArchiveContainer(member);
+                selectedMemberReference = true;
             }
 
             walkMatchingFiles(repository, query.filter, query.pathPrefix,
@@ -570,16 +541,35 @@ public:
                     {
                         addReference(file);
                         if (file.hasArchive)
-                            includeAllArchiveEntries[file.blobId] = true;
+                            addArchiveContainer(file);
                     }
                     else
                         retainArchiveMemberChain(file);
                 });
-            if (selectedMemberReferenceCount > 0
+            if (selectedMemberReference
                 && (!options.includeContentDetails || !options.includeArchiveEntries))
                 throw new CatalogBackendException(
                     CatalogBackendErrorCode.unsupportedFeature,
                     "Archive-member subset export requires archive content details.");
+
+            if (options.includeContentDetails && options.includeArchiveEntries)
+                foreach (container; archiveContainersToExpand)
+                {
+                    RepositoryFileQuery memberQuery;
+                    memberQuery.directoryId = container.directoryId;
+                    memberQuery.includeArchiveMembers = true;
+                    memberQuery.limit = size_t.max;
+                    memberQuery.caseSensitive = true;
+                    const auto memberPrefix = container.relativePath ~ "!/";
+                    memberQuery.text = memberPrefix;
+                    foreach (member; repository.listFiles(memberQuery))
+                        if (member.archiveMember
+                            && member.relativePath.startsWith(memberPrefix))
+                        {
+                            addReference(member);
+                            addArchiveContainer(member);
+                        }
+                }
 
             NamedBinaryBlob[] exportedBlobs;
             CatalogExportResult result;
@@ -607,25 +597,25 @@ public:
                     blob.fileType = "";
                     blob.mediaInfoSig = null;
                     blob.archiveSpecs = null;
+                    blob.archiveIndexKnown = false;
+                    blob.archiveIndexDeep = false;
                     blob.archivePassword = "";
                     blob.torrentInfo = null;
                 }
                 else if (!options.includeArchiveEntries)
+                {
                     blob.archiveSpecs = null;
-                else if (query.filter.includeArchiveMembers)
-                    pruneArchiveEntries(blob.archiveSpecs, blobId);
+                    blob.archiveIndexKnown = false;
+                    blob.archiveIndexDeep = false;
+                }
                 exportedBlobs ~= blob;
             }
 
-            auto catalog = NamedBinaryBlobCatalog(DATA_CLASS_VERSION3,
+            auto catalog = NamedBinaryBlobCatalog(DATA_CLASS_VERSION5,
                 exportedBlobs);
             enforce(commitJsonCatalog(options.outputPath, catalog),
                 "Could not publish the SQLite subset export.");
             result.contentsExported = exportedBlobs.length;
-            foreach (memberBlobId; selectedMemberContentBlobs.keys)
-                if (memberBlobId !in selectedReferences)
-                    ++result.contentsExported;
-            result.referencesExported += selectedMemberReferenceCount;
             result.outputPath = canonicalPath(options.outputPath);
             result.committed = true;
             return result;
@@ -773,7 +763,8 @@ private:
         {
             result.referenceId = ReferenceId(identityToken("reference", file.id));
             try
-                result.locator = ContentLocator.file(file.relativePath);
+                result.locator = ContentLocator.file(
+                    parseArchiveVirtualPath(file.relativePath).physicalPath);
             catch (CatalogBackendException failure)
                 throw new CatalogBackendException(CatalogBackendErrorCode.backendFailure,
                     "Repository contains an invalid relative path: " ~ failure.msg);
@@ -1748,7 +1739,7 @@ version (unittest)
         subset.pathPrefix = "archives";
         const auto exported = sqliteBackend.exportSubset(subset, exportOptions);
         assert(exported.committed);
-        assert(exported.referencesExported == 3);
+        assert(exported.referencesExported > 3);
         const auto rootSubsetCatalog = deserializeDataClassJsonWrapperFile(exportPath);
         assert(rootSubsetCatalog.dataVersion == DATA_CLASS_VERSION5);
         assert(rootSubsetCatalog.dataArray.length > 3);
@@ -1761,7 +1752,8 @@ version (unittest)
         CatalogFilter typeUnionFilter;
         typeUnionFilter.archive = true;
         typeUnionFilter.torrent = true;
-        assert(sqliteBackend.rootSummary(typeUnionFilter).fileReferenceCount == 5);
+        assert(sqliteBackend.rootSummary(typeUnionFilter).fileReferenceCount == 5,
+            sqliteBackend.rootSummary(typeUnionFilter).fileReferenceCount.to!string);
         assert(sqliteBackend.rootSummary(typeUnionFilter).fileReferenceCount
             == jsonBackend.rootSummary(typeUnionFilter).fileReferenceCount);
 

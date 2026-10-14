@@ -1,9 +1,8 @@
 # Catalog Domain Values and Locators
 
-Status: WP-13.1 through WP-13.4 and the first WP-13.5 archive-index slices are
-implemented. The next WP-13.5 slices replace persisted member lists with normal
-virtual `FileSpec` references, migrate SQLite to those references, and add a
-shared extraction cache plus GUI navigation.
+Status: WP-13.1 through WP-13.5.3 are implemented. JSON v5 and SQLite schema v4
+store archive members as normal virtual references; the shared extraction cache
+and GUI navigation remain planned work.
 
 This document freezes the concepts needed by a storage-neutral catalog API.
 It distinguishes payload identity from the places where that payload is
@@ -219,13 +218,12 @@ is authoritative.
 ## Mapping from the current implementation
 
 - `NamedBinaryBlob` approximates `ContentBlob` but also owns `FileSpec[]` source
-  references; it is mutable and JSON-versioned. JSON v0-v4 nested `ArchiveSpec[]`
-  remains an import-compatibility shape; planned v5 stores members as normal
-  content records with virtual `FileSpec` paths.
+  references; it is mutable and JSON-versioned. JSON v5 stores archive members
+  as normal content records with virtual `FileSpec` paths. JSON v0-v4 nested
+  `ArchiveSpec[]` remains an import-compatibility shape.
 - SQLite `blobs.id` approximates `ContentId`; `file_refs.id` approximates
-  `ReferenceId`; schema v3 currently uses physical `file_refs.relative_path`.
-  Planned schema v4 uses that field for physical and virtual path layers. These
-  integer IDs remain adapter-private.
+  `ReferenceId`; schema v4 uses `file_refs.relative_path` for physical and
+  virtual path layers. These integer IDs remain adapter-private.
 - `RepositoryArchiveEntry` exposes a stable row ID, normalized path, ordered
   index/duplicate occurrence, size/time/checksums, and a linked content ID after
   deep extraction. `CatalogBackend.listArchiveMembers` combines that entry ID
@@ -237,10 +235,10 @@ is authoritative.
   for flat data and v4 when nested entries are selected). Nested locator chains
   are supported. The TreeView can expand the existing file row and group member
   paths beneath it without adding a database directory relation.
-- `ArchiveSpec` is the current JSON v0-v4 compatibility representation. The
-  planned JSON v5 writer stores each scraped member as a normal content record
-  with a virtual `FileSpec`; legacy nested `ArchiveSpec` trees remain readable.
-- SQL schema v3 currently persists ordered entries in `archive_entries` and
-  content links in `archive_indexes`. WP-13.5 plans to migrate those values into
-  virtual file references and remove both archive-specific tables, reusing
-  `file_refs`, `blobs`, `directories`, and `metadata_status`.
+- `ArchiveSpec` is the JSON v0-v4 compatibility representation. JSON v5 stores
+  each scraped member as a normal content record with a virtual `FileSpec`;
+  legacy nested `ArchiveSpec` trees remain readable and are promoted on export.
+- SQL schema v4 stores members in normal `file_refs` and `blobs`; archive index
+  version/depth state lives in `metadata_status`. The former
+  `archive_entries`/`archive_indexes` tables are removed, and inner directories
+  remain a TreeView projection rather than persisted directory rows.

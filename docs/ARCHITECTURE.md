@@ -71,9 +71,9 @@ below are frozen.
 
 | Type | Current responsibility | Boundary/limitation |
 | --- | --- | --- |
-| `NamedBinaryBlob` | JSON-compatible record for a payload, checksum/metadata, and one or more `FileSpec`s | Compatibility serializer model; v5 will use it for archive-member content records too |
-| `FileSpec` | Currently one physical filesystem path and its observed timestamp | Planned v5 also uses the path string for `!/`-encoded archive locations; typed locators remain the operation identity |
-| `ArchiveSpec` | Legacy JSON v0-v4 archive member metadata, including recursive v4 `nestedEntries` | Planned JSON v5 stores each scraped member as a normal blob with a virtual `FileSpec` path |
+| `NamedBinaryBlob` | JSON-compatible record for a payload, checksum/metadata, and one or more `FileSpec`s | JSON v5 uses it for archive-member content records too |
+| `FileSpec` | Physical filesystem or canonical virtual archive path and its observed timestamp | Typed locators remain the operation identity |
+| `ArchiveSpec` | Legacy JSON v0-v4 archive member metadata, including recursive v4 `nestedEntries` | Read/import compatibility only; v5 stores scraped members as normal blobs |
 | `TorrentInfo` / `TorrentFileEntry` | Torrent-level facts and torrent member paths | Torrent members are also nested metadata, not ordinary catalog references |
 | `Repository` | Concrete SQLite lifecycle, query, transfer, and synchronous convenience API | SQLite-backed concrete class; no common JSON/SQLite catalog superclass yet |
 | `RepositoryDirectory` / `RepositoryFile` / page DTOs | Typed bounded SQLite read results | Stable cursor IDs are repository identities; GUI JSON projections are separately built |
@@ -299,14 +299,14 @@ The implementation sequence is tracked in
 
 `FileArchive` now returns typed entry descriptors and can extract members to a
 destination directory. Deep `updateArchives()` recursively indexes nested
-archives, and schema v3 links fully fingerprinted members to reusable content
-blobs. JSON v4 persists nested `ArchiveSpec` trees. The remaining extractor gap
-is exact occurrence selection: `extractEntry()` accepts a member name, so
+archives. JSON v5 and SQLite schema v4 represent safe members as ordinary
+virtual file references linked to normal content blobs. The remaining extractor
+gap is exact occurrence selection: `extractEntry()` accepts a member name, so
 adapters cannot claim deep fingerprints for duplicate-name occurrences they
 cannot select.
 
-WP-13.5 promotes extracted members to ordinary content records with virtual path
-references. The canonical spelling uses `!/` for container transitions, `!!`
+The remaining WP-13.5 work is a shared leased extraction cache and GTK navigation.
+The canonical spelling uses `!/` for container transitions, `!!`
 for a literal exclamation mark, and `!~N` for duplicate occurrences; structured
 locators remain the identity. The same session extraction cache must serve
 checksums, file type, MediaInfo, and preview. Its paths are scratch inputs only,

@@ -14,6 +14,9 @@ They represent the functional evolution and are intentionally summarized.
   index state is retained separately. Version 0–4 catalogs remain readable;
   JSON/SQLite exports and JSON catalog queries now project virtual members
   through the common reference model.
+- SQLite schema v4 migrates safe archive members into ordinary `file_refs`,
+  keeps their physical `directory_id`, moves archive index/depth state into
+  `metadata_status`, and removes `archive_entries`/`archive_indexes`.
 
 ## Release 26.11.0 - 2026-10-13
 
