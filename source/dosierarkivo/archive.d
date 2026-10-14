@@ -116,21 +116,83 @@ string escapeArchiveVirtualPath(string path)
     return path.replace("!", "!!");
 }
 
-/** Append one archive-entry path to an already display-encoded container path. */
-string appendArchiveVirtualPath(string containerPath, string entryPath)
+/** Append one archive-entry path to an already display-encoded container path.
+ *
+ * Set `occurrence` for same-name entries in the same container. Occurrences
+ * are zero based and omitted when the path is unambiguous.
+ */
+string appendArchiveVirtualPath(string containerPath, string entryPath,
+    size_t occurrence = size_t.max)
 {
-    return containerPath ~ "!/" ~ escapeArchiveVirtualPath(entryPath);
+    import std.conv : to;
+
+    auto result = containerPath ~ "!/" ~ escapeArchiveVirtualPath(entryPath);
+    if (occurrence != size_t.max)
+        result ~= "!~" ~ occurrence.to!string;
+    return result;
 }
 
-/** Split an archive display path into its physical/member path layers.
- *
- * A literal `!` is encoded as `!!`; `!/` separates a container from its
- * member path. The returned layers have literal exclamation marks restored.
- */
-string[] splitArchiveVirtualPath(string path)
+/** One archive layer decoded from a canonical virtual path. */
+struct ArchiveVirtualPathLayer
 {
-    string[] layers;
+    string relativePath; /// Normalized path in this archive layer.
+    size_t occurrence; /// Zero-based duplicate-name occurrence.
+    bool hasOccurrence; /// False when the member path is unique in its container.
+}
+
+/** Physical container path followed by zero or more archive-member layers. */
+struct ParsedArchiveVirtualPath
+{
+    string physicalPath;
+    ArchiveVirtualPathLayer[] entries;
+
+    @property bool isVirtual() const
+    {
+        return entries.length > 0;
+    }
+}
+
+/** Decode a physical or archive virtual path using the canonical `!/`, `!!`,
+ * and `!~N` grammar.
+ *
+ * Throws: Exception when a literal marker is not escaped or an occurrence
+ * suffix is malformed.
+ */
+ParsedArchiveVirtualPath parseArchiveVirtualPath(string path)
+{
+    import std.conv : to;
+
+    ParsedArchiveVirtualPath result;
     string current;
+    size_t occurrence;
+    bool hasOccurrence;
+    bool hasContainer;
+
+    void flushEntry()
+    {
+        if (current.length == 0)
+            throw new Exception("Archive virtual paths cannot contain empty layers.");
+        if (!hasContainer)
+        {
+            result.physicalPath = current;
+            hasContainer = true;
+        }
+        else
+        {
+            bool safe;
+            bool isDirectory;
+            const auto normalized = normalizeArchiveEntryPath(current, safe,
+                isDirectory);
+            if (!safe || isDirectory || normalized != current)
+                throw new Exception("Archive member path is unsafe or not normalized.");
+            result.entries ~= ArchiveVirtualPathLayer(current, occurrence,
+                hasOccurrence);
+        }
+        current = "";
+        occurrence = 0;
+        hasOccurrence = false;
+    }
+
     for (size_t index; index < path.length; ++index)
     {
         if (path[index] != '!')
@@ -146,14 +208,65 @@ string[] splitArchiveVirtualPath(string path)
         }
         if (index + 1 < path.length && path[index + 1] == '/')
         {
-            layers ~= current;
-            current = "";
+            flushEntry();
             ++index;
             continue;
         }
-        current ~= '!';
+        if (index + 1 < path.length && path[index + 1] == '~')
+        {
+            if (!hasContainer || hasOccurrence)
+                throw new Exception("Occurrence suffix is not valid in this path layer.");
+            auto digitsStart = index + 2;
+            auto digitsEnd = digitsStart;
+            while (digitsEnd < path.length && path[digitsEnd] >= '0'
+                && path[digitsEnd] <= '9')
+                ++digitsEnd;
+            if (digitsEnd == digitsStart
+                || (digitsEnd < path.length
+                    && !(digitsEnd + 1 < path.length
+                        && path[digitsEnd] == '!' && path[digitsEnd + 1] == '/')))
+                throw new Exception("Malformed archive occurrence suffix.");
+            try
+                occurrence = to!size_t(path[digitsStart .. digitsEnd]);
+            catch (Exception)
+                throw new Exception("Archive occurrence is outside the supported range.");
+            hasOccurrence = true;
+            index = digitsEnd - 1;
+            continue;
+        }
+        throw new Exception("Literal exclamation marks must be escaped as '!!'.");
     }
-    layers ~= current;
+
+    if (current.length == 0)
+        throw new Exception("Archive virtual paths cannot end with an empty layer.");
+    if (!hasContainer)
+        result.physicalPath = current;
+    else
+    {
+        bool safe;
+        bool isDirectory;
+        const auto normalized = normalizeArchiveEntryPath(current, safe,
+            isDirectory);
+        if (!safe || isDirectory || normalized != current)
+            throw new Exception("Archive member path is unsafe or not normalized.");
+        result.entries ~= ArchiveVirtualPathLayer(current, occurrence,
+            hasOccurrence);
+    }
+    return result;
+}
+
+/** Split an archive display path into its physical/member path layers.
+ *
+ * A literal `!` is encoded as `!!`; `!/` separates a container from its
+ * member path. The returned layers have literal exclamation marks restored.
+ */
+string[] splitArchiveVirtualPath(string path)
+{
+    auto parsed = parseArchiveVirtualPath(path);
+    string[] layers;
+    layers ~= parsed.physicalPath;
+    foreach (entry; parsed.entries)
+        layers ~= entry.relativePath;
     return layers;
 }
 
@@ -318,4 +431,31 @@ unittest
     const auto layers = splitArchiveVirtualPath(displayPath);
     assert(layers == ["dir!/sample!.zip", "sub!/nested!.zip",
         "deep/readme!.txt"]);
+
+    auto duplicatePath = appendArchiveVirtualPath(physicalPath,
+        "same!.txt", 1);
+    auto parsedDuplicate = parseArchiveVirtualPath(duplicatePath);
+    assert(parsedDuplicate.physicalPath == "dir!/sample!.zip");
+    assert(parsedDuplicate.entries.length == 1);
+    assert(parsedDuplicate.entries[0].relativePath == "same!.txt");
+    assert(parsedDuplicate.entries[0].hasOccurrence);
+    assert(parsedDuplicate.entries[0].occurrence == 1);
+    assert(splitArchiveVirtualPath(duplicatePath)
+        == ["dir!/sample!.zip", "same!.txt"]);
+
+    auto duplicateContainerPath = appendArchiveVirtualPath(physicalPath,
+        "nested!.zip", 2);
+    duplicateContainerPath = appendArchiveVirtualPath(duplicateContainerPath,
+        "deep/readme.txt");
+    const auto parsedNested = parseArchiveVirtualPath(duplicateContainerPath);
+    assert(parsedNested.entries.length == 2);
+    assert(parsedNested.entries[0].relativePath == "nested!.zip");
+    assert(parsedNested.entries[0].occurrence == 2);
+    assert(parsedNested.entries[1].relativePath == "deep/readme.txt");
+    assert(!parsedNested.entries[1].hasOccurrence);
+
+    import std.exception : assertThrown;
+    assertThrown!Exception(parseArchiveVirtualPath("archive.zip!/bad!~x.txt"));
+    assertThrown!Exception(parseArchiveVirtualPath("archive!.zip!/member.txt"));
+    assertThrown!Exception(parseArchiveVirtualPath("archive.zip!/../escape.txt"));
 }
