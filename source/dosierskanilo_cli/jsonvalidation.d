@@ -7,10 +7,19 @@ import std.string : empty, endsWith;
 import dosierskanilo;
 import dosierskanilo_cli.logging : errorFLine, errorLine;
 
-/** Validate an explicit JSON command. */
+/** Validate a JSON-target scan or analysis command. */
 bool validateJsonOptions(string command, ref ArgsArray options)
 {
-    if (command != "json-scan" && options.argMergeDuplicates)
+    if (options.argJSONFile.empty || !options.argJSONFile.endsWith(jsonFileExtension))
+    {
+        errorFLine("JSON catalog '%s' looks invalid.", options.argJSONFile);
+        return false;
+    }
+    if (options.argBaseDir.empty)
+        options.argBaseDir = ".";
+
+    if (command != "scan" && command != "json-scan"
+        && options.argMergeDuplicates)
     {
         errorLine("--merge-duplicates is available only for JSON scan.");
         return false;
@@ -30,32 +39,26 @@ bool validateJsonOptions(string command, ref ArgsArray options)
         return false;
     }
 
-    if (command == "json-scan")
+    if (command == "scan" || command == "json-scan")
     {
         if (options.argDropMissing)
         {
             errorLine("--drop-missing is available only for JSON analyze or repository scan.");
             return false;
         }
-        if (options.argScanPath.empty || !exists(options.argScanPath)
-            || !isDir(options.argScanPath))
+        if (!exists(options.argBaseDir) || !isDir(options.argBaseDir))
         {
-            errorLine("JSON scan needs an existing directory ROOT.");
+            errorLine("JSON scan needs an existing base directory.");
             return false;
         }
     }
-    else if (command == "json-analyze" && (options.argRecursive
+    else if ((command == "analyze" || command == "json-analyze") && (options.argRecursive
         || options.argPickHidden))
     {
         errorLine("--recursive and --pick-hidden are valid only for JSON scan.");
         return false;
     }
-    if (options.argJSONFile.empty || !options.argJSONFile.endsWith(jsonFileExtension))
-    {
-        errorFLine("JSON catalog '%s' looks invalid.", options.argJSONFile);
-        return false;
-    }
-    if (command == "json-analyze" && (!exists(options.argJSONFile)
+    if ((command == "analyze" || command == "json-analyze") && (!exists(options.argJSONFile)
         || !isFile(options.argJSONFile)))
     {
         errorFLine("JSON catalog '%s' does not exist.", options.argJSONFile);

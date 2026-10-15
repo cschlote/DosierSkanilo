@@ -9,6 +9,10 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- The CLI scan/analyze commands can now target the JSON backend directly with
+  `--json CATALOG.json` and optional `--base-dir DIR`; the old `json scan`
+  and `json analyze` forms remain as deprecated aliases during the transition.
+
 ## Release 26.11.1 - 2026-10-15
 
 - Repeated SQLite metadata runs now load stored digests before deciding whether

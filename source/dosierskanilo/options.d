@@ -16,6 +16,7 @@ struct ArgsArray
 	bool argRecursive; ///< Scan directories recursively.
 	bool argScanFiles; ///< Scan for new files.
 	string argJSONFile; ///< JSON file to read from and write to.
+	string argBaseDir; ///< Base directory for JSON paths.
 	string argRepositoryPath; ///< Repository root or path below a repository.
 	string argImportJSON; ///< JSON file to import into a repository.
 	string argExportJSON; ///< JSON file to export from a repository.
@@ -59,7 +60,7 @@ struct ArgsArray
 unittest
 {
 	import std.string : empty;
-	
+
 	ArgsArray opts;
 	assert(opts.argNumberOfThreads == 1);
 	assert(opts.argScanArchives == 0);

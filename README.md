@@ -37,15 +37,19 @@ catalog for every query:
 ./build/bin/dosierskanilo list /data/library --video --format=json
 ```
 
-Use the explicit `json` mode when no SQLite repository should be created. JSON
-mode reads and writes only the supplied catalog file:
+Use the explicit JSON target when no SQLite repository should be created. JSON
+mode reads and writes only the supplied catalog file and uses the selected base
+directory for its relative paths:
 
 ```bash
-./build/bin/dosierskanilo json scan \
-  /data/library library-scan.json --recursive --checksums --media-info
+./build/bin/dosierskanilo scan /data/library --json library-scan.json \
+  --recursive --checksums --media-info
 
-./build/bin/dosierskanilo json analyze library-scan.json
+./build/bin/dosierskanilo analyze --json library-scan.json
 ```
+
+The legacy `dosierskanilo json scan ...` and `dosierskanilo json analyze ...`
+forms are still accepted as deprecated aliases.
 
 SQLite and JSON are separate command groups. A JSON command never discovers or
 creates `.dosierskanilo`; a SQLite command never silently falls back to direct
@@ -164,6 +168,11 @@ dosierskanilo duplicates [ROOT]
 dosierskanilo import [ROOT] INPUT.json --replace
 dosierskanilo export [ROOT] --output OUTPUT.json
 
+dosierskanilo scan [ROOT] --json CATALOG.json [--base-dir DIR] [OPTIONS]
+dosierskanilo analyze [ROOT] --json CATALOG.json [--base-dir DIR] [OPTIONS]
+
+Legacy aliases:
+
 dosierskanilo json scan ROOT CATALOG.json [OPTIONS]
 dosierskanilo json analyze CATALOG.json [OPTIONS]
 ```
@@ -191,9 +200,9 @@ Initialize and scan a SQLite repository:
 Scan and analyze a direct JSON catalog:
 
 ```bash
-./build/bin/dosierskanilo json scan /data/library library.json \
+./build/bin/dosierskanilo scan /data/library --json library.json \
   --recursive --checksums --media-info
-./build/bin/dosierskanilo json analyze library.json
+./build/bin/dosierskanilo analyze --json library.json
 ```
 
 ## Architecture

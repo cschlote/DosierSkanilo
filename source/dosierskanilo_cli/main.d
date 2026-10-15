@@ -102,7 +102,10 @@ int main(string[] args)
 				signal(SIGINT, oldhandler);
 
 			bool rc;
-			if (parsed.command == CliCommand.jsonScan
+			if ((parsed.command == CliCommand.scan || parsed.command == CliCommand.analyze)
+				&& !options.argJSONFile.empty)
+				rc = executeFileScannerOperation(options);
+			else if (parsed.command == CliCommand.jsonScan
 				|| parsed.command == CliCommand.jsonAnalyze)
 				rc = executeFileScannerOperation(options);
 			else
@@ -556,7 +559,7 @@ bool executeFileScannerOperation(ArgsArray options)
 		ScanOperationRequest request;
 		request.operationId = 4;
 		request.target = OperationTarget.jsonTarget(options.argJSONFile,
-			options.argScanPath);
+			options.argBaseDir);
 		request.scanOptions.recursive = options.argRecursive;
 		request.scanOptions.pickHidden = options.argPickHidden;
 		request.forceJsonOverwrite = options.argReplaceCatalog;
@@ -570,7 +573,8 @@ bool executeFileScannerOperation(ArgsArray options)
 	{
 		AnalysisOperationRequest request;
 		request.operationId = 5;
-		request.target = OperationTarget.jsonTarget(options.argJSONFile);
+		request.target = OperationTarget.jsonTarget(options.argJSONFile,
+			options.argBaseDir);
 		request.options.dropMissing = options.argDropMissing;
 		request.metadataOptions = metadataOptionsFromCli(options);
 		request.forceJsonOverwrite = options.argReplaceCatalog;

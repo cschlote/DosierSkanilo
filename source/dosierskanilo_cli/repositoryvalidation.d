@@ -10,6 +10,16 @@ import dosierskanilo_cli.logging : errorFLine, errorLine;
 /** Validate repository target, command options, and transfer filenames. */
 bool validateRepositoryOptions(string command, ref ArgsArray options)
 {
+    if (!options.argJSONFile.empty && command != "import" && command != "export")
+    {
+        errorLine("--json is available only with scan, analyze, import, or export.");
+        return false;
+    }
+    if (!options.argBaseDir.empty)
+    {
+        errorLine("--base-dir is available only with JSON scan or analysis.");
+        return false;
+    }
     if (options.argDryRun || options.argMergeDuplicates)
     {
         errorLine("--dry-run and --merge-duplicates are supported only in JSON mode.");
