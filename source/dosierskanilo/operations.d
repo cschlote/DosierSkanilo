@@ -183,6 +183,12 @@ struct OperationProgress
     ulong total;
     /// False means `completed` is a work count/status value, not a percentage.
     bool totalKnown;
+    /// Optional byte-level progress for a current per-blob subtask.
+    ulong subtaskCompleted;
+    ulong subtaskTotal;
+    bool subtaskTotalKnown;
+    /// Display unit for the optional subtask counters (for example bytes or entries).
+    string subtaskUnit;
     /// True when a pause request can be acknowledged at a reachable safe checkpoint.
     bool pauseAvailable;
     string path;

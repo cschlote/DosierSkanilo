@@ -94,7 +94,7 @@ int main(string[] args)
 			if (options.argDoMediaSig)
 			{
 				auto miv = getMediaInfoVersion();
-				logLine("Using", miv);
+				logLineVerbose("Using ", miv);
 			}
 			auto oldhandler = signal(SIGINT, &signalHandler);
 			assert(oldhandler != SIG_ERR, "Problem setting signal handler");
@@ -225,6 +225,7 @@ bool executeRepositoryScan(Repository repository, ArgsArray options)
 	auto control = cliOperationControl("Repository scan");
 	repository.appendLog("scan.start", repository.rootPath);
 	auto result = runOperation(request, control);
+	clearOperationProgress();
 	if (result.state != OperationState.completed)
 	{
 		if (result.state == OperationState.cancelled)
@@ -265,6 +266,7 @@ bool executeRepositoryAnalysis(Repository repository, ArgsArray options)
 	auto control = cliOperationControl("Repository analysis");
 	repository.appendLog("analysis.start", "");
 	auto result = runOperation(request, control);
+	clearOperationProgress();
 	if (result.state != OperationState.completed)
 	{
 		if (result.state == OperationState.cancelled)
@@ -427,6 +429,7 @@ bool executeRepositoryMetadata(Repository repository, ArgsArray options)
 	auto control = cliOperationControl("Repository metadata");
 	repository.appendLog("metadata.start", "");
 	auto result = runOperation(request, control);
+	clearOperationProgress();
 	if (result.state != OperationState.completed)
 	{
 		if (result.state == OperationState.cancelled)
@@ -452,21 +455,54 @@ OperationControl cliOperationControl(string label)
 	OperationControl control;
 	OperationPhase lastPhase = OperationPhase.none;
 	size_t lastReported;
+	ulong lastSubtaskReported;
+	string lastReportedPath;
 	control = new OperationControl((OperationProgress event) {
 		// Signal handlers only set a flag; mutex/condition work happens here.
 		if (gotCtrlC && !control.cancellationRequested)
 			control.requestCancellation();
-		if (event.phase != lastPhase)
+		if (isVerboseOutputs())
 		{
-			lastPhase = event.phase;
-			logFLine("%s phase: %s.", label, event.phase);
+			if (event.phase != lastPhase)
+			{
+				lastPhase = event.phase;
+				lastReported = event.completed;
+				lastSubtaskReported = 0;
+				lastReportedPath = "";
+				logFLineVerbose("%s phase: %s.", label, event.phase);
+			}
+			if (event.state == OperationState.running)
+			{
+				const bool pathChanged = event.path.length > 0
+					&& event.path != lastReportedPath;
+				const ulong subtaskReportStep = event.subtaskUnit == "bytes"
+					? 256 * 1024 * 1024 : 10;
+				if (event.subtaskTotalKnown
+					&& (pathChanged || event.subtaskCompleted
+						>= lastSubtaskReported + subtaskReportStep))
+				{
+					lastSubtaskReported = event.subtaskCompleted;
+					lastReportedPath = event.path;
+					logFLineVerbose("%s %s: %d/%d blobs, %d/%d %s - %s",
+						label, event.phase, event.completed, event.total,
+						event.subtaskCompleted, event.subtaskTotal,
+						event.subtaskUnit, event.path);
+				}
+				else if (pathChanged || event.completed >= lastReported + 1000)
+				{
+					if (pathChanged && !event.subtaskTotalKnown)
+						lastSubtaskReported = 0;
+					lastReported = event.completed;
+					lastReportedPath = event.path;
+					logFLineVerbose("%s progress: %d%s%s%s%s", label,
+						event.completed, event.totalKnown ? " / " : "",
+						event.totalKnown ? event.total.to!string : "",
+						event.path.length > 0 ? " - " : "", event.path);
+				}
+			}
 		}
-		if (event.completed >= lastReported + 1000
-			&& event.state == OperationState.running)
-		{
-			lastReported = event.completed;
-			logFLine("%s progress: %d blobs/items.", label, event.completed);
-		}
+		else if (event.state == OperationState.running)
+			printOperationProgress(label, event);
 	});
 	return control;
 }
@@ -526,6 +562,7 @@ bool executeFileScannerOperation(ArgsArray options)
 		request.forceJsonOverwrite = options.argReplaceCatalog;
 		request.metadataOptions = metadataOptionsFromCli(options);
 		result = runOperation(request, control);
+		clearOperationProgress();
 	}
 	else
 	{
@@ -536,6 +573,7 @@ bool executeFileScannerOperation(ArgsArray options)
 		request.metadataOptions = metadataOptionsFromCli(options);
 		request.forceJsonOverwrite = options.argReplaceCatalog;
 		result = runOperation(request, control);
+		clearOperationProgress();
 	}
 
 	if (result.state != OperationState.completed)

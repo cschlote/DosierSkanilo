@@ -25,8 +25,8 @@ bool validateRepositoryOptions(string command, ref ArgsArray options)
     if (command == "metadata" && !hasMetadataOptions(options))
     {
         errorLine("Metadata command needs at least one metadata option: "
-            ~ "--checksum, --filetypes, --mediasig, --scanArchives, "
-            ~ "or --scanTorrents.");
+            ~ "--checksums, --file-types, --media-info, --scan-archives, "
+            ~ "or --scan-torrents.");
         return false;
     }
     if (command == "import" && options.argImportJSON.empty)

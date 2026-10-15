@@ -1884,10 +1884,10 @@ void updateArchives(NamedBinaryBlob obj,
 					}
                     if (passwordPrompted)
                         obj.archivePassword = password;
-                    logFLine("  with %d entries", archiveEntries.length);
+                    logFLineVerbose("  with %d entries", archiveEntries.length);
                     obj.archiveSpecs = [];
                     if (progressCallBack !is null)
-                        progressCallBack.fp(0, archiveEntries.length);
+                        progressCallBack.report(0, archiveEntries.length);
 
                     foreach (idx, descriptor; archiveEntries)
                     {
@@ -1919,7 +1919,7 @@ void updateArchives(NamedBinaryBlob obj,
                             unscannedEntry.hasIndexIdentity = true;
                             obj.archiveSpecs ~= unscannedEntry;
                             if (progressCallBack !is null)
-                                progressCallBack.fp(idx + 1, archiveEntries.length);
+                                progressCallBack.report(idx + 1, archiveEntries.length);
                             continue;
                         }
 
@@ -1987,7 +1987,7 @@ void updateArchives(NamedBinaryBlob obj,
                                 unscannedEntry.hasIndexIdentity = true;
                                 obj.archiveSpecs ~= unscannedEntry;
                                 if (progressCallBack !is null)
-                                    progressCallBack.fp(idx + 1,
+                                    progressCallBack.report(idx + 1,
                                         archiveEntries.length);
                                 continue;
                             }
@@ -2000,7 +2000,7 @@ void updateArchives(NamedBinaryBlob obj,
                                 &md5sum_s, &sha1sum_s, &xxh64sum_s,
                                 progressCallBack);
                             if (progressCallBack !is null)
-                                progressCallBack.fp(idx, archiveEntries.length);
+                                progressCallBack.report(idx, archiveEntries.length);
 
                             sums.set_md5sum = md5sum_s;
                             sums.set_sha1sum = sha1sum_s;
@@ -2067,7 +2067,7 @@ void updateArchives(NamedBinaryBlob obj,
                         obj.archiveSpecs ~= aspec;
 
                         if (progressCallBack !is null)
-                            progressCallBack.fp(idx + 1, archiveEntries.length);
+                            progressCallBack.report(idx + 1, archiveEntries.length);
 					}
 					break;
 				}
@@ -2299,7 +2299,7 @@ void updateTorrentInfo(NamedBinaryBlob obj, bool rescan = false)
 				}
 				catch (Exception e)
 				{
-					logFLine("\nCannot analyse torrent: %s", e.msg);
+					logFLineVerbose("Cannot analyse torrent: %s", e.msg);
 				}
 				break;
 			}

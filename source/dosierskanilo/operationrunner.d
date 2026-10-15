@@ -628,14 +628,22 @@ unittest
 
     shared bool pauseSent;
     shared bool pauseAcknowledged;
+    shared bool sawMetadataPath;
+    shared bool sawChecksumBytes;
     OperationControl control;
     control = new OperationControl((OperationProgress event) {
         if (event.operation == OperationKind.metadata
-            && event.phase == OperationPhase.checksums
-            && event.state == OperationState.running && event.completed > 0
-            && !atomicLoad(pauseSent))
-            atomicStore(pauseSent, control.requestPause());
-        else if (event.state == OperationState.paused)
+            && event.phase == OperationPhase.checksums)
+        {
+            if (event.path.length > 0)
+                atomicStore(sawMetadataPath, true);
+            if (event.subtaskTotalKnown && event.subtaskCompleted > 0)
+                atomicStore(sawChecksumBytes, true);
+            if (event.state == OperationState.running && event.completed > 0
+                && !atomicLoad(pauseSent))
+                atomicStore(pauseSent, control.requestPause());
+        }
+        if (event.state == OperationState.paused)
         {
             atomicStore(pauseAcknowledged, true);
             control.requestResume();
@@ -651,6 +659,8 @@ unittest
     assert(result.metadataSummary.checksumsUpdated == 2);
     assert(atomicLoad(pauseSent));
     assert(atomicLoad(pauseAcknowledged));
+    assert(atomicLoad(sawMetadataPath));
+    assert(atomicLoad(sawChecksumBytes));
 }
 
 @("metadata cancellation retains only complete committed blob results")

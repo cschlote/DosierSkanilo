@@ -19,7 +19,9 @@ import dosierskanilo.metadata.torrentinfo : TorrentInfo;
 import dosierskanilo.model.archivespec : ArchiveSpec;
 import dosierskanilo.model.namedbinaryblob;
 import dosierskanilo.operations : OperationControl, OperationKind,
-    OperationPhase, OperationProgress, OperationState;
+    OperationCallbackException, OperationPhase, OperationProgress,
+    OperationState;
+import dosierskanilo.progress : ProgressCallBack;
 import dosierskanilo.repository.archiveindex : deleteUnreachableBlobs,
     ensureArchiveMemberBlob, isVirtualFileReferenceSql,
     resolveArchiveMemberBlobLinks;
@@ -38,6 +40,10 @@ private class MetadataWorkItem
     long blobId;
     NamedBinaryBlob blob;
     MetadataScanOptions options;
+    OperationControl control;
+    ulong operationId;
+    ulong progressCompleted;
+    ulong progressTotal;
     bool doChecksums;
     bool doFileType;
     bool doMediaInfo;
@@ -46,31 +52,94 @@ private class MetadataWorkItem
     string[string] errors;
 }
 
+private void reportMetadataWorkProgress(MetadataWorkItem item,
+    OperationPhase phase, ulong subtaskCompleted = 0,
+    ulong subtaskTotal = 0, bool subtaskTotalKnown = false,
+    string subtaskUnit = "")
+{
+    if (item.control is null)
+        return;
+    OperationProgress progress;
+    progress.operationId = item.operationId;
+    progress.operation = OperationKind.metadata;
+    progress.state = OperationState.running;
+    progress.phase = phase;
+    progress.completed = item.progressCompleted;
+    progress.total = item.progressTotal;
+    progress.totalKnown = true;
+    progress.subtaskCompleted = subtaskCompleted;
+    progress.subtaskTotal = subtaskTotal;
+    progress.subtaskTotalKnown = subtaskTotalKnown;
+    progress.subtaskUnit = subtaskUnit;
+    progress.path = item.blob.getFirstFileName();
+    progress.message = "Processing metadata.";
+    item.control.report(progress);
+}
+
 private void runMetadataWork(MetadataWorkItem item)
 {
     void attempt(string kind, void delegate() action)
     {
         try
             action();
+        catch (OperationCallbackException ex)
+            throw ex;
         catch (Exception ex)
             item.errors[kind] = ex.msg;
     }
 
     if (item.doChecksums)
-        attempt("checksums", { updateDigests(item.blob); });
+    {
+        reportMetadataWorkProgress(item, OperationPhase.checksums);
+        ProgressCallBack checksumProgress;
+        if (item.control !is null)
+        {
+            checksumProgress.contextual = (size_t completed, size_t total) {
+                reportMetadataWorkProgress(item, OperationPhase.checksums,
+                    completed, total, true, "bytes");
+            };
+        }
+        attempt("checksums", {
+            if (item.control is null)
+                updateDigests(item.blob);
+            else
+                updateDigests(item.blob, null, &checksumProgress);
+        });
+    }
     if (item.doFileType)
+    {
+        reportMetadataWorkProgress(item, OperationPhase.fileTypes);
         attempt("file_type", { updateFileType(item.blob); });
+    }
     if (item.doMediaInfo)
+    {
+        reportMetadataWorkProgress(item, OperationPhase.mediaInfo);
         attempt("media_info", { updateMediaInfo(item.blob, item.options.rescan); });
+    }
     if (item.doArchives)
+    {
+        reportMetadataWorkProgress(item, OperationPhase.archives);
+        ProgressCallBack archiveProgress;
+        if (item.control !is null)
+        {
+            archiveProgress.contextual = (size_t completed, size_t total) {
+                reportMetadataWorkProgress(item, OperationPhase.archives,
+                    completed, total, true, "entries");
+            };
+        }
         attempt("archives", {
             updateArchives(item.blob, item.options.rescan,
-                item.options.deepArchiveScan, null, null,
+                item.options.deepArchiveScan, null,
+                item.control is null ? null : &archiveProgress,
                 item.options.archivePasswordCallback, 0, 8, "", null,
                 item.options.detectFileTypes, item.options.extractMediaInfo);
         });
+    }
     if (item.doTorrents)
+    {
+        reportMetadataWorkProgress(item, OperationPhase.torrents);
         attempt("torrents", { updateTorrentInfo(item.blob, item.options.rescan); });
+    }
 }
 
 private long[] metadataBlobIds(ref Database db, string filePath)
@@ -271,6 +340,10 @@ MetadataExecutionResult updateRepositoryMetadataControlled(ref Database db,
             item.blobId = blobId;
             item.blob = blob;
             item.options = options;
+            item.control = control;
+            item.operationId = operationId;
+            item.progressCompleted = cast(ulong) nextIndex;
+            item.progressTotal = cast(ulong) blobIds.length;
             item.doChecksums = options.calculateChecksums
                 && !blob.checkSums.hasDigests;
             item.doFileType = options.detectFileTypes

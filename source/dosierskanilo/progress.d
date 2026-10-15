@@ -21,6 +21,17 @@ struct ProgressCallBack
 {
 	/** Callback invoked with the current and maximum progress values. */
 	void function(size_t i, size_t m) fp;
+	/** Optional callback with per-call context, useful for concurrent operations. */
+	void delegate(size_t i, size_t m) contextual;
+
+	/** Invoke the configured callback, if any. */
+	void report(size_t i, size_t m)
+	{
+		if (contextual !is null)
+			contextual(i, m);
+		else if (fp !is null)
+			fp(i, m);
+	}
 }
 
 /** Shorten a string by replacing its middle section with an ellipsis.

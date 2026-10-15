@@ -66,7 +66,7 @@ void calculatesDigests(
 
 		pos += buffer.length;
 		if (progressCallBack)
-			progressCallBack.fp(pos, msz);
+			progressCallBack.report(pos, msz);
 	}
 	if (md5sum !is null)
 		*md5sum = md5.finish();

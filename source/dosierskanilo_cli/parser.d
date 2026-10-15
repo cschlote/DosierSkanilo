@@ -10,6 +10,8 @@ import std.conv;
 import std.exception;
 import std.getopt;
 import std.file;
+import std.algorithm.searching : canFind;
+import std.format : format;
 import std.path;
 import std.process;
 import std.range;
@@ -21,7 +23,18 @@ import dosierskanilo_cli.jsonvalidation : validateJsonOptions;
 import dosierskanilo_cli.repositoryvalidation : validateRepositoryOptions;
 import core.internal.lifetime;
 
+version (Posix)
+{
+    import core.sys.posix.sys.ioctl : ioctl, TIOCGWINSZ, winsize;
+    import core.sys.posix.unistd : STDOUT_FILENO;
+}
+
 immutable string helpText = q"EOS
+
+Usage:
+    dosierskanilo <command> [ROOT] [options]
+    dosierskanilo json scan ROOT CATALOG.json [options]
+    dosierskanilo json analyze CATALOG.json [options]
 
 This is a small utility to scan a directory and collect all files
 found within. Each file with same size and same checksums are considered
@@ -50,6 +63,28 @@ Commands:
 
     json scan ROOT CATALOG.json
     json analyze CATALOG.json
+
+Metadata options (at least one is required for `metadata`):
+
+    --checksums --file-types --media-info --scan-archives --scan-torrents
+    --rescan-media-info forces media metadata extraction again
+
+Option scope keys use the fixed columns `S A M I L D R G` (`-` means not
+available for that scope):
+
+    S Scan (repository or JSON)      A Analyze (repository or JSON)
+    M Metadata extraction            I Repository info
+    L List repository content        D Duplicate groups
+    R Init/import/export             G Global options
+
+For example, `SA------` applies to scan and analysis; `---ILD--` applies to
+info, list, and duplicate queries.
+
+Examples:
+
+    dosierskanilo metadata /data/library --checksums --file-types
+    dosierskanilo metadata /data/library --media-info --scan-archives --scan-torrents
+    dosierskanilo metadata --checksums --file-types --media-info --scan-archives --scan-torrents --verbose
 
 EOS";
 
@@ -197,32 +232,32 @@ ParsedCommandLine parseCommandLine(string[] args)
     {
         helpInformation = getopt(args, /* std.getopt.config.required, */
 
-            "output", "Output JSON file for export", &argsarray.argExportJSON,
-            "recursive", "Recursively scan directories", &argsarray.argRecursive,
-            "checksums", "Calculate the checksums", &argsarray.argDoChecksums,
-            "file-types", "Query file type with 'file' utility", &argsarray.argDoFileTypes,
-            "media-info", "Calculate the media signature", &argsarray.argDoMediaSig,
-            "rescan-media-info", "Rescan all files for media signature", &argsarray.argRescanMediaSig,
-            "scan-archives", "Get the contents of archives", &argsarray.argScanArchivesOption,
-            "scan-torrents", "Get the contents of torrent files", &argsarray.argScanTorrents,
-            "drop-missing", "Drop missing files from database", &argsarray.argDropMissing,
-            "threads", "Number of worker threads", &argsarray.argNumberOfThreads,
-            "replace", "Replace an existing repository catalog on import", &argsarray.argReplaceCatalog,
-            "pick-hidden", "Pick hidden files and directories too", &argsarray.argPickHidden,
-            "verbose", "Be verbose", &argsarray.argVerboseOutputs,
-            "text", "Filter repository paths or SHA1 values", &argsarray.argQueryText,
-            "limit", "Maximum number of listed repository blobs", &argsarray.argQueryLimit,
-            "offset", "Number of matching repository blobs to skip", &argsarray.argQueryOffset,
-            "video", "Require video metadata", &argsarray.argQueryVideo,
-            "audio", "Require audio metadata", &argsarray.argQueryAudio,
-            "image", "Require image metadata", &argsarray.argQueryImage,
-            "text-stream", "Require text or subtitle metadata", &argsarray.argQueryTextStream,
-            "file-type", "Require file type metadata", &argsarray.argQueryFileType,
-            "archive", "Require a known archive index", &argsarray.argQueryArchive,
-            "torrent", "Require torrent metadata", &argsarray.argQueryTorrent,
-            "duplicate-limit", "Maximum number of duplicate groups", &argsarray.argDuplicateLimit,
-            "format", "Repository query output format: table or json", &argsarray.argOutputFormat,
-            "version", "Show the application version", &argsarray.argVersion);
+            "output", "------R- Output JSON file for export", &argsarray.argExportJSON,
+            "recursive", "S------- Recursively scan directories", &argsarray.argRecursive,
+            "checksums", "SAM----- Calculate the checksums", &argsarray.argDoChecksums,
+            "file-types", "SAM----- Query file type with 'file' utility", &argsarray.argDoFileTypes,
+            "media-info", "SAM----- Calculate the media signature", &argsarray.argDoMediaSig,
+            "rescan-media-info", "SAM----- Rescan all files for media signature", &argsarray.argRescanMediaSig,
+            "scan-archives", "SAM----- Get the contents of archives", &argsarray.argScanArchivesOption,
+            "scan-torrents", "SAM----- Get the contents of torrent files", &argsarray.argScanTorrents,
+            "drop-missing", "SA------ Drop missing files from database", &argsarray.argDropMissing,
+            "threads", "SAM----- Number of worker threads", &argsarray.argNumberOfThreads,
+            "replace", "S-----R- Replace existing data (JSON scan or import)", &argsarray.argReplaceCatalog,
+            "pick-hidden", "S------- Pick hidden files and directories too", &argsarray.argPickHidden,
+            "verbose", "-------G Be verbose", &argsarray.argVerboseOutputs,
+            "text", "----L--- Filter listed repository paths or SHA1 values", &argsarray.argQueryText,
+            "limit", "----L--- Maximum number of listed repository blobs", &argsarray.argQueryLimit,
+            "offset", "----L--- Number of matching repository blobs to skip", &argsarray.argQueryOffset,
+            "video", "----L--- Require video metadata", &argsarray.argQueryVideo,
+            "audio", "----L--- Require audio metadata", &argsarray.argQueryAudio,
+            "image", "----L--- Require image metadata", &argsarray.argQueryImage,
+            "text-stream", "----L--- Require text or subtitle metadata", &argsarray.argQueryTextStream,
+            "file-type", "----L--- Require file type metadata", &argsarray.argQueryFileType,
+            "archive", "----L--- Require a known archive index", &argsarray.argQueryArchive,
+            "torrent", "----L--- Require torrent metadata", &argsarray.argQueryTorrent,
+            "duplicate-limit", "-----D-- Maximum number of duplicate groups", &argsarray.argDuplicateLimit,
+            "format", "---ILD-- Repository query output format: table or json", &argsarray.argOutputFormat,
+            "version", "-------G Show the application version", &argsarray.argVersion);
     }
     catch (GetOptException ex)
     {
@@ -387,6 +422,30 @@ unittest
     assert(metadata.status == ParseStatus.run
         && metadata.command == CliCommand.metadata);
     assert(metadata.options.argDoChecksums);
+
+    const auto verboseBeforeMetadataOptions = isVerboseOutputs();
+    scope (exit)
+        setVerboseOutputs(verboseBeforeMetadataOptions);
+    auto allMetadataOptions = parseCommandLine(["program", "metadata", "./test",
+        "--checksums", "--file-types", "--media-info", "--scan-archives",
+        "--scan-torrents", "--verbose"]);
+    assert(allMetadataOptions.status == ParseStatus.run);
+    assert(allMetadataOptions.options.argDoChecksums);
+    assert(allMetadataOptions.options.argDoFileTypes);
+    assert(allMetadataOptions.options.argDoMediaSig);
+    assert(allMetadataOptions.options.argScanArchives == 1);
+    assert(allMetadataOptions.options.argScanTorrents);
+    assert(allMetadataOptions.options.argVerboseOutputs);
+    assert(helpText.canFind("--checksums"));
+    assert(helpText.canFind("--file-types"));
+    assert(helpText.canFind("--media-info"));
+    assert(helpText.canFind("--scan-archives"));
+    assert(helpText.canFind("--scan-torrents"));
+    assert(helpText.canFind("--verbose"));
+    assert(helpText.canFind("S A M I L D R G"));
+    auto outdatedMetadataFlag = parseCommandLine(["program", "metadata",
+        "./test", "--checksum"]);
+    assert(outdatedMetadataFlag.status == ParseStatus.error);
 
     auto analysis = parseCommandLine(["program", "analyze", "./test",
         "--drop-missing"]);
@@ -652,6 +711,185 @@ SysTime lastProgress;
 size_t lastIdx;
 size_t lastTotalFiles;
 string lastFile;
+private SysTime lastOperationProgress;
+private string lastOperationPhase;
+private bool operationProgressLineOpen;
+private size_t operationSpinnerFrame;
+
+private size_t terminalColumns()
+{
+    version (Posix)
+    {
+        winsize size;
+        if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &size) == 0 && size.ws_col > 0)
+            return cast(size_t) size.ws_col;
+    }
+    return 80;
+}
+
+private string operationPhaseLabel(OperationPhase phase)
+{
+    final switch (phase)
+    {
+    case OperationPhase.none: return "working";
+    case OperationPhase.validating: return "validating";
+    case OperationPhase.discovering: return "discovering";
+    case OperationPhase.scanning: return "scanning";
+    case OperationPhase.reconcilingMissingFiles: return "checking missing files";
+    case OperationPhase.checksums: return "checksums";
+    case OperationPhase.fileTypes: return "file types";
+    case OperationPhase.mediaInfo: return "media info";
+    case OperationPhase.archives: return "archives";
+    case OperationPhase.torrents: return "torrents";
+    case OperationPhase.analysisMissingFiles: return "missing files";
+    case OperationPhase.analysisDuplicates: return "duplicates";
+    case OperationPhase.analysisCleanup: return "analysis cleanup";
+    case OperationPhase.jsonRead: return "reading JSON";
+    case OperationPhase.jsonWrite: return "writing JSON";
+    }
+}
+
+private string formatProgressBytes(ulong bytes)
+{
+    immutable string[] units = ["B", "KiB", "MiB", "GiB", "TiB"];
+    real value = bytes;
+    size_t unit;
+    while (value >= 1024 && unit + 1 < units.length)
+    {
+        value /= 1024;
+        unit++;
+    }
+    return format("%.1f %s", value, units[unit]);
+}
+
+/** Format a useful, width-bounded progress line for a terminal. */
+string formatOperationProgressLine(string label, OperationProgress event,
+    size_t columns)
+{
+    if (columns == 0)
+        columns = 80;
+
+    auto phase = operationPhaseLabel(event.phase);
+    if (columns < 76)
+    {
+        if (label == "Repository metadata")
+            label = "Metadata";
+        else if (label == "Repository scan")
+            label = "Scan";
+        else if (label == "Repository analysis")
+            label = "Analysis";
+    }
+    if (columns < 60 && phase.length > 14)
+        phase = shortenMiddle(phase, 14).to!string;
+
+    string progress;
+    if (event.totalKnown && event.total > 0)
+    {
+        auto boundedCompleted = event.completed < event.total
+            ? event.completed : event.total;
+        auto percent = cast(size_t)(cast(real) boundedCompleted * 100
+            / event.total);
+        if (columns >= 76)
+        {
+            auto barWidth = columns >= 110 ? 20 : 12;
+            auto filled = percent * barWidth / 100;
+            string bar = "[";
+            foreach (index; 0 .. barWidth)
+                bar ~= index < filled ? '=' : ' ';
+            bar ~= "]";
+            progress = format("%s %3d%% %s/%s", bar, percent,
+                event.completed, event.total);
+        }
+        else
+            progress = format("%s/%s %3d%%", event.completed, event.total,
+                percent);
+    }
+    else
+        progress = format("%s items", event.completed);
+
+    if (event.subtaskTotalKnown && columns >= 76)
+    {
+        auto subtask = event.subtaskUnit == "bytes"
+            ? format("%s/%s", formatProgressBytes(event.subtaskCompleted),
+                formatProgressBytes(event.subtaskTotal))
+            : format("%s/%s %s", event.subtaskCompleted,
+                event.subtaskTotal, event.subtaskUnit);
+        progress ~= "  " ~ subtask;
+    }
+
+    static immutable string[4] spinner = ["|", "/", "-", "\\"];
+    auto prefix = format("%s %s %s %s", spinner[operationSpinnerFrame % spinner.length],
+        label, phase, progress);
+    if (prefix.length > columns)
+        prefix = shortenMiddle(prefix, columns).to!string;
+    auto detail = event.path.length > 0 ? event.path : event.message;
+    auto available = columns > prefix.length + 1
+        ? columns - prefix.length - 1 : 0;
+    if (detail.length > available)
+        detail = shortenMiddle(detail, available).to!string;
+    return detail.length > 0 ? prefix ~ " " ~ detail : prefix;
+}
+
+/** Render compact shared-operation progress on one throttled terminal line. */
+void printOperationProgress(string label, OperationProgress event)
+{
+    import dosierskanilo.logging : logF;
+
+    const auto phase = event.phase.to!string;
+    const auto now = Clock.currTime;
+    if (operationProgressLineOpen && phase == lastOperationPhase
+        && now - lastOperationProgress <= dur!"msecs"(250))
+        return;
+
+    auto line = formatOperationProgressLine(label, event, terminalColumns());
+    logF("\r\x1b[K%s", line);
+    operationSpinnerFrame++;
+    operationProgressLineOpen = true;
+    lastOperationPhase = phase;
+    lastOperationProgress = now;
+}
+
+/** Clear the compact progress line before printing an operation summary. */
+void clearOperationProgress()
+{
+    import dosierskanilo.logging : logF, logLine;
+
+    if (!operationProgressLineOpen)
+        return;
+    logF("\r\x1b[K");
+    logLine("");
+    operationProgressLineOpen = false;
+    lastOperationPhase = "";
+}
+
+@("formatOperationProgressLine adapts to terminal width and includes file progress")
+unittest
+{
+    OperationProgress event;
+    event.phase = OperationPhase.checksums;
+    event.completed = 24;
+    event.total = 100;
+    event.totalKnown = true;
+    event.subtaskCompleted = 16 * 1024 * 1024;
+    event.subtaskTotal = 32 * 1024 * 1024;
+    event.subtaskTotalKnown = true;
+    event.subtaskUnit = "bytes";
+    event.path = "/library/films/A very long film filename.mkv";
+
+    auto wide = formatOperationProgressLine("Metadata", event, 100);
+    assert(wide.length <= 100, wide);
+    assert(wide.canFind("checksums"));
+    assert(wide.canFind("24/100"));
+    assert(wide.canFind("16.0 MiB/32.0 MiB"));
+    assert(wide.canFind("filename.mkv"));
+
+    auto narrow = formatOperationProgressLine("Metadata", event, 60);
+    assert(narrow.length <= 60, narrow);
+    assert(narrow.canFind("24/100"));
+
+    auto veryNarrow = formatOperationProgressLine("Metadata", event, 35);
+    assert(veryNarrow.length <= 35, veryNarrow);
+}
 
 /** Print scan progress on a single console line.
  *
