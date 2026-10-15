@@ -9,6 +9,8 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+## Release 26.11.1 - 2026-10-15
+
 - Repeated SQLite metadata runs now load stored digests before deciding whether
   to recompute them, and skip file-type and archive work already recorded as
   complete or empty.
