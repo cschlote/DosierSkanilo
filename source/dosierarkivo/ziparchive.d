@@ -8,8 +8,9 @@ module dosierarkivo.ziparchive;
 
 import std.algorithm : filter, map;
 import std.array : array;
+import std.conv : to;
 import std.file : exists, getcwd, remove;
-import std.path : buildPath;
+import std.path : buildPath, isAbsolute;
 import std.process : execute, executeShell;
 import std.regex : matchFirst;
 import std.stdio : stderr, write;
@@ -114,6 +115,39 @@ class FileArchiveZip : FileArchive
         return true;
     }
 
+    override @property bool supportsEntryOccurrence() const
+    {
+        return executeShell("python3 --version").status == 0;
+    }
+
+    override bool extractEntry(ArchiveEntryDescriptor descriptor, string destDir,
+        string password = "")
+    {
+        if (!descriptor.hasDuplicateName)
+            return extractEntry(descriptor.name, destDir, password);
+        if (!supportsEntryOccurrence)
+            return false;
+
+        enum extractionScript = "import os, shutil, sys, zipfile\n"
+            ~ "archive, index, dest, member, expected, password = sys.argv[1:]\n"
+            ~ "with zipfile.ZipFile(archive) as z:\n"
+            ~ "    info = z.infolist()[int(index)]\n"
+            ~ "    if info.filename != expected:\n"
+            ~ "        raise RuntimeError('archive entry index/name mismatch')\n"
+            ~ "    os.makedirs(os.path.dirname(os.path.join(dest, member)), exist_ok=True)\n"
+            ~ "    with z.open(info, 'r', pwd=password.encode() if password else None) as src:\n"
+            ~ "        with open(os.path.join(dest, member), 'wb') as out:\n"
+            ~ "            shutil.copyfileobj(src, out)\n";
+        auto zipPath = isAbsolute(this.fileName) ? this.fileName
+            : buildPath(getcwd(), this.fileName);
+        auto rc = execute(["python3", "-c", extractionScript, zipPath,
+            descriptor.index.to!string, destDir, descriptor.relativePath,
+            descriptor.name, password]);
+        if (rc.status != 0 && isArchivePasswordFailure(rc.output))
+            throw new ArchivePasswordRequiredException(rc.output);
+        return rc.status == 0;
+    }
+
     version (unittest)
     {
         enum string fn = zipFileName;
@@ -197,4 +231,41 @@ unittest
     mkdirRecurse(zipExtractDir);
     assert(zipObj.extractEntry(specialEntryName, zipExtractDir));
     assert(buildPath(zipExtractDir, specialEntryName).exists);
+}
+
+@("zip duplicate occurrence extraction selects exact content")
+unittest
+{
+    import std.file : exists, mkdirRecurse, readText, rmdirRecurse, tempDir;
+    import std.path : buildPath;
+    import std.process : execute, executeShell;
+    import std.uuid : randomUUID;
+
+    if (executeShell("command -v python3").status != 0)
+        return;
+    const auto root = buildPath(tempDir(), "zip-duplicate-occurrence-"
+        ~ randomUUID().toString());
+    const auto archivePath = buildPath(root, "duplicate.zip");
+    const auto firstDirectory = buildPath(root, "first");
+    const auto secondDirectory = buildPath(root, "second");
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+
+    const auto createScript = "import sys, zipfile; z=zipfile.ZipFile(sys.argv[1], 'w'); "
+        ~ "z.writestr('same.txt', 'first occurrence'); "
+        ~ "z.writestr('same.txt', 'second occurrence'); z.close()";
+    const auto created = execute(["python3", "-c", createScript, archivePath]);
+    assert(created.status == 0, created.output);
+    auto archive = new FileArchiveZip(archivePath);
+    assert(archive.supportsEntryOccurrence);
+    auto entries = archive.getEntryDescriptors();
+    assert(entries.length == 2);
+    assert(entries[0].hasDuplicateName && entries[1].hasDuplicateName);
+    assert(entries[0].occurrence == 0 && entries[1].occurrence == 1);
+    assert(archive.extractEntry(entries[0], firstDirectory));
+    assert(archive.extractEntry(entries[1], secondDirectory));
+    assert(readText(buildPath(firstDirectory, "same.txt")) == "first occurrence");
+    assert(readText(buildPath(secondDirectory, "same.txt")) == "second occurrence");
 }

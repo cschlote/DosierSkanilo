@@ -72,8 +72,6 @@ AnalysisSummary analyzeRepository(ref Database db, RepositoryAnalysisOptions opt
                     auto dropId = dropText.to!long;
                     db.execute("UPDATE file_refs SET blob_id = ? "
                         ~ "WHERE blob_id = ?", keepId, dropId);
-                    db.execute("UPDATE archive_entries SET content_blob_id = ? "
-                        ~ "WHERE content_blob_id = ?", keepId, dropId);
                     db.execute("DELETE FROM blobs WHERE id = ?", dropId);
                     summary.mergedBlobs++;
                 }
@@ -185,8 +183,6 @@ AnalysisExecutionResult analyzeRepositoryControlled(ref Database db,
             auto dropId = row.peek!long(1);
             db.execute("UPDATE file_refs SET blob_id = ? WHERE blob_id = ?",
                 keepId, dropId);
-            db.execute("UPDATE archive_entries SET content_blob_id = ? "
-                ~ "WHERE content_blob_id = ?", keepId, dropId);
             db.execute("DELETE FROM blobs WHERE id = ?", dropId);
         }
 

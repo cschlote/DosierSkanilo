@@ -4,29 +4,47 @@ module dosierskanilo.repository.metadata;
 import d2sqlite3;
 
 import std.array : join;
+import std.base64 : Base64;
 import std.conv : to;
+import std.exception : enforce;
 import std.path : buildPath;
 import std.parallelism : Task, TaskPool, task;
-import std.string : empty;
+import std.string : empty, endsWith, replace, startsWith;
 import std.typecons : Nullable;
 
 import dosierarkivo.archive : archiveIndexVersion,
-    normalizeArchiveEntryPath;
+    appendArchiveVirtualPath, escapeArchiveVirtualPath,
+    normalizeArchiveEntryPath, parseArchiveVirtualPath;
 import dosierskanilo.metadata.mediainfosig : MediaInfoSig;
 import dosierskanilo.metadata.torrentinfo : TorrentInfo;
 import dosierskanilo.model.archivespec : ArchiveSpec;
 import dosierskanilo.model.namedbinaryblob;
 import dosierskanilo.operations : OperationControl, OperationKind,
-    OperationPhase, OperationProgress, OperationState;
+    OperationCallbackException, OperationPhase, OperationProgress,
+    OperationState;
+import dosierskanilo.progress : ProgressCallBack;
 import dosierskanilo.repository.archiveindex : deleteUnreachableBlobs,
-    ensureArchiveMemberBlob, resolveArchiveMemberBlobLinks;
+    ensureArchiveMemberBlob, isVirtualFileReferenceSql,
+    resolveArchiveMemberBlobLinks;
 import dosierskanilo.repository.types;
+
+private struct VirtualContainerReference
+{
+    Nullable!long directoryId;
+    string relativePath;
+    bool existsOnDisk;
+    string lastSeenAt;
+}
 
 private class MetadataWorkItem
 {
     long blobId;
     NamedBinaryBlob blob;
     MetadataScanOptions options;
+    OperationControl control;
+    ulong operationId;
+    ulong progressCompleted;
+    ulong progressTotal;
     bool doChecksums;
     bool doFileType;
     bool doMediaInfo;
@@ -35,30 +53,94 @@ private class MetadataWorkItem
     string[string] errors;
 }
 
+private void reportMetadataWorkProgress(MetadataWorkItem item,
+    OperationPhase phase, ulong subtaskCompleted = 0,
+    ulong subtaskTotal = 0, bool subtaskTotalKnown = false,
+    string subtaskUnit = "")
+{
+    if (item.control is null)
+        return;
+    OperationProgress progress;
+    progress.operationId = item.operationId;
+    progress.operation = OperationKind.metadata;
+    progress.state = OperationState.running;
+    progress.phase = phase;
+    progress.completed = item.progressCompleted;
+    progress.total = item.progressTotal;
+    progress.totalKnown = true;
+    progress.subtaskCompleted = subtaskCompleted;
+    progress.subtaskTotal = subtaskTotal;
+    progress.subtaskTotalKnown = subtaskTotalKnown;
+    progress.subtaskUnit = subtaskUnit;
+    progress.path = item.blob.getFirstFileName();
+    progress.message = "Processing metadata.";
+    item.control.report(progress);
+}
+
 private void runMetadataWork(MetadataWorkItem item)
 {
     void attempt(string kind, void delegate() action)
     {
         try
             action();
+        catch (OperationCallbackException ex)
+            throw ex;
         catch (Exception ex)
             item.errors[kind] = ex.msg;
     }
 
     if (item.doChecksums)
-        attempt("checksums", { updateDigests(item.blob); });
+    {
+        reportMetadataWorkProgress(item, OperationPhase.checksums);
+        ProgressCallBack checksumProgress;
+        if (item.control !is null)
+        {
+            checksumProgress.contextual = (size_t completed, size_t total) {
+                reportMetadataWorkProgress(item, OperationPhase.checksums,
+                    completed, total, true, "bytes");
+            };
+        }
+        attempt("checksums", {
+            if (item.control is null)
+                updateDigests(item.blob);
+            else
+                updateDigests(item.blob, null, &checksumProgress);
+        });
+    }
     if (item.doFileType)
+    {
+        reportMetadataWorkProgress(item, OperationPhase.fileTypes);
         attempt("file_type", { updateFileType(item.blob); });
+    }
     if (item.doMediaInfo)
+    {
+        reportMetadataWorkProgress(item, OperationPhase.mediaInfo);
         attempt("media_info", { updateMediaInfo(item.blob, item.options.rescan); });
+    }
     if (item.doArchives)
+    {
+        reportMetadataWorkProgress(item, OperationPhase.archives);
+        ProgressCallBack archiveProgress;
+        if (item.control !is null)
+        {
+            archiveProgress.contextual = (size_t completed, size_t total) {
+                reportMetadataWorkProgress(item, OperationPhase.archives,
+                    completed, total, true, "entries");
+            };
+        }
         attempt("archives", {
             updateArchives(item.blob, item.options.rescan,
-                item.options.deepArchiveScan, null, null,
-                item.options.archivePasswordCallback);
+                item.options.deepArchiveScan, null,
+                item.control is null ? null : &archiveProgress,
+                item.options.archivePasswordCallback, 0, 8, "", null,
+                item.options.detectFileTypes, item.options.extractMediaInfo);
         });
+    }
     if (item.doTorrents)
+    {
+        reportMetadataWorkProgress(item, OperationPhase.torrents);
         attempt("torrents", { updateTorrentInfo(item.blob, item.options.rescan); });
+    }
 }
 
 private long[] metadataBlobIds(ref Database db, string filePath)
@@ -66,14 +148,20 @@ private long[] metadataBlobIds(ref Database db, string filePath)
     long[] blobIds;
     if (filePath.empty)
     {
-        foreach (row; db.execute("SELECT id FROM blobs ORDER BY id"))
+        foreach (row; db.execute("SELECT DISTINCT b.id FROM blobs b "
+            ~ "JOIN file_refs f ON f.blob_id = b.id WHERE "
+            ~ "NOT (" ~ isVirtualFileReferenceSql("f.relative_path") ~ ") "
+            ~ "ORDER BY b.id"))
             blobIds ~= row.peek!long(0);
     }
     else
     {
+        const auto canonical = escapeArchiveVirtualPath(filePath.replace('\\', '/'));
         foreach (row; db.execute("SELECT DISTINCT b.id FROM blobs b "
             ~ "JOIN file_refs f ON f.blob_id = b.id "
-            ~ "WHERE f.relative_path = ? ORDER BY b.id", filePath))
+            ~ "WHERE f.relative_path = ? AND "
+            ~ "NOT (" ~ isVirtualFileReferenceSql("f.relative_path") ~ ") "
+            ~ "ORDER BY b.id", canonical))
             blobIds ~= row.peek!long(0);
     }
     return blobIds;
@@ -118,7 +206,8 @@ MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
             }
         }
 
-        if (options.detectFileTypes && blob.fileType.length == 0)
+        if (options.detectFileTypes && blob.fileType.length == 0
+            && !metadataCompleted(db, blobId, "file_type"))
         {
             setMetadataStatus(db, blobId, "file_type", "pending", "");
             try
@@ -165,12 +254,13 @@ MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
             try
             {
                 updateArchives(blob, options.rescan, options.deepArchiveScan,
-                    null, null, options.archivePasswordCallback);
+                    null, null, options.archivePasswordCallback, 0, 8, "", null,
+                    options.detectFileTypes, options.extractMediaInfo);
                 persistArchives(db, blobId, blob.archiveSpecs,
-                    options.deepArchiveScan);
+                    options.deepArchiveScan, summary);
                 persistArchivePassword(db, blobId, blob.archivePassword);
                 setMetadataStatus(db, blobId, "archives",
-                    metadataState(blob.archiveSpecs !is null), "");
+                    blob.archiveSpecs is null ? "not_archive" : "completed", "");
                 if (blob.archiveSpecs !is null)
                     summary.archivesUpdated++;
             }
@@ -252,10 +342,15 @@ MetadataExecutionResult updateRepositoryMetadataControlled(ref Database db,
             item.blobId = blobId;
             item.blob = blob;
             item.options = options;
+            item.control = control;
+            item.operationId = operationId;
+            item.progressCompleted = cast(ulong) nextIndex;
+            item.progressTotal = cast(ulong) blobIds.length;
             item.doChecksums = options.calculateChecksums
                 && !blob.checkSums.hasDigests;
             item.doFileType = options.detectFileTypes
-                && blob.fileType.length == 0;
+                && blob.fileType.length == 0
+                && !metadataCompleted(db, blobId, "file_type");
             item.doMediaInfo = options.extractMediaInfo
                 && (options.rescan || !metadataCompleted(db, blobId, "media_info"));
             item.doArchives = options.scanArchives
@@ -304,20 +399,12 @@ MetadataExecutionResult updateRepositoryMetadataControlled(ref Database db,
             execution.summary.blobsVisited++;
         }
 
-        foreach (item; items)
-        {
-            foreach (phase; phases)
-            {
-                if (!reportMetadataProgress(control, operationId, phase,
-                    execution.summary.blobsVisited, blobIds.length,
-                    item.blob.getFirstFileName()))
-                {
-                    execution.cancelled = true;
-                    return execution;
-                }
-            }
-        }
-        if (control !is null && control.cancellationRequested)
+        const auto checkpointPhase = phases.length > 0
+            ? phases[$ - 1] : OperationPhase.discovering;
+        const auto checkpointPath = items.length > 0
+            ? items[$ - 1].blob.getFirstFileName() : "";
+        if (!checkpointMetadataProgress(control, operationId, checkpointPhase,
+            execution.summary.blobsVisited, blobIds.length, checkpointPath))
         {
             execution.cancelled = true;
             return execution;
@@ -387,7 +474,7 @@ private bool reportMetadataProgress(OperationControl control, ulong operationId,
     progress.phase = phase;
     progress.completed = completed;
     progress.total = total;
-    progress.totalKnown = phase != OperationPhase.discovering;
+    progress.totalKnown = true;
     progress.path = path;
     progress.message = phase == OperationPhase.discovering
         ? "Preparing metadata work." : "Metadata results committed for completed blobs.";
@@ -397,6 +484,29 @@ private bool reportMetadataProgress(OperationControl control, ulong operationId,
     if (!control.pauseAtCheckpoint(progress))
         return false;
     return !control.cancellationRequested;
+}
+
+/** Honor pause/cancel requests after workers and metadata transactions have drained. */
+private bool checkpointMetadataProgress(OperationControl control,
+    ulong operationId, OperationPhase phase, size_t completed, size_t total,
+    string path)
+{
+    if (control is null)
+        return true;
+    if (control.cancellationRequested)
+        return false;
+    control.setPauseAvailable(true);
+    OperationProgress progress;
+    progress.operationId = operationId;
+    progress.operation = OperationKind.metadata;
+    progress.state = OperationState.running;
+    progress.phase = phase;
+    progress.completed = completed;
+    progress.total = total;
+    progress.totalKnown = true;
+    progress.path = path;
+    progress.message = "Metadata results committed for completed blobs.";
+    return control.pauseAtCheckpoint(progress) && !control.cancellationRequested;
 }
 
 private MetadataSummary updateRepositoryMetadataParallel(ref Database db,
@@ -437,7 +547,8 @@ private void processMetadataBatch(ref Database db, string rootPath,
         item.blob = blob;
         item.options = options;
         item.doChecksums = options.calculateChecksums && !blob.checkSums.hasDigests;
-        item.doFileType = options.detectFileTypes && blob.fileType.length == 0;
+        item.doFileType = options.detectFileTypes && blob.fileType.length == 0
+            && !metadataCompleted(db, blobId, "file_type");
         item.doMediaInfo = options.extractMediaInfo
             && (options.rescan || !metadataCompleted(db, blobId, "media_info"));
         item.doArchives = options.scanArchives
@@ -499,7 +610,9 @@ private void persistMetadataWork(ref Database db, MetadataWorkItem item,
             return;
         }
         persist();
-        setMetadataStatus(db, item.blobId, kind, metadataState(hasData), "");
+        const auto state = kind == "archives" && !hasData
+            ? "not_archive" : metadataState(hasData);
+        setMetadataStatus(db, item.blobId, kind, state, "");
         if (hasData)
         {
             if (kind == "checksums") summary.checksumsUpdated++;
@@ -521,7 +634,7 @@ private void persistMetadataWork(ref Database db, MetadataWorkItem item,
     finish("archives", item.doArchives, item.blob.archiveSpecs !is null,
         {
             persistArchives(db, item.blobId, item.blob.archiveSpecs,
-                item.options.deepArchiveScan);
+                item.options.deepArchiveScan, summary);
             persistArchivePassword(db, item.blobId, item.blob.archivePassword);
         });
     finish("torrents", item.doTorrents, item.blob.torrentInfo !is null,
@@ -530,7 +643,8 @@ private void persistMetadataWork(ref Database db, MetadataWorkItem item,
 
 private NamedBinaryBlob loadBlob(ref Database db, string rootPath, long blobId)
 {
-    auto blobResult = db.execute("SELECT b.file_size, b.file_type, p.password "
+    auto blobResult = db.execute("SELECT b.file_size, b.file_type, b.md5, "
+        ~ "b.sha1, b.xxh64, p.password "
         ~ "FROM blobs b LEFT JOIN archive_passwords p ON p.blob_id = b.id "
         ~ "WHERE b.id = ?", blobId);
     if (blobResult.empty)
@@ -541,8 +655,17 @@ private NamedBinaryBlob loadBlob(ref Database db, string rootPath, long blobId)
     blob.fileSize = cast(size_t) blobRow.peek!long(0);
     blob.fileType = blobRow.peek!(Nullable!string)(1).isNull
         ? "" : blobRow.peek!(Nullable!string)(1).get;
-    blob.archivePassword = blobRow.peek!(Nullable!string)(2).isNull
-        ? "" : blobRow.peek!(Nullable!string)(2).get;
+    auto md5 = blobRow.peek!(Nullable!Blob)(2);
+    if (!md5.isNull && md5.get.length > 0)
+        blob.checkSums.md5sum_b64 = Base64.encode(md5.get);
+    auto sha1 = blobRow.peek!(Nullable!Blob)(3);
+    if (!sha1.isNull && sha1.get.length > 0)
+        blob.checkSums.sha1sum_b64 = Base64.encode(sha1.get);
+    auto xxh64 = blobRow.peek!(Nullable!Blob)(4);
+    if (!xxh64.isNull && xxh64.get.length > 0)
+        blob.checkSums.xxh64sum_b64 = Base64.encode(xxh64.get);
+    blob.archivePassword = blobRow.peek!(Nullable!string)(5).isNull
+        ? "" : blobRow.peek!(Nullable!string)(5).get;
 
     auto refs = db.execute("SELECT relative_path, time_last_modified "
         ~ "FROM file_refs WHERE blob_id = ? AND exists_on_disk = 1 "
@@ -550,9 +673,32 @@ private NamedBinaryBlob loadBlob(ref Database db, string rootPath, long blobId)
     foreach (row; refs)
     {
         auto modified = row.peek!(Nullable!string)(1);
+        const auto storedPath = row.peek!string(0);
+        const auto parsed = parseArchiveVirtualPath(storedPath);
+        auto fileName = escapeArchiveVirtualPath(buildPath(rootPath,
+            parsed.physicalPath));
+        foreach (entry; parsed.entries)
+            fileName = appendArchiveVirtualPath(fileName, entry.relativePath,
+                entry.hasOccurrence ? entry.occurrence : size_t.max);
         blob.fileSpecs ~= new FileSpec(
-            buildPath(rootPath, row.peek!string(0)),
+            fileName,
             modified.isNull ? "" : modified.get);
+    }
+    blob.fileSpecsUseArchiveVirtualGrammar = true;
+    auto archiveStatus = db.execute("SELECT state, extractor_version "
+        ~ "FROM metadata_status WHERE blob_id = ? AND metadata_kind = 'archives'",
+        blobId);
+    if (!archiveStatus.empty)
+    {
+        auto statusRow = archiveStatus.front;
+        const auto state = statusRow.peek!string(0);
+        if (state == "completed" || state == "empty")
+        {
+            blob.archiveIndexKnown = true;
+            const auto extractor = statusRow.peek!(Nullable!string)(1);
+            blob.archiveIndexDeep = !extractor.isNull
+                && extractor.get.endsWith(":deep");
+        }
     }
     return blob.fileSpecs.length == 0 ? null : blob;
 }
@@ -587,14 +733,27 @@ private bool metadataCompleted(ref Database db, long blobId, string kind)
     if (result.empty)
         return false;
     auto state = result.front.peek!string(0);
-    return state == "completed" || state == "empty";
+    return state == "completed" || state == "empty"
+        || (kind == "archives" && state == "not_archive");
 }
 
 private bool archiveIndexCurrent(ref Database db, long blobId, bool requireDeep)
 {
-    return !db.execute("SELECT 1 FROM archive_indexes WHERE blob_id = ? "
-        ~ "AND indexer_version = ? AND (? = 0 OR deep_scanned = 1)", blobId,
-        archiveIndexVersion, requireDeep ? 1 : 0).empty;
+    auto result = db.execute("SELECT state, extractor_version FROM metadata_status "
+        ~ "WHERE blob_id = ? AND metadata_kind = 'archives'", blobId);
+    if (result.empty)
+        return false;
+    auto row = result.front;
+    const auto state = row.peek!string(0);
+    if (state == "not_archive")
+        return true;
+    if (state != "completed" && state != "empty")
+        return false;
+    const auto extractor = row.peek!(Nullable!string)(1);
+    if (extractor.isNull
+        || !extractor.get.startsWith(archiveIndexVersion ~ ":"))
+        return false;
+    return !requireDeep || extractor.get.endsWith(":deep");
 }
 
 private string metadataState(bool hasData)
@@ -641,133 +800,227 @@ private void persistMediaInfo(ref Database db, long blobId, MediaInfoSig info)
 }
 
 private void persistArchives(ref Database db, long blobId, ArchiveSpec[] entries,
-    bool deepScanned)
+    bool deepScanned, ref MetadataSummary summary)
 {
     if (entries is null)
     {
-        db.execute("DELETE FROM archive_entries WHERE blob_id = ?", blobId);
-        db.execute("DELETE FROM archive_indexes WHERE blob_id = ?", blobId);
+        string[] containerPaths;
+        foreach (row; db.execute("SELECT relative_path FROM file_refs "
+            ~ "WHERE blob_id = ?", blobId))
+            containerPaths ~= row.peek!string(0).idup;
+        foreach (path; containerPaths)
+        {
+            const auto prefix = path ~ "!/";
+            long[] staleIds;
+            foreach (row; db.execute("SELECT id FROM file_refs WHERE "
+                ~ "substr(relative_path, 1, ?) = ?",
+                cast(long) prefix.length, prefix))
+                staleIds ~= row.peek!long(0);
+            foreach (staleId; staleIds)
+                db.execute("DELETE FROM file_refs WHERE id = ?", staleId);
+        }
+        db.execute("DELETE FROM metadata_status WHERE blob_id = ? "
+            ~ "AND metadata_kind = 'archives'", blobId);
         return;
     }
 
-    struct ExistingEntry
+    VirtualContainerReference[] containers;
+    foreach (row; db.execute("SELECT directory_id, relative_path, exists_on_disk, "
+        ~ "last_seen_at FROM file_refs WHERE blob_id = ? ORDER BY relative_path",
+        blobId))
     {
-        long id;
+        VirtualContainerReference container;
+        container.directoryId = row.peek!(Nullable!long)(0);
+        container.relativePath = row.peek!string(1).idup;
+        container.existsOnDisk = row.peek!long(2) != 0;
+        const auto lastSeen = row.peek!(Nullable!string)(3);
+        container.lastSeenAt = lastSeen.isNull ? "" : lastSeen.get.idup;
+        containers ~= container;
     }
-    ExistingEntry[][string] existingByIdentity;
-    foreach (row; db.execute("SELECT id, normalized_path, path_safe, occurrence "
-        ~ "FROM archive_entries WHERE blob_id = ?", blobId))
-    {
-        auto key = archiveEntryIdentityKey(row.peek!long(2) != 0,
-            row.peek!string(1), cast(size_t) row.peek!long(3));
-        existingByIdentity[key] ~= ExistingEntry(row.peek!long(0));
-    }
+    if (containers.length == 0)
+        return;
 
-    bool[long] retainedIds;
-    bool membershipChanged;
-    size_t[string] occurrences;
     const bool preserveDeep = !deepScanned
         && archiveIndexCurrent(db, blobId, true);
-    foreach (entryIndex, entry; entries)
+    bool[string] desiredPaths;
+    bool[long] persistedMemberFileTypes;
+    bool[long] persistedMemberMedia;
+
+    long memberBlobIdFor(ArchiveSpec entry, string memberPath,
+        bool preserveMember)
     {
-        if (entry is null)
-            continue;
-        bool pathSafe;
-        bool isDirectory;
-        const auto normalizedPath = normalizeArchiveEntryPath(entry.fileName,
-            pathSafe, isDirectory);
-        auto identityPath = pathSafe ? normalizedPath : entry.fileName;
-        auto occurrenceKey = (pathSafe ? "safe\0" : "unsafe\0") ~ identityPath;
-        auto occurrence = occurrences.get(occurrenceKey, 0);
-        occurrences[occurrenceKey] = occurrence + 1;
-        const auto identityKey = archiveEntryIdentityKey(pathSafe, identityPath,
-            occurrence);
+        auto existing = db.execute("SELECT f.blob_id, b.file_size, b.md5, "
+            ~ "b.sha1, b.xxh64 FROM file_refs f JOIN blobs b ON b.id = f.blob_id "
+            ~ "WHERE f.relative_path = ?", memberPath);
         auto md5 = checksumBlob(entry.checkSums.md5sum_b64);
         auto sha1 = checksumBlob(entry.checkSums.sha1sum_b64);
         auto xxh64 = checksumBlob(entry.checkSums.xxh64sum_b64);
-        auto memberBlobId = ensureArchiveMemberBlob(db,
-            cast(long) entry.fileSize, md5, sha1, xxh64);
-        entry.entryIndex = entryIndex;
-        entry.occurrence = occurrence;
-        entry.hasIndexIdentity = true;
-        entry.contentBlobId = memberBlobId;
-        entry.contentIdentity = "";
-        Nullable!long memberBlobReference;
-        if (memberBlobId > 0)
-            memberBlobReference = memberBlobId;
+        if (entry.checkSums.hasDigests)
+            return ensureArchiveMemberBlob(db, cast(long) entry.fileSize,
+                md5, sha1, xxh64);
+        if (!existing.empty)
+        {
+            auto row = existing.front;
+            const auto oldMd5 = row.peek!(Nullable!Blob)(2);
+            const auto oldSha1 = row.peek!(Nullable!Blob)(3);
+            const auto oldXxh64 = row.peek!(Nullable!Blob)(4);
+            if (row.peek!long(1) == cast(long) entry.fileSize
+                && (preserveMember || (!oldMd5.isNull && !oldSha1.isNull
+                    && !oldXxh64.isNull)))
+                return row.peek!long(0);
+        }
+        db.execute("INSERT INTO blobs (file_size, md5, sha1, xxh64) "
+            ~ "VALUES (?, ?, ?, ?)", cast(long) entry.fileSize,
+            md5, sha1, xxh64);
+        return db.lastInsertRowid;
+    }
 
-        long entryId;
-        if (auto matches = identityKey in existingByIdentity)
-            foreach (existing; *matches)
-                if (existing.id !in retainedIds)
+    void writeMember(string memberPath, long memberBlobId,
+        VirtualContainerReference container, string modifiedAt)
+    {
+        Nullable!string modified;
+        if (modifiedAt.length > 0)
+            modified = Nullable!string(modifiedAt);
+        Nullable!string lastSeen;
+        if (container.lastSeenAt.length > 0)
+            lastSeen = Nullable!string(container.lastSeenAt);
+        db.execute("INSERT INTO file_refs (blob_id, directory_id, relative_path, "
+            ~ "time_last_modified, exists_on_disk, last_seen_at) "
+            ~ "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(relative_path) DO UPDATE SET "
+            ~ "blob_id = excluded.blob_id, directory_id = excluded.directory_id, "
+            ~ "time_last_modified = excluded.time_last_modified, "
+            ~ "exists_on_disk = excluded.exists_on_disk, "
+            ~ "last_seen_at = excluded.last_seen_at", memberBlobId,
+            container.directoryId, memberPath, modified,
+            container.existsOnDisk ? 1 : 0, lastSeen);
+        desiredPaths[memberPath] = true;
+    }
+
+    void writeEntries(VirtualContainerReference parent, ArchiveSpec[] children,
+        size_t depth, bool preserveContainerDeep)
+    {
+        enforce(depth < 32, "Nested archive indexing exceeds the maximum depth.");
+        size_t[string] pathCounts;
+        foreach (entry; children)
+        {
+            if (entry is null)
+                continue;
+            bool safe;
+            bool isDirectory;
+            const auto path = normalizeArchiveEntryPath(entry.fileName, safe,
+                isDirectory);
+            if (safe && !isDirectory)
+                pathCounts[path] = pathCounts.get(path, 0) + 1;
+        }
+
+        size_t[string] occurrences;
+        foreach (entryIndex, entry; children)
+        {
+            if (entry is null)
+                continue;
+            bool safe;
+            bool isDirectory;
+            const auto path = normalizeArchiveEntryPath(entry.fileName, safe,
+                isDirectory);
+            if (!safe || isDirectory)
+                continue;
+            auto occurrence = entry.hasIndexIdentity ? entry.occurrence
+                : occurrences.get(path, 0);
+            occurrences[path] = occurrence + 1;
+            entry.entryIndex = entryIndex;
+            entry.occurrence = occurrence;
+            entry.hasIndexIdentity = true;
+            const auto memberPath = appendArchiveVirtualPath(parent.relativePath,
+                path, pathCounts.get(path, 0) > 1 || occurrence > 0
+                    ? occurrence : size_t.max);
+            entry.fileName = path;
+            bool preserveMemberDeep;
+            if (!deepScanned)
+            {
+                auto existingMember = db.execute("SELECT blob_id FROM file_refs "
+                    ~ "WHERE relative_path = ?", memberPath);
+                if (!existingMember.empty)
+                    preserveMemberDeep = archiveIndexCurrent(db,
+                        existingMember.front.peek!long(0), true);
+            }
+            auto memberBlobId = memberBlobIdFor(entry, memberPath,
+                preserveContainerDeep || preserveMemberDeep);
+            entry.contentBlobId = memberBlobId;
+            entry.contentIdentity = "";
+            writeMember(memberPath, memberBlobId, parent,
+                entry.timeLastModified);
+            if (entry.fileType.length > 0)
+            {
+                db.execute("UPDATE blobs SET file_type = ? WHERE id = ?",
+                    entry.fileType, memberBlobId);
+                setMetadataStatus(db, memberBlobId, "file_type", "completed", "");
+                if (memberBlobId !in persistedMemberFileTypes)
                 {
-                    entryId = existing.id;
-                    break;
+                    persistedMemberFileTypes[memberBlobId] = true;
+                    ++summary.fileTypesUpdated;
                 }
+            }
+            if (entry.mediaInfoSig !is null)
+            {
+                persistMediaInfo(db, memberBlobId, entry.mediaInfoSig);
+                setMetadataStatus(db, memberBlobId, "media_info",
+                    metadataState(!entry.mediaInfoSig.empty), "");
+                if (!entry.mediaInfoSig.empty && memberBlobId !in persistedMemberMedia)
+                {
+                    persistedMemberMedia[memberBlobId] = true;
+                    ++summary.mediaInfoUpdated;
+                }
+            }
+            if (entry.archivePassword.length > 0)
+                persistArchivePassword(db, memberBlobId, entry.archivePassword);
 
-        if (entryId > 0)
-        {
-            if (preserveDeep)
-                db.execute("UPDATE archive_entries SET entry_index = ?, "
-                    ~ "file_name = ?, normalized_path = ?, path_safe = ?, "
-                    ~ "is_directory = ? WHERE id = ?", cast(long) entryIndex,
-                    entry.fileName, identityPath, pathSafe ? 1 : 0,
-                    isDirectory ? 1 : 0, entryId);
-            else
-                db.execute("UPDATE archive_entries SET entry_index = ?, file_name = ?, "
-                    ~ "normalized_path = ?, path_safe = ?, is_directory = ?, "
-                    ~ "file_size = ?, time_last_modified = ?, md5 = ?, sha1 = ?, "
-                    ~ "xxh64 = ?, content_blob_id = ? WHERE id = ?",
-                    cast(long) entryIndex, entry.fileName, identityPath,
-                    pathSafe ? 1 : 0, isDirectory ? 1 : 0,
-                    cast(long) entry.fileSize, entry.timeLastModified,
-                    md5, sha1, xxh64, memberBlobReference, entryId);
-            retainedIds[entryId] = true;
-        }
-        else
-        {
-            membershipChanged = true;
-            db.execute("INSERT INTO archive_entries (blob_id, entry_index, "
-                ~ "occurrence, file_name, normalized_path, path_safe, is_directory, "
-                ~ "file_size, time_last_modified, md5, sha1, xxh64, content_blob_id) "
-                ~ "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", blobId,
-                cast(long) entryIndex, cast(long) occurrence, entry.fileName,
-                identityPath, pathSafe ? 1 : 0, isDirectory ? 1 : 0,
-                cast(long) entry.fileSize, entry.timeLastModified,
-                md5, sha1, xxh64, memberBlobReference);
-            entryId = db.lastInsertRowid;
-            retainedIds[entryId] = true;
-        }
-
-        if (memberBlobId > 0 && (deepScanned || entry.nestedEntries !is null
-            || entry.archivePassword.length > 0))
-        {
-            persistArchivePassword(db, memberBlobId, entry.archivePassword);
-            persistArchives(db, memberBlobId, entry.nestedEntries, deepScanned);
+            if (entry.nestedEntries !is null)
+            {
+                VirtualContainerReference nested;
+                nested.directoryId = parent.directoryId;
+                nested.relativePath = memberPath;
+                nested.existsOnDisk = parent.existsOnDisk;
+                nested.lastSeenAt = parent.lastSeenAt;
+                writeEntries(nested, entry.nestedEntries,
+                    depth + 1, !deepScanned
+                        && archiveIndexCurrent(db, memberBlobId, true));
+            }
+            else if (preserveContainerDeep || preserveMemberDeep)
+            {
+                const auto descendantPrefix = memberPath ~ "!/";
+                foreach (row; db.execute("SELECT relative_path FROM file_refs "
+                    ~ "WHERE substr(relative_path, 1, ?) = ?",
+                    cast(long) descendantPrefix.length, descendantPrefix))
+                    desiredPaths[row.peek!string(0)] = true;
+            }
         }
     }
-    foreach (matches; existingByIdentity.values)
-        foreach (existing; matches)
-            if (existing.id !in retainedIds)
-            {
-                membershipChanged = true;
-                db.execute("DELETE FROM archive_entries WHERE id = ?", existing.id);
-            }
-    const bool indexDeep = deepScanned || (preserveDeep && !membershipChanged);
-    db.execute("INSERT INTO archive_indexes (blob_id, indexer_version, indexed_at, "
-        ~ "deep_scanned) VALUES (?, ?, ?, ?) ON CONFLICT(blob_id) DO UPDATE SET "
-        ~ "indexer_version = excluded.indexer_version, "
-        ~ "indexed_at = excluded.indexed_at, "
-        ~ "deep_scanned = excluded.deep_scanned", blobId,
-        archiveIndexVersion, currentTimestamp(),
-        indexDeep ? 1 : 0);
-}
 
-private string archiveEntryIdentityKey(bool pathSafe, string path,
-    size_t occurrence)
-{
-    return (pathSafe ? "safe\0" : "unsafe\0") ~ path ~ "\0"
-        ~ occurrence.to!string;
+    foreach (container; containers)
+        writeEntries(container, entries, 0, preserveDeep);
+
+    foreach (container; containers)
+    {
+        const auto descendantPrefix = container.relativePath ~ "!/";
+        long[] staleIds;
+        foreach (row; db.execute("SELECT id, relative_path FROM file_refs "
+            ~ "WHERE substr(relative_path, 1, ?) = ?",
+            cast(long) descendantPrefix.length, descendantPrefix))
+            if (row.peek!string(1) !in desiredPaths)
+                staleIds ~= row.peek!long(0);
+        foreach (staleId; staleIds)
+            db.execute("DELETE FROM file_refs WHERE id = ?", staleId);
+    }
+
+    const auto extractorVersion = archiveIndexVersion
+        ~ (deepScanned || preserveDeep ? ":deep" : ":shallow");
+    const auto state = entries.length == 0 ? "empty" : "completed";
+    db.execute("INSERT INTO metadata_status (blob_id, metadata_kind, state, "
+        ~ "extractor_version, scanned_at, error_message) VALUES (?, 'archives', "
+        ~ "?, ?, ?, NULL) ON CONFLICT(blob_id, metadata_kind) DO UPDATE SET "
+        ~ "state = excluded.state, extractor_version = excluded.extractor_version, "
+        ~ "scanned_at = excluded.scanned_at, error_message = NULL", blobId, state,
+        extractorVersion, currentTimestamp());
 }
 
 private void persistArchivePassword(ref Database db, long blobId, string password)

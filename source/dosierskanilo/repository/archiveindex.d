@@ -5,6 +5,15 @@ import d2sqlite3;
 
 import std.typecons : Nullable;
 
+/** SQL predicate recognizing canonical virtual paths while honoring `!!` escapes. */
+string isVirtualFileReferenceSql(string columnExpression)
+{
+    auto decoded = columnExpression;
+    foreach (_; 0 .. 128)
+        decoded = "replace(" ~ decoded ~ ", '!!/', '/')";
+    return "instr(" ~ decoded ~ ", '!/') > 0";
+}
+
 /**
  * Reuse an existing blob for a fully fingerprinted archive member, or create a
  * content row for it. A zero result means deep checksums are incomplete.
@@ -27,42 +36,33 @@ long ensureArchiveMemberBlob(ref Database db, long size, Nullable!Blob md5,
     return db.lastInsertRowid;
 }
 
-/** Count content rows reachable from physical references through archive indexes. */
+/** Count content rows that have no ordinary file reference. */
 size_t countUnreachableBlobs(ref Database db)
 {
-    return cast(size_t) db.execute("WITH RECURSIVE reachable(id) AS ("
-        ~ "SELECT blob_id FROM file_refs UNION "
-        ~ "SELECT entry.content_blob_id FROM archive_entries entry "
-        ~ "JOIN reachable parent ON entry.blob_id = parent.id "
-        ~ "WHERE entry.content_blob_id IS NOT NULL) "
-        ~ "SELECT count(*) FROM blobs WHERE id NOT IN (SELECT id FROM reachable)")
+    return cast(size_t) db.execute("SELECT count(*) FROM blobs "
+        ~ "WHERE id NOT IN (SELECT blob_id FROM file_refs)")
         .oneValue!long;
 }
 
-/** Remove rows unreachable from physical references or nested archive members. */
+/** Remove content rows that no physical or virtual reference points to. */
 size_t deleteUnreachableBlobs(ref Database db)
 {
     auto removed = countUnreachableBlobs(db);
-    db.execute("WITH RECURSIVE reachable(id) AS ("
-        ~ "SELECT blob_id FROM file_refs UNION "
-        ~ "SELECT entry.content_blob_id FROM archive_entries entry "
-        ~ "JOIN reachable parent ON entry.blob_id = parent.id "
-        ~ "WHERE entry.content_blob_id IS NOT NULL) "
-        ~ "DELETE FROM blobs WHERE id NOT IN (SELECT id FROM reachable)");
+    db.execute("DELETE FROM blobs WHERE id NOT IN "
+        ~ "(SELECT blob_id FROM file_refs)");
     return removed;
 }
 
-/** Prefer a matching physical blob when an archive member and file share a digest. */
+/** Prefer an existing content blob when references have complete equal digests. */
 void resolveArchiveMemberBlobLinks(ref Database db)
 {
-    db.execute("UPDATE archive_entries SET content_blob_id = ("
-        ~ "SELECT b.id FROM blobs b JOIN file_refs f ON f.blob_id = b.id "
-        ~ "WHERE b.file_size = archive_entries.file_size "
-        ~ "AND b.md5 = archive_entries.md5 AND b.sha1 = archive_entries.sha1 "
-        ~ "AND b.xxh64 = archive_entries.xxh64 ORDER BY b.id LIMIT 1) "
-        ~ "WHERE md5 IS NOT NULL AND sha1 IS NOT NULL AND xxh64 IS NOT NULL "
-        ~ "AND EXISTS (SELECT 1 FROM blobs b JOIN file_refs f ON f.blob_id = b.id "
-        ~ "WHERE b.file_size = archive_entries.file_size "
-        ~ "AND b.md5 = archive_entries.md5 AND b.sha1 = archive_entries.sha1 "
-        ~ "AND b.xxh64 = archive_entries.xxh64)");
+    db.execute("UPDATE file_refs SET blob_id = ("
+        ~ "SELECT b.id FROM blobs b WHERE b.file_size = (SELECT c.file_size "
+        ~ "FROM blobs c WHERE c.id = file_refs.blob_id) AND b.md5 = (SELECT c.md5 "
+        ~ "FROM blobs c WHERE c.id = file_refs.blob_id) AND b.sha1 = (SELECT c.sha1 "
+        ~ "FROM blobs c WHERE c.id = file_refs.blob_id) AND b.xxh64 = (SELECT c.xxh64 "
+        ~ "FROM blobs c WHERE c.id = file_refs.blob_id) ORDER BY b.id LIMIT 1) "
+        ~ "WHERE " ~ isVirtualFileReferenceSql("file_refs.relative_path") ~ " "
+        ~ "AND EXISTS (SELECT 1 FROM blobs c WHERE c.id = file_refs.blob_id "
+        ~ "AND c.md5 IS NOT NULL AND c.sha1 IS NOT NULL AND c.xxh64 IS NOT NULL)");
 }

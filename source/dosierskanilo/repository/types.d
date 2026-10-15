@@ -14,7 +14,7 @@ enum repositoryDirectoryName = ".dosierskanilo";
 enum repositoryDatabaseFileName = "catalog.sqlite3";
 
 /** Current database schema version. */
-enum ulong currentRepositorySchemaVersion = 3;
+enum ulong currentRepositorySchemaVersion = 4;
 
 /** Paths belonging to one repository root. */
 struct RepositoryPaths

@@ -9,6 +9,34 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- Repeated SQLite metadata runs now load stored digests before deciding whether
+  to recompute them, and skip file-type and archive work already recorded as
+  complete or empty.
+- Recursive JSON scans now consistently skip hidden directory contents with
+  relative or trailing-separator roots. JSON metadata work reports its active
+  file and checksum/archive subtask progress instead of appearing stalled.
+- JSON scans can now optionally merge duplicate records after metadata work;
+  `--dry-run` previews JSON scans and analyses without replacing their catalog.
+- CLI metadata help and validation now use the accepted kebab-case options.
+  Help option descriptions now carry fixed-position scope keys for scan,
+  analysis, metadata, queries, repository transfers, and global options.
+  Repository progress reports the active phase, blob count, current filename,
+  checksum bytes, and archive entries on a terminal-width-aware line;
+  `--verbose` keeps per-file detail.
+- JSON catalogs now write version 5: safe archive members are ordinary virtual
+  file references with escaped paths and duplicate occurrences, while archive
+  index state is retained separately. Version 0–4 catalogs remain readable;
+  JSON/SQLite exports and JSON catalog queries now project virtual members
+  through the common reference model.
+- SQLite schema v4 migrates safe archive members into ordinary `file_refs`,
+  keeps their physical `directory_id`, moves archive index/depth state into
+  `metadata_status`, and removes `archive_entries`/`archive_indexes`.
+- Deep archive scraping now uses a bounded, session-scoped extraction cache with
+  coalesced requests and explicit leases; cache paths remain transient.
+- ZIP and TAR extraction can select exact duplicate-name occurrences when the
+  required tool support is available; unsupported adapters avoid deep-hashing
+  ambiguous duplicate members.
+
 ## Release 26.11.0 - 2026-10-13
 
 - Added the storage-neutral `CatalogBackend` contract, explicit factory boundary,

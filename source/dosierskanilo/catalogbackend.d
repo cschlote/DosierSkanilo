@@ -576,14 +576,15 @@ struct CatalogSubsetQuery
 /** Export encodings supported by the backend contract version. */
 enum CatalogExportFormat
 {
-    jsonV3,
-    jsonV4
+    jsonV3, /// Legacy selector retained for source compatibility; no longer writable.
+    jsonV4, /// Legacy selector retained for source compatibility; no longer writable.
+    jsonV5 /// Current JSON interchange format.
 }
 
 /** Output format and selection details for a filtered subset export. */
 struct CatalogExportOptions
 {
-    CatalogExportFormat format = CatalogExportFormat.jsonV3; /// Requested output format.
+    CatalogExportFormat format = CatalogExportFormat.jsonV5; /// Requested output format.
     string outputPath; /// Explicit destination path.
     bool includeContentDetails = true; /// Include selected content metadata.
     bool includeArchiveEntries = true; /// Include archive index details.
@@ -1514,7 +1515,7 @@ version (unittest)
         auto torrentPage = backend.listTorrentEntries(firstPage.files[0].contentId);
         assert(torrentPage.entries.length == 1);
         assert(torrentPage.entries[0].pathComponents == ["payload.bin"]);
-        auto exportOptions = CatalogExportOptions(CatalogExportFormat.jsonV3,
+        auto exportOptions = CatalogExportOptions(CatalogExportFormat.jsonV5,
             "/tmp/subset.json");
         const auto subset = backend.exportSubset(CatalogSubsetQuery("a", CatalogFilter.init),
             exportOptions);

@@ -10,6 +10,12 @@ import dosierskanilo_cli.logging : errorFLine, errorLine;
 /** Validate an explicit JSON command. */
 bool validateJsonOptions(string command, ref ArgsArray options)
 {
+    if (command != "json-scan" && options.argMergeDuplicates)
+    {
+        errorLine("--merge-duplicates is available only for JSON scan.");
+        return false;
+    }
+
     if (!options.argExportJSON.empty || !options.argImportJSON.empty
         || options.argInitRepository || options.argShowInfo || options.argList
         || options.argDuplicates || options.argOutputFormat != "table"

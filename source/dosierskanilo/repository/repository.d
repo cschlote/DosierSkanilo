@@ -472,7 +472,8 @@ public:
     bool hasArchiveIndex(long blobId)
     {
         requireOpen();
-        return !database.execute("SELECT 1 FROM archive_indexes WHERE blob_id = ?",
+        return !database.execute("SELECT 1 FROM metadata_status WHERE blob_id = ? "
+            ~ "AND metadata_kind = 'archives' AND state IN ('completed', 'empty')",
             blobId).empty;
     }
 
@@ -711,7 +712,7 @@ unittest
         "./test/json_file_v2_archive.json",
         "./test/json_file_v2_torrent.json"
     ];
-    size_t[] expectedCounts = [3, 3, 3, 1, 1];
+    size_t[] expectedCounts = [3, 3, 3, 2, 1];
     JsonImportOptions importOptions;
     importOptions.force = true;
     foreach (index, fixture; fixtures)
@@ -722,11 +723,11 @@ unittest
     repository.close();
 }
 
-@("repository imports an actual version-2 wrapper and exports migrated version-3 data")
+@("repository imports a version-2 wrapper and exports JSON v5 virtual members")
 unittest
 {
-    import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION3,
-        deserializeDataClassJsonWrapperFile;
+    import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION5,
+        NamedBinaryBlob, deserializeDataClassJsonWrapperFile;
     import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir;
     import std.path : buildPath;
     import std.uuid : randomUUID;
@@ -734,7 +735,7 @@ unittest
     auto fixture = buildPath(tempDir(), "repository-json-v2-roundtrip-"
         ~ randomUUID().toString());
     auto root = buildPath(fixture, "repository");
-    auto exported = buildPath(fixture, "exported-v3.json");
+    auto exported = buildPath(fixture, "exported-v5.json");
     mkdirRecurse(root);
     scope (exit)
     {
@@ -753,33 +754,51 @@ unittest
     repository.importJson("./test/json_file_wrapper_v2.json");
 
     auto imported = repository.loadCatalog();
-    assert(imported.length == 1);
-    auto blob = imported[0];
+    assert(imported.length == 2);
+    NamedBinaryBlob blob;
+    bool foundMember;
+    foreach (record; imported)
+        foreach (spec; record.fileSpecs)
+        {
+            if (spec.fileName == "v2/sample.rar")
+                blob = record;
+            if (spec.fileName == "v2/sample.rar!/payload.bin")
+            {
+                foundMember = true;
+                assert(record.checkSums.sha1sum_b64
+                    == "K8ByyTS7PbXAvLXGiMJ9LnR+UF4=");
+            }
+        }
+    assert(blob !is null && foundMember);
     assert(blob.fileSize == 4096);
     assert(blob.getFirstFileName == "v2/sample.rar");
     assert(blob.checkSums.md5sum_b64 == "CJDSa/B3y0CdbYM+kidLhg==");
     assert(blob.checkSums.sha1sum_b64 == "K8ByyTS7PbXAvLXGiMJ9LnR+UF4=");
     assert(blob.fileType == "RAR archive data");
-    assert(blob.archiveSpecs.length == 1);
-    assert(blob.archiveSpecs[0].fileName == "payload.bin");
-    assert(blob.archiveSpecs[0].checkSums.sha1sum_b64
-        == "K8ByyTS7PbXAvLXGiMJ9LnR+UF4=");
+    assert(blob.archiveIndexKnown);
 
     repository.exportJson(exported);
     auto roundtrip = deserializeDataClassJsonWrapperFile(exported);
-    assert(roundtrip.dataVersion == DATA_CLASS_VERSION3);
-    assert(roundtrip.dataArray.length == 1);
-    assert(roundtrip.dataArray[0].fileSize == blob.fileSize);
-    assert(roundtrip.dataArray[0].getFirstFileName == "v2/sample.rar");
-    assert(roundtrip.dataArray[0].archiveSpecs.length == 1);
-    assert(roundtrip.dataArray[0].archiveSpecs[0].fileName == "payload.bin");
+    assert(roundtrip.dataVersion == DATA_CLASS_VERSION5);
+    assert(roundtrip.dataArray.length == 2);
+    bool foundContainer;
+    bool roundtripMember;
+    foreach (record; roundtrip.dataArray)
+        foreach (spec; record.fileSpecs)
+        {
+            foundContainer = foundContainer
+                || spec.fileName == "v2/sample.rar";
+            roundtripMember = roundtripMember
+                || spec.fileName == "v2/sample.rar!/payload.bin";
+        }
+    assert(foundContainer && roundtripMember);
 }
 
 @("filtered JSON export preserves selected blob relationship closure")
 unittest
 {
     import std.algorithm.searching : startsWith;
-    import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION3,
+    import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION5,
         deserializeDataClassJsonWrapperFile;
     import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
     import std.path : buildPath;
@@ -821,7 +840,7 @@ unittest
     repository.exportJson(exported, exportOptions);
 
     auto exportedCatalog = deserializeDataClassJsonWrapperFile(exported);
-    assert(exportedCatalog.dataVersion == DATA_CLASS_VERSION3);
+    assert(exportedCatalog.dataVersion == DATA_CLASS_VERSION5);
     assert(exportedCatalog.dataArray.length == 1,
         "only the blob referenced by the selected paths should be exported");
     auto selectedBlob = exportedCatalog.dataArray[0];
@@ -1086,6 +1105,13 @@ unittest
     assert(metadataSummary.fileTypesUpdated == 2);
     assert(metadataSummary.failed == 0);
 
+    auto secondMetadataSummary = repository.updateMetadata(options);
+    assert(secondMetadataSummary.checksumsUpdated == 0,
+        "stored checksums must not be recalculated on a later metadata run");
+    assert(secondMetadataSummary.fileTypesUpdated == 0,
+        "stored file types must not be queried again on a later metadata run");
+    assert(secondMetadataSummary.failed == 0);
+
     repository.exportJson(exported);
     repository.close();
 
@@ -1197,6 +1223,7 @@ unittest
 unittest
 {
     import dosierskanilo.model.namedbinaryblob : deserializeDataClassJsonFile;
+    import std.algorithm.searching : canFind, endsWith;
     import std.file : copy, exists, mkdirRecurse, remove, rmdirRecurse, tempDir, write;
     import std.path : buildPath;
     import std.process : execute;
@@ -1227,6 +1254,7 @@ unittest
     repository.scan();
     MetadataScanOptions options;
     options.calculateChecksums = true;
+    options.detectFileTypes = true;
     options.scanArchives = true;
     options.scanTorrents = true;
     options.deepArchiveScan = false;
@@ -1247,22 +1275,25 @@ unittest
     archiveQuery.archive = true;
     archiveQuery.limit = 10;
     auto archiveFiles = repository.listFiles(archiveQuery);
-    assert(archiveFiles.length == 1);
+    string archiveFilePaths;
+    foreach (file; archiveFiles)
+        archiveFilePaths ~= "[" ~ file.relativePath ~ "]";
+    assert(archiveFiles.length == 1, archiveFilePaths);
     assert(archiveFiles[0].hasArchive);
     JsonExportOptions lazyDetails;
     lazyDetails.includeArchiveEntries = false;
     lazyDetails.includeTorrentFiles = false;
     auto archiveBlob = repository.loadBlobDetails(archiveFiles[0].blobId, lazyDetails);
     assert(archiveBlob !is null);
-    assert(archiveBlob.archiveSpecs.length == 0);
+    assert(repository.hasArchiveIndex(archiveFiles[0].blobId));
     RepositoryArchiveQuery archiveEntriesQuery;
     archiveEntriesQuery.blobId = archiveFiles[0].blobId;
     auto archiveEntriesBefore = repository.listArchiveEntries(archiveEntriesQuery);
     assert(archiveEntriesBefore.length > 0);
     assert(archiveEntriesBefore[0].hasSafePath);
     assert(archiveEntriesBefore[0].relativePath == "payload.txt");
-    assert(archiveEntriesBefore[0].contentBlobId == 0,
-        "A shallow index must not invent a member content identity.");
+    assert(archiveEntriesBefore[0].contentBlobId > 0,
+        "Every safe virtual member is an ordinary content blob.");
     const auto stableArchiveEntryId = archiveEntriesBefore[0].id;
     options.deepArchiveScan = true;
     repository.updateMetadata(options);
@@ -1270,7 +1301,7 @@ unittest
     auto deepArchiveEntries = repository.listArchiveEntries(archiveEntriesQuery);
     assert(deepArchiveEntries[0].id == stableArchiveEntryId);
     assert(deepArchiveEntries[0].contentBlobId > 0,
-        "Deep archive checksums should establish a member content identity.");
+        "Deep archive checksums preserve a normal member content identity.");
     RepositoryFileQuery payloadQuery;
     payloadQuery.text = "payload.txt";
     auto physicalPayloads = repository.listFiles(payloadQuery);
@@ -1281,9 +1312,19 @@ unittest
     memberDetailsOptions.allowUnreferencedContent = true;
     auto memberDetails = repository.loadBlobDetails(
         deepArchiveEntries[0].contentBlobId, memberDetailsOptions);
-    assert(memberDetails !is null && memberDetails.fileSpecs.length == 1);
-    assert(memberDetails.fileSpecs[0].fileName == "payload.txt");
+    assert(memberDetails !is null && memberDetails.fileSpecs.length == 2);
+    bool foundPhysicalPayload;
+    bool foundVirtualPayload;
+    foreach (spec; memberDetails.fileSpecs)
+    {
+        foundPhysicalPayload = foundPhysicalPayload
+            || spec.fileName == "payload.txt";
+        foundVirtualPayload = foundVirtualPayload
+            || spec.fileName.endsWith("!/payload.txt");
+    }
+    assert(foundPhysicalPayload && foundVirtualPayload);
     assert(memberDetails.checkSums.hasDigests);
+    assert(memberDetails.fileType.length > 0);
     options.rescan = true;
     repository.updateMetadata(options);
     auto archiveEntriesAfter = repository.listArchiveEntries(archiveEntriesQuery);
@@ -1309,17 +1350,18 @@ unittest
     auto blobs = deserializeDataClassJsonFile(exported);
     bool foundArchive;
     bool foundTorrent;
+    bool foundVirtualMember;
     foreach (blob; blobs)
     {
-        if (blob.archiveSpecs.length > 0)
-        {
+        if (blob.archivePassword == "repository-secret")
             foundArchive = true;
-            assert(blob.archivePassword == "repository-secret");
-        }
+        foreach (spec; blob.fileSpecs)
+            if (spec.fileName.canFind("!/"))
+                foundVirtualMember = true;
         if (blob.torrentInfo !is null)
             foundTorrent = true;
     }
-    assert(foundArchive);
+    assert(foundArchive && foundVirtualMember);
     assert(foundTorrent);
 }
 
@@ -1547,6 +1589,7 @@ unittest
 @("repository metadata scan can target one archive path")
 unittest
 {
+    import std.algorithm.searching : endsWith;
     import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
     import std.path : buildPath;
     import std.process : execute;
@@ -1582,22 +1625,30 @@ unittest
     assert(summary.blobsVisited == 1);
     assert(summary.archivesUpdated == 1);
     assert(summary.failed == 0);
+    auto secondSummary = repository.updateMetadata(options);
+    assert(secondSummary.archivesUpdated == 0,
+        "a current archive index must not be generated again");
+    assert(secondSummary.failed == 0);
 
     bool foundFirst;
     bool foundSecond;
+    bool foundFirstMember;
     foreach (blob; repository.loadCatalog())
     {
         auto fileName = blob.getFirstFileName;
         if (fileName == "first.zip")
         {
             foundFirst = true;
-            assert(blob.archiveSpecs.length == 1);
+            assert(blob.archiveIndexKnown);
         }
         else if (fileName == "second.zip")
         {
             foundSecond = true;
-            assert(blob.archiveSpecs is null);
+            assert(!blob.archiveIndexKnown);
         }
+        foreach (spec; blob.fileSpecs)
+            foundFirstMember = foundFirstMember
+                || spec.fileName.endsWith("!/first.txt");
     }
-    assert(foundFirst && foundSecond);
+    assert(foundFirst && foundSecond && foundFirstMember);
 }
