@@ -9,6 +9,14 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- Repeated SQLite metadata runs now load stored digests before deciding whether
+  to recompute them, and skip file-type and archive work already recorded as
+  complete or empty.
+- Recursive JSON scans now consistently skip hidden directory contents with
+  relative or trailing-separator roots. JSON metadata work reports its active
+  file and checksum/archive subtask progress instead of appearing stalled.
+- JSON scans can now optionally merge duplicate records after metadata work;
+  `--dry-run` previews JSON scans and analyses without replacing their catalog.
 - CLI metadata help and validation now use the accepted kebab-case options.
   Help option descriptions now carry fixed-position scope keys for scan,
   analysis, metadata, queries, repository transfers, and global options.

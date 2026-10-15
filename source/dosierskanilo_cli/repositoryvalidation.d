@@ -10,6 +10,11 @@ import dosierskanilo_cli.logging : errorFLine, errorLine;
 /** Validate repository target, command options, and transfer filenames. */
 bool validateRepositoryOptions(string command, ref ArgsArray options)
 {
+    if (options.argDryRun || options.argMergeDuplicates)
+    {
+        errorLine("--dry-run and --merge-duplicates are supported only in JSON mode.");
+        return false;
+    }
     if (options.argRepositoryPath.empty)
         options.argRepositoryPath = options.argScanPath;
     if (options.argRepositoryPath.empty)

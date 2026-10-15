@@ -123,6 +123,10 @@ struct ScanOperationRequest
     MetadataScanOptions metadataOptions;
     /// Continue with an empty catalog if an existing JSON input is malformed.
     bool forceJsonOverwrite;
+    /// Analyze and merge duplicate records after JSON scanning and metadata.
+    bool mergeDuplicates;
+    /// Do not replace the input JSON catalog after computing results.
+    bool dryRun;
 }
 
 /** Request for standalone repository metadata extraction. */
@@ -144,6 +148,8 @@ struct AnalysisOperationRequest
     MetadataScanOptions metadataOptions;
     /// Continue with an empty catalog if an existing JSON input is malformed.
     bool forceJsonOverwrite;
+    /// Do not replace the input JSON catalog after computing analysis results.
+    bool dryRun;
 }
 
 /** Validation errors detectable without opening a repository or catalog. */
@@ -230,7 +236,7 @@ struct OperationResult
     ScanSummary scanSummary;
     /// Populated when metadata work was part of the request.
     MetadataSummary metadataSummary;
-    /// Populated for `analyze` operations.
+    /// Populated for analysis operations and JSON scans with merge-duplicates.
     AnalysisSummary analysisSummary;
 }
 
@@ -465,6 +471,10 @@ OperationRequestValidation validateOperationRequest(ScanOperationRequest request
         && request.scanOptions.dropMissing)
         return validationError(OperationRequestError.unsupportedOptionCombination,
             "JSON scan does not support drop-missing.");
+    if (request.target.mode == OperationStorageMode.repository
+        && (request.mergeDuplicates || request.dryRun))
+        return validationError(OperationRequestError.unsupportedOptionCombination,
+            "Merge-duplicates and dry-run are supported only for JSON scans.");
     return OperationRequestValidation.init;
 }
 
@@ -497,9 +507,9 @@ OperationRequestValidation validateOperationRequest(AnalysisOperationRequest req
         return targetValidation;
     if (request.target.mode == OperationStorageMode.repository
         && (requestsMetadata(request.metadataOptions)
-            || request.metadataOptions.rescan))
+            || request.metadataOptions.rescan || request.dryRun))
         return validationError(OperationRequestError.unsupportedOptionCombination,
-            "Repository analyze cannot include metadata extraction options.");
+            "Repository analyze cannot include metadata extraction options or dry-run.");
     if (request.target.mode == OperationStorageMode.jsonCatalog
         && !request.options.mergeDuplicates)
         return validationError(OperationRequestError.unsupportedOptionCombination,
@@ -522,9 +532,15 @@ unittest
     auto repositoryScan = ScanOperationRequest(
         1, OperationTarget.repositoryTarget("/library"));
     assert(validateOperationRequest(repositoryScan).valid);
+    repositoryScan.dryRun = true;
+    assert(validateOperationRequest(repositoryScan).error
+        == OperationRequestError.unsupportedOptionCombination);
 
     auto jsonScan = ScanOperationRequest(
         2, OperationTarget.jsonTarget("/catalog.json", "/library"));
+    assert(validateOperationRequest(jsonScan).valid);
+    jsonScan.mergeDuplicates = true;
+    jsonScan.dryRun = true;
     assert(validateOperationRequest(jsonScan).valid);
     jsonScan.scanOptions.dropMissing = true;
     assert(validateOperationRequest(jsonScan).error
@@ -553,6 +569,10 @@ unittest
     auto repositoryAnalysis = AnalysisOperationRequest(
         6, OperationTarget.repositoryTarget("/library"));
     assert(validateOperationRequest(repositoryAnalysis).valid);
+    repositoryAnalysis.dryRun = true;
+    assert(validateOperationRequest(repositoryAnalysis).error
+        == OperationRequestError.unsupportedOptionCombination);
+    repositoryAnalysis.dryRun = false;
     repositoryAnalysis.metadataOptions.scanTorrents = true;
     assert(validateOperationRequest(repositoryAnalysis).error
         == OperationRequestError.unsupportedOptionCombination);
@@ -562,6 +582,8 @@ unittest
     jsonAnalysis.metadataOptions.calculateChecksums = true;
     assert(validateOperationRequest(jsonAnalysis).valid,
         "JSON analyze may run scanner jobs before analysis");
+    jsonAnalysis.dryRun = true;
+    assert(validateOperationRequest(jsonAnalysis).valid);
     jsonAnalysis.options.mergeDuplicates = false;
     assert(validateOperationRequest(jsonAnalysis).error
         == OperationRequestError.unsupportedOptionCombination);

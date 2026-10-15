@@ -463,16 +463,16 @@ OperationControl cliOperationControl(string label)
 			control.requestCancellation();
 		if (isVerboseOutputs())
 		{
-			if (event.phase != lastPhase)
-			{
-				lastPhase = event.phase;
-				lastReported = event.completed;
-				lastSubtaskReported = 0;
-				lastReportedPath = "";
-				logFLineVerbose("%s phase: %s.", label, event.phase);
-			}
 			if (event.state == OperationState.running)
 			{
+				if (event.phase != lastPhase)
+				{
+					lastPhase = event.phase;
+					lastReported = event.completed;
+					lastSubtaskReported = 0;
+					lastReportedPath = "";
+					logFLineVerbose("%s phase: %s.", label, event.phase);
+				}
 				const bool pathChanged = event.path.length > 0
 					&& event.path != lastReportedPath;
 				const ulong subtaskReportStep = event.subtaskUnit == "bytes"
@@ -560,6 +560,8 @@ bool executeFileScannerOperation(ArgsArray options)
 		request.scanOptions.recursive = options.argRecursive;
 		request.scanOptions.pickHidden = options.argPickHidden;
 		request.forceJsonOverwrite = options.argReplaceCatalog;
+		request.mergeDuplicates = options.argMergeDuplicates;
+		request.dryRun = options.argDryRun;
 		request.metadataOptions = metadataOptionsFromCli(options);
 		result = runOperation(request, control);
 		clearOperationProgress();
@@ -572,6 +574,7 @@ bool executeFileScannerOperation(ArgsArray options)
 		request.options.dropMissing = options.argDropMissing;
 		request.metadataOptions = metadataOptionsFromCli(options);
 		request.forceJsonOverwrite = options.argReplaceCatalog;
+		request.dryRun = options.argDryRun;
 		result = runOperation(request, control);
 		clearOperationProgress();
 	}
@@ -598,6 +601,10 @@ bool executeFileScannerOperation(ArgsArray options)
 			result.metadataSummary.archivesUpdated,
 			result.metadataSummary.torrentsUpdated,
 			result.metadataSummary.failed);
+		if (options.argMergeDuplicates)
+			logFLine("JSON duplicate analysis: %d groups, %d merged blobs.",
+				result.analysisSummary.duplicateGroups,
+				result.analysisSummary.mergedBlobs);
 	}
 	else
 	{
@@ -607,6 +614,8 @@ bool executeFileScannerOperation(ArgsArray options)
 			result.analysisSummary.duplicateGroups,
 			result.analysisSummary.mergedBlobs);
 	}
+	if (options.argDryRun)
+		logLine("Dry run: JSON catalog was not written.");
 	logLine("JSON operation complete.");
 	return true;
 }

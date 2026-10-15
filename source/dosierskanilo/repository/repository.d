@@ -1105,6 +1105,13 @@ unittest
     assert(metadataSummary.fileTypesUpdated == 2);
     assert(metadataSummary.failed == 0);
 
+    auto secondMetadataSummary = repository.updateMetadata(options);
+    assert(secondMetadataSummary.checksumsUpdated == 0,
+        "stored checksums must not be recalculated on a later metadata run");
+    assert(secondMetadataSummary.fileTypesUpdated == 0,
+        "stored file types must not be queried again on a later metadata run");
+    assert(secondMetadataSummary.failed == 0);
+
     repository.exportJson(exported);
     repository.close();
 
@@ -1618,6 +1625,10 @@ unittest
     assert(summary.blobsVisited == 1);
     assert(summary.archivesUpdated == 1);
     assert(summary.failed == 0);
+    auto secondSummary = repository.updateMetadata(options);
+    assert(secondSummary.archivesUpdated == 0,
+        "a current archive index must not be generated again");
+    assert(secondSummary.failed == 0);
 
     bool foundFirst;
     bool foundSecond;

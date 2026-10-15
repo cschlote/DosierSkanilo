@@ -4,6 +4,7 @@ module dosierskanilo.repository.metadata;
 import d2sqlite3;
 
 import std.array : join;
+import std.base64 : Base64;
 import std.conv : to;
 import std.exception : enforce;
 import std.path : buildPath;
@@ -205,7 +206,8 @@ MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
             }
         }
 
-        if (options.detectFileTypes && blob.fileType.length == 0)
+        if (options.detectFileTypes && blob.fileType.length == 0
+            && !metadataCompleted(db, blobId, "file_type"))
         {
             setMetadataStatus(db, blobId, "file_type", "pending", "");
             try
@@ -347,7 +349,8 @@ MetadataExecutionResult updateRepositoryMetadataControlled(ref Database db,
             item.doChecksums = options.calculateChecksums
                 && !blob.checkSums.hasDigests;
             item.doFileType = options.detectFileTypes
-                && blob.fileType.length == 0;
+                && blob.fileType.length == 0
+                && !metadataCompleted(db, blobId, "file_type");
             item.doMediaInfo = options.extractMediaInfo
                 && (options.rescan || !metadataCompleted(db, blobId, "media_info"));
             item.doArchives = options.scanArchives
@@ -396,20 +399,12 @@ MetadataExecutionResult updateRepositoryMetadataControlled(ref Database db,
             execution.summary.blobsVisited++;
         }
 
-        foreach (item; items)
-        {
-            foreach (phase; phases)
-            {
-                if (!reportMetadataProgress(control, operationId, phase,
-                    execution.summary.blobsVisited, blobIds.length,
-                    item.blob.getFirstFileName()))
-                {
-                    execution.cancelled = true;
-                    return execution;
-                }
-            }
-        }
-        if (control !is null && control.cancellationRequested)
+        const auto checkpointPhase = phases.length > 0
+            ? phases[$ - 1] : OperationPhase.discovering;
+        const auto checkpointPath = items.length > 0
+            ? items[$ - 1].blob.getFirstFileName() : "";
+        if (!checkpointMetadataProgress(control, operationId, checkpointPhase,
+            execution.summary.blobsVisited, blobIds.length, checkpointPath))
         {
             execution.cancelled = true;
             return execution;
@@ -479,7 +474,7 @@ private bool reportMetadataProgress(OperationControl control, ulong operationId,
     progress.phase = phase;
     progress.completed = completed;
     progress.total = total;
-    progress.totalKnown = phase != OperationPhase.discovering;
+    progress.totalKnown = true;
     progress.path = path;
     progress.message = phase == OperationPhase.discovering
         ? "Preparing metadata work." : "Metadata results committed for completed blobs.";
@@ -489,6 +484,29 @@ private bool reportMetadataProgress(OperationControl control, ulong operationId,
     if (!control.pauseAtCheckpoint(progress))
         return false;
     return !control.cancellationRequested;
+}
+
+/** Honor pause/cancel requests after workers and metadata transactions have drained. */
+private bool checkpointMetadataProgress(OperationControl control,
+    ulong operationId, OperationPhase phase, size_t completed, size_t total,
+    string path)
+{
+    if (control is null)
+        return true;
+    if (control.cancellationRequested)
+        return false;
+    control.setPauseAvailable(true);
+    OperationProgress progress;
+    progress.operationId = operationId;
+    progress.operation = OperationKind.metadata;
+    progress.state = OperationState.running;
+    progress.phase = phase;
+    progress.completed = completed;
+    progress.total = total;
+    progress.totalKnown = true;
+    progress.path = path;
+    progress.message = "Metadata results committed for completed blobs.";
+    return control.pauseAtCheckpoint(progress) && !control.cancellationRequested;
 }
 
 private MetadataSummary updateRepositoryMetadataParallel(ref Database db,
@@ -529,7 +547,8 @@ private void processMetadataBatch(ref Database db, string rootPath,
         item.blob = blob;
         item.options = options;
         item.doChecksums = options.calculateChecksums && !blob.checkSums.hasDigests;
-        item.doFileType = options.detectFileTypes && blob.fileType.length == 0;
+        item.doFileType = options.detectFileTypes && blob.fileType.length == 0
+            && !metadataCompleted(db, blobId, "file_type");
         item.doMediaInfo = options.extractMediaInfo
             && (options.rescan || !metadataCompleted(db, blobId, "media_info"));
         item.doArchives = options.scanArchives
@@ -624,7 +643,8 @@ private void persistMetadataWork(ref Database db, MetadataWorkItem item,
 
 private NamedBinaryBlob loadBlob(ref Database db, string rootPath, long blobId)
 {
-    auto blobResult = db.execute("SELECT b.file_size, b.file_type, p.password "
+    auto blobResult = db.execute("SELECT b.file_size, b.file_type, b.md5, "
+        ~ "b.sha1, b.xxh64, p.password "
         ~ "FROM blobs b LEFT JOIN archive_passwords p ON p.blob_id = b.id "
         ~ "WHERE b.id = ?", blobId);
     if (blobResult.empty)
@@ -635,8 +655,17 @@ private NamedBinaryBlob loadBlob(ref Database db, string rootPath, long blobId)
     blob.fileSize = cast(size_t) blobRow.peek!long(0);
     blob.fileType = blobRow.peek!(Nullable!string)(1).isNull
         ? "" : blobRow.peek!(Nullable!string)(1).get;
-    blob.archivePassword = blobRow.peek!(Nullable!string)(2).isNull
-        ? "" : blobRow.peek!(Nullable!string)(2).get;
+    auto md5 = blobRow.peek!(Nullable!Blob)(2);
+    if (!md5.isNull && md5.get.length > 0)
+        blob.checkSums.md5sum_b64 = Base64.encode(md5.get);
+    auto sha1 = blobRow.peek!(Nullable!Blob)(3);
+    if (!sha1.isNull && sha1.get.length > 0)
+        blob.checkSums.sha1sum_b64 = Base64.encode(sha1.get);
+    auto xxh64 = blobRow.peek!(Nullable!Blob)(4);
+    if (!xxh64.isNull && xxh64.get.length > 0)
+        blob.checkSums.xxh64sum_b64 = Base64.encode(xxh64.get);
+    blob.archivePassword = blobRow.peek!(Nullable!string)(5).isNull
+        ? "" : blobRow.peek!(Nullable!string)(5).get;
 
     auto refs = db.execute("SELECT relative_path, time_last_modified "
         ~ "FROM file_refs WHERE blob_id = ? AND exists_on_disk = 1 "

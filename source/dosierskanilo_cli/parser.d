@@ -69,22 +69,29 @@ Metadata options (at least one is required for `metadata`):
     --checksums --file-types --media-info --scan-archives --scan-torrents
     --rescan-media-info forces media metadata extraction again
 
-Option scope keys use the fixed columns `S A M I L D R G` (`-` means not
+Option scope keys use the fixed columns `S A M I L D R G J` (`-` means not
 available for that scope):
 
     S Scan (repository or JSON)      A Analyze (repository or JSON)
     M Metadata extraction            I Repository info
     L List repository content        D Duplicate groups
     R Init/import/export             G Global options
+    J JSON catalog workflows
 
-For example, `SA------` applies to scan and analysis; `---ILD--` applies to
+For example, `SA-------` applies to scan and analysis; `---ILD---` applies to
 info, list, and duplicate queries.
+
+`json analyze CATALOG.json` finds and merges duplicate records with complete
+checksums. Add `--merge-duplicates` to a JSON scan to analyze and merge directly;
+`--dry-run` reports the result without writing the JSON catalog.
 
 Examples:
 
     dosierskanilo metadata /data/library --checksums --file-types
     dosierskanilo metadata /data/library --media-info --scan-archives --scan-torrents
     dosierskanilo metadata --checksums --file-types --media-info --scan-archives --scan-torrents --verbose
+    dosierskanilo json scan ROOT CATALOG.json --checksums --merge-duplicates --dry-run
+    dosierskanilo json analyze CATALOG.json --dry-run
 
 EOS";
 
@@ -232,32 +239,34 @@ ParsedCommandLine parseCommandLine(string[] args)
     {
         helpInformation = getopt(args, /* std.getopt.config.required, */
 
-            "output", "------R- Output JSON file for export", &argsarray.argExportJSON,
-            "recursive", "S------- Recursively scan directories", &argsarray.argRecursive,
-            "checksums", "SAM----- Calculate the checksums", &argsarray.argDoChecksums,
-            "file-types", "SAM----- Query file type with 'file' utility", &argsarray.argDoFileTypes,
-            "media-info", "SAM----- Calculate the media signature", &argsarray.argDoMediaSig,
-            "rescan-media-info", "SAM----- Rescan all files for media signature", &argsarray.argRescanMediaSig,
-            "scan-archives", "SAM----- Get the contents of archives", &argsarray.argScanArchivesOption,
-            "scan-torrents", "SAM----- Get the contents of torrent files", &argsarray.argScanTorrents,
-            "drop-missing", "SA------ Drop missing files from database", &argsarray.argDropMissing,
-            "threads", "SAM----- Number of worker threads", &argsarray.argNumberOfThreads,
-            "replace", "S-----R- Replace existing data (JSON scan or import)", &argsarray.argReplaceCatalog,
-            "pick-hidden", "S------- Pick hidden files and directories too", &argsarray.argPickHidden,
-            "verbose", "-------G Be verbose", &argsarray.argVerboseOutputs,
-            "text", "----L--- Filter listed repository paths or SHA1 values", &argsarray.argQueryText,
-            "limit", "----L--- Maximum number of listed repository blobs", &argsarray.argQueryLimit,
-            "offset", "----L--- Number of matching repository blobs to skip", &argsarray.argQueryOffset,
-            "video", "----L--- Require video metadata", &argsarray.argQueryVideo,
-            "audio", "----L--- Require audio metadata", &argsarray.argQueryAudio,
-            "image", "----L--- Require image metadata", &argsarray.argQueryImage,
-            "text-stream", "----L--- Require text or subtitle metadata", &argsarray.argQueryTextStream,
-            "file-type", "----L--- Require file type metadata", &argsarray.argQueryFileType,
-            "archive", "----L--- Require a known archive index", &argsarray.argQueryArchive,
-            "torrent", "----L--- Require torrent metadata", &argsarray.argQueryTorrent,
-            "duplicate-limit", "-----D-- Maximum number of duplicate groups", &argsarray.argDuplicateLimit,
-            "format", "---ILD-- Repository query output format: table or json", &argsarray.argOutputFormat,
-            "version", "-------G Show the application version", &argsarray.argVersion);
+            "output", "------R-- Output JSON file for export", &argsarray.argExportJSON,
+            "recursive", "S-------- Recursively scan directories", &argsarray.argRecursive,
+            "checksums", "SAM------ Calculate the checksums", &argsarray.argDoChecksums,
+            "file-types", "SAM------ Query file type with 'file' utility", &argsarray.argDoFileTypes,
+            "media-info", "SAM------ Calculate the media signature", &argsarray.argDoMediaSig,
+            "rescan-media-info", "SAM------ Rescan all files for media signature", &argsarray.argRescanMediaSig,
+            "scan-archives", "SAM------ Get the contents of archives", &argsarray.argScanArchivesOption,
+            "scan-torrents", "SAM------ Get the contents of torrent files", &argsarray.argScanTorrents,
+            "drop-missing", "SA------- Drop missing files from database", &argsarray.argDropMissing,
+            "threads", "SAM------ Number of worker threads", &argsarray.argNumberOfThreads,
+            "replace", "S-----R-- Replace existing data (JSON scan or import)", &argsarray.argReplaceCatalog,
+            "pick-hidden", "S-------- Pick hidden files and directories too", &argsarray.argPickHidden,
+            "dry-run", "--------J Compute JSON results without writing the catalog", &argsarray.argDryRun,
+            "merge-duplicates", "--------J Analyze and merge duplicates after JSON scan", &argsarray.argMergeDuplicates,
+            "verbose", "-------G- Be verbose", &argsarray.argVerboseOutputs,
+            "text", "----L---- Filter listed repository paths or SHA1 values", &argsarray.argQueryText,
+            "limit", "----L---- Maximum number of listed repository blobs", &argsarray.argQueryLimit,
+            "offset", "----L---- Number of matching repository blobs to skip", &argsarray.argQueryOffset,
+            "video", "----L---- Require video metadata", &argsarray.argQueryVideo,
+            "audio", "----L---- Require audio metadata", &argsarray.argQueryAudio,
+            "image", "----L---- Require image metadata", &argsarray.argQueryImage,
+            "text-stream", "----L---- Require text or subtitle metadata", &argsarray.argQueryTextStream,
+            "file-type", "----L---- Require file type metadata", &argsarray.argQueryFileType,
+            "archive", "----L---- Require a known archive index", &argsarray.argQueryArchive,
+            "torrent", "----L---- Require torrent metadata", &argsarray.argQueryTorrent,
+            "duplicate-limit", "-----D--- Maximum number of duplicate groups", &argsarray.argDuplicateLimit,
+            "format", "---ILD--- Repository query output format: table or json", &argsarray.argOutputFormat,
+            "version", "-------G- Show the application version", &argsarray.argVersion);
     }
     catch (GetOptException ex)
     {
@@ -442,7 +451,7 @@ unittest
     assert(helpText.canFind("--scan-archives"));
     assert(helpText.canFind("--scan-torrents"));
     assert(helpText.canFind("--verbose"));
-    assert(helpText.canFind("S A M I L D R G"));
+    assert(helpText.canFind("S A M I L D R G J"));
     auto outdatedMetadataFlag = parseCommandLine(["program", "metadata",
         "./test", "--checksum"]);
     assert(outdatedMetadataFlag.status == ParseStatus.error);
@@ -489,10 +498,27 @@ unittest
     assert(jsonScan.status == ParseStatus.run
         && jsonScan.command == CliCommand.jsonScan);
 
+    auto jsonScanMergeDryRun = parseCommandLine(["program", "json", "scan",
+        "./test", "./test/out.json", "--checksums", "--merge-duplicates",
+        "--dry-run"]);
+    assert(jsonScanMergeDryRun.status == ParseStatus.run);
+    assert(jsonScanMergeDryRun.options.argMergeDuplicates);
+    assert(jsonScanMergeDryRun.options.argDryRun);
+    assert(helpText.canFind("--merge-duplicates"));
+    assert(helpText.canFind("--dry-run"));
+
     auto jsonAnalyze = parseCommandLine(["program", "json", "analyze",
-        "./test/json_file_v1.json", "--drop-missing"]);
+        "./test/json_file_v1.json", "--drop-missing", "--dry-run"]);
     assert(jsonAnalyze.status == ParseStatus.run
         && jsonAnalyze.command == CliCommand.jsonAnalyze);
+    assert(jsonAnalyze.options.argDryRun);
+
+    auto invalidRepositoryDryRun = parseCommandLine(["program", "scan",
+        "./test", "--dry-run"]);
+    assert(invalidRepositoryDryRun.status == ParseStatus.error);
+    auto invalidJsonAnalyzeMerge = parseCommandLine(["program", "json",
+        "analyze", "./test/json_file_v1.json", "--merge-duplicates"]);
+    assert(invalidJsonAnalyzeMerge.status == ParseStatus.error);
 
     auto invalidSqliteOption = parseCommandLine(["program", "scan", "./test",
         "--limit=5"]);

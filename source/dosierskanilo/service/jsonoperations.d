@@ -5,8 +5,8 @@ import std.algorithm.searching : startsWith;
 import std.datetime.systime;
 import std.file : DirEntry, SpanMode, dirEntries, isFile;
 import std.parallelism : Task, TaskPool, task;
-import std.path : baseName, buildNormalizedPath, dirSeparator;
-import std.string : empty, replace, split;
+import std.path : absolutePath, baseName, buildNormalizedPath, dirSeparator;
+import std.string : empty, endsWith, replace, split;
 
 import dosierarkivo.archive : escapeArchiveVirtualPath,
     parseArchiveVirtualPath;
@@ -20,6 +20,7 @@ import dosierskanilo.model.namedbinaryblob : NamedBinaryBlob,
 import dosierskanilo.operations : OperationControl, OperationKind,
     OperationPhase, OperationProgress, OperationState;
 import dosierskanilo.operationlease : TargetCatalogReplacementLease;
+import dosierskanilo.progress : ProgressCallBack;
 import dosierskanilo.repository.types : AnalysisSummary, MetadataScanOptions,
     MetadataSummary, RepositoryAnalysisOptions, RepositoryScanOptions, ScanSummary;
 import dosierskanilo.service.storageio : writeStorageJsonFile;
@@ -30,6 +31,7 @@ struct JsonScanExecutionResult
     NamedBinaryBlobCatalog catalog;
     ScanSummary scanSummary;
     MetadataSummary metadataSummary;
+    AnalysisSummary analysisSummary;
     bool cancelled;
 }
 
@@ -52,7 +54,8 @@ struct JsonAnalysisExecutionResult
 /** Load a JSON catalog, scan its filesystem root, and run selected extractors. */
 JsonScanExecutionResult scanJsonCatalog(string catalogPath, string filesystemRoot,
     bool forceOverwrite, RepositoryScanOptions scanOptions,
-    MetadataScanOptions metadataOptions, OperationControl control, ulong operationId)
+    MetadataScanOptions metadataOptions, bool mergeDuplicates,
+    OperationControl control, ulong operationId)
 {
     JsonScanExecutionResult execution;
     execution.catalog = loadJsonCatalog(catalogPath, forceOverwrite);
@@ -68,6 +71,14 @@ JsonScanExecutionResult scanJsonCatalog(string catalogPath, string filesystemRoo
         metadataOptions, OperationKind.scan, control, operationId);
     execution.metadataSummary = metadata.summary;
     execution.cancelled = metadata.cancelled;
+    if (!execution.cancelled && mergeDuplicates)
+    {
+        RepositoryAnalysisOptions analysisOptions;
+        if (!analyzeJsonRecords(execution.catalog.dataArray, analysisOptions,
+            execution.catalog.dataVersion == DATA_CLASS_VERSION5, OperationKind.scan,
+            control, operationId, execution.analysisSummary))
+            execution.cancelled = true;
+    }
     return execution;
 }
 
@@ -89,7 +100,8 @@ JsonAnalysisExecutionResult analyzeJsonCatalog(string catalogPath,
     }
     if (!analyzeJsonRecords(execution.catalog.dataArray, analysisOptions,
         execution.catalog.dataVersion == DATA_CLASS_VERSION5,
-        control, operationId, execution.analysisSummary))
+        OperationKind.analyze, control, operationId,
+        execution.analysisSummary))
         execution.cancelled = true;
     return execution;
 }
@@ -194,9 +206,11 @@ private bool scanJsonDirectory(string root, RepositoryScanOptions options,
 
 private bool hasHiddenPathComponent(string root, string path)
 {
-    auto normalizedRoot = buildNormalizedPath(root);
-    auto normalizedPath = buildNormalizedPath(path);
-    auto prefix = normalizedRoot ~ dirSeparator;
+    auto normalizedRoot = buildNormalizedPath(absolutePath(root));
+    auto normalizedPath = buildNormalizedPath(absolutePath(path));
+    auto prefix = normalizedRoot;
+    if (prefix.length == 0 || !prefix.endsWith(dirSeparator))
+        prefix ~= dirSeparator;
     if (!normalizedPath.startsWith(prefix))
         return normalizedPath.baseName.startsWith(".");
     auto relative = normalizedPath[prefix.length .. $];
@@ -206,10 +220,52 @@ private bool hasHiddenPathComponent(string root, string path)
     return false;
 }
 
+@("JSON recursive scan skips hidden directory contents with trailing root separator")
+unittest
+{
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "json-hidden-scan-" ~ randomUUID().toString());
+    auto privateDirectory = buildPath(root, ".dosierskanilo");
+    mkdirRecurse(privateDirectory);
+    write(buildPath(root, "visible.txt"), "visible");
+    write(buildPath(privateDirectory, "repository.sqlite"), "private");
+    scope (exit)
+    {
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+
+    auto rootWithTrailingSeparator = root ~ dirSeparator;
+    assert(hasHiddenPathComponent("./",
+        buildPath(".dosierskanilo", "repository.sqlite")));
+    assert(!hasHiddenPathComponent("./", "visible.txt"));
+    assert(hasHiddenPathComponent(rootWithTrailingSeparator,
+        buildPath(privateDirectory, "repository.sqlite")));
+    assert(!hasHiddenPathComponent(rootWithTrailingSeparator,
+        buildPath(root, "visible.txt")));
+
+    RepositoryScanOptions options;
+    options.recursive = true;
+    NamedBinaryBlob[] blobs;
+    ScanSummary summary;
+    assert(scanJsonDirectory(rootWithTrailingSeparator, options, true,
+        blobs, null, 1, summary));
+    assert(summary.filesFound == 1);
+    assert(blobs.length == 1);
+}
+
 private struct JsonMetadataWork
 {
     NamedBinaryBlob blob;
     MetadataScanOptions options;
+    OperationControl control;
+    OperationKind operation;
+    ulong operationId;
+    ulong progressCompleted;
+    ulong progressTotal;
     shared(bool)* cancellationFlag;
     bool doChecksums;
     bool doFileType;
@@ -218,21 +274,78 @@ private struct JsonMetadataWork
     bool doTorrents;
 }
 
+private void reportJsonMetadataWorkProgress(JsonMetadataWork item,
+    OperationPhase phase, ulong subtaskCompleted = 0,
+    ulong subtaskTotal = 0, bool subtaskTotalKnown = false,
+    string subtaskUnit = "")
+{
+    if (item.control is null || item.control.cancellationRequested)
+        return;
+    OperationProgress progress;
+    progress.operationId = item.operationId;
+    progress.operation = item.operation;
+    progress.state = OperationState.running;
+    progress.phase = phase;
+    progress.completed = item.progressCompleted;
+    progress.total = item.progressTotal;
+    progress.totalKnown = true;
+    progress.subtaskCompleted = subtaskCompleted;
+    progress.subtaskTotal = subtaskTotal;
+    progress.subtaskTotalKnown = subtaskTotalKnown;
+    progress.subtaskUnit = subtaskUnit;
+    progress.path = item.blob.getFirstFileName();
+    progress.message = "Processing JSON metadata.";
+    item.control.report(progress);
+}
+
 private void runJsonMetadataWork(JsonMetadataWork item)
 {
     if (item.doChecksums)
-        updateDigests(item.blob, item.cancellationFlag, null);
+    {
+        reportJsonMetadataWorkProgress(item, OperationPhase.checksums);
+        ProgressCallBack progress;
+        if (item.control !is null)
+        {
+            progress.contextual = (size_t completed, size_t total) {
+                reportJsonMetadataWorkProgress(item, OperationPhase.checksums,
+                    completed, total, true, "bytes");
+            };
+        }
+        updateDigests(item.blob, item.cancellationFlag,
+            item.control is null ? null : &progress);
+    }
     if (item.doFileType)
+    {
+        reportJsonMetadataWorkProgress(item, OperationPhase.fileTypes);
         updateFileType(item.blob);
+    }
     if (item.doMediaInfo)
+    {
+        reportJsonMetadataWorkProgress(item, OperationPhase.mediaInfo);
         updateMediaInfo(item.blob, item.options.rescan);
+    }
     if (item.doArchives)
+    {
+        reportJsonMetadataWorkProgress(item, OperationPhase.archives);
+        ProgressCallBack progress;
+        if (item.control !is null)
+        {
+            progress.contextual = (size_t completed, size_t total) {
+                reportJsonMetadataWorkProgress(item, OperationPhase.archives,
+                    completed, total, true, "entries");
+            };
+        }
         updateArchives(item.blob, item.options.rescan, item.options.deepArchiveScan,
-            item.cancellationFlag, null, item.options.archivePasswordCallback,
+            item.cancellationFlag, item.control is null ? null : &progress,
+            item.options.archivePasswordCallback,
             0, 8, "", null, item.options.detectFileTypes,
             item.options.extractMediaInfo);
+    }
     if (item.doTorrents)
+    {
+        reportJsonMetadataWorkProgress(item, OperationPhase.torrents);
         updateTorrentInfo(item.blob);
+    }
 }
 
 private JsonMetadataWork prepareJsonMetadataWork(NamedBinaryBlob blob,
@@ -334,7 +447,13 @@ private JsonMetadataExecutionResult updateJsonMetadata(ref NamedBinaryBlob[] blo
             auto blob = blobs[nextIndex++];
             if (blob is null || blob.getFirstExistingFileName.empty)
                 continue;
-            batch ~= prepareJsonMetadataWork(blob, options, &cancellationFlag);
+            auto item = prepareJsonMetadataWork(blob, options, &cancellationFlag);
+            item.control = control;
+            item.operation = operation;
+            item.operationId = operationId;
+            item.progressCompleted = cast(ulong) nextIndex;
+            item.progressTotal = cast(ulong) blobs.length;
+            batch ~= item;
         }
         if (cancellationRequested(control))
         {
@@ -368,18 +487,15 @@ private JsonMetadataExecutionResult updateJsonMetadata(ref NamedBinaryBlob[] blo
                 execution.summary.torrentsUpdated++;
         }
 
-        foreach (item; batch)
+        const auto checkpointPhase = phases.length > 0
+            ? phases[$ - 1] : OperationPhase.discovering;
+        const auto checkpointPath = batch[$ - 1].blob.getFirstFileName();
+        if (!checkpointJsonProgress(control, operationId, operation,
+            checkpointPhase, execution.summary.blobsVisited, blobs.length,
+            checkpointPath))
         {
-            foreach (phase; phases)
-            {
-                if (!reportJsonProgress(control, operationId, operation,
-                    phase, execution.summary.blobsVisited, blobs.length, true,
-                    "JSON metadata results are ready.", item.blob.getFirstFileName()))
-                {
-                    execution.cancelled = true;
-                    return execution;
-                }
-            }
+            execution.cancelled = true;
+            return execution;
         }
     }
     execution.cancelled = cancellationRequested(control);
@@ -416,7 +532,7 @@ private size_t countArchiveMediaInfo(ArchiveSpec[] entries)
 
 private bool analyzeJsonRecords(ref NamedBinaryBlob[] blobs,
     RepositoryAnalysisOptions options, bool sourceIsV5,
-    OperationControl control, ulong operationId,
+    OperationKind operation, OperationControl control, ulong operationId,
     ref AnalysisSummary summary)
 {
     size_t missingRecords;
@@ -433,7 +549,7 @@ private bool analyzeJsonRecords(ref NamedBinaryBlob[] blobs,
                 retained ~= blob;
         blobs = retained;
     }
-    if (!reportJsonProgress(control, operationId, OperationKind.analyze,
+    if (!reportJsonProgress(control, operationId, operation,
         OperationPhase.analysisMissingFiles, missingRecords, blobs.length, true,
         "Missing-file analysis completed.", ""))
         return false;
@@ -441,8 +557,7 @@ private bool analyzeJsonRecords(ref NamedBinaryBlob[] blobs,
     NamedBinaryBlob[][size_t] sizeGroups;
     foreach (blob; blobs)
     {
-        if (blob !is null && blob.checkSums.hasDigests
-            && jsonBlobHasFilesystemReference(blob, sourceIsV5))
+        if (blob !is null && blob.checkSums.hasDigests)
             sizeGroups[blob.fileSize] ~= blob;
     }
 
@@ -485,7 +600,7 @@ private bool analyzeJsonRecords(ref NamedBinaryBlob[] blobs,
             }
         }
         groupsVisited++;
-        if (!reportJsonProgress(control, operationId, OperationKind.analyze,
+        if (!reportJsonProgress(control, operationId, operation,
             OperationPhase.analysisDuplicates, groupsVisited, sizeGroups.length,
             true, "Analyzing duplicate candidates.", group[0].getFirstFileName()))
             return false;
@@ -496,7 +611,7 @@ private bool analyzeJsonRecords(ref NamedBinaryBlob[] blobs,
     // That is only valid when the caller explicitly requested drop-missing;
     // here remove only the empty records invalidated by duplicate merging.
     blobs = cleanupInvalidatedDataClassObjs(blobs);
-    return reportJsonProgress(control, operationId, OperationKind.analyze,
+    return reportJsonProgress(control, operationId, operation,
         OperationPhase.analysisCleanup, blobs.length, blobs.length, true,
         "JSON analysis completed.", "");
 }
@@ -530,26 +645,6 @@ private bool jsonBlobIsOrphaned(NamedBinaryBlob blob, bool sourceIsV5)
     return hasFilesystemReference && !hasVirtualReference;
 }
 
-private bool jsonBlobHasFilesystemReference(NamedBinaryBlob blob,
-    bool sourceIsV5)
-{
-    if (!sourceIsV5 || blob.fileSpecs.length == 0)
-        return true;
-    foreach (spec; blob.fileSpecs)
-    {
-        if (spec is null || spec.fileName.empty)
-            continue;
-        try
-        {
-            if (!parseArchiveVirtualPath(spec.fileName).isVirtual)
-                return true;
-        }
-        catch (Exception)
-            return true;
-    }
-    return false;
-}
-
 private bool reportJsonProgress(OperationControl control, ulong operationId,
     OperationKind operation, OperationPhase phase, size_t completed, size_t total,
     bool totalKnown, string message, string path)
@@ -570,6 +665,30 @@ private bool reportJsonProgress(OperationControl control, ulong operationId,
     progress.path = path;
     progress.message = message;
     control.report(progress);
+    return control.pauseAtCheckpoint(progress)
+        && !control.cancellationRequested;
+}
+
+/** Honor pause/cancel requests after JSON metadata workers have drained. */
+private bool checkpointJsonProgress(OperationControl control, ulong operationId,
+    OperationKind operation, OperationPhase phase, size_t completed,
+    size_t total, string path)
+{
+    if (control is null)
+        return true;
+    if (control.cancellationRequested)
+        return false;
+    control.setPauseAvailable(true);
+    OperationProgress progress;
+    progress.operationId = operationId;
+    progress.operation = operation;
+    progress.state = OperationState.running;
+    progress.phase = phase;
+    progress.completed = completed;
+    progress.total = total;
+    progress.totalKnown = true;
+    progress.path = path;
+    progress.message = "JSON metadata results are ready.";
     return control.pauseAtCheckpoint(progress)
         && !control.cancellationRequested;
 }
