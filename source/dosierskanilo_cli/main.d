@@ -105,9 +105,6 @@ int main(string[] args)
 			if ((parsed.command == CliCommand.scan || parsed.command == CliCommand.analyze)
 				&& !options.argJSONFile.empty)
 				rc = executeFileScannerOperation(options);
-			else if (parsed.command == CliCommand.jsonScan
-				|| parsed.command == CliCommand.jsonAnalyze)
-				rc = executeFileScannerOperation(options);
 			else
 				rc = executeRepositoryOperation(options);
 			return rc ? 0 : 1;

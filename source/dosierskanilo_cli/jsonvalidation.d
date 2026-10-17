@@ -18,8 +18,7 @@ bool validateJsonOptions(string command, ref ArgsArray options)
     if (options.argBaseDir.empty)
         options.argBaseDir = ".";
 
-    if (command != "scan" && command != "json-scan"
-        && options.argMergeDuplicates)
+    if (command != "scan" && options.argMergeDuplicates)
     {
         errorLine("--merge-duplicates is available only for JSON scan.");
         return false;
@@ -39,7 +38,7 @@ bool validateJsonOptions(string command, ref ArgsArray options)
         return false;
     }
 
-    if (command == "scan" || command == "json-scan")
+    if (command == "scan")
     {
         if (options.argDropMissing)
         {
@@ -52,13 +51,12 @@ bool validateJsonOptions(string command, ref ArgsArray options)
             return false;
         }
     }
-    else if ((command == "analyze" || command == "json-analyze") && (options.argRecursive
-        || options.argPickHidden))
+    else if (command == "analyze" && (options.argRecursive || options.argPickHidden))
     {
         errorLine("--recursive and --pick-hidden are valid only for JSON scan.");
         return false;
     }
-    if ((command == "analyze" || command == "json-analyze") && (!exists(options.argJSONFile)
+    if (command == "analyze" && (!exists(options.argJSONFile)
         || !isFile(options.argJSONFile)))
     {
         errorFLine("JSON catalog '%s' does not exist.", options.argJSONFile);

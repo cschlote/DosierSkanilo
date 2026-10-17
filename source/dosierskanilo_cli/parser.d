@@ -60,12 +60,9 @@ Commands:
     import     Import JSON v0-v5 into a repository
     export     Export a repository as JSON v5
 
-    json scan ROOT CATALOG.json   (deprecated alias)
-    json analyze CATALOG.json     (deprecated alias)
+JSON target options:
 
-JSON-target options:
-
-    --json CATALOG.json   Use the direct JSON catalog backend
+    --json CATALOG.json   Use the JSON catalog backend
     --base-dir DIR        Base directory for JSON paths (defaults to `.`)
 
 Metadata options (at least one is required for `metadata`):
@@ -86,8 +83,7 @@ For example, `SA-------` applies to scan and analysis; `---ILD---` applies to
 info, list, and duplicate queries.
 
 `analyze --json CATALOG.json` finds and merges duplicate records with complete
-checksums. The deprecated `json analyze CATALOG.json` alias behaves the same.
-Add `--merge-duplicates` to a JSON scan to analyze and merge directly;
+checksums. Add `--merge-duplicates` to a JSON scan to analyze and merge directly;
 `--dry-run` reports the result without writing the JSON catalog.
 
 Examples:
@@ -104,8 +100,6 @@ EOS";
 enum CliCommand
 {
     noCommand,
-    jsonScan,
-    jsonAnalyze,
     init,
     scan,
     metadata,
@@ -147,26 +141,12 @@ struct ParsedCommandLine
 ParsedCommandLine parseCommandLine(string[] args)
 {
     string command;
-    bool legacyJsonMode;
     size_t commandIndex;
     ArgsArray argsarray;
     if (args.length > 1)
     {
-        if (args[1] == "json")
+        switch (args[1])
         {
-            if (args.length <= 2 || (args[2] != "scan" && args[2] != "analyze"))
-            {
-                errorLine("JSON mode requires 'scan' or 'analyze'.");
-                return ParsedCommandLine(ParseStatus.error, CliCommand.noCommand, argsarray);
-            }
-            legacyJsonMode = true;
-            command = args[2] == "scan" ? "json-scan" : "json-analyze";
-            commandIndex = 2;
-        }
-        else
-        {
-            switch (args[1])
-            {
             case "init", "scan", "metadata", "analyze", "info", "list",
                 "duplicates", "import", "export":
                 command = args[1];
@@ -174,7 +154,6 @@ ParsedCommandLine parseCommandLine(string[] args)
                 break;
             default:
                 break;
-            }
         }
     }
     if (args.length <= 1)
@@ -187,23 +166,7 @@ ParsedCommandLine parseCommandLine(string[] args)
     if (!command.empty && args.length > positionalStart
         && !args[positionalStart].startsWith("-"))
     {
-        if (legacyJsonMode && command == "json-scan")
-        {
-            rootArgument = args[positionalStart];
-            positionalCount = 1;
-            if (args.length > positionalStart + 1
-                && !args[positionalStart + 1].startsWith("-"))
-            {
-                catalogArgument = args[positionalStart + 1];
-                positionalCount = 2;
-            }
-        }
-        else if (legacyJsonMode && command == "json-analyze")
-        {
-            catalogArgument = args[positionalStart];
-            positionalCount = 1;
-        }
-        else if (command == "export")
+        if (command == "export")
         {
             rootArgument = args[positionalStart];
             positionalCount = 1;
@@ -298,14 +261,6 @@ ParsedCommandLine parseCommandLine(string[] args)
     case "analyze":
         argsarray.argRunAnalysis = true;
         break;
-    case "json-scan":
-        argsarray.argScanFiles = true;
-        argsarray.argWriteJSON = true;
-        break;
-    case "json-analyze":
-        argsarray.argRunAnalysis = true;
-        argsarray.argWriteJSON = true;
-        break;
     case "import":
         argsarray.argImportJSON = argsarray.argJSONFile;
         break;
@@ -334,8 +289,8 @@ ParsedCommandLine parseCommandLine(string[] args)
     if (argsarray.argVersion)
         return ParsedCommandLine(ParseStatus.showVersion, CliCommand.noCommand, argsarray);
 
-    const bool jsonMode = legacyJsonMode || ((command == "scan"
-        || command == "analyze") && !argsarray.argJSONFile.empty);
+    const bool jsonMode = (command == "scan" || command == "analyze")
+        && !argsarray.argJSONFile.empty;
     if (jsonMode)
     {
         if (argsarray.argBaseDir.empty)
@@ -390,10 +345,6 @@ private CliCommand commandToCliCommand(string command)
         return CliCommand.duplicates;
     case "analyze":
         return CliCommand.analyze;
-    case "json-scan":
-        return CliCommand.jsonScan;
-    case "json-analyze":
-        return CliCommand.jsonAnalyze;
     case "import":
         return CliCommand.importJson;
     case "export":
@@ -422,21 +373,6 @@ unittest
     assert(jsonScanTopLevel.options.argBaseDir == root);
     assert(jsonScanTopLevel.options.argJSONFile == catalog);
     assert(jsonScanTopLevel.options.argScanFiles);
-
-    auto jsonScan = parseCommandLine(["programname", "json", "scan", root,
-        catalog, "--recursive"]);
-    assert(jsonScan.status == ParseStatus.run);
-    assert(jsonScan.command == CliCommand.jsonScan);
-    assert(jsonScan.options.argBaseDir == root);
-    assert(jsonScan.options.argJSONFile == catalog);
-    assert(jsonScan.options.argScanFiles);
-
-    auto jsonAnalyze = parseCommandLine(["programname", "json", "analyze",
-        "./test/json_file_v2.json"]);
-    assert(jsonAnalyze.status == ParseStatus.run);
-    assert(jsonAnalyze.command == CliCommand.jsonAnalyze);
-    assert(jsonAnalyze.options.argBaseDir == ".");
-    assert(jsonAnalyze.options.argRunAnalysis);
 
     auto jsonAnalyzeTopLevel = parseCommandLine(["programname", "analyze",
         "--json", "./test/json_file_v2.json"]);
