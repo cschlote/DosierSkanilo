@@ -4,7 +4,7 @@ This document freezes the frontend-neutral request and run-control contract for
 long-running scan, metadata, and analysis operations. The public D types are in
 `source/dosierskanilo/operations.d` and are re-exported by `import dosierskanilo`.
 WP-09.1 and WP-09.1b define the request, cancellation, and pause/resume
-contracts. `runOperation()` executes the repository and explicit JSON
+contracts. `runOperation()` executes the repository and explicit JSON-backed
 scan/analyze request families; synchronous `Repository` methods remain
 convenience wrappers. CLI and GTK are adapters over these shared requests.
 
@@ -19,7 +19,7 @@ convenience wrappers. CLI and GTK are adapters over these shared requests.
 - **Analysis request:** repository mode requires an explicit repository root
   and accepts analysis options, but no metadata options. JSON mode requires an
   explicit catalog path; optional metadata jobs run first to match existing
-  `json analyze` behavior.
+  direct-JSON behavior.
 
 Targets are not inferred or converted. The caller resolves a repository root
 before constructing a request. JSON scan must not initialize or discover a
@@ -59,9 +59,8 @@ filters and `--format` belong to read-only repository queries; `--replace` and
 `--output` belong to import/export. They are not scan/metadata/analyze request
 settings. Import/export are outside the first WP-09 operation set.
 
-The request types intentionally reuse repository option structs.
-`json analyze` keeps duplicate merging enabled, matching the current JSON
-service; validation rejects an analysis request that disables it. Validation also
+The request types intentionally reuse repository option structs. Validation
+rejects an analysis request that disables duplicate merging. Validation also
 rejects an empty standalone metadata request and JSON scan `dropMissing`, as the
 current CLI does.
 
@@ -74,9 +73,9 @@ current CLI does.
   process-global ID.
 - Repository requests carry the existing `RepositoryScanOptions`,
   `MetadataScanOptions`, or `RepositoryAnalysisOptions`, not CLI `ArgsArray`.
-- JSON scan may select metadata jobs supported by the existing `json scan`
-  command. JSON analysis may select metadata jobs before analysis. No new JSON
-  subcommand is implied by this API.
+- JSON-backed scan may select metadata jobs supported by the explicit JSON
+  target. JSON analysis may select metadata jobs before analysis. No separate
+  JSON subcommand is implied by this API.
 
 Validation returns `OperationRequestValidation`. An invalid request does not
 start backend work and has a stable `OperationRequestError` code and diagnostic.

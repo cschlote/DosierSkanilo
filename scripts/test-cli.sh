@@ -23,11 +23,11 @@ dub run --config=synthetic-testdata --compiler="${DC}" -- \
 fixture_root="${fixture_bundle}/catalog"
 synthetic_catalog="${TMP_DIR}/synthetic-catalog.json"
 pushd "${TMP_DIR}" >/dev/null
-synthetic_json_output=$("${BIN}" json scan "${fixture_root}" \
-    "${synthetic_catalog}" --recursive --checksums)
+synthetic_json_output=$("${BIN}" scan "${fixture_root}" \
+    --json "${synthetic_catalog}" --recursive --checksums)
 [[ "${synthetic_json_output}" == *"JSON scan: 12 files, 12 added"* ]]
 [[ ! -d "${fixture_root}/.dosierskanilo" ]]
-json_analysis_output=$("${BIN}" json analyze "${synthetic_catalog}")
+json_analysis_output=$("${BIN}" analyze --json "${synthetic_catalog}")
 [[ "${json_analysis_output}" == *"JSON analysis: 0 missing, 0 dropped, 1 duplicate groups, 1 merged blobs."* ]]
 popd >/dev/null
 
@@ -48,11 +48,11 @@ cp "${ROOT_DIR}/test/dummy-text-file.txt" "${library}/sample.txt"
 cp "${ROOT_DIR}/test/dummy-text-file.txt" "${sqlite_root}/nested/sample.txt"
 
 # Direct JSON mode must not create repository metadata.
-"${BIN}" json scan "${library}" "${catalog}" --recursive --checksums
+"${BIN}" scan "${library}" --json "${catalog}" --recursive --checksums
 [[ -f "${catalog}" ]]
 [[ ! -d "${library}/.dosierskanilo" ]]
 pushd "${TMP_DIR}" >/dev/null
-"${BIN}" json analyze "${catalog}"
+"${BIN}" analyze --json "${catalog}"
 popd >/dev/null
 
 # Top-level commands use SQLite and discover the root from a nested directory.

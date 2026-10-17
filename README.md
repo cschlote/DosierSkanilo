@@ -48,9 +48,6 @@ directory for its relative paths:
 ./build/bin/dosierskanilo analyze --json library-scan.json
 ```
 
-The legacy `dosierskanilo json scan ...` and `dosierskanilo json analyze ...`
-forms are still accepted as deprecated aliases.
-
 SQLite and JSON are separate command groups. A JSON command never discovers or
 creates `.dosierskanilo`; a SQLite command never silently falls back to direct
 JSON storage. JSON remains the structured exchange format for explicit SQLite
@@ -170,11 +167,6 @@ dosierskanilo export [ROOT] --output OUTPUT.json
 
 dosierskanilo scan [ROOT] --json CATALOG.json [--base-dir DIR] [OPTIONS]
 dosierskanilo analyze [ROOT] --json CATALOG.json [--base-dir DIR] [OPTIONS]
-
-Legacy aliases:
-
-dosierskanilo json scan ROOT CATALOG.json [OPTIONS]
-dosierskanilo json analyze CATALOG.json [OPTIONS]
 ```
 
 Common options use kebab-case: `--recursive`, `--checksums`, `--file-types`,

@@ -141,8 +141,8 @@ dosierskanilo export [ROOT] --output OUTPUT.json
 The pure JSON commands are:
 
 ```text
-dosierskanilo json scan ROOT CATALOG.json [OPTIONS]
-dosierskanilo json analyze CATALOG.json [OPTIONS]
+dosierskanilo scan [ROOT] --json CATALOG.json [--base-dir DIR] [OPTIONS]
+dosierskanilo analyze [ROOT] --json CATALOG.json [--base-dir DIR] [OPTIONS]
 ```
 
 JSON commands operate only on the specified catalog and filesystem path. They
@@ -420,8 +420,8 @@ dosierskanilo list [ROOT]
 dosierskanilo duplicates [ROOT]
 dosierskanilo import [ROOT] INPUT.json [--replace]
 dosierskanilo export [ROOT] --output OUTPUT.json
-dosierskanilo json scan ROOT CATALOG.json
-dosierskanilo json analyze CATALOG.json
+dosierskanilo scan [ROOT] --json CATALOG.json [--base-dir DIR]
+dosierskanilo analyze [ROOT] --json CATALOG.json [--base-dir DIR]
 ```
 
 ### WP-06 Steps
@@ -729,7 +729,7 @@ operation surface:
 - Repository mode targets a discovered or explicitly supplied `.dosierskanilo`
   root and uses the repository scan, metadata, and analysis APIs.
 - JSON mode targets an explicit catalog path and filesystem root and preserves
-  the existing `json scan` / `json analyze` command behavior. Do not add a new
+  the explicit JSON-target scan/analyze behavior. Do not add a new
   JSON command or silently initialize/use SQLite merely to make the interfaces
   look symmetric.
 - Map every currently supported option to a request field or document why it is
