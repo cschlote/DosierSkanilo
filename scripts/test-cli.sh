@@ -25,10 +25,10 @@ synthetic_catalog="${TMP_DIR}/synthetic-catalog.json"
 pushd "${TMP_DIR}" >/dev/null
 synthetic_json_output=$("${BIN}" scan "${fixture_root}" \
     --json "${synthetic_catalog}" --recursive --checksums)
-[[ "${synthetic_json_output}" == *"JSON scan: 12 files, 12 added"* ]]
+[[ "${synthetic_json_output}" == *"Catalog scan: 12 files, 12 added"* ]]
 [[ ! -d "${fixture_root}/.dosierskanilo" ]]
 json_analysis_output=$("${BIN}" analyze --json "${synthetic_catalog}")
-[[ "${json_analysis_output}" == *"JSON analysis: 0 missing, 0 dropped, 1 duplicate groups, 1 merged blobs."* ]]
+[[ "${json_analysis_output}" == *"Catalog analysis: 0 missing, 0 dropped, 1 duplicate groups, 1 merged blobs, 0 orphaned blobs."* ]]
 popd >/dev/null
 
 synthetic_sqlite_root="${TMP_DIR}/synthetic-sqlite-catalog"
@@ -36,9 +36,9 @@ cp -a "${fixture_root}" "${synthetic_sqlite_root}"
 "${BIN}" init "${synthetic_sqlite_root}" >/dev/null
 sqlite_scan_output=$("${BIN}" scan "${synthetic_sqlite_root}" \
     --recursive --checksums)
-[[ "${sqlite_scan_output}" == *"Repository scan: 12 files, 12 added"* ]]
+[[ "${sqlite_scan_output}" == *"Catalog scan: 12 files, 12 added"* ]]
 sqlite_analysis_output=$("${BIN}" analyze "${synthetic_sqlite_root}")
-[[ "${sqlite_analysis_output}" == *"Repository analysis: 0 missing, 0 dropped, 1 duplicate groups, 1 merged blobs, 0 orphaned blobs."* ]]
+[[ "${sqlite_analysis_output}" == *"Catalog analysis: 0 missing, 0 dropped, 1 duplicate groups, 1 merged blobs, 0 orphaned blobs."* ]]
 
 library="${TMP_DIR}/library"
 catalog="${TMP_DIR}/library.json"
@@ -64,10 +64,10 @@ init_output=$("${BIN}" init "${TMP_DIR}/second-sqlite-library")
 existing_init_output=$("${BIN}" init "${sqlite_root}")
 [[ "${existing_init_output}" == *"Opened existing repository at"* ]]
 scan_output=$("${BIN}" scan "${sqlite_root}" --recursive --checksums)
-[[ "${scan_output}" == *"Repository scan:"* ]]
-[[ "${scan_output}" == *"Repository metadata:"* ]]
+[[ "${scan_output}" == *"Catalog scan:"* ]]
+[[ "${scan_output}" == *"Catalog metadata:"* ]]
 analysis_output=$("${BIN}" analyze "${sqlite_root}")
-[[ "${analysis_output}" == *"Repository analysis:"* ]]
+[[ "${analysis_output}" == *"Catalog analysis:"* ]]
 metadata_output=$("${BIN}" metadata "${sqlite_root}" --file-types)
 [[ "${metadata_output}" == *"Metadata update:"* ]]
 duplicates_output=$("${BIN}" duplicates "${sqlite_root}")
