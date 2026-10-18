@@ -29,11 +29,13 @@ binary payload; one or more `FileSpec` values identify filesystem paths that
 refer to that payload. `CheckSums`, `MediaInfoSig`, `ArchiveSpec`, and
 `TorrentInfo` are metadata attached to that payload.
 
-The implemented storage APIs now share one polymorphic catalog interface, but
-the older `Repository` facade still remains as the SQLite compatibility layer:
+ The implemented storage APIs now share one polymorphic catalog interface, but
+ the older `Repository` facade still remains as the SQLite compatibility layer:
 
 - `CatalogBackend` in `catalogbackend.d` is the storage-neutral read/query
-  contract. `JsonCatalogBackend` and `SqliteCatalogBackend` implement it.
+  contract. `JsonCatalogBackend` and `SqliteCatalogBackend` implement it. The
+  backend instance exposes `close()` as lifecycle cleanup, while
+  `CatalogBackendFactory` stays the creation boundary for target selection.
 - `Repository` in `repository/repository.d` remains the concrete SQLite
   compatibility API. It owns lifecycle, relational queries, scan/metadata/
   analysis wrappers, and JSON transfer. `d2sqlite3` remains internal.
@@ -61,7 +63,10 @@ implemented interface itself lives in `source/dosierskanilo/catalogbackend.d`.
   supported standalone catalog and interchange format.
 - **CLI HMI:** expose useful scriptable commands, stable plain/JSON output, and
   clear stdout/stderr/exit behavior. It must not contain an independent scan or
-  analysis algorithm.
+  analysis algorithm. The CLI now routes scan, analysis, metadata, info, list,
+  duplicates, import, and export through the polymorphic backend facade, using
+  `Repository` only to open or initialize a SQLite source when that source is
+  selected.
 - **GTK HMI:** browse the same logical catalog, visualize and preview files,
   navigate virtual archive members, and invoke the same operations. It must not
   query SQLite or mutate serialized records directly.
@@ -80,14 +85,19 @@ implemented interface itself lives in `source/dosierskanilo/catalogbackend.d`.
   paths. Torrent members are also nested metadata, not ordinary catalog
   references.
 - `Repository`: concrete SQLite lifecycle, query, transfer, and synchronous
-  convenience API. SQLite-backed concrete class; no common JSON/SQLite catalog
-  superclass yet.
+  convenience API. SQLite-backed concrete class; still needed for compatibility
+  and source initialization, but backend-facing CLI paths now use the shared
+  `CatalogBackend` facade.
 - `RepositoryDirectory` / `RepositoryFile` / page DTOs: typed bounded SQLite
   read results. Stable cursor IDs are repository identities; GUI JSON
   projections are separately built.
 - `OperationTarget` / operation requests: explicit storage mode and
   scan/metadata/analyze options. `runOperation()` currently dispatches to
   storage-specific services.
+- `CatalogBackendFactory` / `CatalogBackend`: explicit backend creation and
+  storage-neutral instance lifecycle. The factory selects the implementation,
+  the instance serves query and operation methods, and `close()` ends the
+  backend session.
 - GUI `DirectorySource`: JSON/SQLite tree-query adapter used by GTK. Currently
   defined in the GUI repository, not the backend public catalog API.
 

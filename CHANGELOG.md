@@ -11,6 +11,9 @@ They represent the functional evolution and are intentionally summarized.
 
 - The CLI scan/analyze commands can now target the JSON backend directly with
   `--json CATALOG.json` and optional `--base-dir DIR`.
+- The CLI repository commands now route info, list, duplicates, import, export,
+  and metadata through the polymorphic backend facade instead of calling the
+  concrete SQLite repository API directly.
 
 ## Release 26.11.1 - 2026-10-15
 
