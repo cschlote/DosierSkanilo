@@ -12,6 +12,7 @@ module dosierskanilo.model.namedbinaryblob;
 
 import std.algorithm;
 import std.array;
+import std.datetime : Clock, dur;
 import std.datetime.systime : SysTime;
 import std.datetime.timezone : TimeZone;
 import std.exception : assertThrown, enforce;
@@ -912,10 +913,12 @@ version (unittest)
  *   dataArray = Array of NamedBinaryBlob objects to process
  * Returns: Updated array of NamedBinaryBlob objects
  */
-NamedBinaryBlob[] fixupDataClassArrayIn(NamedBinaryBlob[] dataArray)
+NamedBinaryBlob[] fixupDataClassArrayIn(NamedBinaryBlob[] dataArray,
+	ProgressCallBack* progressCallBack = null)
 {
 	// -- Fixup legacy fields ---------------------------
-	foreach (ref obj; dataArray)
+	auto lastProgress = Clock.currTime;
+	foreach (index, ref obj; dataArray)
 	{
 		// -- Fixup legacy filename field ---------------------------
 		/* The same data blob may have been stored with either a single
@@ -988,6 +991,13 @@ NamedBinaryBlob[] fixupDataClassArrayIn(NamedBinaryBlob[] dataArray)
 		{
 			obj.torrentInfo = null;
 		}
+		if (progressCallBack !is null
+			&& (index == 0 || index + 1 == dataArray.length
+				|| Clock.currTime - lastProgress > dur!"msecs"(250)))
+		{
+			progressCallBack.report(index + 1, dataArray.length);
+			lastProgress = Clock.currTime;
+		}
 	}
 
 	return dataArray;
@@ -999,10 +1009,12 @@ NamedBinaryBlob[] fixupDataClassArrayIn(NamedBinaryBlob[] dataArray)
  *   dataArray = Array of NamedBinaryBlob objects to process
  * Returns: Updated array of NamedBinaryBlob objects
  */
-NamedBinaryBlob[] fixupDataClassArrayOut(NamedBinaryBlob[] dataArray)
+NamedBinaryBlob[] fixupDataClassArrayOut(NamedBinaryBlob[] dataArray,
+	ProgressCallBack* progressCallBack = null)
 {
 	// -- Fixup legacy fields ---------------------------
-	foreach (ref obj; dataArray)
+	auto lastProgress = Clock.currTime;
+	foreach (index, ref obj; dataArray)
 	{
 		// -- Clear legacy filename field ---------------------------
 		if (obj.fileSpecs.length > 1)
@@ -1039,6 +1051,13 @@ NamedBinaryBlob[] fixupDataClassArrayOut(NamedBinaryBlob[] dataArray)
 		{
 			obj.torrentInfo = null;
 		}
+		if (progressCallBack !is null
+			&& (index == 0 || index + 1 == dataArray.length
+				|| Clock.currTime - lastProgress > dur!"msecs"(250)))
+		{
+			progressCallBack.report(index + 1, dataArray.length);
+			lastProgress = Clock.currTime;
+		}
 	}
 
 	return dataArray;
@@ -1065,7 +1084,8 @@ unittest
  * Returns:
  *   wrapper object with deserialized NamedBinaryBlob data and metadata
  */
-NamedBinaryBlobCatalog deserializeDataClassJsonWrapperString(const string serializedData)
+NamedBinaryBlobCatalog deserializeDataClassJsonWrapperString(const string serializedData,
+	ProgressCallBack* progressCallBack = null)
 {
 	NamedBinaryBlobCatalog wrapper;
 
@@ -1111,14 +1131,13 @@ NamedBinaryBlobCatalog deserializeDataClassJsonWrapperString(const string serial
 	{
 		logLineVerbose("  Reading directly into NamedBinaryBlob[] array (legacy format)...");
 		wrapper.dataArray = fromJSONString!(NamedBinaryBlob[])(serializedData);
-		wrapper.dataArray = fixupDataClassArrayIn(wrapper.dataArray);
 		wrapper.dataVersion = DATA_CLASS_VERSION3;
 	}
 	// Shouldn't happen
 	else
 		assert(false, "Unknow JSON format?");
 
-	wrapper.dataArray = fixupDataClassArrayIn(wrapper.dataArray);
+	wrapper.dataArray = fixupDataClassArrayIn(wrapper.dataArray, progressCallBack);
 	if (wrapper.dataVersion == DATA_CLASS_VERSION5)
 		foreach (blob; wrapper.dataArray)
 			if (blob !is null)
@@ -1148,7 +1167,8 @@ NamedBinaryBlob[] deserializeDataClassJsonString(const string serializedData)
  * Returns:
  *   wrapper with deserialized NamedBinaryBlob data and metadata, or an empty wrapper when file is missing
  */
-NamedBinaryBlobCatalog deserializeDataClassJsonWrapperFile(string fileName)
+NamedBinaryBlobCatalog deserializeDataClassJsonWrapperFile(string fileName,
+	ProgressCallBack* progressCallBack = null)
 {
 	import std.file : exists, readText;
 
@@ -1157,7 +1177,7 @@ NamedBinaryBlobCatalog deserializeDataClassJsonWrapperFile(string fileName)
 		return NamedBinaryBlobCatalog(DATA_CLASS_VERSION3, []);
 
 	const string serializedData = readText(fileName);
-	return deserializeDataClassJsonWrapperString(serializedData);
+	return deserializeDataClassJsonWrapperString(serializedData, progressCallBack);
 }
 
 

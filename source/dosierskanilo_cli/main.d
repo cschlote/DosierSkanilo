@@ -478,36 +478,7 @@ OperationControl cliOperationControl(string label)
 				if (event.phase != lastPhase)
 				{
 					lastPhase = event.phase;
-					lastReported = event.completed;
-					lastSubtaskReported = 0;
-					lastReportedPath = "";
 					logFLineVerbose("%s phase: %s.", label, event.phase);
-				}
-				const bool pathChanged = event.path.length > 0
-					&& event.path != lastReportedPath;
-				const ulong subtaskReportStep = event.subtaskUnit == "bytes"
-					? 256 * 1024 * 1024 : 10;
-				if (event.subtaskTotalKnown
-					&& (pathChanged || event.subtaskCompleted
-						>= lastSubtaskReported + subtaskReportStep))
-				{
-					lastSubtaskReported = event.subtaskCompleted;
-					lastReportedPath = event.path;
-					logFLineVerbose("%s %s: %d/%d blobs, %d/%d %s - %s",
-						label, event.phase, event.completed, event.total,
-						event.subtaskCompleted, event.subtaskTotal,
-						event.subtaskUnit, event.path);
-				}
-				else if (pathChanged || event.completed >= lastReported + 1000)
-				{
-					if (pathChanged && !event.subtaskTotalKnown)
-						lastSubtaskReported = 0;
-					lastReported = event.completed;
-					lastReportedPath = event.path;
-					logFLineVerbose("%s progress: %d%s%s%s%s", label,
-						event.completed, event.totalKnown ? " / " : "",
-						event.totalKnown ? event.total.to!string : "",
-						event.path.length > 0 ? " - " : "", event.path);
 				}
 			}
 		}
