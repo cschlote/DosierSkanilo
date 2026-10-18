@@ -220,8 +220,9 @@ bool executeCatalogOperation(ArgsArray options)
 	scope (exit)
 		backend.close();
 	auto backendTarget = backend.target();
-	auto backendName = backendTarget.mode == OperationStorageMode.jsonCatalog
-		? "JSON" : "Repository";
+	auto backendName = options.argScanFiles ? "Catalog"
+		: (backendTarget.mode == OperationStorageMode.jsonCatalog
+			? "JSON" : "Repository");
 	auto control = cliOperationControl(backendName ~ (options.argScanFiles
 		? " scan" : " analysis"));
 	OperationResult result;

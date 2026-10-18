@@ -6,7 +6,7 @@ import std.exception : enforce;
 import dosierskanilo.operations;
 import dosierskanilo.model.namedbinaryblob : NamedBinaryBlobCatalog;
 import dosierskanilo.repository : Repository;
-import dosierskanilo.repository.types : MetadataScanOptions;
+import dosierskanilo.repository.types : MetadataScanOptions, RepositoryAnalysisOptions;
 import dosierskanilo.operationlease : OperationTargetBusyException,
     TargetWriteLease;
 import dosierskanilo.service.jsonoperations : analyzeJsonCatalog,
@@ -78,7 +78,20 @@ OperationResult runOperation(ScanOperationRequest request,
                 result.state = metadata.cancelled ? OperationState.cancelled
                     : OperationState.completed;
             }
-            else
+            if (result.state == OperationState.completed
+                && request.mergeDuplicates)
+            {
+                RepositoryAnalysisOptions analysisOptions;
+                analysisOptions.mergeDuplicates = true;
+                auto analysis = repository.analyzeControlled(analysisOptions,
+                    control, request.operationId, lease);
+                result.analysisSummary = analysis.summary;
+                result.changesCommitted = result.changesCommitted
+                    || analysis.committed;
+                result.state = analysis.cancelled ? OperationState.cancelled
+                    : OperationState.completed;
+            }
+            else if (result.state == OperationState.running)
                 result.state = OperationState.completed;
         }
     }

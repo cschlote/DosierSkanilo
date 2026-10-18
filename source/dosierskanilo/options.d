@@ -50,7 +50,7 @@ struct ArgsArray
 	int argNumberOfThreads = 1; ///< Number of worker threads.
 	bool argReplaceCatalog; ///< Replace an existing repository catalog on import.
 	bool argDryRun; ///< Run JSON work without writing the catalog back.
-	bool argMergeDuplicates; ///< Merge duplicate records after a JSON scan.
+	bool argMergeDuplicates; ///< Merge duplicate records after a scan.
 	bool argPickHidden; ///< Include hidden files and directories.
 	bool argVerboseOutputs; ///< Enable verbose logging.
 	bool argVersion; ///< Show the application version.

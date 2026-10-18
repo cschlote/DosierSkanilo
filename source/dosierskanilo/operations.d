@@ -123,7 +123,7 @@ struct ScanOperationRequest
     MetadataScanOptions metadataOptions;
     /// Continue with an empty catalog if an existing JSON input is malformed.
     bool forceJsonOverwrite;
-    /// Analyze and merge duplicate records after JSON scanning and metadata.
+    /// Analyze and merge duplicate records after scanning.
     bool mergeDuplicates;
     /// Do not replace the input JSON catalog after computing results.
     bool dryRun;
@@ -472,9 +472,9 @@ OperationRequestValidation validateOperationRequest(ScanOperationRequest request
         return validationError(OperationRequestError.unsupportedOptionCombination,
             "JSON scan does not support drop-missing.");
     if (request.target.mode == OperationStorageMode.repository
-        && (request.mergeDuplicates || request.dryRun))
+        && request.dryRun)
         return validationError(OperationRequestError.unsupportedOptionCombination,
-            "Merge-duplicates and dry-run are supported only for JSON scans.");
+            "Dry-run is supported only for JSON scans.");
     return OperationRequestValidation.init;
 }
 
@@ -531,6 +531,8 @@ unittest
 
     auto repositoryScan = ScanOperationRequest(
         1, OperationTarget.repositoryTarget("/library"));
+    assert(validateOperationRequest(repositoryScan).valid);
+    repositoryScan.mergeDuplicates = true;
     assert(validateOperationRequest(repositoryScan).valid);
     repositoryScan.dryRun = true;
     assert(validateOperationRequest(repositoryScan).error

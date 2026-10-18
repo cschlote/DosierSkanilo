@@ -21,9 +21,14 @@ bool validateRepositoryOptions(string command, ref ArgsArray options)
         errorLine("--base-dir is available only with JSON scan or analysis.");
         return false;
     }
-    if (options.argDryRun || options.argMergeDuplicates)
+    if (options.argDryRun)
     {
-        errorLine("--dry-run and --merge-duplicates are supported only in JSON mode.");
+        errorLine("--dry-run is supported only in JSON mode.");
+        return false;
+    }
+    if (options.argMergeDuplicates && command != "scan")
+    {
+        errorLine("--merge-duplicates is available only with scan.");
         return false;
     }
     if (options.argRepositoryPath.empty)

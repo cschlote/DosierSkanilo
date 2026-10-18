@@ -215,7 +215,7 @@ ParsedCommandLine parseCommandLine(string[] args)
             "replace", "S-----R-- Replace existing data (JSON scan or import)", &argsarray.argReplaceCatalog,
             "pick-hidden", "S-------- Pick hidden files and directories too", &argsarray.argPickHidden,
             "dry-run", "--------J Compute JSON results without writing the catalog", &argsarray.argDryRun,
-            "merge-duplicates", "--------J Analyze and merge duplicates after JSON scan", &argsarray.argMergeDuplicates,
+            "merge-duplicates", "--------J Analyze and merge duplicates after scan", &argsarray.argMergeDuplicates,
             "verbose", "-------G- Be verbose", &argsarray.argVerboseOutputs,
             "text", "----L---- Filter listed repository paths or SHA1 values", &argsarray.argQueryText,
             "limit", "----L---- Maximum number of listed repository blobs", &argsarray.argQueryLimit,
