@@ -43,12 +43,15 @@ enum int DATA_CLASS_VERSION3 = 3; ///< Legacy NamedBinaryBlob representation, v3
 enum int DATA_CLASS_VERSION4 = 4; ///< Recursive archive-member representation, v4
 enum int DATA_CLASS_VERSION5 = 5; ///< Current virtual-reference representation, v5
 
+/* Legacy name */
+alias NamedBinaryBlobWrapper = NamedBinaryBlobCatalog;
+
 /** Wrapper class to serialize an array of NamedBinaryBlob objects
  *
  * This class wraps the data array together with global metadata that describes
  * the environment the data was collected with.
  */
-struct NamedBinaryBlobWrapper
+struct NamedBinaryBlobCatalog
 {
 	/* Add code needed for JSON serialization */
 	mixin JsonizeMe;
@@ -94,9 +97,8 @@ struct NamedBinaryBlobWrapper
 	}
 }
 
-alias NamedBinaryBlobCatalog = NamedBinaryBlobWrapper;
 
-@("struct NamedBinaryBlobWrapper")
+@("struct NamedBinaryBlobCatalog")
 unittest
 {
 	auto mis0 = new NamedBinaryBlob();
@@ -106,7 +108,7 @@ unittest
 		new FileSpec("file8", SysTime(1_234_567)),
 		new FileSpec("file9", SysTime(2_234_567))
 	], 1234);
-	auto wrap = NamedBinaryBlobWrapper(DATA_CLASS_VERSION3, [
+	auto wrap = NamedBinaryBlobCatalog(DATA_CLASS_VERSION3, [
 		mis0, mis1, mis2, mis3
 	]);
 	assert(wrap.dataVersion == DATA_CLASS_VERSION3);
@@ -1150,7 +1152,7 @@ NamedBinaryBlobCatalog deserializeDataClassJsonWrapperFile(string fileName)
 {
 	import std.file : exists, readText;
 
-	logFLineVerbose("Read serialized data from JSON file %s", fileName);
+	logFLine("Read serialized data from JSON file %s", fileName);
 	if (!exists(fileName))
 		return NamedBinaryBlobCatalog(DATA_CLASS_VERSION3, []);
 
@@ -1193,12 +1195,12 @@ NamedBinaryBlob[] deserializeDataClassJsonFile(string fileName, bool verbose = f
 {
 	import std.file : exists, readText;
 
-	logFLineVerbose("Read serialized data from JSON file %s", fileName);
+	logFLine("Read serialized data from JSON file %s", fileName);
 	//enforce(exists(fileName), "File %s does not exist!".format(fileName));
 	if (!exists(fileName))
 		return [];
 
-	logFLineVerbose("  reading file '%s' into the serializer archive container", fileName);
+	logFLine("  reading file '%s' into the serializer archive container", fileName);
 	const string serializedData = readText(fileName);
 
 	return deserializeDataClassJsonString(serializedData);
@@ -1400,7 +1402,7 @@ void serializeDataClassWrapperFile(string fileName, ref NamedBinaryBlobCatalog w
 	auto sortedDeserializedData_rng = sortDataClassArrayByFileName(wrapper.dataArray);
 	auto uniqSortedDeserializedData = uniqDataClassArrayByFileName(sortedDeserializedData_rng);
 	wrapper.dataArray = fixupDataClassArrayOutV5(uniqSortedDeserializedData);
-	writeJSON!(NamedBinaryBlobWrapper)(fileName, wrapper);
+	writeJSON!(NamedBinaryBlobCatalog)(fileName, wrapper);
 	wrapper.dataArray = fixupDataClassArrayIn(wrapper.dataArray);
 	foreach (blob; wrapper.dataArray)
 		if (blob !is null)

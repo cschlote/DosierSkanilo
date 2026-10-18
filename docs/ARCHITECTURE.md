@@ -247,7 +247,7 @@ This keeps the model content-oriented while preserving all known file names.
 
 ## 5. Serialization and Migration
 
-The current interchange format is JSON using `NamedBinaryBlobWrapper`. The
+The current interchange format is JSON using `NamedBinaryBlobCatalog`. The
 version-3 wrapper contains:
 
 - `dataVersion`

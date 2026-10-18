@@ -73,7 +73,7 @@ private:
     OperationTarget backendTarget;
     string sourceRoot;
     string sourceToken;
-    NamedBinaryBlobCatalog catalog;
+        NamedBinaryBlobCatalog catalog;
     string catalogLoadError;
     bool closed;
     bool treeQueriesAvailable;

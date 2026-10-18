@@ -102,9 +102,8 @@ int main(string[] args)
 				signal(SIGINT, oldhandler);
 
 			bool rc;
-			if ((parsed.command == CliCommand.scan || parsed.command == CliCommand.analyze)
-				&& !options.argJSONFile.empty)
-				rc = executeFileScannerOperation(options);
+			if (parsed.command == CliCommand.scan || parsed.command == CliCommand.analyze)
+				rc = executeCatalogOperation(options);
 			else
 				rc = executeRepositoryOperation(options);
 			return rc ? 0 : 1;
@@ -157,20 +156,6 @@ bool executeRepositoryOperation(ArgsArray options)
 		if (!options.argImportJSON.empty)
 			executeRepositoryImport(repository, options);
 
-		if (options.argScanFiles
-			&& !executeRepositoryScan(repository, options))
-		{
-			repository.close();
-			return false;
-		}
-
-		if (options.argRunAnalysis
-			&& !executeRepositoryAnalysis(repository, options))
-		{
-			repository.close();
-			return false;
-		}
-
 		if (options.argRunMetadata || options.argDoChecksums
 			|| options.argDoFileTypes || options.argDoMediaSig
 			|| options.argScanArchives || options.argScanTorrents)
@@ -210,82 +195,107 @@ void executeRepositoryImport(Repository repository, ArgsArray options)
 	logFLine("Imported JSON catalog '%s'.", options.argImportJSON);
 }
 
-/** Scan the repository filesystem and persist changed references. */
-bool executeRepositoryScan(Repository repository, ArgsArray options)
+/** Execute a scan or analysis through the shared backend contract. */
+bool executeCatalogOperation(ArgsArray options)
 {
-	RepositoryScanOptions scanOptions;
-	scanOptions.recursive = options.argRecursive;
-	scanOptions.pickHidden = options.argPickHidden;
-	scanOptions.dropMissing = options.argDropMissing;
-	ScanOperationRequest request;
-	request.operationId = 1;
-	request.target = OperationTarget.repositoryTarget(repository.rootPath);
-	request.scanOptions = scanOptions;
-	request.metadataOptions = metadataOptionsFromCli(options);
-	auto control = cliOperationControl("Repository scan");
-	repository.appendLog("scan.start", repository.rootPath);
-	auto result = runOperation(request, control);
-	clearOperationProgress();
+	OperationTarget target;
+	if (options.argJSONFile.empty)
+	{
+		auto repositoryPath = options.argRepositoryPath;
+		if (repositoryPath.empty)
+			repositoryPath = options.argScanPath;
+		if (repositoryPath.empty)
+			repositoryPath = ".";
+		target = OperationTarget.repositoryTarget(repositoryPath);
+	}
+	else
+		target = OperationTarget.jsonTarget(options.argJSONFile, options.argBaseDir);
+
+	auto backendFactory = new DefaultCatalogBackendFactory;
+	auto backend = backendFactory.open(target);
+	scope (exit)
+		backend.close();
+	auto backendTarget = backend.target();
+	auto backendName = backendTarget.mode == OperationStorageMode.jsonCatalog
+		? "JSON" : "Repository";
+	auto control = cliOperationControl(backendName ~ (options.argScanFiles
+		? " scan" : " analysis"));
+	OperationResult result;
+	if (options.argScanFiles)
+	{
+		ScanOperationRequest request;
+		request.operationId = 4;
+		request.target = backendTarget;
+		request.scanOptions.recursive = options.argRecursive;
+		request.scanOptions.pickHidden = options.argPickHidden;
+		request.forceJsonOverwrite = options.argReplaceCatalog;
+		request.mergeDuplicates = options.argMergeDuplicates;
+		request.dryRun = options.argDryRun;
+		request.metadataOptions = metadataOptionsFromCli(options);
+		result = backend.runOperation(request, control);
+		clearOperationProgress();
+	}
+	else
+	{
+		AnalysisOperationRequest request;
+		request.operationId = 5;
+		request.target = backendTarget;
+		request.options.dropMissing = options.argDropMissing;
+		request.metadataOptions = metadataOptionsFromCli(options);
+		request.forceJsonOverwrite = options.argReplaceCatalog;
+		request.dryRun = options.argDryRun;
+		result = backend.runOperation(request, control);
+		clearOperationProgress();
+	}
+
 	if (result.state != OperationState.completed)
 	{
 		if (result.state == OperationState.cancelled)
-			errorLine("Repository scan cancelled; no scan changes were committed.");
+			errorLine(backendName ~ " operation cancelled; the original catalog was not replaced.");
 		else
-			errorLine("Repository scan failed: ", result.error);
+			errorLine(backendName ~ " operation failed: ", result.error);
 		return false;
 	}
-	auto summary = result.scanSummary;
-	logFLine("Repository scan: %d files, %d added, %d changed, %d missing.",
-		summary.filesFound, summary.filesAdded, summary.filesChanged,
-		summary.filesMissing);
-	if (result.metadataSummary.blobsVisited > 0)
-		logFLine("Repository metadata: %d blobs, %d checksum, %d file type, "
+	if (result.operation == OperationKind.scan)
+	{
+		logFLine("%s scan: %d files, %d added, %d changed.", backendName,
+			result.scanSummary.filesFound, result.scanSummary.filesAdded,
+			result.scanSummary.filesChanged);
+		logFLine("%s metadata: %d blobs, %d checksum, %d file type, "
 			~ "%d media, %d archive, %d torrent updates, %d failures.",
-			result.metadataSummary.blobsVisited,
+			backendName, result.metadataSummary.blobsVisited,
 			result.metadataSummary.checksumsUpdated,
 			result.metadataSummary.fileTypesUpdated,
 			result.metadataSummary.mediaInfoUpdated,
 			result.metadataSummary.archivesUpdated,
 			result.metadataSummary.torrentsUpdated,
 			result.metadataSummary.failed);
-	repository.appendLog("scan.complete", format(
-		"files=%d added=%d changed=%d missing=%d", summary.filesFound,
-		summary.filesAdded, summary.filesChanged, summary.filesMissing));
-	return true;
-}
-
-/** Analyze duplicate and missing-file state in the repository. */
-bool executeRepositoryAnalysis(Repository repository, ArgsArray options)
-{
-	RepositoryAnalysisOptions analysisOptions;
-	analysisOptions.dropMissing = options.argDropMissing;
-	AnalysisOperationRequest request;
-	request.operationId = 3;
-	request.target = OperationTarget.repositoryTarget(repository.rootPath);
-	request.options = analysisOptions;
-	auto control = cliOperationControl("Repository analysis");
-	repository.appendLog("analysis.start", "");
-	auto result = runOperation(request, control);
-	clearOperationProgress();
-	if (result.state != OperationState.completed)
-	{
-		if (result.state == OperationState.cancelled)
-			errorLine("Repository analysis cancelled; no analysis changes were committed.");
-		else
-			errorLine("Repository analysis failed: ", result.error);
-		return false;
+		if (options.argMergeDuplicates)
+			logFLine("%s duplicate analysis: %d groups, %d merged blobs.",
+				backendName, result.analysisSummary.duplicateGroups,
+				result.analysisSummary.mergedBlobs);
 	}
-	auto summary = result.analysisSummary;
-	logFLine("Repository analysis: %d missing, %d dropped, %d duplicate "
-		~ "groups, %d merged blobs, %d orphaned blobs.",
-		summary.missingFiles, summary.droppedFiles,
-		summary.duplicateGroups, summary.mergedBlobs,
-		summary.orphanedBlobs);
-	repository.appendLog("analysis.complete", format(
-		"missing=%d dropped=%d groups=%d merged=%d orphaned=%d",
-		summary.missingFiles, summary.droppedFiles,
-		summary.duplicateGroups, summary.mergedBlobs,
-		summary.orphanedBlobs));
+	else
+	{
+		if (backendName == "Repository")
+			logFLine("%s analysis: %d missing, %d dropped, %d duplicate groups, "
+				~ "%d merged blobs, %d orphaned blobs.", backendName,
+				result.analysisSummary.missingFiles,
+				result.analysisSummary.droppedFiles,
+				result.analysisSummary.duplicateGroups,
+				result.analysisSummary.mergedBlobs,
+				result.analysisSummary.orphanedBlobs);
+		else
+			logFLine("%s analysis: %d missing, %d dropped, %d duplicate groups, "
+				~ "%d merged blobs.", backendName,
+				result.analysisSummary.missingFiles,
+				result.analysisSummary.droppedFiles,
+				result.analysisSummary.duplicateGroups,
+				result.analysisSummary.mergedBlobs);
+	}
+	if (options.argDryRun)
+		logLine("Dry run: " ~ backendName ~ " catalog was not written.");
+	logLine(backendName ~ " operation complete.");
 	return true;
 }
 
@@ -540,85 +550,6 @@ extern (C) nothrow @nogc @system void signalHandler(int sig)
 	}
 	if (do_abort)
 		abort();
-}
-
-/** Scan a directory (optionally recursively)
- *
- * Based on the commandline options scan a directory (tree) and calculate a
- * checksum on it.
- */
-bool executeFileScannerOperation(ArgsArray options)
-{
-	auto control = cliOperationControl("JSON operation");
-	OperationResult result;
-	if (options.argScanFiles)
-	{
-		ScanOperationRequest request;
-		request.operationId = 4;
-		request.target = OperationTarget.jsonTarget(options.argJSONFile,
-			options.argBaseDir);
-		request.scanOptions.recursive = options.argRecursive;
-		request.scanOptions.pickHidden = options.argPickHidden;
-		request.forceJsonOverwrite = options.argReplaceCatalog;
-		request.mergeDuplicates = options.argMergeDuplicates;
-		request.dryRun = options.argDryRun;
-		request.metadataOptions = metadataOptionsFromCli(options);
-		result = runOperation(request, control);
-		clearOperationProgress();
-	}
-	else
-	{
-		AnalysisOperationRequest request;
-		request.operationId = 5;
-		request.target = OperationTarget.jsonTarget(options.argJSONFile,
-			options.argBaseDir);
-		request.options.dropMissing = options.argDropMissing;
-		request.metadataOptions = metadataOptionsFromCli(options);
-		request.forceJsonOverwrite = options.argReplaceCatalog;
-		request.dryRun = options.argDryRun;
-		result = runOperation(request, control);
-		clearOperationProgress();
-	}
-
-	if (result.state != OperationState.completed)
-	{
-		if (result.state == OperationState.cancelled)
-			errorLine("JSON operation cancelled; the original catalog was not replaced.");
-		else
-			errorLine("JSON operation failed: ", result.error);
-		return false;
-	}
-	if (result.operation == OperationKind.scan)
-	{
-		logFLine("JSON scan: %d files, %d added, %d changed.",
-			result.scanSummary.filesFound, result.scanSummary.filesAdded,
-			result.scanSummary.filesChanged);
-		logFLine("JSON metadata: %d blobs, %d checksum, %d file type, "
-			~ "%d media, %d archive, %d torrent updates, %d failures.",
-			result.metadataSummary.blobsVisited,
-			result.metadataSummary.checksumsUpdated,
-			result.metadataSummary.fileTypesUpdated,
-			result.metadataSummary.mediaInfoUpdated,
-			result.metadataSummary.archivesUpdated,
-			result.metadataSummary.torrentsUpdated,
-			result.metadataSummary.failed);
-		if (options.argMergeDuplicates)
-			logFLine("JSON duplicate analysis: %d groups, %d merged blobs.",
-				result.analysisSummary.duplicateGroups,
-				result.analysisSummary.mergedBlobs);
-	}
-	else
-	{
-		logFLine("JSON analysis: %d missing, %d dropped, %d duplicate groups, "
-			~ "%d merged blobs.", result.analysisSummary.missingFiles,
-			result.analysisSummary.droppedFiles,
-			result.analysisSummary.duplicateGroups,
-			result.analysisSummary.mergedBlobs);
-	}
-	if (options.argDryRun)
-		logLine("Dry run: JSON catalog was not written.");
-	logLine("JSON operation complete.");
-	return true;
 }
 
 /** Map shared scanner CLI flags to frontend-neutral library options. */
