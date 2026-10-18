@@ -22,6 +22,8 @@ import dosierskanilo.model.filespec : FileSpec;
 import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION3,
     DATA_CLASS_VERSION4, DATA_CLASS_VERSION5, NamedBinaryBlob, NamedBinaryBlobCatalog,
     deserializeDataClassJsonWrapperFile;
+import dosierskanilo.repository.types : JsonImportOptions, RepositoryBlobPage,
+    RepositoryDuplicateGroup, RepositoryInfo, RepositoryQueryOptions;
 import dosierskanilo.operationrunner;
 import dosierskanilo.operations : AnalysisOperationRequest, MetadataOperationRequest,
     OperationControl, OperationKind, OperationResult, OperationStorageMode,
@@ -134,6 +136,15 @@ public:
         CatalogSourceInfo result;
         result.storageMode = OperationStorageMode.jsonCatalog;
         result.displayName = baseName(backendTarget.catalogPath);
+        return result;
+    }
+
+    override RepositoryInfo repositoryInfo()
+    {
+        requireOpen();
+        RepositoryInfo result;
+        result.rootPath = sourceRoot.length > 0 ? sourceRoot : backendTarget.catalogPath;
+        result.schemaVersion = catalog.dataVersion;
         return result;
     }
 
@@ -380,6 +391,20 @@ public:
         result.nextCursor = slice.nextCursor;
         result.hasMore = slice.hasMore;
         return result;
+    }
+
+    override RepositoryBlobPage queryBlobs(RepositoryQueryOptions options)
+    {
+        requireOpen();
+        throw new CatalogBackendException(CatalogBackendErrorCode.unsupportedOperation,
+            "JSON repository-style blob queries are not supported by this adapter.");
+    }
+
+    override RepositoryDuplicateGroup[] queryDuplicateGroups(size_t limit = 100)
+    {
+        requireOpen();
+        throw new CatalogBackendException(CatalogBackendErrorCode.unsupportedOperation,
+            "JSON duplicate-group queries are not supported by this adapter.");
     }
 
     override CatalogExportResult exportSubset(CatalogSubsetQuery query,
@@ -644,6 +669,13 @@ public:
         result.outputPath = canonicalPath(options.outputPath);
         result.committed = true;
         return result;
+    }
+
+    override void importJson(string jsonPath, JsonImportOptions options = JsonImportOptions.init)
+    {
+        requireOpen();
+        throw new CatalogBackendException(CatalogBackendErrorCode.unsupportedOperation,
+            "JSON catalogs cannot import into themselves through this adapter.");
     }
 
     override OperationResult runOperation(ScanOperationRequest request,

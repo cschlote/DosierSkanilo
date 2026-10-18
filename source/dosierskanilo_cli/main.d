@@ -189,9 +189,13 @@ void executeRepositoryImport(Repository repository, ArgsArray options)
 {
 	logLine("Repository phase: import JSON.");
 	repository.appendLog("json.import", options.argImportJSON);
+	auto backendFactory = new DefaultCatalogBackendFactory;
+	auto backend = backendFactory.open(OperationTarget.repositoryTarget(repository.rootPath));
+	scope (exit)
+		backend.close();
 	JsonImportOptions importOptions;
 	importOptions.force = options.argReplaceCatalog;
-	repository.importJson(options.argImportJSON, importOptions);
+	backend.importJson(options.argImportJSON, importOptions);
 	logFLine("Imported JSON catalog '%s'.", options.argImportJSON);
 }
 
@@ -307,36 +311,58 @@ void executeRepositoryExport(Repository repository, ArgsArray options)
 		exportPath = options.argJSONFile;
 	if (exportPath.empty)
 		return;
+	auto backendFactory = new DefaultCatalogBackendFactory;
+	auto backend = backendFactory.open(OperationTarget.repositoryTarget(repository.rootPath));
+	scope (exit)
+		backend.close();
 	logLine("Repository phase: export JSON.");
 	repository.appendLog("json.export", exportPath);
-	repository.exportJson(exportPath);
-	logFLine("Exported repository JSON to '%s'.", exportPath);
+	CatalogExportOptions exportOptions;
+	exportOptions.outputPath = exportPath;
+	exportOptions.format = CatalogExportFormat.jsonV5;
+	auto result = backend.exportSubset(CatalogSubsetQuery("", CatalogFilter.init),
+		exportOptions);
+	logFLine("Exported repository JSON to '%s'.", result.outputPath);
 }
 
 /** Print repository metadata and current catalog counts. */
 void executeRepositoryInfo(Repository repository, ArgsArray options)
 {
-	auto info = repository.info;
+	auto backendFactory = new DefaultCatalogBackendFactory;
+	auto backend = backendFactory.open(OperationTarget.repositoryTarget(repository.rootPath));
+	scope (exit)
+		backend.close();
+	auto info = backend.repositoryInfo();
+	RepositoryQueryOptions query;
+	query.limit = 1;
+	auto page = backend.queryBlobs(query);
 	if (options.argOutputFormat == "json")
 	{
 		logFLine("{\"root\":%s,\"database\":%s,\"schemaVersion\":%d,"
 			~ "\"createdAt\":%s,\"updatedAt\":%s,\"blobs\":%d}",
-			jsonQuote(info.rootPath), jsonQuote(repository.databasePath),
+			jsonQuote(info.rootPath),
+			jsonQuote(buildPath(info.rootPath, repositoryDirectoryName,
+				repositoryDatabaseFileName)),
 			info.schemaVersion, jsonQuote(info.createdAt), jsonQuote(info.updatedAt),
-			repository.blobCount);
+			page.total);
 		return;
 	}
 	logFLine("Repository root: %s", info.rootPath);
-	logFLine("Database: %s", repository.databasePath);
+	logFLine("Database: %s", buildPath(info.rootPath, repositoryDirectoryName,
+		repositoryDatabaseFileName));
 	logFLine("Schema version: %d", info.schemaVersion);
 	logFLine("Created: %s", info.createdAt);
 	logFLine("Updated: %s", info.updatedAt);
-	logFLine("Blobs: %d", repository.blobCount);
+	logFLine("Blobs: %d", page.total);
 }
 
 /** Print one bounded, repository-side filtered page of blobs. */
 void executeRepositoryList(Repository repository, ArgsArray options)
 {
+	auto backendFactory = new DefaultCatalogBackendFactory;
+	auto backend = backendFactory.open(OperationTarget.repositoryTarget(repository.rootPath));
+	scope (exit)
+		backend.close();
 	RepositoryQueryOptions query;
 	query.offset = options.argQueryOffset;
 	query.limit = options.argQueryLimit;
@@ -349,7 +375,7 @@ void executeRepositoryList(Repository repository, ArgsArray options)
 	query.archive = options.argQueryArchive;
 	query.torrent = options.argQueryTorrent;
 
-	auto page = repository.loadCatalogQueryPageWithIds(query);
+	auto page = backend.queryBlobs(query);
 	if (options.argOutputFormat == "json")
 	{
 		string output = format("{\"total\":%d,\"offset\":%d,\"items\":[",
@@ -376,7 +402,11 @@ void executeRepositoryList(Repository repository, ArgsArray options)
 /** Print duplicate groups without modifying repository contents. */
 void executeRepositoryDuplicates(Repository repository, ArgsArray options)
 {
-	auto groups = repository.queryDuplicates(options.argDuplicateLimit);
+	auto backendFactory = new DefaultCatalogBackendFactory;
+	auto backend = backendFactory.open(OperationTarget.repositoryTarget(repository.rootPath));
+	scope (exit)
+		backend.close();
+	auto groups = backend.queryDuplicateGroups(options.argDuplicateLimit);
 	if (options.argOutputFormat == "json")
 	{
 		string output = "{\"groups\":[";
@@ -438,7 +468,11 @@ bool executeRepositoryMetadata(Repository repository, ArgsArray options)
 	request.options = metadataOptions;
 	auto control = cliOperationControl("Repository metadata");
 	repository.appendLog("metadata.start", "");
-	auto result = runOperation(request, control);
+	auto backendFactory = new DefaultCatalogBackendFactory;
+	auto backend = backendFactory.open(OperationTarget.repositoryTarget(repository.rootPath));
+	scope (exit)
+		backend.close();
+	auto result = backend.runOperation(request, control);
 	clearOperationProgress();
 	if (result.state != OperationState.completed)
 	{
