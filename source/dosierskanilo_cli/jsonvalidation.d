@@ -8,7 +8,7 @@ import std.string : empty, endsWith;
 import dosierskanilo;
 import dosierskanilo_cli.logging : errorFLine, errorLine;
 
-/** Validate a JSON-target scan or analysis command. */
+/** Validate a JSON-target scan, analysis, list, or duplicate command. */
 bool validateJsonOptions(string command, ref ArgsArray options)
 {
     if (options.argJSONFile.empty || !options.argJSONFile.endsWith(jsonFileExtension))
@@ -25,45 +25,91 @@ bool validateJsonOptions(string command, ref ArgsArray options)
         return false;
     }
 
-    if (!options.argExportJSON.empty || !options.argImportJSON.empty
-        || options.argInitRepository || options.argShowInfo || options.argList
-        || options.argDuplicates || options.argOutputFormat != "table"
-        || options.argQueryLimit != 50 || options.argQueryOffset != 0
-        || !options.argQueryText.empty || options.argQueryVideo
-        || options.argQueryAudio || options.argQueryImage
-        || options.argQueryTextStream || options.argQueryFileType
-        || options.argQueryArchive || options.argQueryTorrent
-        || options.argDuplicateLimit != 100)
+    switch (command)
     {
-        errorLine("Repository query/transfer options are not valid in JSON mode.");
-        return false;
-    }
+    case "scan":
+    case "analyze":
+        if (!options.argExportJSON.empty || !options.argImportJSON.empty
+            || options.argInitRepository || options.argShowInfo
+            || options.argList || options.argDuplicates
+            || options.argOutputFormat != "table"
+            || options.argQueryLimit != 50 || options.argQueryOffset != 0
+            || !options.argQueryText.empty || options.argQueryVideo
+            || options.argQueryAudio || options.argQueryImage
+            || options.argQueryTextStream || options.argQueryFileType
+            || options.argQueryArchive || options.argQueryTorrent
+            || options.argDuplicateLimit != 100)
+        {
+            errorLine("Repository query/transfer options are not valid in JSON scan or analysis.");
+            return false;
+        }
 
-    if (command == "scan")
-    {
-        if (options.argDropMissing)
+        if (command == "scan")
         {
-            errorLine("--drop-missing is available only for JSON analyze or repository scan.");
+            if (options.argDropMissing)
+            {
+                errorLine("--drop-missing is available only for JSON analyze or repository scan.");
+                return false;
+            }
+            if (!exists(options.argBaseDir) || !isDir(options.argBaseDir))
+            {
+                errorLine("JSON scan needs an existing base directory.");
+                return false;
+            }
+        }
+        else if (options.argRecursive || options.argPickHidden)
+        {
+            errorLine("--recursive and --pick-hidden are valid only for JSON scan.");
             return false;
         }
-        if (!exists(options.argBaseDir) || !isDir(options.argBaseDir))
+        if (command == "analyze" && (!exists(options.argJSONFile)
+            || !isFile(options.argJSONFile)))
         {
-            errorLine("JSON scan needs an existing base directory.");
+            errorFLine("JSON catalog '%s' does not exist.", options.argJSONFile);
             return false;
         }
-    }
-    else if (command == "analyze" && (options.argRecursive || options.argPickHidden))
-    {
-        errorLine("--recursive and --pick-hidden are valid only for JSON scan.");
+        return true;
+
+    case "list":
+        if (!options.argExportJSON.empty || !options.argImportJSON.empty
+            || options.argInitRepository || options.argShowInfo
+            || options.argDuplicates || options.argDropMissing
+            || options.argMergeDuplicates || options.argDryRun
+            || options.argRecursive || options.argPickHidden
+            || options.argDoChecksums || options.argDoFileTypes
+            || options.argDoMediaSig || options.argScanArchives
+            || options.argScanTorrents || options.argRescanMediaSig
+            || options.argDuplicateLimit != 100)
+        {
+            errorLine("JSON list supports only query filters and --format.");
+            return false;
+        }
+        return true;
+
+    case "duplicates":
+        if (!options.argExportJSON.empty || !options.argImportJSON.empty
+            || options.argInitRepository || options.argShowInfo
+            || options.argList || options.argDropMissing
+            || options.argMergeDuplicates || options.argDryRun
+            || options.argRecursive || options.argPickHidden
+            || options.argDoChecksums || options.argDoFileTypes
+            || options.argDoMediaSig || options.argScanArchives
+            || options.argScanTorrents || options.argRescanMediaSig
+            || !options.argQueryText.empty || options.argQueryLimit != 50
+            || options.argQueryOffset != 0 || options.argQueryVideo
+            || options.argQueryAudio || options.argQueryImage
+            || options.argQueryTextStream || options.argQueryFileType
+            || options.argQueryArchive || options.argQueryTorrent)
+        {
+            errorLine("JSON duplicate queries support only --format and --duplicate-limit.");
+            return false;
+        }
+        return true;
+
+    default:
+        errorLine("JSON mode supports scan, analyze, list, and duplicates.");
         return false;
     }
-    if (command == "analyze" && (!exists(options.argJSONFile)
-        || !isFile(options.argJSONFile)))
-    {
-        errorFLine("JSON catalog '%s' does not exist.", options.argJSONFile);
-        return false;
-    }
-    return true;
 }
 
 @("validateJsonOptions")

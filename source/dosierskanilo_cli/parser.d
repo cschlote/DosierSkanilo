@@ -289,7 +289,8 @@ ParsedCommandLine parseCommandLine(string[] args)
     if (argsarray.argVersion)
         return ParsedCommandLine(ParseStatus.showVersion, CliCommand.noCommand, argsarray);
 
-    const bool jsonMode = (command == "scan" || command == "analyze")
+    const bool jsonMode = (command == "scan" || command == "analyze"
+        || command == "list" || command == "duplicates")
         && !argsarray.argJSONFile.empty;
     if (jsonMode)
     {

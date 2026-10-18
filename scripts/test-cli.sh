@@ -29,6 +29,12 @@ synthetic_json_output=$("${BIN}" scan "${fixture_root}" \
 [[ ! -d "${fixture_root}/.dosierskanilo" ]]
 json_analysis_output=$("${BIN}" analyze --json "${synthetic_catalog}")
 [[ "${json_analysis_output}" == *"Catalog analysis: 0 missing, 0 dropped, 1 duplicate groups, 1 merged blobs, 0 orphaned blobs."* ]]
+json_list_output=$("${BIN}" list --json "${synthetic_catalog}" --format=json)
+sqlite_list_output=$("${BIN}" list "${TMP_DIR}/synthetic-sqlite-catalog" --format=json)
+[[ "${json_list_output}" == "${sqlite_list_output}" ]]
+json_duplicates_output=$("${BIN}" duplicates --json "${synthetic_catalog}" --format=json)
+sqlite_duplicates_output=$("${BIN}" duplicates "${TMP_DIR}/synthetic-sqlite-catalog" --format=json)
+[[ "${json_duplicates_output}" == "${sqlite_duplicates_output}" ]]
 popd >/dev/null
 
 synthetic_sqlite_root="${TMP_DIR}/synthetic-sqlite-catalog"

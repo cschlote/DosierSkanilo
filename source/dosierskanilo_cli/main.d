@@ -116,50 +116,65 @@ bool executeRepositoryOperation(ArgsArray options)
 {
 	Repository repository;
 	CatalogBackend backend;
+	string sourceRoot;
 	try
 	{
-		auto repositoryPath = options.argRepositoryPath;
-		if (repositoryPath.empty)
-			repositoryPath = options.argScanPath;
-
-		if (options.argInitRepository)
+		if (options.argJSONFile.empty)
 		{
-			auto databaseAlreadyExists = exists(buildPath(repositoryPath,
-				repositoryDirectoryName, repositoryDatabaseFileName));
-			repository = Repository.initialize(repositoryPath);
-			if (databaseAlreadyExists)
-				logFLine("Opened existing repository at '%s'.", repository.rootPath);
+			auto repositoryPath = options.argRepositoryPath;
+			if (repositoryPath.empty)
+				repositoryPath = options.argScanPath;
+
+			if (options.argInitRepository)
+			{
+				auto databaseAlreadyExists = exists(buildPath(repositoryPath,
+					repositoryDirectoryName, repositoryDatabaseFileName));
+				repository = Repository.initialize(repositoryPath);
+				if (databaseAlreadyExists)
+					logFLine("Opened existing repository at '%s'.", repository.rootPath);
+				else
+					logFLine("Initialized new repository at '%s'.", repository.rootPath);
+			}
 			else
-				logFLine("Initialized new repository at '%s'.", repository.rootPath);
+				repository = Repository.open(repositoryPath);
+			repository.appendLog("repository.open", repositoryPath);
+			scope (exit)
+				repository.close();
+			auto backendFactory = new DefaultCatalogBackendFactory;
+			backend = backendFactory.open(OperationTarget.repositoryTarget(repository.rootPath));
+			scope (exit)
+				if (backend !is null)
+					backend.close();
+			sourceRoot = repository.rootPath;
 		}
 		else
-			repository = Repository.open(repositoryPath);
-		repository.appendLog("repository.open", repositoryPath);
-		scope (exit)
-			repository.close();
-		auto backendFactory = new DefaultCatalogBackendFactory;
-		backend = backendFactory.open(OperationTarget.repositoryTarget(repository.rootPath));
-		scope (exit)
-			if (backend !is null)
-				backend.close();
+		{
+			auto backendFactory = new DefaultCatalogBackendFactory;
+			backend = backendFactory.open(OperationTarget.jsonTarget(options.argJSONFile,
+				options.argBaseDir));
+			scope (exit)
+				if (backend !is null)
+					backend.close();
+			sourceRoot = backend.repositoryInfo().rootPath;
+		}
 		if (options.argShowInfo)
 		{
-			executeRepositoryInfo(backend, repository.rootPath, options);
+			executeRepositoryInfo(backend, sourceRoot, options);
 			return true;
 		}
 		if (options.argList)
 		{
-			executeRepositoryList(backend, repository.rootPath, options);
+			executeRepositoryList(backend, sourceRoot, options);
 			return true;
 		}
 		if (options.argDuplicates)
 		{
-			executeRepositoryDuplicates(backend, repository.rootPath, options);
+			executeRepositoryDuplicates(backend, sourceRoot, options);
 			return true;
 		}
 
 		if (!options.argImportJSON.empty)
-			executeRepositoryImport(backend, repository.rootPath, options);
+			executeRepositoryImport(backend, sourceRoot, options);
 
 		if (options.argRunMetadata || options.argDoChecksums
 			|| options.argDoFileTypes || options.argDoMediaSig
