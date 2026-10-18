@@ -1,7 +1,8 @@
 /** Validation rules for SQLite repository CLI commands. */
 module dosierskanilo_cli.repositoryvalidation;
 
-import std.file : exists, isDir;
+import std.file : exists, isDir, remove, tempDir, write;
+import std.path : buildPath;
 import std.string : empty, endsWith;
 
 import dosierskanilo;
@@ -74,6 +75,31 @@ bool validateRepositoryOptions(string command, ref ArgsArray options)
         return false;
     }
     return true;
+}
+
+@("validateRepositoryOptions")
+unittest
+{
+    auto baseDir = tempDir();
+
+    auto infoOptions = ArgsArray();
+    assert(validateRepositoryOptions("info", infoOptions));
+    assert(infoOptions.argRepositoryPath == ".");
+
+    auto importOptions = ArgsArray();
+    importOptions.argImportJSON = buildPath(baseDir, "catalog.json");
+    write(importOptions.argImportJSON, "[]");
+    scope (exit)
+        if (exists(importOptions.argImportJSON))
+            remove(importOptions.argImportJSON);
+    assert(validateRepositoryOptions("import", importOptions));
+
+    auto invalidMetadata = ArgsArray();
+    assert(!validateRepositoryOptions("metadata", invalidMetadata));
+
+    auto invalidExport = ArgsArray();
+    invalidExport.argExportJSON = buildPath(baseDir, "catalog.txt");
+    assert(!validateRepositoryOptions("export", invalidExport));
 }
 
 private bool hasRepositoryListFilters(ArgsArray options)

@@ -1,7 +1,8 @@
 /** Validation rules for the explicit direct JSON CLI workflow. */
 module dosierskanilo_cli.jsonvalidation;
 
-import std.file : exists, isDir, isFile;
+import std.file : exists, isDir, isFile, remove, tempDir, write;
+import std.path : buildPath;
 import std.string : empty, endsWith;
 
 import dosierskanilo;
@@ -63,4 +64,29 @@ bool validateJsonOptions(string command, ref ArgsArray options)
         return false;
     }
     return true;
+}
+
+@("validateJsonOptions")
+unittest
+{
+    auto baseDir = tempDir();
+
+    auto scanOptions = ArgsArray();
+    scanOptions.argJSONFile = buildPath(baseDir, "catalog.json");
+    scanOptions.argBaseDir = baseDir;
+    assert(validateJsonOptions("scan", scanOptions));
+
+    auto analyzeOptions = ArgsArray();
+    analyzeOptions.argJSONFile = buildPath(baseDir, "catalog.json");
+    write(analyzeOptions.argJSONFile, "[]");
+    scope (exit)
+        if (exists(analyzeOptions.argJSONFile))
+            remove(analyzeOptions.argJSONFile);
+    assert(validateJsonOptions("analyze", analyzeOptions));
+    assert(analyzeOptions.argBaseDir == ".");
+
+    auto invalidAnalyze = ArgsArray();
+    invalidAnalyze.argJSONFile = analyzeOptions.argJSONFile;
+    invalidAnalyze.argRecursive = true;
+    assert(!validateJsonOptions("analyze", invalidAnalyze));
 }

@@ -6,7 +6,9 @@ long-running scan, metadata, and analysis operations. The public D types are in
 WP-09.1 and WP-09.1b define the request, cancellation, and pause/resume
 contracts. `runOperation()` executes the repository and explicit JSON-backed
 scan/analyze request families; synchronous `Repository` methods remain
-convenience wrappers. CLI and GTK are adapters over these shared requests.
+convenience wrappers. The separate `CatalogBackend` layer provides the
+storage-neutral read/query contract used by adapters, while CLI and GTK stay
+on top of these shared requests.
 
 ## Storage-mode and operation matrix
 

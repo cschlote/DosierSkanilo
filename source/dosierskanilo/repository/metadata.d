@@ -26,6 +26,7 @@ import dosierskanilo.progress : ProgressCallBack;
 import dosierskanilo.repository.archiveindex : deleteUnreachableBlobs,
     ensureArchiveMemberBlob, isVirtualFileReferenceSql,
     resolveArchiveMemberBlobLinks;
+import dosierskanilo.repository.schema : migrate;
 import dosierskanilo.repository.types;
 
 private struct VirtualContainerReference
@@ -484,6 +485,151 @@ private bool reportMetadataProgress(OperationControl control, ulong operationId,
     if (!control.pauseAtCheckpoint(progress))
         return false;
     return !control.cancellationRequested;
+}
+
+@("metadataCompleted and archiveIndexCurrent")
+unittest
+{
+    auto db = Database(":memory:");
+    db.execute("CREATE TABLE metadata_status (blob_id INTEGER NOT NULL, "
+        ~ "metadata_kind TEXT NOT NULL, state TEXT NOT NULL, "
+        ~ "extractor_version TEXT, scanned_at TEXT, error_message TEXT, "
+        ~ "PRIMARY KEY (blob_id, metadata_kind))");
+
+    assert(!metadataCompleted(db, 1, "file_type"));
+    db.execute("INSERT INTO metadata_status (blob_id, metadata_kind, state, "
+        ~ "scanned_at, error_message) VALUES (1, 'file_type', 'completed', ?, '')",
+        "2026-01-01T00:00:00");
+    assert(metadataCompleted(db, 1, "file_type"));
+
+    db.execute("INSERT INTO metadata_status (blob_id, metadata_kind, state, "
+        ~ "extractor_version, scanned_at, error_message) VALUES "
+        ~ "(1, 'archives', 'completed', ?, ?, '')",
+        archiveIndexVersion ~ ":123:deep", "2026-01-01T00:00:00");
+    assert(archiveIndexCurrent(db, 1, true));
+    assert(archiveIndexCurrent(db, 1, false));
+
+    db.execute("UPDATE metadata_status SET extractor_version = ? WHERE blob_id = 1 "
+        ~ "AND metadata_kind = 'archives'", archiveIndexVersion ~ ":123:shallow");
+    assert(!archiveIndexCurrent(db, 1, true));
+
+    db.execute("INSERT INTO metadata_status (blob_id, metadata_kind, state, "
+        ~ "scanned_at, error_message) VALUES (2, 'archives', 'not_archive', ?, '')",
+        "2026-01-01T00:00:00");
+    assert(archiveIndexCurrent(db, 2, true));
+}
+
+@("updateRepositoryMetadata")
+unittest
+{
+    import std.file : getSize;
+    import dosierskanilo.testdata : ensureSyntheticTestCatalog;
+
+    auto fixture = ensureSyntheticTestCatalog();
+    const auto rootPath = fixture.catalogRoot;
+    const auto filePath = buildPath(rootPath, "media", "tone.wav");
+
+    auto db = Database(":memory:");
+    migrate(db, "2026-01-01T00:00:00");
+    db.execute("INSERT INTO blobs (id, file_size) VALUES (1, ?)",
+        cast(long) getSize(filePath));
+    db.execute("INSERT INTO file_refs (id, blob_id, directory_id, relative_path, "
+        ~ "time_last_modified, exists_on_disk, last_seen_at) VALUES "
+        ~ "(1, 1, NULL, 'media/tone.wav', '2026-01-01T00:00:00', 1, ?)",
+        "2026-01-01T00:00:00");
+
+    auto summary = updateRepositoryMetadata(db, rootPath,
+        MetadataScanOptions(1, true, true, false, false, true, false, false));
+
+    assert(summary.blobsVisited == 1);
+    assert(summary.checksumsUpdated == 1);
+    assert(summary.fileTypesUpdated == 1);
+    assert(summary.mediaInfoUpdated == 0);
+    assert(summary.archivesUpdated == 0);
+    assert(summary.torrentsUpdated == 0);
+    assert(summary.failed == 0);
+    assert(db.execute("SELECT md5, sha1, xxh64 FROM blobs WHERE id = 1")
+        .oneValue!Blob.length > 0);
+    assert(db.execute("SELECT file_type FROM blobs WHERE id = 1")
+        .oneValue!string.length > 0);
+    assert(metadataCompleted(db, 1, "checksums"));
+    assert(metadataCompleted(db, 1, "file_type"));
+}
+
+@("updateRepositoryMetadataControlled")
+unittest
+{
+    import std.file : getSize;
+    import dosierskanilo.testdata : ensureSyntheticTestCatalog;
+
+    auto fixture = ensureSyntheticTestCatalog();
+    const auto rootPath = fixture.catalogRoot;
+    const auto filePath = buildPath(rootPath, "media", "tone.wav");
+
+    auto db = Database(":memory:");
+    migrate(db, "2026-01-01T00:00:00");
+    db.execute("INSERT INTO blobs (id, file_size) VALUES (1, ?)",
+        cast(long) getSize(filePath));
+    db.execute("INSERT INTO file_refs (id, blob_id, directory_id, relative_path, "
+        ~ "time_last_modified, exists_on_disk, last_seen_at) VALUES "
+        ~ "(1, 1, NULL, 'media/tone.wav', '2026-01-01T00:00:00', 1, ?)",
+        "2026-01-01T00:00:00");
+
+    auto execution = updateRepositoryMetadataControlled(db, rootPath,
+        MetadataScanOptions(1, true, true, false, false, true, false, false),
+        new OperationControl(), 77);
+
+    assert(!execution.cancelled);
+    assert(execution.committed);
+    assert(execution.summary.blobsVisited == 1);
+    assert(execution.summary.checksumsUpdated == 1);
+    assert(execution.summary.fileTypesUpdated == 1);
+    assert(execution.summary.mediaInfoUpdated == 0);
+    assert(execution.summary.archivesUpdated == 0);
+    assert(execution.summary.torrentsUpdated == 0);
+}
+
+@("updateRepositoryMetadata archives and torrents")
+unittest
+{
+    import std.file : getSize;
+    import dosierskanilo.testdata : ensureSyntheticTestCatalog;
+
+    auto fixture = ensureSyntheticTestCatalog();
+    const auto archivePath = buildPath(fixture.catalogRoot, "archives", "sample.zip");
+    const auto torrentPath = buildPath(fixture.catalogRoot, "torrent", "single-file.torrent");
+
+    auto db = Database(":memory:");
+    migrate(db, "2026-01-01T00:00:00");
+    db.execute("INSERT INTO blobs (id, file_size) VALUES (1, ?)",
+        cast(long) getSize(archivePath));
+    db.execute("INSERT INTO file_refs (id, blob_id, directory_id, relative_path, "
+        ~ "time_last_modified, exists_on_disk, last_seen_at) VALUES "
+        ~ "(1, 1, NULL, 'archives/sample.zip', '2026-01-01T00:00:00', 1, ?)",
+        "2026-01-01T00:00:00");
+    db.execute("INSERT INTO blobs (id, file_size) VALUES (2, ?)",
+        cast(long) getSize(torrentPath));
+    db.execute("INSERT INTO file_refs (id, blob_id, directory_id, relative_path, "
+        ~ "time_last_modified, exists_on_disk, last_seen_at) VALUES "
+        ~ "(2, 2, NULL, 'torrent/single-file.torrent', '2026-01-01T00:00:00', 1, ?)",
+        "2026-01-01T00:00:00");
+
+    auto summary = updateRepositoryMetadata(db, fixture.catalogRoot,
+        MetadataScanOptions(1, false, false, false, true, false, true, false));
+
+    assert(summary.blobsVisited == 2);
+    assert(summary.archivesUpdated == 1);
+    assert(summary.torrentsUpdated == 1);
+    assert(summary.failed == 0);
+    assert(metadataCompleted(db, 1, "archives"));
+    assert(metadataCompleted(db, 2, "torrents"));
+    assert(archiveIndexCurrent(db, 1, false));
+    assert(db.execute("SELECT COUNT(*) FROM file_refs WHERE relative_path LIKE ?",
+        "archives/sample.zip!/%").oneValue!long > 0);
+    assert(db.execute("SELECT COUNT(*) FROM torrent_info WHERE blob_id = 2")
+        .oneValue!long == 1);
+    assert(db.execute("SELECT COUNT(*) FROM torrent_files WHERE torrent_blob_id = 2")
+        .oneValue!long > 0);
 }
 
 /** Honor pause/cancel requests after workers and metadata transactions have drained. */

@@ -17,7 +17,7 @@ flowchart TD
     R --> S[Normalized SQLite tables]
     JM --> W[JSON serialization / backup]
     S --> W
-    O -. future backend-neutral catalog interface .-> C[CatalogBackend]
+    O -. storage-neutral catalog interface .-> C[CatalogBackend]
     C -.-> J
     C -.-> R
 ```
@@ -29,28 +29,27 @@ binary payload; one or more `FileSpec` values identify filesystem paths that
 refer to that payload. `CheckSums`, `MediaInfoSig`, `ArchiveSpec`, and
 `TorrentInfo` are metadata attached to that payload.
 
-The implemented storage APIs are not yet one polymorphic catalog interface:
+The implemented storage APIs now share one polymorphic catalog interface, but
+the older `Repository` facade still remains as the SQLite compatibility layer:
 
-- `Repository` in `repository/repository.d` is the concrete SQLite repository
-  API. It owns lifecycle, relational queries, scan/metadata/analysis wrappers,
-  and JSON transfer. `d2sqlite3` remains internal.
+- `CatalogBackend` in `catalogbackend.d` is the storage-neutral read/query
+  contract. `JsonCatalogBackend` and `SqliteCatalogBackend` implement it.
+- `Repository` in `repository/repository.d` remains the concrete SQLite
+  compatibility API. It owns lifecycle, relational queries, scan/metadata/
+  analysis wrappers, and JSON transfer. `d2sqlite3` remains internal.
 - JSON persistence is implemented by the wrapper serializer in
   `model/namedbinaryblob.d` and JSON services in `service/`. The new
   `runOperation()` dispatcher selects the JSON or repository executor from an
-  explicit `OperationTarget`; it is an operation facade, not yet a general
-  `CatalogBackend` read/query interface.
+  explicit `OperationTarget`; it remains the operation facade rather than the
+  query/read backend itself.
 - The GUI's `DirectorySource` currently adapts JSON projections and public
   `Repository` DTO/query methods. This abstraction is GUI-owned rather than a
   backend public base class.
 
-The desired public frontend boundary is a storage-neutral `CatalogBackend`
-contract with JSON and SQL implementations behind a factory. Its read/query
-surface should cover the same logical directory/file sequence, stable identity,
-filter/sort state, details, and cursors for both stores. Long-running operations
-should use that same backend selection rather than branching in each HMI. The
-contract and migration steps are tracked in `SQLITE-IMPLEMENTATION-PLAN.md` under
-WP-13; the interface should be added only after the value types and semantics
-below are frozen.
+Long-running operations should use the same backend selection rather than
+branching in each HMI. The `CatalogBackend` contract and its adapter semantics
+are tracked in `SQLITE-IMPLEMENTATION-PLAN.md` under WP-13, while the
+implemented interface itself lives in `source/dosierskanilo/catalogbackend.d`.
 
 ### Product responsibilities
 

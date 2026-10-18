@@ -752,6 +752,65 @@ unittest
         .oneValue!long == 0);
 }
 
+@("schema migration upgrades version 2 through stable archive entry indexes")
+unittest
+{
+    auto db = Database(":memory:");
+    db.execute("PRAGMA foreign_keys = ON");
+    db.execute("CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, "
+        ~ "applied_at TEXT NOT NULL)");
+    db.execute("CREATE TABLE repository (id INTEGER PRIMARY KEY, "
+        ~ "schema_version INTEGER NOT NULL)");
+    db.execute("CREATE TABLE directories (id INTEGER PRIMARY KEY, parent_id INTEGER, "
+        ~ "relative_path TEXT, name TEXT)");
+    db.execute("CREATE TABLE blobs (id INTEGER PRIMARY KEY, file_size INTEGER NOT NULL, "
+        ~ "md5 BLOB, sha1 BLOB, xxh64 BLOB, file_type TEXT)");
+    db.execute("CREATE TABLE file_refs (id INTEGER PRIMARY KEY, blob_id INTEGER NOT NULL, "
+        ~ "directory_id INTEGER, relative_path TEXT NOT NULL UNIQUE, "
+        ~ "time_last_modified TEXT, exists_on_disk INTEGER NOT NULL DEFAULT 1, "
+        ~ "last_seen_at TEXT)");
+    db.execute("CREATE TABLE metadata_status (blob_id INTEGER NOT NULL, "
+        ~ "metadata_kind TEXT NOT NULL, state TEXT NOT NULL, extractor_version TEXT, "
+        ~ "scanned_at TEXT, error_message TEXT, PRIMARY KEY (blob_id, metadata_kind))");
+    db.execute("CREATE TABLE archive_passwords (blob_id INTEGER PRIMARY KEY, "
+        ~ "password TEXT NOT NULL)");
+    db.execute("CREATE TABLE archive_entries (id INTEGER PRIMARY KEY, "
+        ~ "blob_id INTEGER NOT NULL, file_name TEXT NOT NULL, file_size INTEGER NOT NULL, "
+        ~ "time_last_modified TEXT, md5 BLOB, sha1 BLOB, xxh64 BLOB, "
+        ~ "UNIQUE (blob_id, file_name))");
+    db.execute("INSERT INTO repository (id, schema_version) VALUES (1, 2)");
+    db.execute("INSERT INTO directories (id, parent_id, relative_path, name) "
+        ~ "VALUES (4, NULL, 'archives', 'archives')");
+    db.execute("INSERT INTO blobs (id, file_size) VALUES (7, 128), (8, 11)");
+    db.execute("INSERT INTO file_refs (id, blob_id, directory_id, relative_path, "
+        ~ "time_last_modified, exists_on_disk, last_seen_at) VALUES "
+        ~ "(99, 7, 4, 'archives/container!.zip', '2026-01-01T00:00:00', 1, ?)",
+        "2026-01-01T00:00:00");
+    db.execute("INSERT INTO schema_migrations (version, applied_at) "
+        ~ "VALUES (2, ?)", "2026-01-01T00:00:00");
+    db.execute("INSERT INTO archive_entries (id, blob_id, file_name, file_size, "
+        ~ "time_last_modified, md5, sha1, xxh64) VALUES "
+        ~ "(19, 7, 'nested/readme.txt', 11, '2026-01-01T00:00:00', NULL, NULL, NULL)");
+
+    migrate(db, "2026-01-02T00:00:00");
+
+    assert(db.execute("SELECT version FROM schema_migrations "
+        ~ "ORDER BY version DESC LIMIT 1").oneValue!long
+        == currentRepositorySchemaVersion);
+    assert(db.execute("SELECT schema_version FROM repository WHERE id = 1")
+        .oneValue!long == currentRepositorySchemaVersion);
+    assert(db.execute("SELECT relative_path FROM file_refs WHERE id = 99")
+        .oneValue!string == "archives/container!!.zip");
+    assert(db.execute("SELECT count(*) FROM file_refs").oneValue!long == 2);
+    assert(db.execute("SELECT count(*) FROM file_refs WHERE relative_path = ?",
+        "archives/container!!.zip!/nested/readme.txt").oneValue!long == 1);
+    assert(db.execute("SELECT blob_id FROM file_refs WHERE relative_path = ?",
+        "archives/container!!.zip!/nested/readme.txt").oneValue!long > 0);
+    assert(db.execute("SELECT count(*) FROM sqlite_master WHERE type = 'table' "
+        ~ "AND name IN ('archive_entries', 'archive_indexes')")
+        .oneValue!long == 0);
+}
+
 @("schema migration rejects newer database versions")
 unittest
 {

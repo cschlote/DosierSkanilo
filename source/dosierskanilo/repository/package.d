@@ -6,5 +6,6 @@
 module dosierskanilo.repository;
 
 public import dosierskanilo.repository.errors;
+public import dosierskanilo.repository.analysis;
 public import dosierskanilo.repository.repository;
 public import dosierskanilo.repository.types;
