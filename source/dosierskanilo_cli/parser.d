@@ -765,11 +765,11 @@ string formatOperationProgressLine(string label, OperationProgress event,
     auto phase = operationPhaseLabel(event.phase);
     if (columns < 76)
     {
-        if (label == "Repository metadata")
+        if (label == "Catalog metadata" || label == "Repository metadata")
             label = "Metadata";
-        else if (label == "Repository scan")
+        else if (label == "Catalog scan" || label == "Repository scan")
             label = "Scan";
-        else if (label == "Repository analysis")
+        else if (label == "Catalog analysis" || label == "Repository analysis")
             label = "Analysis";
     }
     if (columns < 60 && phase.length > 14)

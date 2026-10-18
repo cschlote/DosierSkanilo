@@ -220,11 +220,9 @@ bool executeCatalogOperation(ArgsArray options)
 	scope (exit)
 		backend.close();
 	auto backendTarget = backend.target();
-	auto backendName = options.argScanFiles ? "Catalog"
-		: (backendTarget.mode == OperationStorageMode.jsonCatalog
-			? "JSON" : "Repository");
-	auto control = cliOperationControl(backendName ~ (options.argScanFiles
-		? " scan" : " analysis"));
+	auto backendName = "Catalog";
+	auto control = cliOperationControl(options.argScanFiles
+		? "Catalog scan" : "Catalog analysis");
 	OperationResult result;
 	if (options.argScanFiles)
 	{
@@ -282,21 +280,13 @@ bool executeCatalogOperation(ArgsArray options)
 	}
 	else
 	{
-		if (backendName == "Repository")
-			logFLine("%s analysis: %d missing, %d dropped, %d duplicate groups, "
-				~ "%d merged blobs, %d orphaned blobs.", backendName,
-				result.analysisSummary.missingFiles,
-				result.analysisSummary.droppedFiles,
-				result.analysisSummary.duplicateGroups,
-				result.analysisSummary.mergedBlobs,
-				result.analysisSummary.orphanedBlobs);
-		else
-			logFLine("%s analysis: %d missing, %d dropped, %d duplicate groups, "
-				~ "%d merged blobs.", backendName,
-				result.analysisSummary.missingFiles,
-				result.analysisSummary.droppedFiles,
-				result.analysisSummary.duplicateGroups,
-				result.analysisSummary.mergedBlobs);
+		logFLine("%s analysis: %d missing, %d dropped, %d duplicate groups, "
+			~ "%d merged blobs, %d orphaned blobs.", backendName,
+			result.analysisSummary.missingFiles,
+			result.analysisSummary.droppedFiles,
+			result.analysisSummary.duplicateGroups,
+			result.analysisSummary.mergedBlobs,
+			result.analysisSummary.orphanedBlobs);
 	}
 	if (options.argDryRun)
 		logLine("Dry run: " ~ backendName ~ " catalog was not written.");
@@ -461,7 +451,7 @@ bool executeRepositoryMetadata(CatalogBackend backend, string repositoryRoot,
 	request.operationId = 2;
 	request.target = OperationTarget.repositoryTarget(repositoryRoot);
 	request.options = metadataOptions;
-	auto control = cliOperationControl("Repository metadata");
+	auto control = cliOperationControl("Catalog metadata");
 	auto result = backend.runOperation(request, control);
 	clearOperationProgress();
 	if (result.state != OperationState.completed)
