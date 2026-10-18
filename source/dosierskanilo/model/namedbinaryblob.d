@@ -44,8 +44,19 @@ enum int DATA_CLASS_VERSION3 = 3; ///< Legacy NamedBinaryBlob representation, v3
 enum int DATA_CLASS_VERSION4 = 4; ///< Recursive archive-member representation, v4
 enum int DATA_CLASS_VERSION5 = 5; ///< Current virtual-reference representation, v5
 
-/* Legacy name */
-alias NamedBinaryBlobWrapper = NamedBinaryBlobCatalog;
+/// Helper variables of the class
+mixin template payloadHelpers()
+{
+	import std.parallelism : Task, task;
+
+	Task!(updateDigests, NamedBinaryBlob, shared(bool)*, ProgressCallBack*)* task_hashme; ///< Pointer to hashing job
+	Task!(updateFileType, NamedBinaryBlob)* task_filetype; /// Query filetype with 'file' utility
+	Task!(updateMediaInfo, NamedBinaryBlob, bool)* task_mediasig; ///< Pointer to mediasig job
+	Task!(updateArchives, NamedBinaryBlob, bool, bool, shared(bool)*, ProgressCallBack*,
+		ArchivePasswordCallback, size_t, size_t, string, MemberContentCache, bool,
+		bool)* task_archiveScan; ///< Pointer to archive scan job
+	Task!(updateTorrentInfo, NamedBinaryBlob)* task_torrentscan; ///< Pointer to torrent scan job
+}
 
 /** Wrapper class to serialize an array of NamedBinaryBlob objects
  *
@@ -93,11 +104,9 @@ struct NamedBinaryBlobCatalog
 		{
 			mediaInfoVersion = "unknown";
 		}
-		import dosierskanilo.metadata.fileutilsig : getFileUtilityVersion;
 		fileUtilityVersion = getFileUtilityVersion();
 	}
 }
-
 
 @("struct NamedBinaryBlobCatalog")
 unittest
@@ -109,27 +118,16 @@ unittest
 		new FileSpec("file8", SysTime(1_234_567)),
 		new FileSpec("file9", SysTime(2_234_567))
 	], 1234);
-	auto wrap = NamedBinaryBlobCatalog(DATA_CLASS_VERSION3, [
+	auto catalog = NamedBinaryBlobCatalog(DATA_CLASS_VERSION3, [
 		mis0, mis1, mis2, mis3
 	]);
-	assert(wrap.dataVersion == DATA_CLASS_VERSION3);
-	assert(wrap.dataArray.length == 4);
-	assert(wrap.mediaInfoVersion.length == 0);
-	assert(wrap.fileUtilityVersion.length == 0);
-}
-
-/// Helper variables of the class
-mixin template payloadHelpers()
-{
-	import std.parallelism : Task, task;
-
-	Task!(updateDigests, NamedBinaryBlob, shared(bool)*, ProgressCallBack*)* task_hashme; ///< Pointer to hashing job
-	Task!(updateFileType, NamedBinaryBlob)* task_filetype; /// Query filetype with 'file' utility
-	Task!(updateMediaInfo, NamedBinaryBlob, bool)* task_mediasig; ///< Pointer to mediasig job
-	Task!(updateArchives, NamedBinaryBlob, bool, bool, shared(bool)*, ProgressCallBack*,
-		ArchivePasswordCallback, size_t, size_t, string, MemberContentCache, bool,
-		bool)* task_archiveScan; ///< Pointer to archive scan job
-	Task!(updateTorrentInfo, NamedBinaryBlob)* task_torrentscan; ///< Pointer to torrent scan job
+	assert(catalog.dataVersion == DATA_CLASS_VERSION3);
+	assert(catalog.dataArray.length == 4);
+	assert(catalog.mediaInfoVersion.length == 0);
+	assert(catalog.fileUtilityVersion.length == 0);
+	catalog.refreshRuntimeMetadata();
+	assert(catalog.mediaInfoVersion.length > 0);
+	assert(catalog.fileUtilityVersion.length > 0);
 }
 
 /** JSON domain record for binary content and its known file references.
@@ -1321,7 +1319,7 @@ private NamedBinaryBlob[] normalizeV5Catalog(NamedBinaryBlob[] blobs,
 	{
 		if (blob is null)
 			continue;
-		fixupDataClassArrayIn([blob]);
+		blob = fixupDataClassArrayIn([blob])[0];
 		foreach (spec; blob.fileSpecs)
 			if (spec !is null && spec.fileName.length > 0)
 				spec.fileName = canonicalV5FilePath(spec.fileName,

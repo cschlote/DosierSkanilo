@@ -1644,11 +1644,13 @@ added to the database. The CLI uses the common v5 writer for repository export.
   the capability as unavailable, so those entries remain without deep digests.
 - [x] Bound cache bytes and concurrent work, coalesce in-flight requests, pin
   active leases, and make extraction cancellation and disk-full failures safe.
-- [x] Never persist cache paths as source references. Use per-session cache roots,
-  clean stale unlocked sessions at startup, and remove the owned session at close.
+- [x] Never persist cache paths as source references. Use per-session cache
+  roots, clean stale unlocked sessions at startup, and remove the owned session
+  at close.
 
-**Exit pending:** GUI preview operations have not yet joined the cache service, and
-precise duplicate occurrence extraction remains unsupported by the archive adapters.
+**Exit pending:** GUI preview operations have not yet joined the cache service,
+and precise duplicate occurrence extraction remains unsupported by the archive
+adapters.
 
 #### WP-13.5.5: Expandable archive TreeView and cache preferences
 

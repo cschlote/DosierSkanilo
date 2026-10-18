@@ -168,11 +168,11 @@ Cancellation clears any pending pause, wakes a paused worker, and takes preceden
 over resume. A request racing with an operation's last checkpoint may be rejected
 or completion may win; a terminal operation never becomes paused.
 
-`OperationProgress.pauseAvailable` reflects whether a pause request is currently
-accepted. `pausing` and `paused` are distinct states; frontends must show Pause as
-acknowledged only for the latter. Callback invocations remain serialized and
-execute on the reporting worker. Frontends must marshal copied progress values to
-their UI thread.
+`OperationProgress.pauseAvailable` reflects whether a pause request is
+currently accepted. `pausing` and `paused` are distinct states; frontends must
+show Pause as acknowledged only for the latter. Callback invocations remain
+serialized and execute on the reporting worker. Frontends must marshal copied
+progress values to their UI thread.
 
 Storage-safe checkpoint decisions for the first controlled executors:
 

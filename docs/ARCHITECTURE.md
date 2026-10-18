@@ -69,16 +69,28 @@ below are frozen.
 
 ### Implemented class responsibilities
 
-| Type | Current responsibility | Boundary/limitation |
-| --- | --- | --- |
-| `NamedBinaryBlob` | JSON-compatible record for a payload, checksum/metadata, and one or more `FileSpec`s | JSON v5 uses it for archive-member content records too |
-| `FileSpec` | Physical filesystem or canonical virtual archive path and its observed timestamp | Typed locators remain the operation identity |
-| `ArchiveSpec` | Legacy JSON v0-v4 archive member metadata, including recursive v4 `nestedEntries` | Read/import compatibility only; v5 stores scraped members as normal blobs |
-| `TorrentInfo` / `TorrentFileEntry` | Torrent-level facts and torrent member paths | Torrent members are also nested metadata, not ordinary catalog references |
-| `Repository` | Concrete SQLite lifecycle, query, transfer, and synchronous convenience API | SQLite-backed concrete class; no common JSON/SQLite catalog superclass yet |
-| `RepositoryDirectory` / `RepositoryFile` / page DTOs | Typed bounded SQLite read results | Stable cursor IDs are repository identities; GUI JSON projections are separately built |
-| `OperationTarget` / operation requests | Explicit storage mode and scan/metadata/analyze options | `runOperation()` currently dispatches to storage-specific services |
-| GUI `DirectorySource` | JSON/SQLite tree-query adapter used by GTK | Currently defined in the GUI repository, not the backend public catalog API |
+- `NamedBinaryBlob`: JSON-compatible record for a payload,
+  checksum/metadata, and one or more `FileSpec`s. JSON v5 uses it for
+  archive-member content records too.
+- `FileSpec`: physical filesystem or canonical virtual archive path and its
+  observed timestamp. Typed locators remain the operation identity.
+- `ArchiveSpec`: legacy JSON v0-v4 archive member metadata, including
+  recursive v4 `nestedEntries`. Read/import compatibility only; v5 stores
+  scraped members as normal blobs.
+- `TorrentInfo` / `TorrentFileEntry`: torrent-level facts and torrent member
+  paths. Torrent members are also nested metadata, not ordinary catalog
+  references.
+- `Repository`: concrete SQLite lifecycle, query, transfer, and synchronous
+  convenience API. SQLite-backed concrete class; no common JSON/SQLite catalog
+  superclass yet.
+- `RepositoryDirectory` / `RepositoryFile` / page DTOs: typed bounded SQLite
+  read results. Stable cursor IDs are repository identities; GUI JSON
+  projections are separately built.
+- `OperationTarget` / operation requests: explicit storage mode and
+  scan/metadata/analyze options. `runOperation()` currently dispatches to
+  storage-specific services.
+- GUI `DirectorySource`: JSON/SQLite tree-query adapter used by GTK. Currently
+  defined in the GUI repository, not the backend public catalog API.
 
 ### Desired content/reference model
 

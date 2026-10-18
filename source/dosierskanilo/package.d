@@ -9,6 +9,10 @@
  */
 module dosierskanilo;
 
+/* Legacy name */
+alias NamedBinaryBlobWrapper = NamedBinaryBlobCatalog;
+
+
 public import dosierskanilo.logging;
 public import dosierskanilo.options;
 public import dosierskanilo.progress;
