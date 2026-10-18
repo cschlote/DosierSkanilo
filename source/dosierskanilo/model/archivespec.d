@@ -158,4 +158,33 @@ unittest
 	assert(as1.opCmp(as0) > 0, "as1 > as0");
 	assert(as0.opCmp(as1) < 0, "as0 < as1");
 	assert(as1.opCmp(as1) == 0, "as1 == as1");
+
+	auto nested = new ArchiveSpec("nested/file.txt", 42, ts, CheckSums("md5", "sha1", "xxh64"));
+	auto parent = new ArchiveSpec("archive.zip", 4096, ts, CheckSums("a", "b", "c"));
+	parent.archivePassword = "secret";
+	parent.fileType = "ZIP archive data";
+	parent.entryIndex = 7;
+	parent.occurrence = 3;
+	parent.hasIndexIdentity = true;
+	parent.contentBlobId = 99;
+	parent.contentIdentity = "content-id";
+	parent.nestedEntries = [nested];
+
+	auto copied = parent.dup();
+	assert(copied !is parent);
+	assert(copied.fileName == parent.fileName);
+	assert(copied.fileSize == parent.fileSize);
+	assert(copied.timeLastModified == parent.timeLastModified);
+	assert(copied.checkSums == parent.checkSums);
+	assert(copied.archivePassword == parent.archivePassword);
+	assert(copied.fileType == parent.fileType);
+	assert(copied.entryIndex == parent.entryIndex);
+	assert(copied.occurrence == parent.occurrence);
+	assert(copied.hasIndexIdentity == parent.hasIndexIdentity);
+	assert(copied.contentBlobId == parent.contentBlobId);
+	assert(copied.contentIdentity == parent.contentIdentity);
+	assert(copied.nestedEntries.length == 1);
+	assert(copied.nestedEntries[0] !is nested);
+	assert(copied.nestedEntries[0].fileName == nested.fileName);
+	assert(copied.nestedEntries[0].checkSums == nested.checkSums);
 }
