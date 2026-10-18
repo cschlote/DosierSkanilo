@@ -182,7 +182,7 @@ bool executeRepositoryOperation(ArgsArray options)
 	{
 		if (repository !is null)
 			repository.close();
-		errorLine("Repository operation failed: ", ex.msg);
+			errorLine("Catalog operation failed: ", ex.msg);
 		return false;
 	}
 }
@@ -191,8 +191,8 @@ bool executeRepositoryOperation(ArgsArray options)
 void executeRepositoryImport(CatalogBackend backend, string repositoryRoot,
 	ArgsArray options)
 {
-	logLine("Repository phase: import JSON.");
-	logLineVerbose("Importing into repository root: ", repositoryRoot);
+	logLine("Catalog phase: import JSON.");
+	logLineVerbose("Importing into catalog root: ", repositoryRoot);
 	JsonImportOptions importOptions;
 	importOptions.force = options.argReplaceCatalog;
 	backend.importJson(options.argImportJSON, importOptions);
@@ -303,8 +303,8 @@ void executeRepositoryExport(CatalogBackend backend, string repositoryRoot,
 		exportPath = options.argJSONFile;
 	if (exportPath.empty)
 		return;
-	logLine("Repository phase: export JSON.");
-	logLineVerbose("Exporting repository root: ", repositoryRoot);
+	logLine("Catalog phase: export JSON.");
+	logLineVerbose("Exporting catalog root: ", repositoryRoot);
 	CatalogExportOptions exportOptions;
 	exportOptions.outputPath = exportPath;
 	exportOptions.format = CatalogExportFormat.jsonV5;
@@ -345,7 +345,7 @@ void executeRepositoryInfo(CatalogBackend backend, string repositoryRoot,
 void executeRepositoryList(CatalogBackend backend, string repositoryRoot,
 	ArgsArray options)
 {
-	logLineVerbose("Listing repository root: ", repositoryRoot);
+	logLineVerbose("Listing catalog root: ", repositoryRoot);
 	RepositoryQueryOptions query;
 	query.offset = options.argQueryOffset;
 	query.limit = options.argQueryLimit;
@@ -386,7 +386,7 @@ void executeRepositoryList(CatalogBackend backend, string repositoryRoot,
 void executeRepositoryDuplicates(CatalogBackend backend, string repositoryRoot,
 	ArgsArray options)
 {
-	logLineVerbose("Querying duplicate groups in repository root: ", repositoryRoot);
+	logLineVerbose("Querying duplicate groups in catalog root: ", repositoryRoot);
 	auto groups = backend.queryDuplicateGroups(options.argDuplicateLimit);
 	RepositoryQueryOptions lookupQuery;
 	lookupQuery.limit = size_t.max;
@@ -457,9 +457,9 @@ bool executeRepositoryMetadata(CatalogBackend backend, string repositoryRoot,
 	if (result.state != OperationState.completed)
 	{
 		if (result.state == OperationState.cancelled)
-			errorLine("Repository metadata operation cancelled.");
+            errorLine("Catalog metadata operation cancelled.");
 		else
-			errorLine("Repository metadata operation failed: ", result.error);
+			errorLine("Catalog metadata operation failed: ", result.error);
 		return false;
 	}
 	auto summary = result.metadataSummary;
