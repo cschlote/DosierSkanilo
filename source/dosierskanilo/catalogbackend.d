@@ -5,9 +5,14 @@ import std.algorithm.searching : canFind;
 import std.exception : enforce;
 import std.string : split, startsWith;
 
+import dosierskanilo.model.filespec : FileSpec;
+import dosierskanilo.model.namedbinaryblob : NamedBinaryBlob;
 import dosierskanilo.operations : AnalysisOperationRequest, MetadataOperationRequest,
     OperationControl, OperationKind, OperationResult, OperationState,
     OperationStorageMode, OperationTarget, ScanOperationRequest;
+import dosierskanilo.repository.types : JsonImportOptions, RepositoryBlobPage,
+    RepositoryBlobFlags, RepositoryDuplicateGroup, RepositoryInfo,
+    RepositoryQueryOptions;
 
 /** Opaque identity of one content record in one catalog source. */
 struct ContentId
@@ -671,6 +676,9 @@ interface CatalogBackend
     /** Storage-neutral source label and kind. */
     CatalogSourceInfo sourceInfo();
 
+    /** Repository-style metadata for CLI info output. */
+    RepositoryInfo repositoryInfo();
+
     /** Supported operations/features; unsupported behavior is never inferred. */
     CatalogBackendCapabilities capabilities();
 
@@ -707,9 +715,18 @@ interface CatalogBackend
     CatalogTorrentEntryPage listTorrentEntries(ContentId contentId,
         CatalogPageRequest page = CatalogPageRequest.init);
 
+    /** Page through repository-style blob query results. */
+    RepositoryBlobPage queryBlobs(RepositoryQueryOptions options);
+
+    /** Return duplicate groups without mutating the source. */
+    RepositoryDuplicateGroup[] queryDuplicateGroups(size_t limit = 100);
+
     /** Export a selected relationship-closed subset to an explicit destination. */
     CatalogExportResult exportSubset(CatalogSubsetQuery query,
         CatalogExportOptions options);
+
+    /** Import a JSON catalog into the bound repository source. */
+    void importJson(string jsonPath, JsonImportOptions options = JsonImportOptions.init);
 
     /** Run scan synchronously and require its explicit root to match this source. */
     OperationResult runOperation(ScanOperationRequest request,
@@ -1026,6 +1043,16 @@ version (unittest)
             return result;
         }
 
+        override RepositoryInfo repositoryInfo()
+        {
+            requireOpen();
+            RepositoryInfo result;
+            result.rootPath = sourceTarget.mode == OperationStorageMode.repository
+                ? sourceTarget.repositoryRoot : sourceTarget.catalogPath;
+            result.schemaVersion = sourceTarget.mode == OperationStorageMode.repository ? 4 : 5;
+            return result;
+        }
+
         override CatalogBackendCapabilities capabilities()
         {
             requireOpen();
@@ -1241,6 +1268,24 @@ version (unittest)
             return result;
         }
 
+        override RepositoryBlobPage queryBlobs(RepositoryQueryOptions options)
+        {
+            enforce(options.limit > 0);
+            RepositoryBlobPage result;
+            result.total = 1;
+            result.blobIds = [1];
+            result.blobs = [new NamedBinaryBlob([new FileSpec("alpha.txt", "")], 10)];
+            result.flags = [RepositoryBlobFlags(true, false, false, false, false,
+                false, false, false)];
+            return result;
+        }
+
+        override RepositoryDuplicateGroup[] queryDuplicateGroups(size_t limit = 100)
+        {
+            enforce(limit > 0);
+            return [RepositoryDuplicateGroup(10, [1])];
+        }
+
         override CatalogExportResult exportSubset(CatalogSubsetQuery query,
             CatalogExportOptions options)
         {
@@ -1269,6 +1314,13 @@ version (unittest)
             result.contentsExported = contentIds.length;
             result.committed = true;
             return result;
+        }
+
+        override void importJson(string jsonPath, JsonImportOptions options = JsonImportOptions.init)
+        {
+            requireOpen();
+            assert(jsonPath.length > 0);
+            cast(void) options;
         }
 
         override OperationResult runOperation(ScanOperationRequest request,
@@ -1515,6 +1567,9 @@ version (unittest)
         auto torrentPage = backend.listTorrentEntries(firstPage.files[0].contentId);
         assert(torrentPage.entries.length == 1);
         assert(torrentPage.entries[0].pathComponents == ["payload.bin"]);
+        auto duplicateGroups = backend.queryDuplicateGroups();
+        assert(duplicateGroups.length == 1);
+        assert(duplicateGroups[0].fileSize == 10);
         auto exportOptions = CatalogExportOptions(CatalogExportFormat.jsonV5,
             "/tmp/subset.json");
         const auto subset = backend.exportSubset(CatalogSubsetQuery("a", CatalogFilter.init),

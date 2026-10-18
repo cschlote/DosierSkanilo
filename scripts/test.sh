@@ -25,10 +25,10 @@ find "${LST_DIR}" -maxdepth 1 -type f -name '*.lst' -exec ln -sfn {} ./ \;
 # Now do a real run on data using documentation sources as sample input.
 # Keep ./docs available in CI/local checkouts.
 mkdir -p ./docs/
-dub run -- json scan ./docs/ dosierskanilo.json --recursive
+dub run -- scan ./docs/ --json dosierskanilo.json --recursive
 
 # Redo, an calc checksums
-dub run -- json scan ./docs/ dosierskanilo.json --recursive --checksums --media-info
+dub run -- scan ./docs/ --json dosierskanilo.json --recursive --checksums --media-info
 
 ./scripts/test-cli.sh
 

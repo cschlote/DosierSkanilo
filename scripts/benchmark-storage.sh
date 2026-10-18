@@ -41,7 +41,7 @@ for run in $(seq 1 "${REPETITIONS}"); do
 
     /usr/bin/time -f "run=${run} json-load elapsed=%e memory=%MKB" \
         "${ROOT_DIR}/build/bin/dosierskanilo" \
-        json analyze "${json_file}" \
+           analyze --json "${json_file}" \
         >/dev/null
 
     /usr/bin/time -f "run=${run} sqlite-init elapsed=%e memory=%MKB" \

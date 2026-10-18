@@ -9,9 +9,9 @@ argument/dialog mapping, progress presentation, and source refresh.
 
 | Operation | SQLite repository | JSON catalog | CLI mapping | GTK Tools mapping |
 | --- | --- | --- | --- | --- |
-| Scan | `ScanOperationRequest` with scan and optional metadata options | `ScanOperationRequest` with explicit catalog and filesystem root, optional metadata; rejects `dropMissing` | `scan` and `json scan` | Scan dialog; JSON asks for the filesystem root |
+| Scan | `ScanOperationRequest` with scan and optional metadata options | `ScanOperationRequest` with explicit catalog and filesystem root, optional metadata; rejects `dropMissing` | `scan --json` | Scan dialog; JSON asks for the filesystem root |
 | Metadata | `MetadataOperationRequest`, one or more extractors required | Unsupported as a standalone request | `metadata` | Metadata dialog enabled for repository documents |
-| Analyze | `AnalysisOperationRequest`, drop-missing and duplicate merge | `AnalysisOperationRequest`; optional metadata runs before analysis | `analyze` and `json analyze` | Analyze dialog; JSON offers optional metadata first |
+| Analyze | `AnalysisOperationRequest`, drop-missing and duplicate merge | `AnalysisOperationRequest`; optional metadata runs before analysis | `analyze --json` | Analyze dialog; JSON offers optional metadata first |
 
 Targets are not inferred or converted. JSON operations do not create a SQLite
 repository; repository operations do not write a JSON catalog implicitly.
@@ -23,7 +23,7 @@ repository; repository operations do not write a JSON catalog implicitly.
 - Backend operation tests cover staged scan cancellation/resume, metadata batch
   commits and pause/resume, analysis rollback boundaries, JSON cancel-before-write,
   JSON pause-before-replacement, and target-lease ownership.
-- `scripts/test-cli.sh` exercises JSON scan/analyze, SQLite scan with metadata,
+- `scripts/test-cli.sh` exercises JSON-target scan/analyze, SQLite scan with metadata,
   standalone metadata, analysis, import/export, mode isolation, and command output.
 - GUI `operationrequests.d` executes GUI-built requests against both modes and
   compares their scan, metadata, and analysis summaries. `operationtaskstate.d`

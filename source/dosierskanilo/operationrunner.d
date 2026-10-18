@@ -6,7 +6,7 @@ import std.exception : enforce;
 import dosierskanilo.operations;
 import dosierskanilo.model.namedbinaryblob : NamedBinaryBlobCatalog;
 import dosierskanilo.repository : Repository;
-import dosierskanilo.repository.types : MetadataScanOptions;
+import dosierskanilo.repository.types : MetadataScanOptions, RepositoryAnalysisOptions;
 import dosierskanilo.operationlease : OperationTargetBusyException,
     TargetWriteLease;
 import dosierskanilo.service.jsonoperations : analyzeJsonCatalog,
@@ -48,78 +48,48 @@ OperationResult runOperation(ScanOperationRequest request,
         return jsonResult;
     }
 
-    control.setPauseAvailable(false);
-    Repository repository;
-    try
-    {
-        reportOperation(control, request.operationId, OperationKind.scan,
-            OperationPhase.validating, OperationState.running,
-            "Opening repository.");
-        if (control.cancellationRequested)
-        {
-            result.state = OperationState.cancelled;
-        }
-        else
-        {
-            repository = Repository.open(request.target.repositoryRoot);
+    return runRepositoryOperation(request.operationId, OperationKind.scan,
+        request.target, lease, control, OperationPhase.scanning,
+        "Catalog scan completed.",
+        "Catalog scan cancelled; staged changes were discarded.",
+        (ref OperationResult result, Repository repository) {
             auto execution = repository.scanControlled(request.scanOptions,
                 control, request.operationId, lease);
             result.scanSummary = execution.summary;
             result.changesCommitted = execution.committed;
             if (execution.cancelled)
+            {
                 result.state = OperationState.cancelled;
-            else if (requestsMetadata(request.metadataOptions))
+                return;
+            }
+
+            if (requestsMetadata(request.metadataOptions))
             {
                 auto metadata = repository.updateMetadataControlled(
                     request.metadataOptions, control, request.operationId, lease);
                 result.metadataSummary = metadata.summary;
                 result.changesCommitted = result.changesCommitted
                     || metadata.committed;
-                result.state = metadata.cancelled ? OperationState.cancelled
-                    : OperationState.completed;
+                if (metadata.cancelled)
+                {
+                    result.state = OperationState.cancelled;
+                    return;
+                }
             }
-            else
-                result.state = OperationState.completed;
-        }
-    }
-    catch (OperationCallbackException ex)
-    {
-        result.state = OperationState.failed;
-        result.errorCode = OperationErrorCode.callbackFailure;
-        result.error = ex.msg;
-    }
-    catch (Exception ex)
-    {
-        result.state = OperationState.failed;
-        result.errorCode = OperationErrorCode.backendFailure;
-        result.error = ex.msg;
-    }
-    finally
-    {
-        if (repository !is null)
-            repository.close();
-    }
 
-    if (result.state == OperationState.completed
-        || result.state == OperationState.cancelled)
-        result.errorCode = OperationErrorCode.none;
-    auto phase = result.state == OperationState.failed
-        ? OperationPhase.validating : OperationPhase.scanning;
-    auto message = result.state == OperationState.completed
-        ? "Repository scan completed."
-        : result.state == OperationState.cancelled
-            ? "Repository scan cancelled; staged changes were discarded."
-            : result.error;
-    try
-        reportOperation(control, request.operationId, OperationKind.scan,
-            phase, result.state, message, result.scanSummary.filesFound, false);
-    catch (OperationCallbackException ex)
-    {
-        result.state = OperationState.failed;
-        result.errorCode = OperationErrorCode.callbackFailure;
-        result.error = ex.msg;
-    }
-    return result;
+            if (request.mergeDuplicates)
+            {
+                RepositoryAnalysisOptions analysisOptions;
+                analysisOptions.mergeDuplicates = true;
+                auto analysis = repository.analyzeControlled(analysisOptions,
+                    control, request.operationId, lease);
+                result.analysisSummary = analysis.summary;
+                result.changesCommitted = result.changesCommitted
+                    || analysis.committed;
+                if (analysis.cancelled)
+                    result.state = OperationState.cancelled;
+            }
+        });
 }
 
 /** Execute repository metadata extraction through the shared operation contract. */
@@ -149,63 +119,18 @@ OperationResult runOperation(MetadataOperationRequest request,
     scope (exit)
         lease.release();
 
-    control.setPauseAvailable(false);
-    Repository repository;
-    try
-    {
-        reportOperation(control, request.operationId, OperationKind.metadata,
-            OperationPhase.validating, OperationState.running,
-            "Opening repository.");
-        if (control.cancellationRequested)
-            result.state = OperationState.cancelled;
-        else
-        {
-            repository = Repository.open(request.target.repositoryRoot);
+    return runRepositoryOperation(request.operationId, OperationKind.metadata,
+        request.target, lease, control, metadataFinalPhase(request.options),
+        "Catalog metadata operation completed.",
+        "Catalog metadata operation cancelled.",
+        (ref OperationResult result, Repository repository) {
             auto execution = repository.updateMetadataControlled(request.options,
                 control, request.operationId, lease);
             result.metadataSummary = execution.summary;
             result.changesCommitted = execution.committed;
             result.state = execution.cancelled ? OperationState.cancelled
                 : OperationState.completed;
-        }
-    }
-    catch (OperationCallbackException ex)
-    {
-        result.state = OperationState.failed;
-        result.errorCode = OperationErrorCode.callbackFailure;
-        result.error = ex.msg;
-    }
-    catch (Exception ex)
-    {
-        result.state = OperationState.failed;
-        result.errorCode = OperationErrorCode.backendFailure;
-        result.error = ex.msg;
-    }
-    finally
-    {
-        if (repository !is null)
-            repository.close();
-    }
-
-    if (result.state == OperationState.completed
-        || result.state == OperationState.cancelled)
-        result.errorCode = OperationErrorCode.none;
-    try
-        reportOperation(control, request.operationId, OperationKind.metadata,
-            metadataFinalPhase(request.options), result.state,
-            result.state == OperationState.completed
-                ? "Repository metadata operation completed."
-                : result.state == OperationState.cancelled
-                    ? "Repository metadata operation cancelled."
-                    : result.error,
-            result.metadataSummary.blobsVisited);
-    catch (OperationCallbackException ex)
-    {
-        result.state = OperationState.failed;
-        result.errorCode = OperationErrorCode.callbackFailure;
-        result.error = ex.msg;
-    }
-    return result;
+        });
 }
 
 /** Execute repository analysis through the shared operation contract. */
@@ -240,24 +165,47 @@ OperationResult runOperation(AnalysisOperationRequest request,
         return jsonResult;
     }
 
-    control.setPauseAvailable(false);
-    Repository repository;
-    try
-    {
-        reportOperation(control, request.operationId, OperationKind.analyze,
-            OperationPhase.validating, OperationState.running,
-            "Opening repository.");
-        if (control.cancellationRequested)
-            result.state = OperationState.cancelled;
-        else
-        {
-            repository = Repository.open(request.target.repositoryRoot);
+    return runRepositoryOperation(request.operationId, OperationKind.analyze,
+        request.target, lease, control, OperationPhase.analysisCleanup,
+        "Catalog analysis completed.",
+        "Catalog analysis cancelled; staged changes were discarded.",
+        (ref OperationResult result, Repository repository) {
             auto execution = repository.analyzeControlled(request.options,
                 control, request.operationId, lease);
             result.analysisSummary = execution.summary;
             result.changesCommitted = execution.committed;
             result.state = execution.cancelled ? OperationState.cancelled
                 : OperationState.completed;
+        });
+}
+
+private OperationResult runRepositoryOperation(ulong operationId,
+    OperationKind operation, OperationTarget target, TargetWriteLease lease,
+    OperationControl control,
+    OperationPhase successPhase, string completedMessage,
+    string cancelledMessage,
+    void delegate(ref OperationResult result, Repository repository) execute)
+{
+    OperationResult result;
+    result.operationId = operationId;
+    result.operation = operation;
+    result.state = OperationState.running;
+    control.setPauseAvailable(false);
+
+    Repository repository;
+    try
+    {
+        reportOperation(control, operationId, operation,
+            OperationPhase.validating, OperationState.running,
+            "Opening repository.");
+        if (control.cancellationRequested)
+            result.state = OperationState.cancelled;
+        else
+        {
+            repository = Repository.open(target.repositoryRoot);
+            execute(result, repository);
+            if (result.state == OperationState.running)
+                result.state = OperationState.completed;
         }
     }
     catch (OperationCallbackException ex)
@@ -281,15 +229,20 @@ OperationResult runOperation(AnalysisOperationRequest request,
     if (result.state == OperationState.completed
         || result.state == OperationState.cancelled)
         result.errorCode = OperationErrorCode.none;
+    auto message = result.state == OperationState.completed
+        ? completedMessage
+        : result.state == OperationState.cancelled
+            ? cancelledMessage
+            : result.error;
     try
-        reportOperation(control, request.operationId, OperationKind.analyze,
-            OperationPhase.analysisCleanup, result.state,
-            result.state == OperationState.completed
-                ? "Repository analysis completed."
-                : result.state == OperationState.cancelled
-                    ? "Repository analysis cancelled; staged changes were discarded."
-                    : result.error,
-            result.analysisSummary.mergedBlobs);
+        reportOperation(control, operationId, operation, successPhase,
+            result.state, message,
+            operation == OperationKind.scan
+                ? result.scanSummary.filesFound
+                : result.operation == OperationKind.metadata
+                    ? result.metadataSummary.blobsVisited
+                    : result.analysisSummary.mergedBlobs,
+            false);
     catch (OperationCallbackException ex)
     {
         result.state = OperationState.failed;

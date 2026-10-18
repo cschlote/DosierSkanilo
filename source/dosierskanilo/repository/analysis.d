@@ -9,6 +9,7 @@ import std.string : split;
 import dosierskanilo.operations : OperationControl, OperationKind,
     OperationPhase, OperationProgress, OperationState;
 import dosierskanilo.repository.archiveindex : deleteUnreachableBlobs;
+import dosierskanilo.repository.schema : migrate;
 import dosierskanilo.repository.types;
 
 /** Return duplicate groups without modifying repository state. */
@@ -251,4 +252,98 @@ private bool reportAnalysisProgress(OperationControl control, ulong operationId,
     control.report(progress);
     return control.pauseAtCheckpoint(progress)
         && !control.cancellationRequested;
+}
+
+@("analyzeRepository")
+unittest
+{
+    auto db = Database(":memory:");
+    migrate(db, "2026-01-01T00:00:00");
+
+    db.execute("INSERT INTO directories (id, parent_id, relative_path, name) "
+        ~ "VALUES (1, NULL, '', '')");
+    db.execute("INSERT INTO blobs (id, file_size, md5, sha1, xxh64) VALUES "
+        ~ "(1, 100, ?, ?, ?), "
+        ~ "(2, 100, ?, ?, ?), "
+        ~ "(3, 200, NULL, NULL, NULL), "
+        ~ "(4, 300, NULL, NULL, NULL)",
+        cast(Blob) "md5-1", cast(Blob) "sha1-1", cast(Blob) "xxh64-1",
+        cast(Blob) "md5-1", cast(Blob) "sha1-1", cast(Blob) "xxh64-1");
+    db.execute("INSERT INTO file_refs (id, blob_id, directory_id, relative_path, "
+        ~ "time_last_modified, exists_on_disk, last_seen_at) VALUES "
+        ~ "(11, 1, 1, 'keep.txt', '2026-01-01T00:00:00', 1, ?), "
+        ~ "(12, 2, 1, 'merge.txt', '2026-01-01T00:00:00', 1, ?), "
+        ~ "(13, 4, 1, 'missing.txt', '2026-01-01T00:00:00', 0, ?)",
+        "2026-01-01T00:00:00", "2026-01-01T00:00:00",
+        "2026-01-01T00:00:00");
+
+    auto summary = analyzeRepository(db, RepositoryAnalysisOptions(true, true));
+
+    assert(summary.missingFiles == 1);
+    assert(summary.droppedFiles == 1);
+    assert(summary.duplicateGroups == 1);
+    assert(summary.mergedBlobs == 1);
+    assert(summary.orphanedBlobs == 2);
+    assert(db.execute("SELECT count(*) FROM file_refs").oneValue!long == 2);
+    assert(db.execute("SELECT count(*) FROM blobs").oneValue!long == 1);
+    assert(db.execute("SELECT blob_id FROM file_refs ORDER BY id LIMIT 1")
+        .oneValue!long == 1);
+}
+
+@("queryDuplicateGroups")
+unittest
+{
+    auto db = Database(":memory:");
+    migrate(db, "2026-01-01T00:00:00");
+
+    db.execute("INSERT INTO blobs (id, file_size, md5, sha1, xxh64) VALUES "
+        ~ "(1, 11, X'00112233445566778899AABBCCDDEEFF', "
+        ~ "X'00112233445566778899AABBCCDDEEFF00112233', "
+        ~ "X'0011223344556677'),"
+        ~ "(2, 11, X'00112233445566778899AABBCCDDEEFF', "
+        ~ "X'00112233445566778899AABBCCDDEEFF00112233', "
+        ~ "X'0011223344556677'),"
+        ~ "(3, 11, X'00112233445566778899AABBCCDDEEFF', "
+        ~ "X'00112233445566778899AABBCCDDEEFF00112233', "
+        ~ "X'0011223344556677')");
+    db.execute("INSERT INTO file_refs (id, blob_id, relative_path, exists_on_disk) "
+        ~ "VALUES (1, 1, 'a.txt', 1), (2, 2, 'b.txt', 1)");
+
+    auto groups = queryDuplicateGroups(db, 10);
+    assert(groups.length == 1);
+    assert(groups[0].fileSize == 11);
+    assert(groups[0].blobIds == [1L, 2L]);
+}
+
+@("analyzeRepositoryControlled")
+unittest
+{
+    auto db = Database(":memory:");
+    migrate(db, "2026-01-01T00:00:00");
+
+    db.execute("INSERT INTO blobs (id, file_size, md5, sha1, xxh64) VALUES "
+        ~ "(1, 11, X'00112233445566778899AABBCCDDEEFF', "
+        ~ "X'00112233445566778899AABBCCDDEEFF00112233', "
+        ~ "X'0011223344556677'),"
+        ~ "(2, 11, X'00112233445566778899AABBCCDDEEFF', "
+        ~ "X'00112233445566778899AABBCCDDEEFF00112233', "
+        ~ "X'0011223344556677'),"
+        ~ "(3, 7, NULL, NULL, NULL)");
+    db.execute("INSERT INTO file_refs (id, blob_id, relative_path, exists_on_disk) "
+        ~ "VALUES (1, 1, 'a.txt', 1), (2, 2, 'b.txt', 1), (3, 3, 'missing.txt', 0)");
+
+    auto execution = analyzeRepositoryControlled(db,
+        RepositoryAnalysisOptions(true, true), new OperationControl(), 99);
+
+    assert(!execution.cancelled);
+    assert(execution.committed);
+    assert(execution.summary.missingFiles == 1);
+    assert(execution.summary.droppedFiles == 1);
+    assert(execution.summary.duplicateGroups == 1);
+    assert(execution.summary.mergedBlobs == 1);
+    assert(execution.summary.orphanedBlobs == 1);
+    assert(db.execute("SELECT count(*) FROM file_refs WHERE exists_on_disk = 0")
+        .oneValue!long == 0);
+    assert(db.execute("SELECT count(*) FROM blobs WHERE id = 2")
+        .oneValue!long == 0);
 }

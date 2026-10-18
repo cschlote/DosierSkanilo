@@ -58,7 +58,8 @@ JsonScanExecutionResult scanJsonCatalog(string catalogPath, string filesystemRoo
     OperationControl control, ulong operationId)
 {
     JsonScanExecutionResult execution;
-    execution.catalog = loadJsonCatalog(catalogPath, forceOverwrite);
+    execution.catalog = loadJsonCatalog(catalogPath, forceOverwrite, control,
+        OperationKind.scan, operationId);
     if (!scanJsonDirectory(filesystemRoot, scanOptions,
         execution.catalog.dataVersion == DATA_CLASS_VERSION5,
         execution.catalog.dataArray, control, operationId,
@@ -89,7 +90,8 @@ JsonAnalysisExecutionResult analyzeJsonCatalog(string catalogPath,
     ulong operationId)
 {
     JsonAnalysisExecutionResult execution;
-    execution.catalog = loadJsonCatalog(catalogPath, forceOverwrite);
+    execution.catalog = loadJsonCatalog(catalogPath, forceOverwrite, control,
+        OperationKind.analyze, operationId);
     auto metadata = updateJsonMetadata(execution.catalog.dataArray,
         metadataOptions, OperationKind.analyze, control, operationId);
     execution.metadataSummary = metadata.summary;
@@ -117,15 +119,27 @@ bool commitJsonCatalog(string catalogPath, ref NamedBinaryBlobCatalog catalog)
 }
 
 private NamedBinaryBlobCatalog loadJsonCatalog(string catalogPath,
-    bool forceOverwrite)
+    bool forceOverwrite, OperationControl control, OperationKind operation,
+    ulong operationId)
 {
     import std.file : exists;
     import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION5;
 
+    ProgressCallBack progress;
+    if (control !is null)
+    {
+        progress.contextual = (size_t completed, size_t total) {
+            reportJsonProgress(control, operationId, operation,
+                OperationPhase.jsonRead, completed, total, true,
+                "Loading JSON catalog.", catalogPath);
+        };
+    }
+
     if (!exists(catalogPath))
         return NamedBinaryBlobCatalog(DATA_CLASS_VERSION5, []);
     try
-        return deserializeDataClassJsonWrapperFile(catalogPath);
+        return deserializeDataClassJsonWrapperFile(catalogPath,
+            control is null ? null : &progress);
     catch (Exception ex)
     {
         if (!forceOverwrite)

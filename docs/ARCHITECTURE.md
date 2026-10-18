@@ -17,7 +17,7 @@ flowchart TD
     R --> S[Normalized SQLite tables]
     JM --> W[JSON serialization / backup]
     S --> W
-    O -. future backend-neutral catalog interface .-> C[CatalogBackend]
+    O -. storage-neutral catalog interface .-> C[CatalogBackend]
     C -.-> J
     C -.-> R
 ```
@@ -29,28 +29,29 @@ binary payload; one or more `FileSpec` values identify filesystem paths that
 refer to that payload. `CheckSums`, `MediaInfoSig`, `ArchiveSpec`, and
 `TorrentInfo` are metadata attached to that payload.
 
-The implemented storage APIs are not yet one polymorphic catalog interface:
+ The implemented storage APIs now share one polymorphic catalog interface, but
+ the older `Repository` facade still remains as the SQLite compatibility layer:
 
-- `Repository` in `repository/repository.d` is the concrete SQLite repository
-  API. It owns lifecycle, relational queries, scan/metadata/analysis wrappers,
-  and JSON transfer. `d2sqlite3` remains internal.
+- `CatalogBackend` in `catalogbackend.d` is the storage-neutral read/query
+  contract. `JsonCatalogBackend` and `SqliteCatalogBackend` implement it. The
+  backend instance exposes `close()` as lifecycle cleanup, while
+  `CatalogBackendFactory` stays the creation boundary for target selection.
+- `Repository` in `repository/repository.d` remains the concrete SQLite
+  compatibility API. It owns lifecycle, relational queries, scan/metadata/
+  analysis wrappers, and JSON transfer. `d2sqlite3` remains internal.
 - JSON persistence is implemented by the wrapper serializer in
   `model/namedbinaryblob.d` and JSON services in `service/`. The new
   `runOperation()` dispatcher selects the JSON or repository executor from an
-  explicit `OperationTarget`; it is an operation facade, not yet a general
-  `CatalogBackend` read/query interface.
+  explicit `OperationTarget`; it remains the operation facade rather than the
+  query/read backend itself.
 - The GUI's `DirectorySource` currently adapts JSON projections and public
   `Repository` DTO/query methods. This abstraction is GUI-owned rather than a
   backend public base class.
 
-The desired public frontend boundary is a storage-neutral `CatalogBackend`
-contract with JSON and SQL implementations behind a factory. Its read/query
-surface should cover the same logical directory/file sequence, stable identity,
-filter/sort state, details, and cursors for both stores. Long-running operations
-should use that same backend selection rather than branching in each HMI. The
-contract and migration steps are tracked in `SQLITE-IMPLEMENTATION-PLAN.md` under
-WP-13; the interface should be added only after the value types and semantics
-below are frozen.
+Long-running operations should use the same backend selection rather than
+branching in each HMI. The `CatalogBackend` contract and its adapter semantics
+are tracked in `SQLITE-IMPLEMENTATION-PLAN.md` under WP-13, while the
+implemented interface itself lives in `source/dosierskanilo/catalogbackend.d`.
 
 ### Product responsibilities
 
@@ -62,23 +63,43 @@ below are frozen.
   supported standalone catalog and interchange format.
 - **CLI HMI:** expose useful scriptable commands, stable plain/JSON output, and
   clear stdout/stderr/exit behavior. It must not contain an independent scan or
-  analysis algorithm.
+  analysis algorithm. The CLI now routes scan, analysis, metadata, info, list,
+  duplicates, import, and export through the polymorphic backend facade, using
+  `Repository` only to open or initialize a SQLite source when that source is
+  selected.
 - **GTK HMI:** browse the same logical catalog, visualize and preview files,
   navigate virtual archive members, and invoke the same operations. It must not
   query SQLite or mutate serialized records directly.
 
 ### Implemented class responsibilities
 
-| Type | Current responsibility | Boundary/limitation |
-| --- | --- | --- |
-| `NamedBinaryBlob` | JSON-compatible record for a payload, checksum/metadata, and one or more `FileSpec`s | JSON v5 uses it for archive-member content records too |
-| `FileSpec` | Physical filesystem or canonical virtual archive path and its observed timestamp | Typed locators remain the operation identity |
-| `ArchiveSpec` | Legacy JSON v0-v4 archive member metadata, including recursive v4 `nestedEntries` | Read/import compatibility only; v5 stores scraped members as normal blobs |
-| `TorrentInfo` / `TorrentFileEntry` | Torrent-level facts and torrent member paths | Torrent members are also nested metadata, not ordinary catalog references |
-| `Repository` | Concrete SQLite lifecycle, query, transfer, and synchronous convenience API | SQLite-backed concrete class; no common JSON/SQLite catalog superclass yet |
-| `RepositoryDirectory` / `RepositoryFile` / page DTOs | Typed bounded SQLite read results | Stable cursor IDs are repository identities; GUI JSON projections are separately built |
-| `OperationTarget` / operation requests | Explicit storage mode and scan/metadata/analyze options | `runOperation()` currently dispatches to storage-specific services |
-| GUI `DirectorySource` | JSON/SQLite tree-query adapter used by GTK | Currently defined in the GUI repository, not the backend public catalog API |
+- `NamedBinaryBlob`: JSON-compatible record for a payload,
+  checksum/metadata, and one or more `FileSpec`s. JSON v5 uses it for
+  archive-member content records too.
+- `FileSpec`: physical filesystem or canonical virtual archive path and its
+  observed timestamp. Typed locators remain the operation identity.
+- `ArchiveSpec`: legacy JSON v0-v4 archive member metadata, including
+  recursive v4 `nestedEntries`. Read/import compatibility only; v5 stores
+  scraped members as normal blobs.
+- `TorrentInfo` / `TorrentFileEntry`: torrent-level facts and torrent member
+  paths. Torrent members are also nested metadata, not ordinary catalog
+  references.
+- `Repository`: concrete SQLite lifecycle, query, transfer, and synchronous
+  convenience API. SQLite-backed concrete class; still needed for compatibility
+  and source initialization, but backend-facing CLI paths now use the shared
+  `CatalogBackend` facade.
+- `RepositoryDirectory` / `RepositoryFile` / page DTOs: typed bounded SQLite
+  read results. Stable cursor IDs are repository identities; GUI JSON
+  projections are separately built.
+- `OperationTarget` / operation requests: explicit storage mode and
+  scan/metadata/analyze options. `runOperation()` currently dispatches to
+  storage-specific services.
+- `CatalogBackendFactory` / `CatalogBackend`: explicit backend creation and
+  storage-neutral instance lifecycle. The factory selects the implementation,
+  the instance serves query and operation methods, and `close()` ends the
+  backend session.
+- GUI `DirectorySource`: JSON/SQLite tree-query adapter used by GTK. Currently
+  defined in the GUI repository, not the backend public catalog API.
 
 ### Desired content/reference model
 
@@ -247,7 +268,7 @@ This keeps the model content-oriented while preserving all known file names.
 
 ## 5. Serialization and Migration
 
-The current interchange format is JSON using `NamedBinaryBlobWrapper`. The
+The current interchange format is JSON using `NamedBinaryBlobCatalog`. The
 version-3 wrapper contains:
 
 - `dataVersion`

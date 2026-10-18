@@ -22,7 +22,6 @@ import dosierskanilo_cli.logging : errorFLine, errorLine;
 import dosierskanilo_cli.jsonvalidation : validateJsonOptions;
 import dosierskanilo_cli.repositoryvalidation : validateRepositoryOptions;
 import core.internal.lifetime;
-
 version (Posix)
 {
     import core.sys.posix.sys.ioctl : ioctl, TIOCGWINSZ, winsize;
@@ -33,8 +32,8 @@ immutable string helpText = q"EOS
 
 Usage:
     dosierskanilo <command> [ROOT] [options]
-    dosierskanilo json scan ROOT CATALOG.json [options]
-    dosierskanilo json analyze CATALOG.json [options]
+    dosierskanilo scan [ROOT] --json CATALOG.json [--base-dir DIR] [options]
+    dosierskanilo analyze [ROOT] --json CATALOG.json [--base-dir DIR] [options]
 
 This is a small utility to scan a directory and collect all files
 found within. Each file with same size and same checksums are considered
@@ -46,23 +45,25 @@ calculate media signatures for audio and video files.
 It stores results in JSON v5 catalogs, reads older JSON v0-v4 catalogs, and
 analyzes duplicate content and missing references.
 
-The repository mode stores the current state in a `.dosierskanilo` SQLite
-repository and keeps JSON available for import and export.
+The catalog mode stores the current state in a `.dosierskanilo` SQLite
+catalog and keeps JSON available for import and export.
 
 Commands:
 
-    init       Initialize a repository
-    scan       Scan a repository
-    metadata   Extract metadata in a repository
-    analyze    Analyze a repository
-    info       Show repository information
-    list       List repository content references, including virtual members
+    init       Initialize a catalog
+    scan       Scan a catalog
+    metadata   Extract metadata in a catalog
+    analyze    Analyze a catalog
+    info       Show catalog information
+    list       List catalog content references, including virtual members
     duplicates List duplicate blob groups
-    import     Import JSON v0-v5 into a repository
-    export     Export a repository as JSON v5
+    import     Import JSON v0-v5 into a catalog
+    export     Export a catalog as JSON v5
 
-    json scan ROOT CATALOG.json
-    json analyze CATALOG.json
+JSON target options:
+
+    --json CATALOG.json   Use the JSON catalog backend
+    --base-dir DIR        Base directory for JSON paths (defaults to `.`)
 
 Metadata options (at least one is required for `metadata`):
 
@@ -73,15 +74,15 @@ Option scope keys use the fixed columns `S A M I L D R G J` (`-` means not
 available for that scope):
 
     S Scan (repository or JSON)      A Analyze (repository or JSON)
-    M Metadata extraction            I Repository info
-    L List repository content        D Duplicate groups
+    M Metadata extraction            I Catalog info
+    L List catalog content           D Duplicate groups
     R Init/import/export             G Global options
     J JSON catalog workflows
 
 For example, `SA-------` applies to scan and analysis; `---ILD---` applies to
 info, list, and duplicate queries.
 
-`json analyze CATALOG.json` finds and merges duplicate records with complete
+`analyze --json CATALOG.json` finds and merges duplicate records with complete
 checksums. Add `--merge-duplicates` to a JSON scan to analyze and merge directly;
 `--dry-run` reports the result without writing the JSON catalog.
 
@@ -90,8 +91,8 @@ Examples:
     dosierskanilo metadata /data/library --checksums --file-types
     dosierskanilo metadata /data/library --media-info --scan-archives --scan-torrents
     dosierskanilo metadata --checksums --file-types --media-info --scan-archives --scan-torrents --verbose
-    dosierskanilo json scan ROOT CATALOG.json --checksums --merge-duplicates --dry-run
-    dosierskanilo json analyze CATALOG.json --dry-run
+    dosierskanilo scan --json CATALOG.json --checksums --merge-duplicates --dry-run
+    dosierskanilo analyze --json CATALOG.json --dry-run
 
 EOS";
 
@@ -99,8 +100,6 @@ EOS";
 enum CliCommand
 {
     noCommand,
-    jsonScan,
-    jsonAnalyze,
     init,
     scan,
     metadata,
@@ -142,26 +141,12 @@ struct ParsedCommandLine
 ParsedCommandLine parseCommandLine(string[] args)
 {
     string command;
-    bool jsonMode;
     size_t commandIndex;
     ArgsArray argsarray;
     if (args.length > 1)
     {
-        if (args[1] == "json")
+        switch (args[1])
         {
-            if (args.length <= 2 || (args[2] != "scan" && args[2] != "analyze"))
-            {
-                errorLine("JSON mode requires 'scan' or 'analyze'.");
-                return ParsedCommandLine(ParseStatus.error, CliCommand.noCommand, argsarray);
-            }
-            jsonMode = true;
-            command = args[2] == "scan" ? "json-scan" : "json-analyze";
-            commandIndex = 2;
-        }
-        else
-        {
-            switch (args[1])
-            {
             case "init", "scan", "metadata", "analyze", "info", "list",
                 "duplicates", "import", "export":
                 command = args[1];
@@ -169,7 +154,6 @@ ParsedCommandLine parseCommandLine(string[] args)
                 break;
             default:
                 break;
-            }
         }
     }
     if (args.length <= 1)
@@ -182,23 +166,7 @@ ParsedCommandLine parseCommandLine(string[] args)
     if (!command.empty && args.length > positionalStart
         && !args[positionalStart].startsWith("-"))
     {
-        if (jsonMode && command == "json-scan")
-        {
-            rootArgument = args[positionalStart];
-            positionalCount = 1;
-            if (args.length > positionalStart + 1
-                && !args[positionalStart + 1].startsWith("-"))
-            {
-                catalogArgument = args[positionalStart + 1];
-                positionalCount = 2;
-            }
-        }
-        else if (jsonMode && command == "json-analyze")
-        {
-            catalogArgument = args[positionalStart];
-            positionalCount = 1;
-        }
-        else if (command == "export")
+        if (command == "export")
         {
             rootArgument = args[positionalStart];
             positionalCount = 1;
@@ -223,13 +191,6 @@ ParsedCommandLine parseCommandLine(string[] args)
     }
     if (!command.empty)
         args = args[0 .. 1] ~ args[commandIndex + 1 + positionalCount .. $];
-    if (!rootArgument.empty)
-    {
-        if (jsonMode)
-            argsarray.argScanPath = rootArgument;
-        else
-            argsarray.argRepositoryPath = rootArgument;
-    }
     if (!catalogArgument.empty)
         argsarray.argJSONFile = catalogArgument;
 
@@ -240,6 +201,8 @@ ParsedCommandLine parseCommandLine(string[] args)
         helpInformation = getopt(args, /* std.getopt.config.required, */
 
             "output", "------R-- Output JSON file for export", &argsarray.argExportJSON,
+            "json", "S-------J JSON catalog to read/write", &argsarray.argJSONFile,
+            "base-dir", "S-------J Base directory for JSON paths", &argsarray.argBaseDir,
             "recursive", "S-------- Recursively scan directories", &argsarray.argRecursive,
             "checksums", "SAM------ Calculate the checksums", &argsarray.argDoChecksums,
             "file-types", "SAM------ Query file type with 'file' utility", &argsarray.argDoFileTypes,
@@ -252,11 +215,11 @@ ParsedCommandLine parseCommandLine(string[] args)
             "replace", "S-----R-- Replace existing data (JSON scan or import)", &argsarray.argReplaceCatalog,
             "pick-hidden", "S-------- Pick hidden files and directories too", &argsarray.argPickHidden,
             "dry-run", "--------J Compute JSON results without writing the catalog", &argsarray.argDryRun,
-            "merge-duplicates", "--------J Analyze and merge duplicates after JSON scan", &argsarray.argMergeDuplicates,
+            "merge-duplicates", "--------J Analyze and merge duplicates after scan", &argsarray.argMergeDuplicates,
             "verbose", "-------G- Be verbose", &argsarray.argVerboseOutputs,
-            "text", "----L---- Filter listed repository paths or SHA1 values", &argsarray.argQueryText,
-            "limit", "----L---- Maximum number of listed repository blobs", &argsarray.argQueryLimit,
-            "offset", "----L---- Number of matching repository blobs to skip", &argsarray.argQueryOffset,
+            "text", "----L---- Filter listed catalog paths or SHA1 values", &argsarray.argQueryText,
+            "limit", "----L---- Maximum number of listed catalog blobs", &argsarray.argQueryLimit,
+            "offset", "----L---- Number of matching catalog blobs to skip", &argsarray.argQueryOffset,
             "video", "----L---- Require video metadata", &argsarray.argQueryVideo,
             "audio", "----L---- Require audio metadata", &argsarray.argQueryAudio,
             "image", "----L---- Require image metadata", &argsarray.argQueryImage,
@@ -265,7 +228,7 @@ ParsedCommandLine parseCommandLine(string[] args)
             "archive", "----L---- Require a known archive index", &argsarray.argQueryArchive,
             "torrent", "----L---- Require torrent metadata", &argsarray.argQueryTorrent,
             "duplicate-limit", "-----D--- Maximum number of duplicate groups", &argsarray.argDuplicateLimit,
-            "format", "---ILD--- Repository query output format: table or json", &argsarray.argOutputFormat,
+            "format", "---ILD--- Catalog query output format: table or json", &argsarray.argOutputFormat,
             "version", "-------G- Show the application version", &argsarray.argVersion);
     }
     catch (GetOptException ex)
@@ -298,14 +261,6 @@ ParsedCommandLine parseCommandLine(string[] args)
     case "analyze":
         argsarray.argRunAnalysis = true;
         break;
-    case "json-scan":
-        argsarray.argScanFiles = true;
-        argsarray.argWriteJSON = true;
-        break;
-    case "json-analyze":
-        argsarray.argRunAnalysis = true;
-        argsarray.argWriteJSON = true;
-        break;
     case "import":
         argsarray.argImportJSON = argsarray.argJSONFile;
         break;
@@ -333,6 +288,19 @@ ParsedCommandLine parseCommandLine(string[] args)
     }
     if (argsarray.argVersion)
         return ParsedCommandLine(ParseStatus.showVersion, CliCommand.noCommand, argsarray);
+
+    const bool jsonMode = (command == "scan" || command == "analyze"
+        || command == "list" || command == "duplicates")
+        && !argsarray.argJSONFile.empty;
+    if (jsonMode)
+    {
+        if (argsarray.argBaseDir.empty)
+            argsarray.argBaseDir = rootArgument.empty ? "." : rootArgument;
+        if (argsarray.argJSONFile.empty)
+            argsarray.argJSONFile = catalogArgument;
+    }
+    else if (!rootArgument.empty)
+        argsarray.argRepositoryPath = rootArgument;
 
     if (args.length > 1)
     {
@@ -378,10 +346,6 @@ private CliCommand commandToCliCommand(string command)
         return CliCommand.duplicates;
     case "analyze":
         return CliCommand.analyze;
-    case "json-scan":
-        return CliCommand.jsonScan;
-    case "json-analyze":
-        return CliCommand.jsonAnalyze;
     case "import":
         return CliCommand.importJson;
     case "export":
@@ -403,21 +367,21 @@ unittest
     assert(sqliteScan.command == CliCommand.scan);
     assert(sqliteScan.options.argRepositoryPath == root);
 
-    auto jsonScan = parseCommandLine(["programname", "json", "scan", root,
-        catalog, "--recursive"]);
-    assert(jsonScan.status == ParseStatus.run);
-    assert(jsonScan.command == CliCommand.jsonScan);
-    assert(jsonScan.options.argScanPath == root);
-    assert(jsonScan.options.argJSONFile == catalog);
-    assert(jsonScan.options.argScanFiles);
-    assert(jsonScan.options.argWriteJSON);
+    auto jsonScanTopLevel = parseCommandLine(["programname", "scan", root,
+        "--json", catalog, "--recursive"]);
+    assert(jsonScanTopLevel.status == ParseStatus.run);
+    assert(jsonScanTopLevel.command == CliCommand.scan);
+    assert(jsonScanTopLevel.options.argBaseDir == root);
+    assert(jsonScanTopLevel.options.argJSONFile == catalog);
+    assert(jsonScanTopLevel.options.argScanFiles);
 
-    auto jsonAnalyze = parseCommandLine(["programname", "json", "analyze",
-        "./test/json_file_v2.json"]);
-    assert(jsonAnalyze.status == ParseStatus.run);
-    assert(jsonAnalyze.command == CliCommand.jsonAnalyze);
-    assert(jsonAnalyze.options.argRunAnalysis);
-    assert(jsonAnalyze.options.argWriteJSON);
+    auto jsonAnalyzeTopLevel = parseCommandLine(["programname", "analyze",
+        "--json", "./test/json_file_v2.json"]);
+    assert(jsonAnalyzeTopLevel.status == ParseStatus.run);
+    assert(jsonAnalyzeTopLevel.command == CliCommand.analyze);
+    assert(jsonAnalyzeTopLevel.options.argBaseDir == ".");
+    assert(jsonAnalyzeTopLevel.options.argJSONFile == "./test/json_file_v2.json");
+    assert(jsonAnalyzeTopLevel.options.argRunAnalysis);
 }
 
 @("parser validates command boundaries and isolates consecutive parses")
@@ -493,31 +457,35 @@ unittest
         && exported.command == CliCommand.exportJson);
     assert(exported.options.argExportJSON == "./test/export.json");
 
-    auto jsonScan = parseCommandLine(["program", "json", "scan", "./test",
-        "./test/out.json", "--recursive", "--checksums"]);
+    auto jsonScan = parseCommandLine(["program", "scan", "./test",
+        "--json", "./test/out.json", "--recursive", "--checksums"]);
     assert(jsonScan.status == ParseStatus.run
-        && jsonScan.command == CliCommand.jsonScan);
+        && jsonScan.command == CliCommand.scan);
+    assert(jsonScan.options.argBaseDir == "./test");
+    assert(jsonScan.options.argJSONFile == "./test/out.json");
 
-    auto jsonScanMergeDryRun = parseCommandLine(["program", "json", "scan",
-        "./test", "./test/out.json", "--checksums", "--merge-duplicates",
-        "--dry-run"]);
+    auto jsonScanMergeDryRun = parseCommandLine(["program", "scan",
+        "./test", "--json", "./test/out.json", "--checksums",
+        "--merge-duplicates", "--dry-run"]);
     assert(jsonScanMergeDryRun.status == ParseStatus.run);
     assert(jsonScanMergeDryRun.options.argMergeDuplicates);
     assert(jsonScanMergeDryRun.options.argDryRun);
     assert(helpText.canFind("--merge-duplicates"));
     assert(helpText.canFind("--dry-run"));
 
-    auto jsonAnalyze = parseCommandLine(["program", "json", "analyze",
-        "./test/json_file_v1.json", "--drop-missing", "--dry-run"]);
+    auto jsonAnalyze = parseCommandLine(["program", "analyze",
+        "--json", "./test/json_file_v1.json", "--drop-missing",
+        "--dry-run"]);
     assert(jsonAnalyze.status == ParseStatus.run
-        && jsonAnalyze.command == CliCommand.jsonAnalyze);
+        && jsonAnalyze.command == CliCommand.analyze);
+    assert(jsonAnalyze.options.argBaseDir == ".");
     assert(jsonAnalyze.options.argDryRun);
 
     auto invalidRepositoryDryRun = parseCommandLine(["program", "scan",
         "./test", "--dry-run"]);
     assert(invalidRepositoryDryRun.status == ParseStatus.error);
-    auto invalidJsonAnalyzeMerge = parseCommandLine(["program", "json",
-        "analyze", "./test/json_file_v1.json", "--merge-duplicates"]);
+    auto invalidJsonAnalyzeMerge = parseCommandLine(["program", "analyze",
+        "--json", "./test/json_file_v1.json", "--merge-duplicates"]);
     assert(invalidJsonAnalyzeMerge.status == ParseStatus.error);
 
     auto invalidSqliteOption = parseCommandLine(["program", "scan", "./test",
@@ -532,16 +500,16 @@ unittest
         "--format=xml"]);
     assert(invalidFormat.status == ParseStatus.error);
 
-    auto invalidJsonQuery = parseCommandLine(["program", "json", "scan", "./test",
-        "./test/out.json", "--text=needle"]);
+    auto invalidJsonQuery = parseCommandLine(["program", "scan", "./test",
+        "--json", "./test/out.json", "--text=needle"]);
     assert(invalidJsonQuery.status == ParseStatus.error);
 
-    auto missingJsonCatalog = parseCommandLine(["program", "json", "scan",
-        "./test"]);
+    auto missingJsonCatalog = parseCommandLine(["program", "scan",
+        "./test", "--json"]);
     assert(missingJsonCatalog.status == ParseStatus.error);
 
-    auto invalidJsonScanOption = parseCommandLine(["program", "json", "scan",
-        "./test", "./test/out.json", "--drop-missing"]);
+    auto invalidJsonScanOption = parseCommandLine(["program", "scan",
+        "./test", "--json", "./test/out.json", "--drop-missing"]);
     assert(invalidJsonScanOption.status == ParseStatus.error);
 
     auto unsupported = parseCommandLine(["program", "metadata", "./test"]);
@@ -798,11 +766,11 @@ string formatOperationProgressLine(string label, OperationProgress event,
     auto phase = operationPhaseLabel(event.phase);
     if (columns < 76)
     {
-        if (label == "Repository metadata")
+        if (label == "Catalog metadata" || label == "Repository metadata")
             label = "Metadata";
-        else if (label == "Repository scan")
+        else if (label == "Catalog scan" || label == "Repository scan")
             label = "Scan";
-        else if (label == "Repository analysis")
+        else if (label == "Catalog analysis" || label == "Repository analysis")
             label = "Analysis";
     }
     if (columns < 60 && phase.length > 14)

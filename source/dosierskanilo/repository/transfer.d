@@ -22,6 +22,7 @@ import dosierskanilo.model.namedbinaryblob;
 import dosierskanilo.repository.archiveindex : deleteUnreachableBlobs,
     isVirtualFileReferenceSql, resolveArchiveMemberBlobLinks;
 import dosierskanilo.repository.errors;
+import dosierskanilo.repository.schema : migrate;
 import dosierskanilo.repository.types;
 
 private struct ImportedArchiveIndex
@@ -1166,6 +1167,84 @@ private string decodeBase64(Nullable!Blob value)
 private string decodeNullableString(Nullable!string value)
 {
     return value.isNull ? "" : value.get;
+}
+
+@("repository transfer queries")
+unittest
+{
+    auto db = Database(":memory:");
+    migrate(db, "2026-01-01T00:00:00");
+
+    db.execute("INSERT INTO directories (id, parent_id, relative_path, name) "
+        ~ "VALUES (1, NULL, 'archives', 'archives')");
+    db.execute("INSERT INTO blobs (id, file_size, file_type) VALUES "
+        ~ "(1, 128, 'application/zip'), "
+        ~ "(2, 11, NULL), "
+        ~ "(3, 32, NULL)");
+    db.execute("INSERT INTO file_refs (id, blob_id, directory_id, relative_path, "
+        ~ "time_last_modified, exists_on_disk, last_seen_at) VALUES "
+        ~ "(1, 1, 1, 'archives/container.zip', '2026-01-01T00:00:00', 1, ?), "
+        ~ "(2, 2, 1, 'archives/container.zip!/nested/readme.txt', "
+        ~ "'2026-01-01T00:00:00', 1, ?), "
+        ~ "(3, 3, NULL, 'root.txt', '2026-01-01T00:00:00', 1, ?)",
+        "2026-01-01T00:00:00", "2026-01-01T00:00:00",
+        "2026-01-01T00:00:00");
+    db.execute("INSERT INTO metadata_status (blob_id, metadata_kind, state, "
+        ~ "extractor_version, scanned_at, error_message) VALUES "
+        ~ "(1, 'archives', 'completed', ?, ?, NULL)",
+        archiveIndexVersion ~ ":deep", "2026-01-01T00:00:00");
+    db.execute("INSERT INTO torrent_info (blob_id, name, magnet_uri, total_size, "
+        ~ "is_multi_file, info_hash_hex, announce, piece_length, pieces_count) "
+        ~ "VALUES (3, 'demo.torrent', '', 7, 1, '', '', 16384, 1)");
+    db.execute("INSERT INTO torrent_files (id, torrent_blob_id, file_index, "
+        ~ "relative_path, file_size) VALUES (1, 3, 0, 'files/part1.bin', 7)");
+
+    auto rootSummary = loadRootSummaryFromDatabase(db);
+    assert(rootSummary.childDirectoryCount == 1);
+    assert(rootSummary.fileCount == 1);
+    assert(rootSummary.aggregateSize == 160);
+
+    auto directories = listDirectoriesFromDatabase(db,
+        RepositoryDirectoryQuery(0, 0, 10));
+    assert(directories.length == 1);
+    assert(directories[0].relativePath == "archives");
+
+    auto filesWithoutMembers = listFilesPageFromDatabase(db,
+        RepositoryFileQuery(1, 0, 10));
+    assert(filesWithoutMembers.files.length == 1);
+    assert(filesWithoutMembers.files[0].relativePath == "archives/container.zip");
+
+    auto filesWithMembers = listFilesPageFromDatabase(db,
+        RepositoryFileQuery(1, 0, 10, "", false, false, false, false, false,
+            false, false, false, false, false, true));
+    assert(filesWithMembers.files.length == 2);
+    assert(filesWithMembers.files[1].archiveMember);
+    assert(filesWithMembers.files[1].archiveContainerBlobId == 1);
+
+    auto archiveEntry = loadArchiveEntryFromDatabase(db, 2);
+    assert(archiveEntry.id == 2);
+    assert(archiveEntry.containerBlobId == 1);
+    assert(archiveEntry.entryIndex == 2);
+    assert(archiveEntry.name == "nested/readme.txt");
+
+    auto archiveEntries = listArchiveEntriesFromDatabase(db,
+        RepositoryArchiveQuery(1, 0, 10));
+    assert(archiveEntries.length == 1);
+    assert(archiveEntries[0].containerBlobId == 1);
+    assert(archiveEntries[0].name == "nested/readme.txt");
+
+    auto torrentFiles = listTorrentFilesFromDatabase(db,
+        RepositoryTorrentQuery(3, 0, 10));
+    assert(torrentFiles.length == 1);
+    assert(torrentFiles[0].relativePath == "files/part1.bin");
+
+    auto blob = loadCatalogFromDatabase(db, "/repo",
+        JsonExportOptions("", false, true, true, true, true));
+    assert(blob.length == 3);
+    assert(blob[0].fileSpecs.length == 1);
+    assert(blob[0].archiveIndexKnown);
+    assert(blob[1].fileSpecs.length == 1);
+    assert(blob[2].torrentInfo !is null);
 }
 
 private string currentTimestamp()

@@ -187,7 +187,11 @@ For example, a scanned member can be represented as an ordinary blob record:
     "dataVersion": 5,
     "dataArray": [{
         "fileSize": 1234,
-        "checkSums": { "md5sum_b64": "...", "sha1sum_b64": "...", "xxh64sum_b64": "..." },
+        "checkSums": {
+          "md5sum_b64": "...",
+          "sha1sum_b64": "...",
+          "xxh64sum_b64": "..."
+        },
         "fileSpecs": [{ "fileName": "archives/photos.zip!/images/picture.jpg" }],
         "fileType": "JPEG image data"
     }]

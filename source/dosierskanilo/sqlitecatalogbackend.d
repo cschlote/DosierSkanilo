@@ -22,9 +22,9 @@ import dosierskanilo.operations : AnalysisOperationRequest,
     OperationStorageMode, OperationTarget, ScanOperationRequest;
 import dosierskanilo.repository;
 import dosierskanilo.repository.types : JsonExportOptions,
-    RepositoryArchiveQuery, RepositoryDirectoryQuery, RepositoryFile,
-    RepositoryFileCursor, RepositoryFileQuery, RepositoryFileSortOrder,
-    RepositoryTorrentQuery;
+    RepositoryArchiveQuery, RepositoryBlobPage, RepositoryDirectoryQuery,
+    RepositoryFile, RepositoryFileCursor, RepositoryFileQuery,
+    RepositoryFileSortOrder, RepositoryQueryOptions, RepositoryTorrentQuery;
 import dosierskanilo.jsoncatalogbackend : JsonCatalogBackendFactory;
 import dosierskanilo.service.jsonoperations : commitJsonCatalog;
 
@@ -86,6 +86,13 @@ public:
         result.storageMode = OperationStorageMode.repository;
         result.displayName = baseName(backendTarget.repositoryRoot);
         return result;
+    }
+
+    override RepositoryInfo repositoryInfo()
+    {
+        return withRepository((Repository repository) {
+            return repository.info;
+        });
     }
 
     override CatalogBackendCapabilities capabilities()
@@ -457,6 +464,21 @@ public:
         });
     }
 
+    override RepositoryBlobPage queryBlobs(RepositoryQueryOptions options)
+    {
+        return withRepository((Repository repository) {
+            return repository.loadCatalogQueryPageWithIds(options);
+        });
+    }
+
+    override RepositoryDuplicateGroup[] queryDuplicateGroups(size_t limit = 100)
+    {
+        return withRepository((Repository repository) {
+            enforce(limit > 0, "Duplicate query limit must be greater than zero.");
+            return repository.queryDuplicates(limit);
+        });
+    }
+
     override CatalogExportResult exportSubset(CatalogSubsetQuery query,
         CatalogExportOptions options)
     {
@@ -619,6 +641,13 @@ public:
             result.outputPath = canonicalPath(options.outputPath);
             result.committed = true;
             return result;
+        });
+    }
+
+    override void importJson(string jsonPath, JsonImportOptions options = JsonImportOptions.init)
+    {
+        return withRepository((Repository repository) {
+            repository.importJson(jsonPath, options);
         });
     }
 

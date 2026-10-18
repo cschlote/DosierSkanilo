@@ -16,6 +16,7 @@ struct ArgsArray
 	bool argRecursive; ///< Scan directories recursively.
 	bool argScanFiles; ///< Scan for new files.
 	string argJSONFile; ///< JSON file to read from and write to.
+	string argBaseDir; ///< Base directory for JSON paths.
 	string argRepositoryPath; ///< Repository root or path below a repository.
 	string argImportJSON; ///< JSON file to import into a repository.
 	string argExportJSON; ///< JSON file to export from a repository.
@@ -49,7 +50,7 @@ struct ArgsArray
 	int argNumberOfThreads = 1; ///< Number of worker threads.
 	bool argReplaceCatalog; ///< Replace an existing repository catalog on import.
 	bool argDryRun; ///< Run JSON work without writing the catalog back.
-	bool argMergeDuplicates; ///< Merge duplicate records after a JSON scan.
+	bool argMergeDuplicates; ///< Merge duplicate records after a scan.
 	bool argPickHidden; ///< Include hidden files and directories.
 	bool argVerboseOutputs; ///< Enable verbose logging.
 	bool argVersion; ///< Show the application version.
@@ -59,7 +60,7 @@ struct ArgsArray
 unittest
 {
 	import std.string : empty;
-	
+
 	ArgsArray opts;
 	assert(opts.argNumberOfThreads == 1);
 	assert(opts.argScanArchives == 0);

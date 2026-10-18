@@ -141,8 +141,8 @@ dosierskanilo export [ROOT] --output OUTPUT.json
 The pure JSON commands are:
 
 ```text
-dosierskanilo json scan ROOT CATALOG.json [OPTIONS]
-dosierskanilo json analyze CATALOG.json [OPTIONS]
+dosierskanilo scan [ROOT] --json CATALOG.json [--base-dir DIR] [OPTIONS]
+dosierskanilo analyze [ROOT] --json CATALOG.json [--base-dir DIR] [OPTIONS]
 ```
 
 JSON commands operate only on the specified catalog and filesystem path. They
@@ -420,8 +420,8 @@ dosierskanilo list [ROOT]
 dosierskanilo duplicates [ROOT]
 dosierskanilo import [ROOT] INPUT.json [--replace]
 dosierskanilo export [ROOT] --output OUTPUT.json
-dosierskanilo json scan ROOT CATALOG.json
-dosierskanilo json analyze CATALOG.json
+dosierskanilo scan [ROOT] --json CATALOG.json [--base-dir DIR]
+dosierskanilo analyze [ROOT] --json CATALOG.json [--base-dir DIR]
 ```
 
 ### WP-06 Steps
@@ -729,7 +729,7 @@ operation surface:
 - Repository mode targets a discovered or explicitly supplied `.dosierskanilo`
   root and uses the repository scan, metadata, and analysis APIs.
 - JSON mode targets an explicit catalog path and filesystem root and preserves
-  the existing `json scan` / `json analyze` command behavior. Do not add a new
+  the explicit JSON-target scan/analyze behavior. Do not add a new
   JSON command or silently initialize/use SQLite merely to make the interfaces
   look symmetric.
 - Map every currently supported option to a request field or document why it is
@@ -1644,11 +1644,13 @@ added to the database. The CLI uses the common v5 writer for repository export.
   the capability as unavailable, so those entries remain without deep digests.
 - [x] Bound cache bytes and concurrent work, coalesce in-flight requests, pin
   active leases, and make extraction cancellation and disk-full failures safe.
-- [x] Never persist cache paths as source references. Use per-session cache roots,
-  clean stale unlocked sessions at startup, and remove the owned session at close.
+- [x] Never persist cache paths as source references. Use per-session cache
+  roots, clean stale unlocked sessions at startup, and remove the owned session
+  at close.
 
-**Exit pending:** GUI preview operations have not yet joined the cache service, and
-precise duplicate occurrence extraction remains unsupported by the archive adapters.
+**Exit pending:** GUI preview operations have not yet joined the cache service,
+and precise duplicate occurrence extraction remains unsupported by the archive
+adapters.
 
 #### WP-13.5.5: Expandable archive TreeView and cache preferences
 

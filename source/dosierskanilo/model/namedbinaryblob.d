@@ -12,6 +12,7 @@ module dosierskanilo.model.namedbinaryblob;
 
 import std.algorithm;
 import std.array;
+import std.datetime : Clock, dur;
 import std.datetime.systime : SysTime;
 import std.datetime.timezone : TimeZone;
 import std.exception : assertThrown, enforce;
@@ -32,6 +33,7 @@ import dosierskanilo.membercontentcache : MemberContentCache,
     sharedMemberContentCache;
 import dosierskanilo.metadata.digests;
 import dosierskanilo.metadata.mediainfosig;
+import dosierskanilo.metadata.fileutilsig : getFileUtilityVersion;
 import dosierskanilo.metadata.torrentinfo;
 public import dosierskanilo.model.archivespec;
 public import dosierskanilo.model.checksums;
@@ -43,12 +45,26 @@ enum int DATA_CLASS_VERSION3 = 3; ///< Legacy NamedBinaryBlob representation, v3
 enum int DATA_CLASS_VERSION4 = 4; ///< Recursive archive-member representation, v4
 enum int DATA_CLASS_VERSION5 = 5; ///< Current virtual-reference representation, v5
 
+/// Helper variables of the class
+mixin template payloadHelpers()
+{
+	import std.parallelism : Task, task;
+
+	Task!(updateDigests, NamedBinaryBlob, shared(bool)*, ProgressCallBack*)* task_hashme; ///< Pointer to hashing job
+	Task!(updateFileType, NamedBinaryBlob)* task_filetype; /// Query filetype with 'file' utility
+	Task!(updateMediaInfo, NamedBinaryBlob, bool)* task_mediasig; ///< Pointer to mediasig job
+	Task!(updateArchives, NamedBinaryBlob, bool, bool, shared(bool)*, ProgressCallBack*,
+		ArchivePasswordCallback, size_t, size_t, string, MemberContentCache, bool,
+		bool)* task_archiveScan; ///< Pointer to archive scan job
+	Task!(updateTorrentInfo, NamedBinaryBlob)* task_torrentscan; ///< Pointer to torrent scan job
+}
+
 /** Wrapper class to serialize an array of NamedBinaryBlob objects
  *
  * This class wraps the data array together with global metadata that describes
  * the environment the data was collected with.
  */
-struct NamedBinaryBlobWrapper
+struct NamedBinaryBlobCatalog
 {
 	/* Add code needed for JSON serialization */
 	mixin JsonizeMe;
@@ -89,14 +105,11 @@ struct NamedBinaryBlobWrapper
 		{
 			mediaInfoVersion = "unknown";
 		}
-		import dosierskanilo.metadata.fileutilsig : getFileUtilityVersion;
 		fileUtilityVersion = getFileUtilityVersion();
 	}
 }
 
-alias NamedBinaryBlobCatalog = NamedBinaryBlobWrapper;
-
-@("struct NamedBinaryBlobWrapper")
+@("struct NamedBinaryBlobCatalog")
 unittest
 {
 	auto mis0 = new NamedBinaryBlob();
@@ -106,27 +119,16 @@ unittest
 		new FileSpec("file8", SysTime(1_234_567)),
 		new FileSpec("file9", SysTime(2_234_567))
 	], 1234);
-	auto wrap = NamedBinaryBlobWrapper(DATA_CLASS_VERSION3, [
+	auto catalog = NamedBinaryBlobCatalog(DATA_CLASS_VERSION3, [
 		mis0, mis1, mis2, mis3
 	]);
-	assert(wrap.dataVersion == DATA_CLASS_VERSION3);
-	assert(wrap.dataArray.length == 4);
-	assert(wrap.mediaInfoVersion.length == 0);
-	assert(wrap.fileUtilityVersion.length == 0);
-}
-
-/// Helper variables of the class
-mixin template payloadHelpers()
-{
-	import std.parallelism : Task, task;
-
-	Task!(updateDigests, NamedBinaryBlob, shared(bool)*, ProgressCallBack*)* task_hashme; ///< Pointer to hashing job
-	Task!(updateFileType, NamedBinaryBlob)* task_filetype; /// Query filetype with 'file' utility
-	Task!(updateMediaInfo, NamedBinaryBlob, bool)* task_mediasig; ///< Pointer to mediasig job
-	Task!(updateArchives, NamedBinaryBlob, bool, bool, shared(bool)*, ProgressCallBack*,
-		ArchivePasswordCallback, size_t, size_t, string, MemberContentCache, bool,
-		bool)* task_archiveScan; ///< Pointer to archive scan job
-	Task!(updateTorrentInfo, NamedBinaryBlob)* task_torrentscan; ///< Pointer to torrent scan job
+	assert(catalog.dataVersion == DATA_CLASS_VERSION3);
+	assert(catalog.dataArray.length == 4);
+	assert(catalog.mediaInfoVersion.length == 0);
+	assert(catalog.fileUtilityVersion.length == 0);
+	catalog.refreshRuntimeMetadata();
+	assert(catalog.mediaInfoVersion.length > 0);
+	assert(catalog.fileUtilityVersion.length > 0);
 }
 
 /** JSON domain record for binary content and its known file references.
@@ -910,10 +912,12 @@ version (unittest)
  *   dataArray = Array of NamedBinaryBlob objects to process
  * Returns: Updated array of NamedBinaryBlob objects
  */
-NamedBinaryBlob[] fixupDataClassArrayIn(NamedBinaryBlob[] dataArray)
+NamedBinaryBlob[] fixupDataClassArrayIn(NamedBinaryBlob[] dataArray,
+	ProgressCallBack* progressCallBack = null)
 {
 	// -- Fixup legacy fields ---------------------------
-	foreach (ref obj; dataArray)
+	auto lastProgress = Clock.currTime;
+	foreach (index, ref obj; dataArray)
 	{
 		// -- Fixup legacy filename field ---------------------------
 		/* The same data blob may have been stored with either a single
@@ -986,6 +990,13 @@ NamedBinaryBlob[] fixupDataClassArrayIn(NamedBinaryBlob[] dataArray)
 		{
 			obj.torrentInfo = null;
 		}
+		if (progressCallBack !is null
+			&& (index == 0 || index + 1 == dataArray.length
+				|| Clock.currTime - lastProgress > dur!"msecs"(250)))
+		{
+			progressCallBack.report(index + 1, dataArray.length);
+			lastProgress = Clock.currTime;
+		}
 	}
 
 	return dataArray;
@@ -997,10 +1008,12 @@ NamedBinaryBlob[] fixupDataClassArrayIn(NamedBinaryBlob[] dataArray)
  *   dataArray = Array of NamedBinaryBlob objects to process
  * Returns: Updated array of NamedBinaryBlob objects
  */
-NamedBinaryBlob[] fixupDataClassArrayOut(NamedBinaryBlob[] dataArray)
+NamedBinaryBlob[] fixupDataClassArrayOut(NamedBinaryBlob[] dataArray,
+	ProgressCallBack* progressCallBack = null)
 {
 	// -- Fixup legacy fields ---------------------------
-	foreach (ref obj; dataArray)
+	auto lastProgress = Clock.currTime;
+	foreach (index, ref obj; dataArray)
 	{
 		// -- Clear legacy filename field ---------------------------
 		if (obj.fileSpecs.length > 1)
@@ -1037,6 +1050,13 @@ NamedBinaryBlob[] fixupDataClassArrayOut(NamedBinaryBlob[] dataArray)
 		{
 			obj.torrentInfo = null;
 		}
+		if (progressCallBack !is null
+			&& (index == 0 || index + 1 == dataArray.length
+				|| Clock.currTime - lastProgress > dur!"msecs"(250)))
+		{
+			progressCallBack.report(index + 1, dataArray.length);
+			lastProgress = Clock.currTime;
+		}
 	}
 
 	return dataArray;
@@ -1063,7 +1083,8 @@ unittest
  * Returns:
  *   wrapper object with deserialized NamedBinaryBlob data and metadata
  */
-NamedBinaryBlobCatalog deserializeDataClassJsonWrapperString(const string serializedData)
+NamedBinaryBlobCatalog deserializeDataClassJsonWrapperString(const string serializedData,
+	ProgressCallBack* progressCallBack = null)
 {
 	NamedBinaryBlobCatalog wrapper;
 
@@ -1109,14 +1130,13 @@ NamedBinaryBlobCatalog deserializeDataClassJsonWrapperString(const string serial
 	{
 		logLineVerbose("  Reading directly into NamedBinaryBlob[] array (legacy format)...");
 		wrapper.dataArray = fromJSONString!(NamedBinaryBlob[])(serializedData);
-		wrapper.dataArray = fixupDataClassArrayIn(wrapper.dataArray);
 		wrapper.dataVersion = DATA_CLASS_VERSION3;
 	}
 	// Shouldn't happen
 	else
 		assert(false, "Unknow JSON format?");
 
-	wrapper.dataArray = fixupDataClassArrayIn(wrapper.dataArray);
+	wrapper.dataArray = fixupDataClassArrayIn(wrapper.dataArray, progressCallBack);
 	if (wrapper.dataVersion == DATA_CLASS_VERSION5)
 		foreach (blob; wrapper.dataArray)
 			if (blob !is null)
@@ -1146,16 +1166,17 @@ NamedBinaryBlob[] deserializeDataClassJsonString(const string serializedData)
  * Returns:
  *   wrapper with deserialized NamedBinaryBlob data and metadata, or an empty wrapper when file is missing
  */
-NamedBinaryBlobCatalog deserializeDataClassJsonWrapperFile(string fileName)
+NamedBinaryBlobCatalog deserializeDataClassJsonWrapperFile(string fileName,
+	ProgressCallBack* progressCallBack = null)
 {
 	import std.file : exists, readText;
 
-	logFLineVerbose("Read serialized data from JSON file %s", fileName);
+	logFLine("Read serialized data from JSON file %s", fileName);
 	if (!exists(fileName))
 		return NamedBinaryBlobCatalog(DATA_CLASS_VERSION3, []);
 
 	const string serializedData = readText(fileName);
-	return deserializeDataClassJsonWrapperString(serializedData);
+	return deserializeDataClassJsonWrapperString(serializedData, progressCallBack);
 }
 
 
@@ -1193,12 +1214,12 @@ NamedBinaryBlob[] deserializeDataClassJsonFile(string fileName, bool verbose = f
 {
 	import std.file : exists, readText;
 
-	logFLineVerbose("Read serialized data from JSON file %s", fileName);
+	logFLine("Read serialized data from JSON file %s", fileName);
 	//enforce(exists(fileName), "File %s does not exist!".format(fileName));
 	if (!exists(fileName))
 		return [];
 
-	logFLineVerbose("  reading file '%s' into the serializer archive container", fileName);
+	logFLine("  reading file '%s' into the serializer archive container", fileName);
 	const string serializedData = readText(fileName);
 
 	return deserializeDataClassJsonString(serializedData);
@@ -1299,7 +1320,7 @@ private NamedBinaryBlob[] normalizeV5Catalog(NamedBinaryBlob[] blobs,
 	{
 		if (blob is null)
 			continue;
-		fixupDataClassArrayIn([blob]);
+		blob = fixupDataClassArrayIn([blob])[0];
 		foreach (spec; blob.fileSpecs)
 			if (spec !is null && spec.fileName.length > 0)
 				spec.fileName = canonicalV5FilePath(spec.fileName,
@@ -1400,7 +1421,7 @@ void serializeDataClassWrapperFile(string fileName, ref NamedBinaryBlobCatalog w
 	auto sortedDeserializedData_rng = sortDataClassArrayByFileName(wrapper.dataArray);
 	auto uniqSortedDeserializedData = uniqDataClassArrayByFileName(sortedDeserializedData_rng);
 	wrapper.dataArray = fixupDataClassArrayOutV5(uniqSortedDeserializedData);
-	writeJSON!(NamedBinaryBlobWrapper)(fileName, wrapper);
+	writeJSON!(NamedBinaryBlobCatalog)(fileName, wrapper);
 	wrapper.dataArray = fixupDataClassArrayIn(wrapper.dataArray);
 	foreach (blob; wrapper.dataArray)
 		if (blob !is null)

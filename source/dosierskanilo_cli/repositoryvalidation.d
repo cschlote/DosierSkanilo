@@ -1,7 +1,8 @@
 /** Validation rules for SQLite repository CLI commands. */
 module dosierskanilo_cli.repositoryvalidation;
 
-import std.file : exists, isDir;
+import std.file : exists, isDir, remove, tempDir, write;
+import std.path : buildPath;
 import std.string : empty, endsWith;
 
 import dosierskanilo;
@@ -10,9 +11,24 @@ import dosierskanilo_cli.logging : errorFLine, errorLine;
 /** Validate repository target, command options, and transfer filenames. */
 bool validateRepositoryOptions(string command, ref ArgsArray options)
 {
-    if (options.argDryRun || options.argMergeDuplicates)
+    if (!options.argJSONFile.empty && command != "import" && command != "export")
     {
-        errorLine("--dry-run and --merge-duplicates are supported only in JSON mode.");
+        errorLine("--json is available only with scan, analyze, import, or export.");
+        return false;
+    }
+    if (!options.argBaseDir.empty)
+    {
+        errorLine("--base-dir is available only with JSON scan or analysis.");
+        return false;
+    }
+    if (options.argDryRun)
+    {
+        errorLine("--dry-run is supported only in JSON mode.");
+        return false;
+    }
+    if (options.argMergeDuplicates && command != "scan")
+    {
+        errorLine("--merge-duplicates is available only with scan.");
         return false;
     }
     if (options.argRepositoryPath.empty)
@@ -64,6 +80,31 @@ bool validateRepositoryOptions(string command, ref ArgsArray options)
         return false;
     }
     return true;
+}
+
+@("validateRepositoryOptions")
+unittest
+{
+    auto baseDir = tempDir();
+
+    auto infoOptions = ArgsArray();
+    assert(validateRepositoryOptions("info", infoOptions));
+    assert(infoOptions.argRepositoryPath == ".");
+
+    auto importOptions = ArgsArray();
+    importOptions.argImportJSON = buildPath(baseDir, "catalog.json");
+    write(importOptions.argImportJSON, "[]");
+    scope (exit)
+        if (exists(importOptions.argImportJSON))
+            remove(importOptions.argImportJSON);
+    assert(validateRepositoryOptions("import", importOptions));
+
+    auto invalidMetadata = ArgsArray();
+    assert(!validateRepositoryOptions("metadata", invalidMetadata));
+
+    auto invalidExport = ArgsArray();
+    invalidExport.argExportJSON = buildPath(baseDir, "catalog.txt");
+    assert(!validateRepositoryOptions("export", invalidExport));
 }
 
 private bool hasRepositoryListFilters(ArgsArray options)
