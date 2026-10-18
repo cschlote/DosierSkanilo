@@ -33,6 +33,7 @@ import dosierskanilo.membercontentcache : MemberContentCache,
     sharedMemberContentCache;
 import dosierskanilo.metadata.digests;
 import dosierskanilo.metadata.mediainfosig;
+import dosierskanilo.metadata.fileutilsig : getFileUtilityVersion;
 import dosierskanilo.metadata.torrentinfo;
 public import dosierskanilo.model.archivespec;
 public import dosierskanilo.model.checksums;

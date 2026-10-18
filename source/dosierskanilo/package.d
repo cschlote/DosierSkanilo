@@ -9,10 +9,6 @@
  */
 module dosierskanilo;
 
-/* Legacy name */
-alias NamedBinaryBlobWrapper = NamedBinaryBlobCatalog;
-
-
 public import dosierskanilo.logging;
 public import dosierskanilo.options;
 public import dosierskanilo.progress;
@@ -23,7 +19,6 @@ public import dosierskanilo.metadata.torrentinfo;
 public import dosierskanilo.model.archivespec;
 public import dosierskanilo.model.checksums;
 public import dosierskanilo.model.filespec;
-public import dosierskanilo.model.namedbinaryblobcatalog;
 public import dosierskanilo.model.namedbinaryblob;
 public import dosierskanilo.service.analyze;
 public import dosierskanilo.service.scanning;
@@ -34,3 +29,6 @@ public import dosierskanilo.operationrunner;
 public import dosierskanilo.catalogbackend;
 public import dosierskanilo.jsoncatalogbackend;
 public import dosierskanilo.sqlitecatalogbackend;
+
+/* Legacy name */
+alias NamedBinaryBlobWrapper = NamedBinaryBlobCatalog;
