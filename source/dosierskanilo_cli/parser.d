@@ -45,20 +45,20 @@ calculate media signatures for audio and video files.
 It stores results in JSON v5 catalogs, reads older JSON v0-v4 catalogs, and
 analyzes duplicate content and missing references.
 
-The repository mode stores the current state in a `.dosierskanilo` SQLite
-repository and keeps JSON available for import and export.
+The catalog mode stores the current state in a `.dosierskanilo` SQLite
+catalog and keeps JSON available for import and export.
 
 Commands:
 
-    init       Initialize a repository
-    scan       Scan a repository
-    metadata   Extract metadata in a repository
-    analyze    Analyze a repository
-    info       Show repository information
-    list       List repository content references, including virtual members
+    init       Initialize a catalog
+    scan       Scan a catalog
+    metadata   Extract metadata in a catalog
+    analyze    Analyze a catalog
+    info       Show catalog information
+    list       List catalog content references, including virtual members
     duplicates List duplicate blob groups
-    import     Import JSON v0-v5 into a repository
-    export     Export a repository as JSON v5
+    import     Import JSON v0-v5 into a catalog
+    export     Export a catalog as JSON v5
 
 JSON target options:
 
@@ -74,8 +74,8 @@ Option scope keys use the fixed columns `S A M I L D R G J` (`-` means not
 available for that scope):
 
     S Scan (repository or JSON)      A Analyze (repository or JSON)
-    M Metadata extraction            I Repository info
-    L List repository content        D Duplicate groups
+    M Metadata extraction            I Catalog info
+    L List catalog content           D Duplicate groups
     R Init/import/export             G Global options
     J JSON catalog workflows
 
@@ -217,9 +217,9 @@ ParsedCommandLine parseCommandLine(string[] args)
             "dry-run", "--------J Compute JSON results without writing the catalog", &argsarray.argDryRun,
             "merge-duplicates", "--------J Analyze and merge duplicates after scan", &argsarray.argMergeDuplicates,
             "verbose", "-------G- Be verbose", &argsarray.argVerboseOutputs,
-            "text", "----L---- Filter listed repository paths or SHA1 values", &argsarray.argQueryText,
-            "limit", "----L---- Maximum number of listed repository blobs", &argsarray.argQueryLimit,
-            "offset", "----L---- Number of matching repository blobs to skip", &argsarray.argQueryOffset,
+            "text", "----L---- Filter listed catalog paths or SHA1 values", &argsarray.argQueryText,
+            "limit", "----L---- Maximum number of listed catalog blobs", &argsarray.argQueryLimit,
+            "offset", "----L---- Number of matching catalog blobs to skip", &argsarray.argQueryOffset,
             "video", "----L---- Require video metadata", &argsarray.argQueryVideo,
             "audio", "----L---- Require audio metadata", &argsarray.argQueryAudio,
             "image", "----L---- Require image metadata", &argsarray.argQueryImage,
@@ -228,7 +228,7 @@ ParsedCommandLine parseCommandLine(string[] args)
             "archive", "----L---- Require a known archive index", &argsarray.argQueryArchive,
             "torrent", "----L---- Require torrent metadata", &argsarray.argQueryTorrent,
             "duplicate-limit", "-----D--- Maximum number of duplicate groups", &argsarray.argDuplicateLimit,
-            "format", "---ILD--- Repository query output format: table or json", &argsarray.argOutputFormat,
+            "format", "---ILD--- Catalog query output format: table or json", &argsarray.argOutputFormat,
             "version", "-------G- Show the application version", &argsarray.argVersion);
     }
     catch (GetOptException ex)

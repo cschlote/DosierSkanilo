@@ -313,7 +313,7 @@ void executeRepositoryExport(CatalogBackend backend, string repositoryRoot,
 	logFLine("Exported repository JSON to '%s'.", result.outputPath);
 }
 
-/** Print repository metadata and current catalog counts. */
+/** Print catalog metadata and current content counts. */
 void executeRepositoryInfo(CatalogBackend backend, string repositoryRoot,
 	ArgsArray options)
 {
@@ -332,7 +332,7 @@ void executeRepositoryInfo(CatalogBackend backend, string repositoryRoot,
 			page.total);
 		return;
 	}
-	logFLine("Repository root: %s", info.rootPath);
+	logFLine("Catalog root: %s", info.rootPath);
 	logFLine("Database: %s", buildPath(repositoryRoot, repositoryDirectoryName,
 		repositoryDatabaseFileName));
 	logFLine("Schema version: %d", info.schemaVersion);
@@ -341,7 +341,7 @@ void executeRepositoryInfo(CatalogBackend backend, string repositoryRoot,
 	logFLine("Blobs: %d", page.total);
 }
 
-/** Print one bounded, repository-side filtered page of blobs. */
+/** Print one bounded, catalog-side filtered page of blobs. */
 void executeRepositoryList(CatalogBackend backend, string repositoryRoot,
 	ArgsArray options)
 {
@@ -382,7 +382,7 @@ void executeRepositoryList(CatalogBackend backend, string repositoryRoot,
 			blob.getFirstFileName());
 }
 
-/** Print duplicate groups without modifying repository contents. */
+/** Print duplicate groups without modifying catalog contents. */
 void executeRepositoryDuplicates(CatalogBackend backend, string repositoryRoot,
 	ArgsArray options)
 {
