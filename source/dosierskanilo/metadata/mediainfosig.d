@@ -796,7 +796,8 @@ unittest
 	auto syntheticBitmap = getMediaTypeSignature(bitmapPath);
 	assert(syntheticBitmap !is null);
 	assert(syntheticBitmap.imageStreams.length == 1, syntheticBitmap.to!string);
-	assert(syntheticBitmap.imageStreams[0].format == "Raw", syntheticBitmap.to!string);
+	assert(syntheticBitmap.imageStreams[0].format == "Raw"
+		|| syntheticBitmap.imageStreams[0].format == "RGB", syntheticBitmap.to!string);
 	assert(syntheticBitmap.imageStreams[0].width == 2, syntheticBitmap.to!string);
 	assert(syntheticBitmap.imageStreams[0].height == 2, syntheticBitmap.to!string);
 

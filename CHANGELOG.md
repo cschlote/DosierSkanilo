@@ -9,6 +9,9 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- JSON catalog list and duplicate queries now work through the CLI backend facade,
+  and JSON imports continue to target the SQLite repository.
+
 ## Release 26.11.2 - 2026-10-18
 
 - The CLI scan and analyze commands now target the JSON backend directly with

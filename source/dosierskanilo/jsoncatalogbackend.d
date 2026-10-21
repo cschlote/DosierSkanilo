@@ -23,7 +23,8 @@ import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION3,
     DATA_CLASS_VERSION4, DATA_CLASS_VERSION5, NamedBinaryBlob, NamedBinaryBlobCatalog,
     deserializeDataClassJsonWrapperFile;
 import dosierskanilo.repository.types : JsonImportOptions, RepositoryBlobPage,
-    RepositoryDuplicateGroup, RepositoryInfo, RepositoryQueryOptions;
+    RepositoryBlobFlags, RepositoryDuplicateGroup, RepositoryInfo,
+    RepositoryQueryOptions;
 import dosierskanilo.operationrunner;
 import dosierskanilo.operations : AnalysisOperationRequest, MetadataOperationRequest,
     OperationControl, OperationKind, OperationResult, OperationStorageMode,
@@ -396,15 +397,153 @@ public:
     override RepositoryBlobPage queryBlobs(RepositoryQueryOptions options)
     {
         requireOpen();
-        throw new CatalogBackendException(CatalogBackendErrorCode.unsupportedOperation,
-            "JSON repository-style blob queries are not supported by this adapter.");
+        enforce(options.limit > 0, "Blob query limit must be greater than zero.");
+        CatalogFilter filter;
+        filter.caseSensitive = options.caseSensitive;
+        filter.video = options.video;
+        filter.audio = options.audio;
+        filter.image = options.image;
+        filter.text = options.textStream;
+        filter.mediaNegated = options.mediaNegated;
+        filter.fileType = options.fileType;
+        filter.archive = options.archive;
+        filter.torrent = options.torrent;
+
+        bool[string] matchedContents;
+        foreach (file; fileRows)
+        {
+            if (!matches(file, filter))
+                continue;
+            bool matchedPath = options.text.length == 0;
+            if (!matchedPath)
+            {
+                auto path = file.relativePath;
+                auto text = options.text;
+                if (!options.caseSensitive)
+                {
+                    path = path.toLower;
+                    text = text.toLower;
+                }
+                matchedPath = path.canFind(text);
+            }
+            if (!matchedPath)
+            {
+                const auto blobIndex = blobIndexByContentToken.get(
+                    file.contentId.adapterToken, size_t.max);
+                if (blobIndex != size_t.max)
+                {
+                    auto blob = catalog.dataArray[blobIndex];
+                    matchedPath = blob.checkSums.sha1sum_b64 == options.text;
+                }
+            }
+            if (matchedPath)
+                matchedContents[file.contentId.adapterToken] = true;
+        }
+
+        size_t[] matchingIndices;
+        foreach (token; matchedContents.keys)
+            if (auto index = token in blobIndexByContentToken)
+                matchingIndices ~= *index;
+        matchingIndices.sort;
+
+        RepositoryBlobPage result;
+        result.total = matchingIndices.length;
+        size_t start;
+        if (options.useCursor)
+        {
+            while (start < matchingIndices.length
+                && cast(long) matchingIndices[start] + 1 <= options.afterBlobId)
+                ++start;
+        }
+        else
+            start = options.offset < matchingIndices.length
+                ? options.offset : matchingIndices.length;
+        const auto end = start + (options.limit < matchingIndices.length - start
+            ? options.limit : matchingIndices.length - start);
+        foreach (index; matchingIndices[start .. end])
+        {
+            auto blob = catalog.dataArray[index];
+            const auto token = contentTokenForBlobIndex(index);
+            auto resultBlob = blob.dup();
+            FileSpec[] references;
+            foreach (file; fileRows)
+                if (file.contentId.adapterToken == token)
+                {
+                    auto spec = fileSpecByRelativePath[file.relativePath];
+                    references ~= new FileSpec(file.relativePath,
+                        spec.timeLastModified);
+                }
+            if (references.length > 0)
+                resultBlob.fileSpecs = references;
+            result.blobs ~= resultBlob;
+            result.blobIds ~= cast(long) index + 1;
+            RepositoryBlobFlags flags;
+            if (auto content = token in contentByToken)
+            {
+                flags.hasFileType = (*content).fileType.length > 0;
+                flags.hasArchive = (*content).hasArchive;
+                flags.hasTorrent = (*content).hasTorrent;
+                foreach (stream; (*content).mediaStreams)
+                    final switch (stream.kind)
+                    {
+                    case CatalogMediaKind.image:
+                        flags.hasImage = true;
+                        break;
+                    case CatalogMediaKind.video:
+                        flags.hasVideo = true;
+                        break;
+                    case CatalogMediaKind.audio:
+                        flags.hasAudio = true;
+                        break;
+                    case CatalogMediaKind.text:
+                        flags.hasText = true;
+                        break;
+                    }
+                flags.hasMedia = flags.hasImage || flags.hasVideo
+                    || flags.hasAudio || flags.hasText;
+            }
+            result.flags ~= flags;
+        }
+        result.hasMore = end < matchingIndices.length;
+        if (result.hasMore)
+            result.nextCursor = cast(long) matchingIndices[end - 1] + 1;
+        return result;
     }
 
     override RepositoryDuplicateGroup[] queryDuplicateGroups(size_t limit = 100)
     {
         requireOpen();
-        throw new CatalogBackendException(CatalogBackendErrorCode.unsupportedOperation,
-            "JSON duplicate-group queries are not supported by this adapter.");
+        enforce(limit > 0, "Duplicate query limit must be greater than zero.");
+        long[][string] idsByFingerprint;
+        size_t[string] sizeByFingerprint;
+        foreach (index, blob; catalog.dataArray)
+        {
+            if (blob is null || !blob.checkSums.hasDigests
+                || blob.getFirstFileName().length == 0)
+                continue;
+            const auto key = to!string(blob.fileSize) ~ "\0"
+                ~ blob.checkSums.md5sum_b64 ~ "\0"
+                ~ blob.checkSums.sha1sum_b64 ~ "\0"
+                ~ blob.checkSums.xxh64sum_b64;
+            idsByFingerprint[key] ~= cast(long) index + 1;
+            sizeByFingerprint[key] = cast(size_t) blob.fileSize;
+        }
+        RepositoryDuplicateGroup[] groups;
+        foreach (key, ids; idsByFingerprint)
+            if (ids.length > 1)
+                groups ~= RepositoryDuplicateGroup(sizeByFingerprint[key], ids);
+        groups.sort!((left, right) => left.fileSize < right.fileSize
+            || (left.fileSize == right.fileSize
+                && left.blobIds[0] < right.blobIds[0]));
+        return groups.length > limit ? groups[0 .. limit] : groups;
+    }
+
+    private string contentTokenForBlobIndex(size_t blobIndex) const
+    {
+        foreach (token, index; blobIndexByContentToken)
+            if (index == blobIndex)
+                return token;
+        return "";
     }
 
     override CatalogExportResult exportSubset(CatalogSubsetQuery query,
