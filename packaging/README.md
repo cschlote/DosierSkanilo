@@ -12,7 +12,7 @@ Debian. The project is publicly mirrored at
 The GUI is packaged separately in `DosierSkanilo-Gui` as `dosierskanilo-gui`
 and `dosierskanilo-gui-git`. There is intentionally no umbrella package.
 
-The current stable release is `26.11.0` (`v26.11.0`). Replace `SKIP` and other
+The current stable release is `26.11.3` (`v26.11.3`). Replace `SKIP` and other
 placeholders in distribution recipes before publishing packages. The project is
 licensed under `GPL-3.0-only`; package recipes should install the repository's
 `LICENSE.md`.
