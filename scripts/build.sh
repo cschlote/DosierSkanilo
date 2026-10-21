@@ -6,6 +6,7 @@ set -euo pipefail
 dub upgrade
 
 DC="${DC:-ldc2}"
+export DC
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Verbosely build the dub package
