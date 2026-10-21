@@ -819,7 +819,8 @@ unittest
     auto failingBuilder = {
         ++failedBuilderCalls;
         Thread.sleep(dur!"msecs"(50));
-        throw new Exception("injected fixture failure");
+        if (failedBuilderCalls != 0)
+            throw new Exception("injected fixture failure");
         return SyntheticCatalogFixture.init;
     };
     workers.length = 0;

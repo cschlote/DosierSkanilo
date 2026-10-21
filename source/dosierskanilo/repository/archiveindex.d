@@ -8,10 +8,24 @@ import std.typecons : Nullable;
 /** SQL predicate recognizing canonical virtual paths while honoring `!!` escapes. */
 string isVirtualFileReferenceSql(string columnExpression)
 {
-    auto decoded = columnExpression;
-    foreach (_; 0 .. 128)
-        decoded = "replace(" ~ decoded ~ ", '!!/', '/')";
-    return "instr(" ~ decoded ~ ", '!/') > 0";
+    return "instr(replace(" ~ columnExpression ~ ", '!!', ''), '!/') > 0";
+}
+
+@("virtual path SQL predicate recognizes escaped separators")
+unittest
+{
+    auto db = Database(":memory:");
+    bool isVirtual(string path)
+    {
+        return db.execute("SELECT " ~ isVirtualFileReferenceSql("?"), path)
+            .oneValue!long != 0;
+    }
+
+    assert(!isVirtual("plain!!/physical.txt"));
+    assert(!isVirtual("double!!!!/physical.txt"));
+    assert(isVirtual("archive.zip!/member.txt"));
+    assert(isVirtual("literal!!!/archive.zip"));
+    assert(isVirtual("literal!!!/archive.zip!/member.txt"));
 }
 
 /**

@@ -33,7 +33,6 @@ ScanExecutionResult scanRepositoryControlled(ref Database db, string rootPath,
     RepositoryScanOptions options, OperationControl control, ulong operationId)
 {
     ScanExecutionResult execution;
-    auto ref summary = execution.summary;
     resetScanStage(db);
     scope (exit)
         clearScanStage(db);
@@ -59,7 +58,7 @@ ScanExecutionResult scanRepositoryControlled(ref Database db, string rootPath,
 
             if (isFile(entry.name))
             {
-                summary.filesFound++;
+                execution.summary.filesFound++;
                 auto modified = entry.timeLastModified.toISOExtString;
                 const auto canonicalRelative = escapeArchiveVirtualPath(relative);
                 db.execute("INSERT OR REPLACE INTO temp.scan_stage_files "
@@ -71,13 +70,13 @@ ScanExecutionResult scanRepositoryControlled(ref Database db, string rootPath,
             }
             else
             {
-                summary.directoriesFound++;
+                execution.summary.directoriesFound++;
                 db.execute("INSERT OR IGNORE INTO temp.scan_stage_directories "
                     ~ "(relative_path) VALUES (?)", relative);
             }
 
             if (!reportScanProgress(control, operationId, OperationPhase.scanning,
-                summary.filesFound + summary.directoriesFound,
+                execution.summary.filesFound + execution.summary.directoriesFound,
                 relative))
             {
                 execution.cancelled = true;
@@ -86,8 +85,8 @@ ScanExecutionResult scanRepositoryControlled(ref Database db, string rootPath,
         }
 
         if (!stageMissingReferences(db, rootPath, options.pickHidden, control,
-            operationId, summary.filesFound + summary.directoriesFound,
-            summary.filesMissing))
+            operationId, execution.summary.filesFound + execution.summary.directoriesFound,
+            execution.summary.filesMissing))
         {
             execution.cancelled = true;
             return execution;
@@ -105,11 +104,11 @@ ScanExecutionResult scanRepositoryControlled(ref Database db, string rootPath,
         auto now = currentTimestamp();
         db.begin();
         applyStagedDirectories(db);
-        applyStagedFiles(db, now, summary);
+        applyStagedFiles(db, now, execution.summary);
         applyStagedMissing(db);
         if (options.dropMissing)
         {
-            summary.filesDropped = cast(size_t) db.execute(
+            execution.summary.filesDropped = cast(size_t) db.execute(
                 "SELECT count(*) FROM file_refs WHERE exists_on_disk = 0")
                 .oneValue!long;
             db.execute("DELETE FROM file_refs WHERE exists_on_disk = 0");

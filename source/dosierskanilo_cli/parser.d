@@ -11,11 +11,11 @@ import std.exception;
 import std.getopt;
 import std.file;
 import std.algorithm.searching : canFind;
+import searching = std.algorithm.searching;
 import std.format : format;
 import std.path;
 import std.process;
 import std.range;
-import std.string;
 
 import dosierskanilo;
 import dosierskanilo_cli.logging : errorFLine, errorLine;
@@ -164,7 +164,7 @@ ParsedCommandLine parseCommandLine(string[] args)
     size_t positionalCount;
     auto positionalStart = commandIndex + 1;
     if (!command.empty && args.length > positionalStart
-        && !args[positionalStart].startsWith("-"))
+        && !searching.startsWith(args[positionalStart], "-"))
     {
         if (command == "export")
         {
@@ -176,7 +176,7 @@ ParsedCommandLine parseCommandLine(string[] args)
             catalogArgument = args[positionalStart];
             positionalCount = 1;
             if (args.length > positionalStart + 1
-                && !args[positionalStart + 1].startsWith("-"))
+                && !searching.startsWith(args[positionalStart + 1], "-"))
             {
                 rootArgument = catalogArgument;
                 catalogArgument = args[positionalStart + 1];
@@ -677,11 +677,11 @@ string makeProgressString(size_t i, size_t m)
 unittest
 {
     auto s1 = makeProgressString(0, 100);
-    assert(s1.startsWith("- 0.000000"), s1);
+    assert(searching.startsWith(s1, "- 0.000000"), s1);
     auto s2 = makeProgressString(50, 100);
-    assert(s2.startsWith("\\ 0.500000"), s2);
+    assert(searching.startsWith(s2, "\\ 0.500000"), s2);
     auto s3 = makeProgressString(100, 100);
-    assert(s3.startsWith("| 1.000000"), s3);
+    assert(searching.startsWith(s3, "| 1.000000"), s3);
 }
 
 /** Update progress output for a sub-task callback.

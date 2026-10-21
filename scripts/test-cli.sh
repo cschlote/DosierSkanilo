@@ -22,20 +22,6 @@ dub run --config=synthetic-testdata --compiler="${DC}" -- \
     --output "${fixture_bundle}"
 fixture_root="${fixture_bundle}/catalog"
 synthetic_catalog="${TMP_DIR}/synthetic-catalog.json"
-pushd "${TMP_DIR}" >/dev/null
-synthetic_json_output=$("${BIN}" scan "${fixture_root}" \
-    --json "${synthetic_catalog}" --recursive --checksums)
-[[ "${synthetic_json_output}" == *"Catalog scan: 12 files, 12 added"* ]]
-[[ ! -d "${fixture_root}/.dosierskanilo" ]]
-json_analysis_output=$("${BIN}" analyze --json "${synthetic_catalog}")
-[[ "${json_analysis_output}" == *"Catalog analysis: 0 missing, 0 dropped, 1 duplicate groups, 1 merged blobs, 0 orphaned blobs."* ]]
-json_list_output=$("${BIN}" list --json "${synthetic_catalog}" --format=json)
-sqlite_list_output=$("${BIN}" list "${TMP_DIR}/synthetic-sqlite-catalog" --format=json)
-[[ "${json_list_output}" == "${sqlite_list_output}" ]]
-json_duplicates_output=$("${BIN}" duplicates --json "${synthetic_catalog}" --format=json)
-sqlite_duplicates_output=$("${BIN}" duplicates "${TMP_DIR}/synthetic-sqlite-catalog" --format=json)
-[[ "${json_duplicates_output}" == "${sqlite_duplicates_output}" ]]
-popd >/dev/null
 
 synthetic_sqlite_root="${TMP_DIR}/synthetic-sqlite-catalog"
 cp -a "${fixture_root}" "${synthetic_sqlite_root}"
@@ -45,6 +31,28 @@ sqlite_scan_output=$("${BIN}" scan "${synthetic_sqlite_root}" \
 [[ "${sqlite_scan_output}" == *"Catalog scan: 12 files, 12 added"* ]]
 sqlite_analysis_output=$("${BIN}" analyze "${synthetic_sqlite_root}")
 [[ "${sqlite_analysis_output}" == *"Catalog analysis: 0 missing, 0 dropped, 1 duplicate groups, 1 merged blobs, 0 orphaned blobs."* ]]
+
+pushd "${TMP_DIR}" >/dev/null
+synthetic_json_output=$("${BIN}" scan "${fixture_root}" \
+    --json "${synthetic_catalog}" --recursive --checksums)
+[[ "${synthetic_json_output}" == *"Catalog scan: 12 files, 12 added"* ]]
+[[ ! -d "${fixture_root}/.dosierskanilo" ]]
+json_analysis_output=$("${BIN}" analyze --json "${synthetic_catalog}")
+[[ "${json_analysis_output}" == *"Catalog analysis: 0 missing, 0 dropped, 1 duplicate groups, 1 merged blobs, 0 orphaned blobs."* ]]
+json_list_output=$("${BIN}" list --json "${synthetic_catalog}" \
+    --base-dir "${fixture_root}" --format=json \
+    | sed -n '/^{/p' | sed -E 's/"id":[0-9]+,//g')
+sqlite_list_output=$("${BIN}" list "${TMP_DIR}/synthetic-sqlite-catalog" \
+    --format=json | sed -E 's/"id":[0-9]+,//g')
+[[ "${json_list_output}" == "${sqlite_list_output}" ]]
+json_duplicates_output=$("${BIN}" duplicates --json "${synthetic_catalog}" \
+    --base-dir "${fixture_root}" --format=json \
+    | sed -n '/^{/p' | sed -E 's/"id":[0-9]+,//g')
+sqlite_duplicates_output=$("${BIN}" duplicates \
+    "${TMP_DIR}/synthetic-sqlite-catalog" --format=json \
+    | sed -E 's/"id":[0-9]+,//g')
+[[ "${json_duplicates_output}" == "${sqlite_duplicates_output}" ]]
+popd >/dev/null
 
 library="${TMP_DIR}/library"
 catalog="${TMP_DIR}/library.json"

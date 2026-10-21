@@ -117,9 +117,16 @@ bool executeRepositoryOperation(ArgsArray options)
 	Repository repository;
 	CatalogBackend backend;
 	string sourceRoot;
+	scope (exit)
+	{
+		if (backend !is null)
+			backend.close();
+		if (repository !is null)
+			repository.close();
+	}
 	try
 	{
-		if (options.argJSONFile.empty)
+		if (options.argJSONFile.empty || !options.argImportJSON.empty)
 		{
 			auto repositoryPath = options.argRepositoryPath;
 			if (repositoryPath.empty)
@@ -138,13 +145,8 @@ bool executeRepositoryOperation(ArgsArray options)
 			else
 				repository = Repository.open(repositoryPath);
 			repository.appendLog("repository.open", repositoryPath);
-			scope (exit)
-				repository.close();
 			auto backendFactory = new DefaultCatalogBackendFactory;
 			backend = backendFactory.open(OperationTarget.repositoryTarget(repository.rootPath));
-			scope (exit)
-				if (backend !is null)
-					backend.close();
 			sourceRoot = repository.rootPath;
 		}
 		else
@@ -152,9 +154,6 @@ bool executeRepositoryOperation(ArgsArray options)
 			auto backendFactory = new DefaultCatalogBackendFactory;
 			backend = backendFactory.open(OperationTarget.jsonTarget(options.argJSONFile,
 				options.argBaseDir));
-			scope (exit)
-				if (backend !is null)
-					backend.close();
 			sourceRoot = backend.repositoryInfo().rootPath;
 		}
 		if (options.argShowInfo)
@@ -195,9 +194,7 @@ bool executeRepositoryOperation(ArgsArray options)
 	}
 	catch (Exception ex)
 	{
-		if (repository !is null)
-			repository.close();
-			errorLine("Catalog operation failed: ", ex.msg);
+		errorLine("Catalog operation failed: ", ex.msg);
 		return false;
 	}
 }
