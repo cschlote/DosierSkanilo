@@ -238,12 +238,13 @@ public:
     {
         return withRepository((Repository repository) {
             auto blobId = parseIdentity(contentId.adapterToken, "content");
+            /* Load the full snapshot and mask it afterwards, matching the
+             * JSON backend's extractor statuses even for masked requests. */
             JsonExportOptions options;
             options.absolutePaths = false;
-            options.includeDetails = details.media || details.archiveSummary
-                || details.torrentSummary;
-            options.includeArchiveEntries = false;
-            options.includeTorrentFiles = false;
+            options.includeDetails = true;
+            options.includeArchiveEntries = true;
+            options.includeTorrentFiles = true;
             options.allowUnreferencedContent = true;
             auto blob = repository.loadBlobDetails(blobId, options);
             if (blob is null)
@@ -251,8 +252,13 @@ public:
                     CatalogBackendErrorCode.invalidIdentifier,
                     "Unknown SQLite content identity.");
             auto snapshot = snapshotFor(blob, contentId, details);
-            if (details.archiveSummary)
-                populateArchiveSummary(repository, blobId, snapshot);
+            populateArchiveSummary(repository, blobId,
+                blob.archiveIndexKnown || blob.archiveSpecs !is null, snapshot);
+            if (!details.archiveSummary)
+            {
+                snapshot.hasArchive = false;
+                snapshot.archiveSummary = CatalogArchiveSummary.init;
+            }
             return snapshot;
         });
     }
@@ -855,7 +861,8 @@ private:
             result.mediaStreams = mediaStreamsFor(blob);
         if (details.archiveSummary)
         {
-            result.hasArchive = blob.archiveSpecs !is null;
+            result.hasArchive = blob.archiveIndexKnown
+                || blob.archiveSpecs !is null;
             result.archiveSummary.indexKnown = result.hasArchive;
         }
         if (details.torrentSummary && blob.torrentInfo !is null)
@@ -869,7 +876,7 @@ private:
             result.torrentSummary.announce = blob.torrentInfo.announce;
             result.torrentSummary.pieceLength = blob.torrentInfo.pieceLength;
             result.torrentSummary.piecesCount = blob.torrentInfo.piecesCount;
-            result.torrentSummary.fileListAvailable = true;
+            result.torrentSummary.fileListAvailable = blob.torrentInfo.files !is null;
         }
 
         CatalogExtractorStatus checksumStatus;
@@ -891,6 +898,20 @@ private:
             : (blob.mediaInfoSig.empty ? CatalogExtractorState.empty
                 : CatalogExtractorState.completed);
         result.extractors ~= mediaStatus;
+        CatalogExtractorStatus archiveStatus;
+        archiveStatus.extractor = "archives";
+        if (!blob.archiveIndexKnown && blob.archiveSpecs is null)
+            archiveStatus.state = CatalogExtractorState.notRequested;
+        else if (blob.archiveSpecs !is null && blob.archiveSpecs.length > 0)
+            archiveStatus.state = CatalogExtractorState.completed;
+        else
+            archiveStatus.state = CatalogExtractorState.empty;
+        result.extractors ~= archiveStatus;
+        CatalogExtractorStatus torrentStatus;
+        torrentStatus.extractor = "torrents";
+        torrentStatus.state = blob.torrentInfo is null
+            ? CatalogExtractorState.notRequested : CatalogExtractorState.completed;
+        result.extractors ~= torrentStatus;
         return result;
     }
 
@@ -976,8 +997,10 @@ private:
     }
 
     void populateArchiveSummary(Repository repository, long blobId,
-        ref CatalogContentSnapshot snapshot) const
+        bool indexKnown, ref CatalogContentSnapshot snapshot) const
     {
+        snapshot.archiveSummary.indexKnown = indexKnown;
+        snapshot.hasArchive = indexKnown;
         size_t offset;
         while (true)
         {
@@ -998,6 +1021,13 @@ private:
             if (entries.length < catalogPageSize)
                 break;
         }
+        foreach (ref status; snapshot.extractors)
+            if (status.extractor == "archives")
+                status.state = !snapshot.archiveSummary.indexKnown
+                    ? CatalogExtractorState.notRequested
+                    : (snapshot.archiveSummary.entryCount == 0
+                        ? CatalogExtractorState.empty
+                        : CatalogExtractorState.completed);
     }
 
     CatalogFilePage loadForwardFilePage(Repository repository,
@@ -1673,10 +1703,14 @@ version (unittest)
         assert(nestedArchiveMembers.members[0].locator.archiveEntry.containerReferenceId
             == nestedZipMember.referenceId);
         DirectoryId jsonArchiveDirectory;
+        DirectoryId jsonTorrentDirectory;
         foreach (directory; jsonBackend.listDirectories(directoryQuery,
             directoryRequest).directories)
             if (directory.relativePath == "archives")
                 jsonArchiveDirectory = directory.id;
+            else if (directory.relativePath == "torrent")
+                jsonTorrentDirectory = directory.id;
+        assert(jsonTorrentDirectory.isValid);
         CatalogFile jsonContainer;
         CatalogFile jsonNestedArchiveFile;
         CatalogFileQuery jsonArchiveQuery;
@@ -1718,6 +1752,31 @@ version (unittest)
             == nestedArchiveMembers.members.length);
         assert(jsonNestedArchiveMembers.members[0].relativePath
             == nestedArchiveMembers.members[0].relativePath);
+
+        /* Detail snapshots and extractor statuses must agree across backends. */
+        CatalogDetailMask archiveDetails;
+        archiveDetails.archiveSummary = true;
+        const auto sqliteArchiveSnapshot = sqliteBackend.loadContent(
+            sampleArchive.contentId, archiveDetails);
+        const auto jsonArchiveSnapshot = jsonBackend.loadContent(
+            jsonContainer.contentId, archiveDetails);
+        assert(sqliteArchiveSnapshot.hasArchive == jsonArchiveSnapshot.hasArchive);
+        assert(sqliteArchiveSnapshot.archiveSummary.indexKnown
+            == jsonArchiveSnapshot.archiveSummary.indexKnown);
+        assert(sqliteArchiveSnapshot.archiveSummary.entryCount
+            == jsonArchiveSnapshot.archiveSummary.entryCount);
+        assert(sqliteArchiveSnapshot.archiveSummary.entriesWithCompleteFingerprints
+            == jsonArchiveSnapshot.archiveSummary.entriesWithCompleteFingerprints);
+        assert(sqliteArchiveSnapshot.extractors.length
+            == jsonArchiveSnapshot.extractors.length);
+        foreach (index, status; sqliteArchiveSnapshot.extractors)
+        {
+            assert(status.extractor == jsonArchiveSnapshot.extractors[index].extractor);
+            assert(status.state == jsonArchiveSnapshot.extractors[index].state,
+                status.extractor ~ ": sqlite=" ~ status.state.to!string
+                ~ " json=" ~ jsonArchiveSnapshot.extractors[index].state.to!string);
+        }
+
         auto jsonArchiveMemberQuery = archiveMemberQuery;
         jsonArchiveMemberQuery.directoryId = jsonArchiveDirectory;
         const auto jsonArchiveMemberFiles = jsonBackend.listFiles(
@@ -1784,6 +1843,38 @@ version (unittest)
         assert(torrent.torrentSummary.fileListAvailable);
         assert(sqliteBackend.listTorrentEntries(singleTorrent.contentId)
             .entries.length == 1);
+
+        /* A known content without an archive index is an empty page, not an error. */
+        assert(sqliteBackend.listArchiveEntries(singleTorrent.contentId)
+            .entries.length == 0);
+        CatalogFileQuery jsonTorrentQuery;
+        jsonTorrentQuery.directoryId = jsonTorrentDirectory;
+        jsonTorrentQuery.filter.torrent = true;
+        CatalogFile jsonSingleTorrent;
+        foreach (file; jsonBackend.listFiles(jsonTorrentQuery).files)
+            if (file.name == "single-file.torrent")
+                jsonSingleTorrent = file;
+        assert(jsonSingleTorrent.contentId.isValid);
+        assert(jsonBackend.listArchiveEntries(jsonSingleTorrent.contentId)
+            .entries.length == 0);
+
+        const auto sqliteTorrentSnapshot = sqliteBackend.loadContent(
+            singleTorrent.contentId, torrentDetails);
+        const auto jsonTorrentSnapshot = jsonBackend.loadContent(
+            jsonSingleTorrent.contentId, torrentDetails);
+        assert(sqliteTorrentSnapshot.hasTorrent == jsonTorrentSnapshot.hasTorrent);
+        assert(sqliteTorrentSnapshot.torrentSummary.name
+            == jsonTorrentSnapshot.torrentSummary.name);
+        /* The SQLite repository always stores the manifest; a JSON source may
+         * legitimately omit torrent files, which its capabilities report. */
+        assert(sqliteTorrentSnapshot.torrentSummary.fileListAvailable);
+        assert(sqliteTorrentSnapshot.extractors.length
+            == jsonTorrentSnapshot.extractors.length);
+        foreach (index, status; sqliteTorrentSnapshot.extractors)
+        {
+            assert(status.extractor == jsonTorrentSnapshot.extractors[index].extractor);
+            assert(status.state == jsonTorrentSnapshot.extractors[index].state);
+        }
 
         CatalogExportOptions exportOptions;
         exportOptions.format = CatalogExportFormat.jsonV5;

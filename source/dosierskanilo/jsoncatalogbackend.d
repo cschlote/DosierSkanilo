@@ -271,6 +271,21 @@ public:
                 source.fingerprint.digests[index].value.dup;
         result.mediaStreams = source.mediaStreams.dup;
         result.extractors = source.extractors.dup;
+        /* The archive index is authoritative for entries, so refresh the
+         * summary at query time instead of trusting the build-time snapshot. */
+        const bool indexedArchive =
+            (result.id.adapterToken in archiveEntriesByToken) !is null;
+        if (indexedArchive)
+        {
+            result.hasArchive = true;
+            result.archiveSummary =
+                archiveSummaryForToken(result.id.adapterToken);
+        }
+        const auto archiveState = !result.hasArchive
+            ? CatalogExtractorState.notRequested
+            : (result.archiveSummary.entryCount == 0
+                ? CatalogExtractorState.empty
+                : CatalogExtractorState.completed);
         if (!details.fingerprint)
         {
             result.fingerprint.digests = [];
@@ -290,7 +305,24 @@ public:
             result.hasTorrent = false;
             result.torrentSummary = CatalogTorrentSummary.init;
         }
+        foreach (ref status; result.extractors)
+            if (status.extractor == "archives")
+                status.state = archiveState;
         return result;
+    }
+
+    CatalogArchiveSummary archiveSummaryForToken(string token) const
+    {
+        CatalogArchiveSummary summary;
+        auto entries = token in archiveEntriesByToken;
+        if (entries is null)
+            return summary;
+        summary.indexKnown = true;
+        summary.entryCount = (*entries).length;
+        foreach (entry; *entries)
+            if (entry.fingerprint.complete)
+                ++summary.entriesWithCompleteFingerprints;
+        return summary;
     }
 
     override CatalogArchiveEntryPage listArchiveEntries(ContentId contentId,
@@ -300,8 +332,16 @@ public:
         const auto token = contentId.adapterToken;
         auto entries = token in archiveEntriesByToken;
         if (entries is null)
-            throw new CatalogBackendException(CatalogBackendErrorCode.invalidIdentifier,
-                "Content has no JSON archive index.");
+        {
+            /* A known content without an archive index yields an empty page,
+             * matching the SQLite backend; only unknown ids are errors. */
+            if (token !in contentByToken)
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.invalidIdentifier,
+                    "Unknown JSON content identity.");
+            CatalogArchiveEntryPage empty;
+            return empty;
+        }
         auto slice = pageSlice(page, sourceToken ~ "\0"
             ~ indexGeneration.to!string ~ "\0archives\0" ~ token,
             (*entries).length);
@@ -402,8 +442,14 @@ public:
         const auto token = contentId.adapterToken;
         auto entries = token in torrentEntriesByToken;
         if (entries is null)
-            throw new CatalogBackendException(CatalogBackendErrorCode.invalidIdentifier,
-                "Content has no JSON torrent manifest.");
+        {
+            if (token !in contentByToken)
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.invalidIdentifier,
+                    "Unknown JSON content identity.");
+            CatalogTorrentEntryPage empty;
+            return empty;
+        }
         auto slice = pageSlice(page, sourceToken ~ "\0"
             ~ indexGeneration.to!string ~ "\0torrents\0" ~ token,
             (*entries).length);
@@ -1162,15 +1208,26 @@ private:
         result.fingerprint = fingerprintFor(blob);
         result.fileType = blob.fileType;
         result.mediaStreams = mediaStreamsFor(blob);
-        result.hasArchive = blob.archiveIndexKnown || blob.archiveSpecs !is null;
+        auto indexedArchiveEntries = contentId.adapterToken in archiveEntriesByToken;
+        const bool archiveIndexed = blob.archiveIndexKnown
+            || blob.archiveSpecs !is null || indexedArchiveEntries !is null;
+        result.hasArchive = archiveIndexed;
         result.hasTorrent = blob.torrentInfo !is null;
-        result.archiveSummary.indexKnown = blob.archiveIndexKnown
-            || blob.archiveSpecs !is null;
-        if (blob.archiveSpecs !is null)
+        result.archiveSummary.indexKnown = archiveIndexed;
+        if (indexedArchiveEntries !is null)
+        {
+            result.archiveSummary.entryCount = (*indexedArchiveEntries).length;
+            foreach (entry; *indexedArchiveEntries)
+                if (entry.fingerprint.complete)
+                    result.archiveSummary.entriesWithCompleteFingerprints++;
+        }
+        else if (blob.archiveSpecs !is null)
         {
             result.archiveSummary.entryCount = blob.archiveSpecs.length;
             foreach (entry; blob.archiveSpecs)
-                if (entry !is null && entry.checkSums.hasDigests)
+                if (entry !is null
+                    && fingerprintFor(cast(size_t) entry.fileSize,
+                        entry.checkSums).complete)
                     result.archiveSummary.entriesWithCompleteFingerprints++;
         }
         if (blob.torrentInfo !is null)
@@ -1206,10 +1263,12 @@ private:
         result.extractors ~= mediaStatus;
         CatalogExtractorStatus archiveStatus;
         archiveStatus.extractor = "archives";
-        archiveStatus.state = !blob.archiveIndexKnown && blob.archiveSpecs is null
-            ? CatalogExtractorState.notRequested
-            : (blob.archiveSpecs.length == 0 ? CatalogExtractorState.empty
-                : CatalogExtractorState.completed);
+        if (!archiveIndexed)
+            archiveStatus.state = CatalogExtractorState.notRequested;
+        else if (result.archiveSummary.entryCount == 0)
+            archiveStatus.state = CatalogExtractorState.empty;
+        else
+            archiveStatus.state = CatalogExtractorState.completed;
         result.extractors ~= archiveStatus;
         CatalogExtractorStatus torrentStatus;
         torrentStatus.extractor = "torrents";

@@ -733,8 +733,21 @@ the
       backend argument/export errors use `CatalogBackendException`.
 - [ ] Open minor items: M5 scalability rewrite, `membercontentcache`
       destructor (leases may outlive the cache during GC), `operationlease`
-      portability, JSON/SQLite parity gaps, unused DUB version flags, and the
-      staging deploy job.
+      portability, unused DUB version flags, and the staging deploy job.
+
+### Wave 5 - backend parity
+
+- [x] `listArchiveEntries` and `listTorrentEntries` return an empty page for
+      known content without an index on both backends; unknown content ids
+      still raise `invalidIdentifier`.
+- [x] `loadContent` snapshots report the same archive summary, torrent summary
+      name, and extractor statuses; JSON refreshes archive counts from the
+      index at query time and both count complete fingerprints the same way.
+      The cross-backend test now asserts these values.
+- [ ] Open parity items: JSON availability is still a build-time snapshot,
+      JSON pages still materialize the whole matching set, several JSON maps
+      insert defaults on `opIndex` misses, and
+      `archiveMemberReferenceByToken` still grows on reads.
 
 Verification: `DC=ldc2 dub test --config=library` - 151 passed, 0 failed;
 `./scripts/test-cli.sh` - passed; `./scripts/lint.sh` - passed.

@@ -68,6 +68,11 @@ They represent the functional evolution and are intentionally summarized.
   export failures.
 - Member cache failures use typed exceptions derived from
   `MemberContentCacheException`, and lease release is thread-safe.
+- JSON archive and torrent entry queries return an empty page for known
+  content without an index, like SQLite; unknown ids still fail.
+- Content detail snapshots now report the same archive summary and extractor
+  statuses on both backends, and JSON refreshes archive counts from the index
+  at query time instead of the build-time snapshot.
 
 ## Release 26.11.3 - 2026-10-21
 
