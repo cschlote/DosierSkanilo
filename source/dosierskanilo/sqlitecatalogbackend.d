@@ -45,6 +45,7 @@ private:
     OperationTarget backendTarget;
     string sourceToken;
     bool closed;
+    Repository cachedRepository;
 
 public:
     /** Open exactly one initialized SQLite repository target. */
@@ -63,11 +64,7 @@ public:
         backendTarget = OperationTarget.repositoryTarget(canonicalPath(root));
         sourceToken = randomUUID().toString();
         try
-        {
-            auto repository = Repository.open(backendTarget.repositoryRoot);
-            scope (exit)
-                repository.close();
-        }
+            cachedRepository = Repository.open(backendTarget.repositoryRoot);
         catch (Exception failure)
             throw new CatalogBackendException(CatalogBackendErrorCode.backendFailure,
                 "Could not open SQLite repository: " ~ failure.msg);
@@ -318,12 +315,21 @@ public:
             RepositoryFileQuery query;
             query.directoryId = container.directoryId;
             query.includeArchiveMembers = true;
-            query.limit = size_t.max;
+            query.limit = catalogPageSize;
             RepositoryFile[] directMembers;
-            foreach (file; repository.listFiles(query))
-                if (file.archiveMember
-                    && file.archiveContainerIdentity == container.identity)
-                    directMembers ~= file;
+            /* Walk the directory in bounded keyset pages instead of loading it
+             * with an unbounded query. */
+            RepositoryFilePage chunk = repository.listFilesPage(query);
+            while (true)
+            {
+                foreach (file; chunk.files)
+                    if (file.archiveMember
+                        && file.archiveContainerIdentity == container.identity)
+                        directMembers ~= file;
+                if (!chunk.hasMore || chunk.files.length == 0)
+                    break;
+                chunk = repository.nextFilesPage(query, chunk.nextCursor);
+            }
             directMembers.sort!((left, right) =>
                 left.relativePath < right.relativePath);
             const auto offset = cursorOffset(page, queryToken);
@@ -350,7 +356,7 @@ public:
                 member.availability = file.present
                     ? CatalogReferenceAvailability.available
                     : CatalogReferenceAvailability.unavailable;
-                auto content = repository.loadBlobDetails(file.blobId);
+                auto content = repository.loadBlobFingerprint(file.blobId);
                 if (content !is null)
                     member.fingerprint = fingerprintFor(cast(size_t) content.fileSize,
                         content.checkSums);
@@ -674,7 +680,14 @@ public:
 
     override void close()
     {
+        if (closed)
+            return;
         closed = true;
+        if (cachedRepository !is null)
+        {
+            cachedRepository.close();
+            cachedRepository = null;
+        }
     }
 
 private:
@@ -708,19 +721,24 @@ private:
     auto withRepository(F)(F action)
     {
         requireOpen();
-        Repository repository;
-        try
+        /* Reuse one read connection for the backend lifetime; paging through a
+         * large catalog no longer reopens the database per page. */
+        synchronized (this)
         {
-            repository = Repository.open(backendTarget.repositoryRoot);
-            scope (exit)
-                repository.close();
-            return action(repository);
+            try
+            {
+                if (cachedRepository is null)
+                    cachedRepository = Repository.open(
+                        backendTarget.repositoryRoot);
+                return action(cachedRepository);
+            }
+            catch (CatalogBackendException failure)
+                throw failure;
+            catch (Exception failure)
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.backendFailure,
+                    "SQLite catalog query failed: " ~ failure.msg);
         }
-        catch (CatalogBackendException failure)
-            throw failure;
-        catch (Exception failure)
-            throw new CatalogBackendException(CatalogBackendErrorCode.backendFailure,
-                "SQLite catalog query failed: " ~ failure.msg);
     }
 
     string canonicalPath(string path) const

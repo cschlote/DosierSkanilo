@@ -402,8 +402,18 @@ void executeRepositoryDuplicates(CatalogBackend backend, string repositoryRoot,
 {
 	logLineVerbose("Querying duplicate groups in catalog root: ", repositoryRoot);
 	auto groups = backend.queryDuplicateGroups(options.argDuplicateLimit);
+	long[] neededIds;
+	bool[long] seenId;
+	foreach (group; groups)
+		foreach (blobId; group.blobIds)
+			if (blobId !in seenId)
+			{
+				seenId[blobId] = true;
+				neededIds ~= blobId;
+			}
 	RepositoryQueryOptions lookupQuery;
-	lookupQuery.limit = size_t.max;
+	lookupQuery.blobIds = neededIds;
+	lookupQuery.limit = neededIds.length > 0 ? neededIds.length : 1;
 	auto blobs = backend.queryBlobs(lookupQuery);
 	string[long] pathByBlobId;
 	foreach (index, blob; blobs.blobs)

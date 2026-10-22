@@ -393,6 +393,8 @@ struct RepositoryQueryOptions
     bool archive;
     /// Require torrent metadata.
     bool torrent;
+    /// Restrict the result to these blob ids; empty means no restriction.
+    long[] blobIds;
     /// Stable keyset position for forward-only catalog iteration.
     long afterBlobId;
     bool useCursor;

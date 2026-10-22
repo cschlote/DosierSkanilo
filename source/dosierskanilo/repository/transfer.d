@@ -604,7 +604,7 @@ long countCatalogQueryFromDatabase(ref Database db, RepositoryQueryOptions optio
 {
     if (options.text.empty && !options.video && !options.audio && !options.image
         && !options.textStream && !options.fileType && !options.archive
-        && !options.torrent)
+        && !options.torrent && options.blobIds.length == 0)
         return db.execute("SELECT count(*) FROM blobs").oneValue!long;
     auto statement = prepareCatalogQuery(db, "SELECT count(*) FROM blobs b",
         options, false);
@@ -615,6 +615,13 @@ private Statement prepareCatalogQuery(ref Database db, string selectSql,
     RepositoryQueryOptions options, bool paged)
 {
     string sql = selectSql ~ " WHERE 1 = 1";
+    string[] blobIdParameters;
+    if (options.blobIds.length > 0)
+    {
+        foreach (index; 0 .. options.blobIds.length)
+            blobIdParameters ~= ":blob_id_" ~ index.to!string;
+        sql ~= " AND b.id IN (" ~ blobIdParameters.join(", ") ~ ")";
+    }
     ubyte[] sha1Search;
     if (!options.text.empty)
     {
@@ -697,6 +704,8 @@ private Statement prepareCatalogQuery(ref Database db, string selectSql,
     }
 
     auto statement = db.prepare(sql);
+    foreach (index, blobId; options.blobIds)
+        statement.bind(blobIdParameters[index], blobId);
     if (!options.text.empty)
         statement.bind(":text", options.text);
     if (sha1Search.length == 20)
@@ -713,6 +722,26 @@ private Statement prepareCatalogQuery(ref Database db, string selectSql,
             statement.bind(":offset", cast(long) options.offset);
     }
     return statement;
+}
+
+/** Load only the content size and digests for one blob.
+ *
+ * This avoids the reference, media, archive and torrent statements of a full
+ * detail load when callers only need a fingerprint.
+ */
+NamedBinaryBlob loadBlobFingerprintFromDatabase(ref Database db, long blobId)
+{
+    auto result = db.execute("SELECT file_size, md5, sha1, xxh64 FROM blobs "
+        ~ "WHERE id = ?", blobId);
+    if (result.empty)
+        return null;
+    auto row = result.front;
+    auto blob = new NamedBinaryBlob();
+    blob.fileSize = cast(size_t) row.peek!long(0);
+    blob.checkSums.md5sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(1));
+    blob.checkSums.sha1sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(2));
+    blob.checkSums.xxh64sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(3));
+    return blob;
 }
 
 /** Load one blob and all related details by stable database ID. */

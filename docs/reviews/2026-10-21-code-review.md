@@ -698,8 +698,13 @@ the
 
 - [x] M4 - directory filtering no longer wraps the column in `COALESCE`.
 - [x] M7 - import/export take the write lease; backups use `VACUUM INTO`.
-- [ ] M3, M5, M6, M17, M21, M23 - open; these need benchmarks and larger
-      query rewrites before changing them.
+- [x] M17 - archive member pages use bounded keyset pages and a fingerprint-only
+      blob lookup.
+- [x] M21 - duplicate listings restrict the blob query to the reported ids via
+      `RepositoryQueryOptions.blobIds`.
+- [x] M23 - the SQLite backend keeps one read connection until `close()`.
+- [ ] M3, M5, M6 - open; these need benchmarks and larger query rewrites before
+      changing them.
 
 Verification: `DC=ldc2 dub test --config=library` - 151 passed, 0 failed;
 `./scripts/test-cli.sh` - passed.

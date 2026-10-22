@@ -465,6 +465,17 @@ public:
             if (auto index = token in blobIndexByContentToken)
                 matchingIndices ~= *index;
         matchingIndices.sort;
+        if (options.blobIds.length > 0)
+        {
+            bool[long] wanted;
+            foreach (blobId; options.blobIds)
+                wanted[blobId] = true;
+            size_t[] restricted;
+            foreach (index; matchingIndices)
+                if ((cast(long) index + 1) in wanted)
+                    restricted ~= index;
+            matchingIndices = restricted;
+        }
 
         RepositoryBlobPage result;
         result.total = matchingIndices.length;

@@ -27,7 +27,8 @@ import dosierskanilo.repository.scanner : scanRepositoryControlled;
 import dosierskanilo.repository.transfer : exportCatalogJson, importCatalogJson,
     loadCatalogFromDatabase, loadCatalogPageFromDatabase,
     loadCatalogQueryPageFromDatabase, loadCatalogQueryPageWithIdsFromDatabase,
-    loadBlobDetailsFromDatabase, countCatalogQueryFromDatabase,
+    loadBlobDetailsFromDatabase, loadBlobFingerprintFromDatabase,
+    countCatalogQueryFromDatabase,
     listDirectoriesFromDatabase, loadRootSummaryFromDatabase, listFilesFromDatabase,
     listFilesPageFromDatabase, listArchiveEntriesFromDatabase,
     listTorrentFilesFromDatabase, loadFileReferenceFromDatabase,
@@ -322,6 +323,13 @@ public:
             repositoryPaths.rootPath, options, exportOptions);
         page.total = countCatalogQuery(options);
         return page;
+    }
+
+    /** Load only the size and digests of one blob by stable repository ID. */
+    NamedBinaryBlob loadBlobFingerprint(long blobId)
+    {
+        requireOpen();
+        return loadBlobFingerprintFromDatabase(database, blobId);
     }
 
     /** Load one blob and its related details by stable repository ID. */
@@ -931,6 +939,14 @@ unittest
     assert(secondCursorPage.total == 2);
     assert(!secondCursorPage.hasMore);
     assert(firstCursorPage.blobIds[0] != secondCursorPage.blobIds[0]);
+
+    query.text = "";
+    query.useCursor = false;
+    query.blobIds = [firstCursorPage.blobIds[0]];
+    auto restricted = repository.loadCatalogQueryPageWithIds(query);
+    assert(restricted.blobs.length == 1);
+    assert(restricted.blobIds == [firstCursorPage.blobIds[0]]);
+    query.blobIds = [];
 
     MetadataScanOptions checksumOptions;
     checksumOptions.calculateChecksums = true;

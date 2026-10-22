@@ -35,6 +35,9 @@ They represent the functional evolution and are intentionally summarized.
 - Repository import and export now take the write lease; backups use
   `VACUUM INTO` for a consistent snapshot. File listings can use the directory
   index again.
+- Repository duplicate listings fetch only the reported blob ids, archive
+  member pages use bounded keyset reads and fingerprint-only lookups, and the
+  SQLite backend reuses one read connection for its lifetime.
 - Duplicate merging now always keeps the lowest blob id, so repeated analyses
   pick the same survivor.
 
