@@ -60,9 +60,10 @@ actions using the same typed requests. Backend and GUI tests compare source mode
 request construction, task-state reduction, and refresh decisions.
 
 Remaining verification is enumerated in WP-09 and
-`docs/OPERATION-PARITY.md`: process-level Ctrl-C/worker-shutdown checks,
-multi-process lease races, and display-backed GTK operation start/progress/
-pause/cancel/refresh tests. Do not reintroduce an HMI-owned scan or analysis
+`docs/OPERATION-PARITY.md`: process-level Ctrl-C checks for the remaining
+operation families, multi-process lease races, and display-backed GTK
+operation start/progress/pause/cancel/refresh tests. `test-cli.sh` now covers
+SIGINT during a JSON analysis. Do not reintroduce an HMI-owned scan or analysis
 implementation.
 
 ## P1 — Storage-neutral catalog and archive-content model (WP-13)

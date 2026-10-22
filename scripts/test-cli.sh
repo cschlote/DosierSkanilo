@@ -95,6 +95,22 @@ cmp "${crash_pristine}" "${crash_output}"
 rm -f "${crash_output}".tmp-*
 "${BIN}" analyze --json "${crash_output}" >/dev/null
 
+# SIGINT during a JSON analysis cancels cooperatively: the process fails, the
+# original catalog is left in place, and no staging file is published.
+cancel_catalog="${TMP_DIR}/cancel-catalog.json"
+cancel_pristine="${TMP_DIR}/cancel-pristine.json"
+cp "${crash_source}" "${cancel_catalog}"
+cp "${cancel_catalog}" "${cancel_pristine}"
+"${BIN}" analyze --json "${cancel_catalog}" >"${TMP_DIR}/cancel-stdout" 2>&1 &
+analyze_pid=$!
+sleep 0.5
+kill -INT "${analyze_pid}" 2>/dev/null || true
+cancel_rc=0
+wait "${analyze_pid}" || cancel_rc=$?
+[[ "${cancel_rc}" -ne 0 ]]
+cmp "${cancel_pristine}" "${cancel_catalog}"
+grep -q "cancelled" "${TMP_DIR}/cancel-stdout"
+
 library="${TMP_DIR}/library"
 catalog="${TMP_DIR}/library.json"
 sqlite_root="${TMP_DIR}/sqlite-library"
