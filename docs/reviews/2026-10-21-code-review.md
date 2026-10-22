@@ -707,9 +707,12 @@ the
 - [x] M21 - duplicate listings restrict the blob query to the reported ids via
       `RepositoryQueryOptions.blobIds`.
 - [x] M23 - the SQLite backend keeps one read connection until `close()`.
-- [ ] M5 - pages still load each blob's details separately; flag loading is
-      batched, but assembling file specs, media info, and torrent data from set
-      queries needs a larger rewrite and benchmark.
+- [x] M5 - catalog pages load file specs, media streams, archive state and
+      torrent data with a fixed set of queries; archive member listings use a
+      `relative_path` range instead of scanning every virtual reference. A
+      page with 1,000 rows now issues 14 statements instead of about 4,002.
+      Wall-clock CLI time was unchanged on synthetic data (startup dominated);
+      the measurement is recorded in `docs/BENCHMARKS.md`.
 
 ### Wave 4 - minor fixes
 
@@ -739,7 +742,8 @@ the
 - [x] Removed the unused `useJSONStorage` DUB flag; `SqliteEnableUnlockNotify`
       remains because d2sqlite3 consumes it. `deploy_staging` is manual until
       `scripts/deploy.sh` does real work.
-- [ ] Open minor items: M5 scalability rewrite only.
+- [x] All documented remediation items are addressed. Follow-up work is
+      tracked in "Open measurements and follow-ups".
 
 ### Wave 5 - backend parity
 

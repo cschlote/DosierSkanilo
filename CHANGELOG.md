@@ -82,6 +82,9 @@ They represent the functional evolution and are intentionally summarized.
   stays because d2sqlite3 consumes it.
 - Staging deployment is manual instead of running on every `main`/`testing`
   push while `scripts/deploy.sh` is still a no-op.
+- Catalog pages load blob details with a fixed set of set-based queries, and
+  archive member listings restrict the query to the container path range.
+  A 1,000-row page now issues 14 statements instead of about 4,002.
 
 ## Release 26.11.3 - 2026-10-21
 
