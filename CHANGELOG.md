@@ -7,7 +7,7 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
-## Unreleased
+## Release 26.11.4 - 2026-10-22
 
 - JSON catalog writes now serialize into a staging file and rename it into
   place, and the copy-based backup fallback restores the original instead of
