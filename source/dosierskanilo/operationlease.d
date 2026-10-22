@@ -330,6 +330,67 @@ unittest
     rmdirRecurse(root);
 }
 
+version (Posix)
+{
+    private extern(C) int fork();
+}
+
+version (Posix)
+@("operation target lease excludes a second process")
+unittest
+{
+    import core.sys.posix.signal : SIGKILL, kill;
+    import core.sys.posix.sys.wait : waitpid;
+    import core.sys.posix.unistd : _exit, sleep;
+    import core.thread : Thread;
+    import core.time : msecs;
+    import std.file : mkdirRecurse, rmdirRecurse, tempDir;
+    import std.path : buildPath;
+    import std.string : toStringz;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "operation-lease-process-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    auto target = OperationTarget.repositoryTarget(root);
+    auto lockPath = operationLockPath(canonicalTargetKey(target));
+    auto lockPathz = lockPath.toStringz;
+
+    const pid = fork();
+    assert(pid >= 0, "Could not fork a lease-holding process.");
+    if (pid == 0)
+    {
+        /* Only syscalls and sleep, so the child never needs the D runtime. */
+        auto descriptor = cOpen(lockPathz, O_RDWR | O_CREAT, 384 /* 0600 */);
+        if (descriptor < 0 || cFlock(descriptor, LOCK_EX | LOCK_NB) != 0)
+            _exit(1);
+        sleep(30);
+        _exit(0);
+    }
+
+    bool busy;
+    foreach (attempt; 0 .. 200)
+    {
+        try
+        {
+            auto contender = TargetWriteLease.acquire(target);
+            contender.release();
+        }
+        catch (OperationTargetBusyException)
+        {
+            busy = true;
+            break;
+        }
+        Thread.sleep(5.msecs);
+    }
+
+    kill(pid, SIGKILL);
+    int status;
+    waitpid(pid, &status, 0);
+    rmdirRecurse(root);
+    assert(busy, "The child process must keep the operation lease busy.");
+}
+
 @("JSON readers coexist with operation staging but exclude file replacement")
 unittest
 {

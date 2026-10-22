@@ -61,10 +61,11 @@ request construction, task-state reduction, and refresh decisions.
 
 Remaining verification is enumerated in WP-09 and
 `docs/OPERATION-PARITY.md`: process-level Ctrl-C checks for the remaining
-operation families, multi-process lease races, and display-backed GTK
-operation start/progress/pause/cancel/refresh tests. `test-cli.sh` now covers
-SIGINT during a JSON analysis. Do not reintroduce an HMI-owned scan or analysis
-implementation.
+operation families, lease races while a second process is active, and
+display-backed GTK operation start/progress/pause/cancel/refresh tests.
+`test-cli.sh` covers SIGINT during a JSON analysis, and a forked-process test
+covers basic cross-process lease exclusion. Do not reintroduce an HMI-owned
+scan or analysis implementation.
 
 ## P1 — Storage-neutral catalog and archive-content model (WP-13)
 
