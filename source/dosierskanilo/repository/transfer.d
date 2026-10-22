@@ -142,8 +142,10 @@ RepositoryDirectory[] listDirectoriesFromDatabase(ref Database db,
         ~ "(SELECT count(*) FROM file_refs f WHERE f.directory_id = d.id AND "
         ~ "NOT (" ~ isVirtualFileReferenceSql("f.relative_path") ~ ")), "
         ~ "COALESCE((SELECT sum(b.file_size) FROM file_refs f "
-        ~ "JOIN blobs b ON b.id = f.blob_id WHERE (f.relative_path = d.relative_path "
-        ~ "OR f.relative_path LIKE d.relative_path || '/%') "
+        ~ "JOIN blobs b ON b.id = f.blob_id WHERE "
+        ~ "(f.relative_path = d.relative_path "
+        ~ "OR (f.relative_path >= d.relative_path || '/' "
+        ~ "AND f.relative_path < d.relative_path || '/\uFFFF')) "
         ~ "AND NOT (" ~ isVirtualFileReferenceSql("f.relative_path") ~ ")), 0) "
         ~ "FROM directories d WHERE "
         ~ (options.parentId == 0 ? "d.parent_id IS NULL" : "d.parent_id = :parent_id")

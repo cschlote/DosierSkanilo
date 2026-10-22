@@ -696,15 +696,20 @@ the
 
 ### Wave 3 - scalability (partial)
 
+- [x] M3 - scans restrict virtual-reference updates and deletes to the escaped
+      container-path range instead of walking the whole virtual table.
 - [x] M4 - directory filtering no longer wraps the column in `COALESCE`.
+- [x] M6 - directory size aggregates use a range predicate instead of a
+      correlated `LIKE`.
 - [x] M7 - import/export take the write lease; backups use `VACUUM INTO`.
 - [x] M17 - archive member pages use bounded keyset pages and a fingerprint-only
       blob lookup.
 - [x] M21 - duplicate listings restrict the blob query to the reported ids via
       `RepositoryQueryOptions.blobIds`.
 - [x] M23 - the SQLite backend keeps one read connection until `close()`.
-- [ ] M3, M5, M6 - open; these need benchmarks and larger query rewrites before
-      changing them.
+- [ ] M5 - pages still load each blob's details separately; flag loading is
+      batched, but assembling file specs, media info, and torrent data from set
+      queries needs a larger rewrite and benchmark.
 
 ### Wave 4 - minor fixes
 

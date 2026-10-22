@@ -56,6 +56,9 @@ They represent the functional evolution and are intentionally summarized.
   repository constructor no longer hides the original error while closing.
 - The lint script covers the benchmark page and review reports, and CI now
   uses the same Alpine base image everywhere and rejects `vv` version tags.
+- Repository scans update or delete virtual members through the escaped
+  container-path range instead of walking every virtual reference, and
+  directory sizes use an index-friendly range predicate instead of `LIKE`.
 
 ## Release 26.11.3 - 2026-10-21
 
