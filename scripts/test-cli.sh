@@ -54,6 +54,47 @@ sqlite_duplicates_output=$("${BIN}" duplicates \
 [[ "${json_duplicates_output}" == "${sqlite_duplicates_output}" ]]
 popd >/dev/null
 
+# A killed JSON export never leaves a truncated or missing catalog at the
+# canonical path: the writer serializes into a staging file and renames it.
+crash_source="${TMP_DIR}/crash-source.json"
+crash_repo="${TMP_DIR}/crash-repo"
+crash_output="${TMP_DIR}/crash-output.json"
+crash_pristine="${TMP_DIR}/crash-pristine.json"
+mkdir -p "${crash_repo}"
+awk 'BEGIN {
+    print "{\"dataVersion\":5,\"dataArray\":["
+    for (i = 0; i < 100000; i++) {
+        if (i)
+            print ","
+        printf "{\"fileSize\":1,\"fileSpecs\":[{\"fileName\":\"f%06d\",\"timeLastModified\":\"2020-01-02T04:04:06\"}]}", i
+    }
+    print "]}"
+}' > "${crash_source}"
+"${BIN}" init "${crash_repo}" >/dev/null
+"${BIN}" import "${crash_repo}" "${crash_source}" >/dev/null
+printf '%s\n' '{"dataVersion":5,"dataArray":[]}' > "${crash_pristine}"
+cp "${crash_pristine}" "${crash_output}"
+"${BIN}" export "${crash_repo}" --output "${crash_output}" >/dev/null &
+export_pid=$!
+crash_staged=false
+for _ in $(seq 1 60000); do
+    if compgen -G "${crash_output}.tmp-*" >/dev/null; then
+        crash_staged=true
+        kill -STOP "${export_pid}" 2>/dev/null || true
+        kill -KILL "${export_pid}" 2>/dev/null || true
+        break
+    fi
+    if ! kill -0 "${export_pid}" 2>/dev/null; then
+        break
+    fi
+    sleep 0.001
+done
+wait "${export_pid}" 2>/dev/null || true
+[[ "${crash_staged}" == true ]]
+cmp "${crash_pristine}" "${crash_output}"
+rm -f "${crash_output}".tmp-*
+"${BIN}" analyze --json "${crash_output}" >/dev/null
+
 library="${TMP_DIR}/library"
 catalog="${TMP_DIR}/library.json"
 sqlite_root="${TMP_DIR}/sqlite-library"

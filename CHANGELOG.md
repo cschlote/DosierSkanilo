@@ -7,6 +7,15 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
+## Unreleased
+
+- JSON catalogs are backed up with a hard link (or a copy where links are
+  unavailable) and replaced by an atomic rename, so a killed or crashed writer
+  leaves the previous catalog intact at its canonical path.
+- JSON file pages refresh reference availability when served instead of using
+  the index-build snapshot, and physical file pages no longer materialize and
+  sort the whole matching set.
+
 ## Release 26.11.4 - 2026-10-22
 
 - JSON catalog writes now serialize into a staging file and rename it into

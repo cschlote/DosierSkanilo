@@ -647,8 +647,9 @@ consistency, signal-handler hardening, and Markdown lint coverage.
 
 ## Open measurements and follow-ups
 
-- Add a regression test for the JSON replacement crash window (write a large
-  catalog and kill the process during the write).
+- [x] Regression test for the JSON replacement crash window: `test-cli.sh`
+  exports a 100,000-blob catalog, kills the writer while its staging file
+  exists, and verifies the previous catalog is unchanged and readable.
 - The `TODO.md` items for process-level Ctrl-C, multi-process lease races and
   CIFS/SMB behavior remain the right home for the remaining verification work;
   the findings above do not duplicate them.
@@ -661,9 +662,10 @@ the
 
 ### Wave 1 - data safety
 
-- [x] C1 - backup falls back to `copy` and `restoreOriginalFile()` restores the
-      data (plus a copy-fallback unittest); the write also stages into a
-      temporary file before renaming.
+- [x] C1 - backups use a hard link or `copy` without removing the original,
+      `restoreOriginalFile()` restores the data (plus a copy-fallback unittest),
+      writes stage into a file that is renamed atomically on POSIX, and a
+      process-kill test covers the crash window.
 - [x] C2 - `OperationControl.unbindCancellationMirror()` releases the mirror,
       and both JSON metadata paths unbind on exit.
 - [x] C3 - `mergeBlobMetadata()` copies metadata status, media signatures and
