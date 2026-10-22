@@ -754,10 +754,16 @@ the
       name, and extractor statuses; JSON refreshes archive counts from the
       index at query time and both count complete fingerprints the same way.
       The cross-backend test now asserts these values.
-- [ ] Open parity items: JSON availability is still a build-time snapshot,
-      JSON pages still materialize the whole matching set, several JSON maps
-      insert defaults on `opIndex` misses, and
-      `archiveMemberReferenceByToken` still grows on reads.
+- [x] JSON file pages refresh availability when served, and the common
+      physical-file path scans for the requested page instead of materializing
+      and sorting the whole matching set.
+- [x] Reads no longer populate `archiveMemberReferenceByToken`; subset export
+      builds a local member map, and nested member lookups search the generated
+      member trees.
+- [x] The `opIndex` finding was incorrect: D associative-array reads throw a
+      `RangeError` on a missing key instead of inserting a default.
+- [ ] Open parity item: pages with `includeArchiveMembers` still generate and
+      sort all archive members before slicing.
 
 Verification: `DC=ldc2 dub test --config=library` - 151 passed, 0 failed;
 `./scripts/test-cli.sh` - passed; `./scripts/lint.sh` - passed.

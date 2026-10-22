@@ -70,6 +70,9 @@ They represent the functional evolution and are intentionally summarized.
   `MemberContentCacheException`, and lease release is thread-safe.
 - JSON archive and torrent entry queries return an empty page for known
   content without an index, like SQLite; unknown ids still fail.
+- JSON file pages refresh reference availability when queried instead of using
+  the index-build snapshot, and physical file pages no longer materialize and
+  sort the whole matching set.
 - Content detail snapshots now report the same archive summary and extractor
   statuses on both backends, and JSON refreshes archive counts from the index
   at query time instead of the build-time snapshot.
