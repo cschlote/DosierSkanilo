@@ -480,7 +480,9 @@ public:
     override RepositoryDuplicateGroup[] queryDuplicateGroups(size_t limit = 100)
     {
         return withRepository((Repository repository) {
-            enforce(limit > 0, "Duplicate query limit must be greater than zero.");
+            enforce(limit > 0, new CatalogBackendException(
+                CatalogBackendErrorCode.invalidIdentifier,
+                "Duplicate query limit must be greater than zero."));
             return repository.queryDuplicates(limit);
         });
     }
@@ -493,8 +495,9 @@ public:
                 throw new CatalogBackendException(
                     CatalogBackendErrorCode.unsupportedFeature,
                     "SQLite subset exports use JSON version 5.");
-            enforce(options.outputPath.length > 0,
-                "A subset export requires an explicit output path.");
+            enforce(options.outputPath.length > 0, new CatalogBackendException(
+                CatalogBackendErrorCode.invalidTarget,
+                "A subset export requires an explicit output path."));
             if (query.pathPrefix.length > 0)
                 ContentLocator.file(query.pathPrefix);
 
@@ -642,7 +645,8 @@ public:
             auto catalog = NamedBinaryBlobCatalog(DATA_CLASS_VERSION5,
                 exportedBlobs);
             enforce(commitJsonCatalog(options.outputPath, catalog),
-                "Could not publish the SQLite subset export.");
+                new CatalogBackendException(CatalogBackendErrorCode.backendFailure,
+                    "Could not publish the SQLite subset export."));
             result.contentsExported = exportedBlobs.length;
             result.outputPath = canonicalPath(options.outputPath);
             result.committed = true;
@@ -753,7 +757,9 @@ private:
 
     string identityToken(string kind, long id) const
     {
-        enforce(id > 0, "SQLite catalog identity must be positive.");
+        enforce(id > 0, new CatalogBackendException(
+            CatalogBackendErrorCode.invalidIdentifier,
+            "SQLite catalog identity must be positive."));
         return sourceToken ~ ":" ~ kind ~ ":" ~ id.to!string;
     }
 

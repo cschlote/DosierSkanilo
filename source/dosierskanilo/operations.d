@@ -260,6 +260,8 @@ public:
         this.progressCallback = progressCallback;
         runControlMutex = new Mutex();
         runControlCondition = new Condition(runControlMutex);
+        /* druntime mutexes are recursive, so a callback may report progress
+         * itself without deadlocking on the serialization lock. */
         callbackMutex = new Mutex();
     }
 

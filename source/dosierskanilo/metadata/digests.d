@@ -16,7 +16,6 @@ import std.uuid;
 
 import xxhash3;
 
-// FIXME: Move this to more general place.
 import dosierskanilo.progress : ProgressCallBack;
 
 /** Calculate MD5, SHA1, and XXH64 digests for a file.

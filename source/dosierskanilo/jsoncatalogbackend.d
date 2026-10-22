@@ -417,7 +417,9 @@ public:
     override RepositoryBlobPage queryBlobs(RepositoryQueryOptions options)
     {
         requireOpen();
-        enforce(options.limit > 0, "Blob query limit must be greater than zero.");
+        enforce(options.limit > 0, new CatalogBackendException(
+            CatalogBackendErrorCode.invalidIdentifier,
+            "Blob query limit must be greater than zero."));
         CatalogFilter filter;
         filter.caseSensitive = options.caseSensitive;
         filter.video = options.video;
@@ -544,7 +546,9 @@ public:
     override RepositoryDuplicateGroup[] queryDuplicateGroups(size_t limit = 100)
     {
         requireOpen();
-        enforce(limit > 0, "Duplicate query limit must be greater than zero.");
+        enforce(limit > 0, new CatalogBackendException(
+                CatalogBackendErrorCode.invalidIdentifier,
+                "Duplicate query limit must be greater than zero."));
         long[][string] idsByFingerprint;
         size_t[string] sizeByFingerprint;
         foreach (index, blob; catalog.dataArray)
@@ -582,8 +586,9 @@ public:
     {
         requireTreeQueries();
         enforceJsonExportFormat(options);
-        enforce(options.outputPath.length > 0,
-            "A JSON subset export requires an explicit output path.");
+        enforce(options.outputPath.length > 0, new CatalogBackendException(
+            CatalogBackendErrorCode.invalidTarget,
+            "A JSON subset export requires an explicit output path."));
 
         size_t[string] blobByContent;
         NamedBinaryBlob[string] exportedByContent;
@@ -831,7 +836,8 @@ public:
         auto exported = NamedBinaryBlobCatalog(DATA_CLASS_VERSION5,
             exportedBlobs);
         enforce(commitJsonCatalog(options.outputPath, exported),
-            "Could not publish the JSON subset export.");
+            new CatalogBackendException(CatalogBackendErrorCode.backendFailure,
+                "Could not publish the JSON subset export."));
         result.contentsExported = exportedBlobs.length;
         foreach (contentToken; selectedMemberContents.keys)
             if (contentToken !in blobByContent)

@@ -15,6 +15,7 @@ import std.string : empty, replace, startsWith, toLower;
 import std.stdio : File;
 import std.typecons : Nullable;
 
+import dosierarkivo.archive : escapeArchiveVirtualPath;
 import dosierskanilo.model.namedbinaryblob : NamedBinaryBlob;
 import dosierskanilo.operations : OperationControl, OperationTarget;
 import dosierskanilo.operationlease : TargetWriteLease;
@@ -394,22 +395,15 @@ public:
         scope (exit)
             targetLease.release();
         auto relativePath = passwordRelativePath(fileName, repositoryPaths.rootPath);
-        long[] matchingBlobIds;
-        long[] basenameBlobIds;
-        foreach (row; database.execute("SELECT blob_id, relative_path FROM file_refs"))
-        {
-            auto rowBlobId = row.peek!long(0);
-            auto rowPath = row.peek!string(1);
-            if (rowPath == relativePath)
-                matchingBlobIds ~= rowBlobId;
-            else if (baseName(relativePath) == relativePath
-                && baseName(rowPath) == relativePath)
-                basenameBlobIds ~= rowBlobId;
-        }
-        auto matches = matchingBlobIds.length > 0
-            ? matchingBlobIds : basenameBlobIds;
-        matches.sort;
-        matches = matches.uniq.array;
+        long[] matches;
+        foreach (row; database.execute("SELECT DISTINCT blob_id FROM file_refs "
+            ~ "WHERE relative_path = ? ORDER BY blob_id", relativePath))
+            matches ~= row.peek!long(0);
+        if (matches.length == 0 && baseName(relativePath) == relativePath)
+            foreach (row; database.execute("SELECT DISTINCT blob_id FROM file_refs "
+                ~ "WHERE substr(relative_path, -length(?) - 1) = '/' || ? "
+                ~ "ORDER BY blob_id", relativePath, relativePath))
+                matches ~= row.peek!long(0);
         if (matches.length == 0)
             throw new RepositoryException("No repository file matches: " ~ fileName);
         if (matches.length > 1)
@@ -633,7 +627,8 @@ private string passwordRelativePath(string fileName, string rootPath)
     if (normalized.length == 0 || normalized == ".."
         || normalized.startsWith("../"))
         throw new RepositoryException("Invalid repository file path: " ~ fileName);
-    return normalized;
+    /* Stored references use the canonical escaped form. */
+    return escapeArchiveVirtualPath(normalized);
 }
 
 private string canonicalDirectory(string path)
@@ -1624,6 +1619,38 @@ unittest
 
     repository.setArchivePasswordForPath("private.zip", "");
     assert(repository.loadCatalog()[0].archivePassword.length == 0);
+}
+
+@("archive password lookup resolves escaped file names")
+unittest
+{
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "repository-archive-password-escaped-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    auto archivePath = buildPath(root, "archive!.zip");
+    write(archivePath, "archive placeholder");
+    scope (exit)
+    {
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+
+    auto repository = Repository.initialize(root);
+    scope (exit)
+        repository.close();
+    repository.scan();
+    auto blobId = repository.loadCatalogQueryPageWithIds(
+        RepositoryQueryOptions()).blobIds[0];
+
+    repository.setArchivePasswordForPath(archivePath, "escaped-secret");
+    assert(repository.loadBlobDetails(blobId).archivePassword
+        == "escaped-secret");
+    repository.setArchivePasswordForPath("archive!.zip", "");
+    assert(repository.loadBlobDetails(blobId).archivePassword.length == 0);
 }
 
 @("repository metadata scan can target one archive path")

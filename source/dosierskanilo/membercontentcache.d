@@ -24,8 +24,44 @@ import dosierskanilo.operationlease : OperationTargetBusyException,
 /// Materialize one safely normalized member into the provided directory.
 alias MemberContentMaterializer = bool delegate(string destinationDirectory);
 
+/** Base class for member cache failures. */
+class MemberContentCacheException : Exception
+{
+    this(string message)
+    {
+        super(message);
+    }
+}
+
 /** Raised when an archive adapter cannot select the requested entry occurrence. */
-class MemberContentNotExtractableException : Exception
+class MemberContentNotExtractableException : MemberContentCacheException
+{
+    this(string message)
+    {
+        super(message);
+    }
+}
+
+/** Raised when the cache session is already closed. */
+class MemberContentCacheClosedException : MemberContentCacheException
+{
+    this(string message)
+    {
+        super(message);
+    }
+}
+
+/** Raised when the cache cannot honor its byte limit. */
+class MemberContentCacheCapacityException : MemberContentCacheException
+{
+    this(string message)
+    {
+        super(message);
+    }
+}
+
+/** Raised when extraction is cancelled through the shared flag. */
+class MemberContentCancelledException : MemberContentCacheException
 {
     this(string message)
     {
@@ -68,9 +104,12 @@ public:
     /** Release this pin. Repeated calls are harmless. */
     void release()
     {
-        if (released)
-            return;
-        released = true;
+        synchronized (this)
+        {
+            if (released)
+                return;
+            released = true;
+        }
         owner.release(key);
     }
 
@@ -134,7 +173,8 @@ public:
             "Member cache paths must be normalized safe files.");
         enforce(materialize !is null, "Member cache requires a materializer.");
         if (expectedSize > maximumBytes)
-            throw new Exception("Archive member exceeds the configured cache limit.");
+            throw new MemberContentCacheCapacityException(
+                "Archive member exceeds the configured cache limit.");
 
         const auto key = cacheKey(locator, contentId, fallbackIdentity,
             normalizedPath);
@@ -144,14 +184,16 @@ public:
             synchronized (mutex)
             {
                 if (closed)
-                    throw new Exception("Member content cache is closed.");
+                    throw new MemberContentCacheClosedException(
+                        "Member content cache is closed.");
                 if (auto existing = key in membersByKey)
                 {
                     entry = *existing;
                     if (entry.materializing)
                     {
                         if (cancellationRequested(cancellation))
-                            throw new Exception("Archive member extraction was cancelled.");
+                            throw new MemberContentCancelledException(
+                                "Archive member extraction was cancelled.");
                         changed.wait(dur!"msecs"(100));
                         continue;
                     }
@@ -183,7 +225,8 @@ public:
             while (!acquiredSlot)
             {
                 if (cancellationRequested(cancellation))
-                    throw new Exception("Archive member extraction was cancelled.");
+                    throw new MemberContentCancelledException(
+                        "Archive member extraction was cancelled.");
                 acquiredSlot = extractionSlots.tryWait();
                 if (!acquiredSlot)
                     acquiredSlot = extractionSlots.wait(dur!"msecs"(100));
@@ -191,23 +234,28 @@ public:
             mkdirRecurse(dirName(entry.filePath));
             auto extracted = materialize(entry.directory);
             if (cancellationRequested(cancellation))
-                throw new Exception("Archive member extraction was cancelled.");
+                throw new MemberContentCancelledException(
+                    "Archive member extraction was cancelled.");
             if (!extracted)
                 throw new MemberContentNotExtractableException(
                     "Archive adapter could not select this member occurrence.");
             if (!exists(entry.filePath) || !isFile(entry.filePath))
-                throw new Exception("Archive member materializer produced no file.");
+                throw new MemberContentNotExtractableException(
+                    "Archive member materializer produced no file.");
             const auto actualSize = getSize(entry.filePath);
             if (actualSize > maximumBytes)
-                throw new Exception("Extracted archive member exceeds the cache limit.");
+                throw new MemberContentCacheCapacityException(
+                    "Extracted archive member exceeds the cache limit.");
 
             synchronized (mutex)
             {
                 if (closed)
-                    throw new Exception("Member content cache closed during extraction.");
+                    throw new MemberContentCacheClosedException(
+                        "Member content cache closed during extraction.");
                 while (cachedBytes + actualSize > maximumBytes)
                     if (!evictLeastRecentlyUsed(key))
-                        throw new Exception("Member cache is full of pinned files.");
+                        throw new MemberContentCacheCapacityException(
+                            "Member cache is full of pinned files.");
                 entry.size = actualSize;
                 entry.leaseCount = 1;
                 entry.lastUse = ++accessClock;

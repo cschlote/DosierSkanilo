@@ -59,6 +59,15 @@ They represent the functional evolution and are intentionally summarized.
 - Repository scans update or delete virtual members through the escaped
   container-path range instead of walking every virtual reference, and
   directory sizes use an index-friendly range predicate instead of `LIKE`.
+- Torrent info hashes now use the original bencoded `info` bytes, so
+  non-canonical torrents keep their real info hash.
+- Archive password lookup resolves escaped `!` in stored paths and uses SQL
+  matching instead of walking every file reference.
+- The schema migration also sets SQLite's `PRAGMA user_version`, and catalog
+  backends raise typed `CatalogBackendException`s for invalid arguments and
+  export failures.
+- Member cache failures use typed exceptions derived from
+  `MemberContentCacheException`, and lease release is thread-safe.
 
 ## Release 26.11.3 - 2026-10-21
 

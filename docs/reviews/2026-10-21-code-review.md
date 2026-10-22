@@ -727,9 +727,14 @@ the
 - [x] Backups are written next to the catalog.
 - [x] `scripts/lint.sh` covers the benchmark page and review reports; CI uses
       one Alpine version and rejects `vv` tags.
-- [ ] Open minor items: M3/M5/M6 scalability rewrites, `membercontentcache`
-      lifetime and typing, `operationlease` portability, JSON/SQLite parity
-      gaps, unused DUB version flags, and the staging deploy job.
+- [x] Torrent info hashes use the original `info` bytes; archive password
+      lookup handles escaped names in SQL; member cache errors are typed and
+      lease release is synchronized; migrations set `PRAGMA user_version`;
+      backend argument/export errors use `CatalogBackendException`.
+- [ ] Open minor items: M5 scalability rewrite, `membercontentcache`
+      destructor (leases may outlive the cache during GC), `operationlease`
+      portability, JSON/SQLite parity gaps, unused DUB version flags, and the
+      staging deploy job.
 
 Verification: `DC=ldc2 dub test --config=library` - 151 passed, 0 failed;
 `./scripts/test-cli.sh` - passed; `./scripts/lint.sh` - passed.
