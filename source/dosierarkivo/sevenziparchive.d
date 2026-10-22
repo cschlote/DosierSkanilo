@@ -65,7 +65,8 @@ class FileArchive7z : FileArchive
             "-o" ~ destDir]);
         if (rc.status != 0 && isArchivePasswordFailure(rc.output))
             throw new ArchivePasswordRequiredException(rc.output);
-        assert(rc.status == 0, rc.output);
+        if (rc.status != 0)
+            throw new ArchiveToolException(rc.output);
         return true;
     }
 

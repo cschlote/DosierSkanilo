@@ -142,8 +142,10 @@ RepositoryDirectory[] listDirectoriesFromDatabase(ref Database db,
         ~ "(SELECT count(*) FROM file_refs f WHERE f.directory_id = d.id AND "
         ~ "NOT (" ~ isVirtualFileReferenceSql("f.relative_path") ~ ")), "
         ~ "COALESCE((SELECT sum(b.file_size) FROM file_refs f "
-        ~ "JOIN blobs b ON b.id = f.blob_id WHERE (f.relative_path = d.relative_path "
-        ~ "OR f.relative_path LIKE d.relative_path || '/%') "
+        ~ "JOIN blobs b ON b.id = f.blob_id WHERE "
+        ~ "(f.relative_path = d.relative_path "
+        ~ "OR (f.relative_path >= d.relative_path || '/' "
+        ~ "AND f.relative_path < d.relative_path || '/\uFFFF')) "
         ~ "AND NOT (" ~ isVirtualFileReferenceSql("f.relative_path") ~ ")), 0) "
         ~ "FROM directories d WHERE "
         ~ (options.parentId == 0 ? "d.parent_id IS NULL" : "d.parent_id = :parent_id")
@@ -233,6 +235,15 @@ RepositoryFile[] listFilesFromDatabase(ref Database db, RepositoryFileQuery opti
     return listFilesPageFromDatabase(db, options).files;
 }
 
+/** Convert a page size to a SQLite LIMIT value; -1 means "all rows". */
+private long pageLimitSql(size_t limit, bool fetchExtra = false)
+{
+    if (limit >= cast(size_t) long.max)
+        return -1L;
+    const auto value = cast(long) limit;
+    return fetchExtra ? value + 1 : value;
+}
+
 /** List one keyset-paged file chunk and report continuation state. */
 RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuery options)
 {
@@ -249,7 +260,12 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
         ~ "EXISTS (SELECT 1 FROM torrent_info ti WHERE ti.blob_id = b.id), "
         ~ "CASE WHEN " ~ isVirtualFileReferenceSql("f.relative_path") ~ " "
         ~ "THEN 1 ELSE 0 END, 0, 0, 0, 0, '' FROM file_refs f "
-        ~ "JOIN blobs b ON b.id = f.blob_id WHERE COALESCE(f.directory_id, 0) = :directory_id";
+        ~ "JOIN blobs b ON b.id = f.blob_id WHERE ";
+    /* Do not wrap the column in COALESCE: that would disable
+     * idx_file_refs_directory. Zero means the root (NULL) directory. */
+    sql ~= options.directoryId == 0
+        ? "f.directory_id IS NULL"
+        : "f.directory_id = :directory_id";
     if (!options.includeArchiveMembers)
         sql ~= " AND NOT (" ~ isVirtualFileReferenceSql("f.relative_path") ~ ")";
     if (!options.text.empty)
@@ -329,8 +345,12 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
         break;
     }
     sql ~= " LIMIT :limit";
+    const useOffset = options.afterPath.empty && options.offset > 0;
+    if (useOffset)
+        sql ~= " OFFSET :offset";
     auto statement = db.prepare(sql);
-    statement.bind(":directory_id", options.directoryId);
+    if (options.directoryId != 0)
+        statement.bind(":directory_id", options.directoryId);
     if (!options.text.empty)
         statement.bind(":text", options.text);
     if (!options.afterPath.empty)
@@ -341,8 +361,9 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
             || options.sortOrder == RepositoryFileSortOrder.sizeDescending)
             statement.bind(":after_size", cast(long) options.afterSize);
     }
-    auto sqlLimit = options.limit == size_t.max ? -1L : cast(long) options.limit + 1;
-    statement.bind(":limit", sqlLimit);
+    statement.bind(":limit", pageLimitSql(options.limit, true));
+    if (useOffset)
+        statement.bind(":offset", cast(long) options.offset);
 
     RepositoryFilePage page;
     foreach (row; statement.execute())
@@ -458,11 +479,39 @@ RepositoryArchiveEntry[] listArchiveEntriesFromDatabase(ref Database db,
     foreach (row; db.execute("SELECT relative_path FROM file_refs WHERE blob_id = ? "
         ~ "ORDER BY relative_path", options.blobId))
         containerPaths ~= row.peek!string(0).idup;
+
+    string[] rangeConditions;
+    string[string] rangeStarts;
+    foreach (index, containerPath; containerPaths)
+    {
+        ParsedArchiveVirtualPath parsed;
+        try
+            parsed = parseArchiveVirtualPath(containerPath);
+        catch (Exception)
+            continue;
+        const prefix = (parsed.entries.length == 0
+            ? escapeArchiveVirtualPath(containerPath) : containerPath) ~ "!/";
+        const startName = ":member_start_" ~ index.to!string;
+        const endName = ":member_end_" ~ index.to!string;
+        rangeConditions ~= "(f.relative_path >= " ~ startName
+            ~ " AND f.relative_path < " ~ endName ~ ")";
+        rangeStarts[startName] = prefix;
+        rangeStarts[endName] = prefix ~ "\uFFFF";
+    }
+    if (rangeConditions.length == 0)
+        return [];
+
     RepositoryArchiveEntry[] allEntries;
     bool[string] seenIdentity;
-    foreach (row; db.execute("SELECT f.id, f.relative_path, f.time_last_modified, "
-        ~ "b.id, b.file_size, b.md5, b.sha1, b.xxh64 FROM file_refs f "
-        ~ "JOIN blobs b ON b.id = f.blob_id ORDER BY f.relative_path"))
+    auto statement = db.prepare("SELECT f.id, f.relative_path, "
+        ~ "f.time_last_modified, b.id, b.file_size, b.md5, b.sha1, b.xxh64 "
+        ~ "FROM file_refs f JOIN blobs b ON b.id = f.blob_id WHERE ("
+        ~ rangeConditions.join(" OR ") ~ ") AND "
+        ~ isVirtualFileReferenceSql("f.relative_path")
+        ~ " ORDER BY f.relative_path");
+    foreach (name, value; rangeStarts)
+        statement.bind(name, value);
+    foreach (row; statement.execute())
     {
         const auto path = row.peek!string(1);
         ParsedArchiveVirtualPath parsed;
@@ -579,16 +628,16 @@ RepositoryBlobPage loadCatalogQueryPageWithIdsFromDatabase(ref Database db,
         page.nextCursor = blobIds[options.limit - 1];
         blobIds = blobIds[0 .. options.limit];
     }
-    foreach (blobId; blobIds)
+    const flagValues = loadBlobFlagsBatch(db, blobIds);
+    auto blobs = loadBlobDetailsBatchFromDatabase(db, rootPath, blobIds,
+        exportOptions);
+    foreach (index, blobId; blobIds)
     {
-        auto blob = loadBlobDetailsFromDatabase(db, rootPath, blobId,
-            exportOptions);
-        if (blob !is null)
-        {
-            page.blobIds ~= blobId;
-            page.blobs ~= blob;
-            page.flags ~= loadBlobFlags(db, blobId);
-        }
+        if (blobs[index] is null)
+            continue;
+        page.blobIds ~= blobId;
+        page.blobs ~= blobs[index];
+        page.flags ~= flagValues[index];
     }
     return page;
 }
@@ -598,7 +647,7 @@ long countCatalogQueryFromDatabase(ref Database db, RepositoryQueryOptions optio
 {
     if (options.text.empty && !options.video && !options.audio && !options.image
         && !options.textStream && !options.fileType && !options.archive
-        && !options.torrent)
+        && !options.torrent && options.blobIds.length == 0)
         return db.execute("SELECT count(*) FROM blobs").oneValue!long;
     auto statement = prepareCatalogQuery(db, "SELECT count(*) FROM blobs b",
         options, false);
@@ -609,6 +658,13 @@ private Statement prepareCatalogQuery(ref Database db, string selectSql,
     RepositoryQueryOptions options, bool paged)
 {
     string sql = selectSql ~ " WHERE 1 = 1";
+    string[] blobIdParameters;
+    if (options.blobIds.length > 0)
+    {
+        foreach (index; 0 .. options.blobIds.length)
+            blobIdParameters ~= ":blob_id_" ~ index.to!string;
+        sql ~= " AND b.id IN (" ~ blobIdParameters.join(", ") ~ ")";
+    }
     ubyte[] sha1Search;
     if (!options.text.empty)
     {
@@ -691,6 +747,8 @@ private Statement prepareCatalogQuery(ref Database db, string selectSql,
     }
 
     auto statement = db.prepare(sql);
+    foreach (index, blobId; options.blobIds)
+        statement.bind(blobIdParameters[index], blobId);
     if (!options.text.empty)
         statement.bind(":text", options.text);
     if (sha1Search.length == 20)
@@ -698,8 +756,8 @@ private Statement prepareCatalogQuery(ref Database db, string selectSql,
     if (paged)
     {
         auto limit = options.useCursor && options.limit < size_t.max
-            ? cast(long) options.limit + 1
-            : options.limit == size_t.max ? -1L : cast(long) options.limit;
+            ? pageLimitSql(options.limit, true)
+            : pageLimitSql(options.limit);
         statement.bind(":limit", limit);
         if (options.useCursor && options.afterBlobId > 0)
             statement.bind(":after_blob_id", options.afterBlobId);
@@ -707,6 +765,26 @@ private Statement prepareCatalogQuery(ref Database db, string selectSql,
             statement.bind(":offset", cast(long) options.offset);
     }
     return statement;
+}
+
+/** Load only the content size and digests for one blob.
+ *
+ * This avoids the reference, media, archive and torrent statements of a full
+ * detail load when callers only need a fingerprint.
+ */
+NamedBinaryBlob loadBlobFingerprintFromDatabase(ref Database db, long blobId)
+{
+    auto result = db.execute("SELECT file_size, md5, sha1, xxh64 FROM blobs "
+        ~ "WHERE id = ?", blobId);
+    if (result.empty)
+        return null;
+    auto row = result.front;
+    auto blob = new NamedBinaryBlob();
+    blob.fileSize = cast(size_t) row.peek!long(0);
+    blob.checkSums.md5sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(1));
+    blob.checkSums.sha1sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(2));
+    blob.checkSums.xxh64sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(3));
+    return blob;
 }
 
 /** Load one blob and all related details by stable database ID. */
@@ -759,27 +837,352 @@ NamedBinaryBlob loadBlobDetailsFromDatabase(ref Database db, string rootPath,
     return blob;
 }
 
-private RepositoryBlobFlags loadBlobFlags(ref Database db, long blobId)
+private FileSpec fileSpecFromStoredPath(string fileName, string modified,
+    string rootPath, JsonExportOptions options)
 {
-    RepositoryBlobFlags flags;
-    flags.hasFileType = !db.execute("SELECT 1 FROM blobs WHERE id = ? "
-        ~ "AND file_type IS NOT NULL AND length(file_type) > 0", blobId).empty;
-    flags.hasMedia = !db.execute("SELECT 1 FROM media_signatures "
-        ~ "WHERE blob_id = ?", blobId).empty;
-    flags.hasVideo = !db.execute("SELECT 1 FROM media_video_streams "
-        ~ "WHERE blob_id = ?", blobId).empty;
-    flags.hasAudio = !db.execute("SELECT 1 FROM media_audio_streams "
-        ~ "WHERE blob_id = ?", blobId).empty;
-    flags.hasImage = !db.execute("SELECT 1 FROM media_image_streams "
-        ~ "WHERE blob_id = ?", blobId).empty;
-    flags.hasText = !db.execute("SELECT 1 FROM media_text_streams "
-        ~ "WHERE blob_id = ?", blobId).empty;
-    flags.hasArchive = !db.execute("SELECT 1 FROM metadata_status "
-        ~ "WHERE blob_id = ? AND metadata_kind = 'archives' "
-        ~ "AND state IN ('completed', 'empty')", blobId).empty;
-    flags.hasTorrent = !db.execute("SELECT 1 FROM torrent_info "
-        ~ "WHERE blob_id = ?", blobId).empty;
-    return flags;
+    if (options.absolutePaths)
+    {
+        import std.path : buildPath;
+
+        const auto parsed = parseArchiveVirtualPath(fileName);
+        fileName = escapeArchiveVirtualPath(buildPath(rootPath,
+            parsed.physicalPath));
+        foreach (entry; parsed.entries)
+            fileName = appendArchiveVirtualPath(fileName,
+                entry.relativePath, entry.hasOccurrence ? entry.occurrence
+                    : size_t.max);
+    }
+    return new FileSpec(fileName, modified);
+}
+
+/** Load page details with a bounded number of set queries instead of per row. */
+private NamedBinaryBlob[] loadBlobDetailsBatchFromDatabase(ref Database db,
+    string rootPath, long[] blobIds, JsonExportOptions options)
+{
+    if (blobIds.length == 0)
+        return [];
+
+    string[] placeholders;
+    foreach (index; 0 .. blobIds.length)
+        placeholders ~= ":detail_blob_" ~ index.to!string;
+    const inList = placeholders.join(", ");
+
+    static void bindIds(ref Statement statement, string[] placeholders,
+        long[] blobIds)
+    {
+        foreach (index, blobId; blobIds)
+            statement.bind(placeholders[index], blobId);
+    }
+
+    struct BlobBase
+    {
+        size_t fileSize;
+        string md5sum;
+        string sha1sum;
+        string xxh64sum;
+        string fileType;
+    }
+    BlobBase[long] baseById;
+    {
+        auto statement = db.prepare("SELECT id, file_size, md5, sha1, xxh64, "
+            ~ "file_type FROM blobs WHERE id IN (" ~ inList ~ ")");
+        bindIds(statement, placeholders, blobIds);
+        foreach (row; statement.execute())
+        {
+            BlobBase base;
+            base.fileSize = cast(size_t) row.peek!long(1);
+            base.md5sum = decodeBase64(row.peek!(Nullable!Blob)(2));
+            base.sha1sum = decodeBase64(row.peek!(Nullable!Blob)(3));
+            base.xxh64sum = decodeBase64(row.peek!(Nullable!Blob)(4));
+            base.fileType = decodeNullableString(row.peek!(Nullable!string)(5));
+            baseById[row.peek!long(0)] = base;
+        }
+    }
+
+    string[long] passwordByBlob;
+    {
+        auto statement = db.prepare("SELECT blob_id, password FROM "
+            ~ "archive_passwords WHERE blob_id IN (" ~ inList ~ ")");
+        bindIds(statement, placeholders, blobIds);
+        foreach (row; statement.execute())
+            passwordByBlob[row.peek!long(0)] = row.peek!string(1).idup;
+    }
+
+    FileSpec[][long] specsByBlob;
+    {
+        string sql = "SELECT blob_id, relative_path, time_last_modified "
+            ~ "FROM file_refs WHERE blob_id IN (" ~ inList ~ ")";
+        if (!options.pathPrefix.empty)
+            sql ~= " AND (relative_path = :prefix OR relative_path LIKE :prefix_like)";
+        sql ~= " ORDER BY blob_id, relative_path";
+        auto statement = db.prepare(sql);
+        bindIds(statement, placeholders, blobIds);
+        if (!options.pathPrefix.empty)
+        {
+            statement.bind(":prefix", options.pathPrefix);
+            statement.bind(":prefix_like", options.pathPrefix ~ "/%");
+        }
+        foreach (row; statement.execute())
+        {
+            const auto modified = row.peek!(Nullable!string)(2);
+            specsByBlob[row.peek!long(0)] ~= fileSpecFromStoredPath(
+                row.peek!string(1), modified.isNull ? "" : modified.get,
+                rootPath, options);
+        }
+    }
+
+    struct ArchiveState
+    {
+        bool known;
+        bool deep;
+    }
+    ArchiveState[long] archiveByBlob;
+    {
+        auto statement = db.prepare("SELECT blob_id, state, extractor_version "
+            ~ "FROM metadata_status WHERE metadata_kind = 'archives' "
+            ~ "AND blob_id IN (" ~ inList ~ ")");
+        bindIds(statement, placeholders, blobIds);
+        foreach (row; statement.execute())
+        {
+            const auto state = row.peek!string(1);
+            if (state != "completed" && state != "empty")
+                continue;
+            const auto extractorVersion = row.peek!(Nullable!string)(2);
+            archiveByBlob[row.peek!long(0)] = ArchiveState(true,
+                !extractorVersion.isNull
+                    && extractorVersion.get.endsWith(":deep"));
+        }
+    }
+
+    MediaInfoSig[long] mediaByBlob;
+    if (options.includeDetails)
+    {
+        auto signatureStatement = db.prepare("SELECT blob_id FROM "
+            ~ "media_signatures WHERE blob_id IN (" ~ inList ~ ")");
+        bindIds(signatureStatement, placeholders, blobIds);
+        foreach (row; signatureStatement.execute())
+            mediaByBlob[row.peek!long(0)] = new MediaInfoSig();
+
+        struct StreamQuery
+        {
+            string sql;
+            void function(long blobId, ref MediaInfoSig info, Row row) add;
+        }
+        StreamQuery[] streamQueries;
+        streamQueries ~= StreamQuery("SELECT blob_id, stream_index, format, "
+            ~ "width, height FROM media_image_streams WHERE blob_id IN ("
+            ~ inList ~ ") ORDER BY blob_id, stream_index",
+            (long blobId, ref MediaInfoSig info, Row row) {
+                info.imageStreams ~= new MediaInfoImage(row.peek!int(1),
+                    row.peek!string(2), cast(ulong) row.peek!long(3),
+                    cast(ulong) row.peek!long(4));
+            });
+        streamQueries ~= StreamQuery("SELECT blob_id, stream_index, language, "
+            ~ "format, width, height, frame_rate, bit_rate, duration "
+            ~ "FROM media_video_streams WHERE blob_id IN (" ~ inList ~ ") "
+            ~ "ORDER BY blob_id, stream_index",
+            (long blobId, ref MediaInfoSig info, Row row) {
+                info.videoStreams ~= new MediaInfoVideo(row.peek!int(1),
+                    row.peek!string(2), row.peek!string(3),
+                    cast(ulong) row.peek!long(4),
+                    cast(ulong) row.peek!long(5), row.peek!double(6),
+                    cast(ulong) row.peek!long(7), row.peek!string(8));
+            });
+        streamQueries ~= StreamQuery("SELECT blob_id, stream_index, language, "
+            ~ "format, channels, bit_rate, duration FROM media_audio_streams "
+            ~ "WHERE blob_id IN (" ~ inList ~ ") ORDER BY blob_id, stream_index",
+            (long blobId, ref MediaInfoSig info, Row row) {
+                info.audioStreams ~= new MediaInfoAudio(row.peek!int(1),
+                    row.peek!string(2), row.peek!string(3),
+                    cast(ulong) row.peek!long(4),
+                    cast(ulong) row.peek!long(5), row.peek!string(6));
+            });
+        streamQueries ~= StreamQuery("SELECT blob_id, stream_index, language, "
+            ~ "format, frame_rate, bit_rate, duration FROM media_text_streams "
+            ~ "WHERE blob_id IN (" ~ inList ~ ") ORDER BY blob_id, stream_index",
+            (long blobId, ref MediaInfoSig info, Row row) {
+                info.textStreams ~= new MediaInfoText(row.peek!int(1),
+                    row.peek!string(2), row.peek!string(3),
+                    row.peek!double(4), cast(ulong) row.peek!long(5),
+                    row.peek!string(6));
+            });
+
+        foreach (streamQuery; streamQueries)
+        {
+            auto streamStatement = db.prepare(streamQuery.sql);
+            bindIds(streamStatement, placeholders, blobIds);
+            foreach (row; streamStatement.execute())
+            {
+                const blobId = row.peek!long(0);
+                auto info = blobId in mediaByBlob;
+                if (info is null)
+                    continue;
+                streamQuery.add(blobId, *info, row);
+            }
+        }
+    }
+
+    struct TorrentBase
+    {
+        string name;
+        string magnetURI;
+        ulong totalSize;
+        bool isMultiFile;
+        string infoHashHex;
+        string announce;
+        ulong pieceLength;
+        ulong piecesCount;
+    }
+    TorrentBase[long] torrentByBlob;
+    TorrentFileEntry[][long] torrentFilesByBlob;
+    if (options.includeDetails)
+    {
+        auto torrentStatement = db.prepare("SELECT blob_id, name, magnet_uri, "
+            ~ "total_size, is_multi_file, info_hash_hex, announce, "
+            ~ "piece_length, pieces_count FROM torrent_info WHERE blob_id IN ("
+            ~ inList ~ ")");
+        bindIds(torrentStatement, placeholders, blobIds);
+        foreach (row; torrentStatement.execute())
+        {
+            TorrentBase info;
+            info.name = decodeNullableString(row.peek!(Nullable!string)(1));
+            info.magnetURI = decodeNullableString(row.peek!(Nullable!string)(2));
+            info.totalSize = cast(ulong) row.peek!long(3);
+            info.isMultiFile = row.peek!long(4) != 0;
+            info.infoHashHex = decodeNullableString(
+                row.peek!(Nullable!string)(5));
+            info.announce = decodeNullableString(row.peek!(Nullable!string)(6));
+            info.pieceLength = cast(ulong) row.peek!long(7);
+            info.piecesCount = cast(ulong) row.peek!long(8);
+            torrentByBlob[row.peek!long(0)] = info;
+        }
+
+        if (options.includeTorrentFiles)
+        {
+            auto fileStatement = db.prepare("SELECT torrent_blob_id, "
+                ~ "relative_path, file_size FROM torrent_files "
+                ~ "WHERE torrent_blob_id IN (" ~ inList ~ ") "
+                ~ "ORDER BY torrent_blob_id, file_index");
+            bindIds(fileStatement, placeholders, blobIds);
+            foreach (row; fileStatement.execute())
+            {
+                auto entry = new TorrentFileEntry();
+                entry.path = row.peek!string(1).split("/");
+                entry.length = cast(ulong) row.peek!long(2);
+                torrentFilesByBlob[row.peek!long(0)] ~= entry;
+            }
+        }
+    }
+
+    NamedBinaryBlob[] result;
+    result.length = blobIds.length;
+    foreach (index, blobId; blobIds)
+    {
+        auto base = blobId in baseById;
+        if (base is null)
+            continue;
+        auto specs = blobId in specsByBlob;
+        if ((specs is null || specs.length == 0)
+            && !options.allowUnreferencedContent)
+            continue;
+
+        auto blob = new NamedBinaryBlob();
+        blob.fileSize = base.fileSize;
+        blob.checkSums.md5sum_b64 = base.md5sum;
+        blob.checkSums.sha1sum_b64 = base.sha1sum;
+        blob.checkSums.xxh64sum_b64 = base.xxh64sum;
+        blob.fileType = base.fileType;
+        auto password = blobId in passwordByBlob;
+        if (password !is null)
+            blob.archivePassword = *password;
+        if (specs !is null)
+            blob.fileSpecs = *specs;
+        blob.fileSpecsUseArchiveVirtualGrammar = true;
+
+        if (options.includeDetails)
+        {
+            auto media = blobId in mediaByBlob;
+            if (media !is null)
+                blob.mediaInfoSig = *media;
+            if (options.includeArchiveEntries)
+            {
+                auto archive = blobId in archiveByBlob;
+                if (archive !is null)
+                {
+                    blob.archiveIndexKnown = archive.known;
+                    blob.archiveIndexDeep = archive.deep;
+                }
+            }
+            auto torrent = blobId in torrentByBlob;
+            if (torrent !is null)
+            {
+                auto info = new TorrentInfo();
+                info.name = torrent.name;
+                info.magnetURI = torrent.magnetURI;
+                info.totalSize = torrent.totalSize;
+                info.isMultiFile = torrent.isMultiFile;
+                info.infoHashHex = torrent.infoHashHex;
+                info.announce = torrent.announce;
+                info.pieceLength = torrent.pieceLength;
+                info.piecesCount = torrent.piecesCount;
+                if (options.includeTorrentFiles)
+                {
+                    auto files = blobId in torrentFilesByBlob;
+                    if (files !is null)
+                        info.files = *files;
+                }
+                blob.torrentInfo = info;
+            }
+        }
+        result[index] = blob;
+    }
+    return result;
+}
+
+private RepositoryBlobFlags[] loadBlobFlagsBatch(ref Database db,
+    long[] blobIds)
+{
+    if (blobIds.length == 0)
+        return [];
+
+    string[] placeholders;
+    foreach (index; 0 .. blobIds.length)
+        placeholders ~= ":flag_blob_" ~ index.to!string;
+    auto sql = "SELECT b.id, "
+        ~ "(b.file_type IS NOT NULL AND length(b.file_type) > 0), "
+        ~ "EXISTS (SELECT 1 FROM media_signatures ms WHERE ms.blob_id = b.id), "
+        ~ "EXISTS (SELECT 1 FROM media_video_streams mv WHERE mv.blob_id = b.id), "
+        ~ "EXISTS (SELECT 1 FROM media_audio_streams ma WHERE ma.blob_id = b.id), "
+        ~ "EXISTS (SELECT 1 FROM media_image_streams mi WHERE mi.blob_id = b.id), "
+        ~ "EXISTS (SELECT 1 FROM media_text_streams mt WHERE mt.blob_id = b.id), "
+        ~ "EXISTS (SELECT 1 FROM metadata_status ar WHERE ar.blob_id = b.id "
+        ~ "AND ar.metadata_kind = 'archives' AND ar.state IN ('completed', 'empty')), "
+        ~ "EXISTS (SELECT 1 FROM torrent_info ti WHERE ti.blob_id = b.id) "
+        ~ "FROM blobs b WHERE b.id IN (" ~ placeholders.join(", ") ~ ")";
+    auto statement = db.prepare(sql);
+    foreach (index, blobId; blobIds)
+        statement.bind(placeholders[index], blobId);
+
+    RepositoryBlobFlags[long] flagsById;
+    foreach (row; statement.execute())
+    {
+        RepositoryBlobFlags flags;
+        flags.hasFileType = row.peek!long(1) != 0;
+        flags.hasMedia = row.peek!long(2) != 0;
+        flags.hasVideo = row.peek!long(3) != 0;
+        flags.hasAudio = row.peek!long(4) != 0;
+        flags.hasImage = row.peek!long(5) != 0;
+        flags.hasText = row.peek!long(6) != 0;
+        flags.hasArchive = row.peek!long(7) != 0;
+        flags.hasTorrent = row.peek!long(8) != 0;
+        flagsById[row.peek!long(0)] = flags;
+    }
+
+    RepositoryBlobFlags[] result;
+    foreach (blobId; blobIds)
+        result ~= blobId in flagsById ? flagsById[blobId]
+            : RepositoryBlobFlags.init;
+    return result;
 }
 
 private void clearCatalog(ref Database db)
@@ -1245,6 +1648,48 @@ unittest
     assert(blob[0].archiveIndexKnown);
     assert(blob[1].fileSpecs.length == 1);
     assert(blob[2].torrentInfo !is null);
+}
+
+
+@("catalog page details use a bounded number of statements")
+unittest
+{
+    auto db = Database(":memory:");
+    migrate(db, "2026-01-01T00:00:00");
+    db.execute("INSERT INTO directories (id, parent_id, relative_path, name) "
+        ~ "VALUES (1, NULL, 'media', 'media')");
+    foreach (index; 1 .. 6)
+    {
+        const blobId = cast(long) index;
+        db.execute("INSERT INTO blobs (id, file_size, file_type) VALUES (?, ?, NULL)",
+            blobId, 100 + blobId);
+        db.execute("INSERT INTO file_refs (id, blob_id, directory_id, "
+            ~ "relative_path, time_last_modified, exists_on_disk, last_seen_at) "
+            ~ "VALUES (?, ?, 1, ?, '2026-01-01T00:00:00', 1, ?)",
+            blobId, blobId, "media/file" ~ index.to!string ~ ".bin",
+            "2026-01-01T00:00:00");
+    }
+    db.execute("INSERT INTO media_signatures (blob_id) VALUES (1), (2)");
+    db.execute("INSERT INTO metadata_status (blob_id, metadata_kind, state, "
+        ~ "extractor_version, scanned_at, error_message) VALUES "
+        ~ "(3, 'archives', 'completed', '', '2026-01-01T00:00:00', NULL)");
+    db.execute("INSERT INTO torrent_info (blob_id, name, magnet_uri, total_size, "
+        ~ "is_multi_file, info_hash_hex, announce, piece_length, pieces_count) "
+        ~ "VALUES (4, 'four.torrent', '', 4, 0, '', '', 16384, 1)");
+    db.execute("INSERT INTO torrent_files (id, torrent_blob_id, file_index, "
+        ~ "relative_path, file_size) VALUES (1, 4, 0, 'four.bin', 4)");
+
+    size_t statements;
+    db.setTraceCallback((string sql) nothrow { ++statements; });
+    auto page = loadCatalogQueryPageWithIdsFromDatabase(db, "/repo",
+        RepositoryQueryOptions(0, 10), JsonExportOptions());
+    db.setTraceCallback(null);
+
+    assert(page.blobs.length == 5);
+    assert(page.flags.length == 5);
+    /* One query each for the page, flags, blobs, passwords, refs, archive
+     * state, media signature, four stream tables, torrent info and files. */
+    assert(statements <= 14, "page issued " ~ statements.to!string ~ " statements");
 }
 
 private string currentTimestamp()

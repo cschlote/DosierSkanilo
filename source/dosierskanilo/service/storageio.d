@@ -47,7 +47,7 @@ bool readStorageJsonFile(string jsonFile, bool forceOverwrite, ref NamedBinaryBl
             logFLine("Failed to deserialize storage file '%s'.", jsonFile);
             logLine(ex.msg);
 
-            if (forceOverwrite)
+            if (forceOverwrite && isCatalogFormatFailure(ex))
             {
                 logLine("Force mode enabled. Continue with an empty database.");
                 dynObjectWrapper = NamedBinaryBlobCatalog(DATA_CLASS_VERSION3, []);
@@ -118,7 +118,7 @@ unittest
     auto stamp = "2000-01-01T00:00:00";
     auto safeStamp = stamp.replace(":", "-");
     auto jsonFile = buildPath(tempDir(), "storageio-write-" ~ safeStamp ~ ".json");
-    auto backupFile = buildPath(getcwd(), "storageio-write-" ~ safeStamp ~ "-" ~ safeStamp ~ ".json");
+    auto backupFile = buildPath(tempDir(), "storageio-write-" ~ safeStamp ~ "-" ~ safeStamp ~ ".json");
     scope (exit)
     {
         if (exists(jsonFile))
@@ -156,8 +156,10 @@ private string getBackupFileName(string originalFile, string extension,
 {
     auto basename = originalFile.baseName(extension);
     auto backupName = basename ~ "-" ~ nowString.replace(":", "-") ~ extension;
-    return backupDirectory.length > 0 ? buildPath(backupDirectory, backupName)
-        : backupName;
+    /* Keep backups next to the catalog they belong to, so catalogs with the
+     * same base name in different directories cannot collide. */
+    return buildPath(backupDirectory.length > 0 ? backupDirectory
+        : dirName(originalFile), backupName);
 }
 
 /** Make a backup of the original file if it exists.
@@ -216,8 +218,22 @@ private void restoreOriginalFile(string jsonFile, string newname, bool mustCopy)
 {
     if (mustCopy)
     {
-        remove(newname);
-        logFLine("Removed backup file '%s' due to serialization failure.", newname);
+        /* The copy-based backup removed the original. Restore the data instead
+         * of deleting the only remaining copy. Keep the backup on failure so
+         * the catalog stays recoverable. */
+        try
+        {
+            if (exists(jsonFile))
+                remove(jsonFile);
+            copy(newname, jsonFile);
+            logFLine("Restored file '%s' from backup '%s'.", jsonFile, newname);
+        }
+        catch (Exception ex)
+        {
+            logLine("Failed to restore file '%s' from backup '%s'. The backup "
+                ~ "was kept.", jsonFile, newname);
+            logLine(ex.msg);
+        }
     }
     else
     {
@@ -295,6 +311,33 @@ unittest
     assert(exists(tempFile2), "Original file should exist after restore.");
 }
 
+@("Unittest for backup and restore 3 - copy fallback restores, never deletes")
+unittest
+{
+    import std.file : exists, readText, remove, write;
+    import std.path : buildPath;
+
+    const auto root = buildPath(tempDir(), "storageio-restore-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+
+    const auto original = buildPath(root, "catalog.json");
+    const auto backup = buildPath(root, "catalog-backup.json");
+    enum content = "{\"dataVersion\":5,\"dataArray\":[]}";
+    write(original, content);
+    copy(original, backup);
+    remove(original); // state after the copy-based backup
+
+    restoreOriginalFile(original, backup, true);
+
+    assert(exists(original), "Copy fallback must restore the original file.");
+    assert(exists(backup), "Backup must be kept as a recovery copy.");
+    assert(readText(original) == content);
+}
+
 /** Write scanned data to some storage file.
  *
  * The function writes through a backup file first so the original JSON is only
@@ -305,7 +348,8 @@ unittest
  *   dynObjectWrapper = source wrapper object.
  *   jsonFileExtension = file extension for backup files (default: ".json").
  *   nowString = optional timestamp string to use in backup file names (default: current time in ISO format).
- *   backupDirectory = optional directory for the backup file; empty preserves the legacy current-directory location.
+ *   backupDirectory = optional directory for the backup file; empty keeps the
+ *     backup next to the catalog.
  * Returns:
  *   `true` on success, `false` on failure. On failure, the original file is left unchanged if possible.
  */
@@ -326,14 +370,29 @@ bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlobCatalog dynObjectW
             return false;
     }
     logLine("Serialize Array of Objects");
+    /* Serialize into a staging file in the target directory and rename it into
+     * place afterwards, so a crash or a full disk cannot leave a truncated
+     * catalog at the canonical path. */
+    auto stagingFile = jsonFile ~ ".tmp-" ~ randomUUID().toString();
     try
     {
-        serializeDataClassWrapperFile(jsonFile, dynObjectWrapper);
+        serializeDataClassWrapperFile(stagingFile, dynObjectWrapper);
+        if (exists(jsonFile))
+            remove(jsonFile);
+        rename(stagingFile, jsonFile);
     }
     catch (Exception ex)
     {
         logLine("Something wonderful happened. Can't serialize.");
         logLine(ex);
+        if (exists(stagingFile))
+        {
+            try
+                remove(stagingFile);
+            catch (Exception)
+            {
+            }
+        }
         if (newname !is null)
             restoreOriginalFile(jsonFile, newname, mustCopy);
         return false;

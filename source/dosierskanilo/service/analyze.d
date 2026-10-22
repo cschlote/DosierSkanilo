@@ -99,7 +99,14 @@ bool analyseData(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCtrlC
 		NamedBinaryBlob[][string] digestMap = null;
 		foreach (obj; objs)
 		{
-			assert(obj.checkSums.sha1sum_b64, "No SHA1 checksum?");
+			/* A missing digest cannot key the map; leave that record alone
+			 * instead of turning a data problem into an AssertError. */
+			if (!obj.checkSums.hasDigests)
+			{
+				logFLine("Skipping '%s' because its checksums are incomplete.",
+					obj.getFirstFileName);
+				continue;
+			}
 			digestMap[obj.checkSums.sha1sum_b64] ~= obj;
 		}
 		foreach (digestobjs; digestMap)

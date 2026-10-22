@@ -33,7 +33,8 @@ class FileArchiveTar : FileArchive
     override string[] getEntries(string password = "")
     {
         auto rc = execute(["tar", "-tf", this.fileName]);
-        assert(rc.status == 0, rc.output);
+        if (rc.status != 0)
+            throw new ArchiveToolException(rc.output);
         return rc.output.split("\n").filter!(a => !a.empty).array;
     }
 
@@ -41,7 +42,8 @@ class FileArchiveTar : FileArchive
     {
         auto tarPath = buildPath(getcwd(), this.fileName);
         auto rc = execute(["tar", "-xf", tarPath, "-C", destDir, filename]);
-        assert(rc.status == 0, rc.output);
+        if (rc.status != 0)
+            throw new ArchiveToolException(rc.output);
         return true;
     }
 

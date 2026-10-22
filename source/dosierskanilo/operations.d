@@ -260,6 +260,8 @@ public:
         this.progressCallback = progressCallback;
         runControlMutex = new Mutex();
         runControlCondition = new Condition(runControlMutex);
+        /* druntime mutexes are recursive, so a callback may report progress
+         * itself without deadlocking on the serialization lock. */
         callbackMutex = new Mutex();
     }
 
@@ -285,7 +287,8 @@ public:
     /**
      * Bind an optional legacy cancellation flag that existing extractors poll.
      * The pointed-to storage must remain alive until this operation and all its
-     * workers have joined.
+     * workers have joined. Call `unbindCancellationMirror()` before the storage
+     * goes out of scope.
      */
     void bindCancellationMirror(shared bool* mirror)
     {
@@ -295,6 +298,13 @@ public:
             if (mirror !is null && cancellationRequested)
                 atomicStore(*mirror, true);
         }
+    }
+
+    /** Stop mirroring cancellation into previously bound external storage. */
+    void unbindCancellationMirror()
+    {
+        synchronized (runControlMutex)
+            cancellationMirror = null;
     }
 
     /** Whether the current phase has a reachable, safe pause checkpoint. */

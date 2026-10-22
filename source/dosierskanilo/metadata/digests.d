@@ -5,6 +5,8 @@
  */
 module dosierskanilo.metadata.digests;
 
+import core.atomic : atomicLoad;
+
 import std.digest.md;
 import std.digest.sha;
 import std.file;
@@ -14,7 +16,6 @@ import std.uuid;
 
 import xxhash3;
 
-// FIXME: Move this to more general place.
 import dosierskanilo.progress : ProgressCallBack;
 
 /** Calculate MD5, SHA1, and XXH64 digests for a file.
@@ -49,6 +50,8 @@ void calculatesDigests(
 		xxh64.start();
 
 	auto fh = File(fileName, "rb");
+	scope (exit)
+		fh.close();
 	size_t msz = fh.size;
 	size_t pos = 0;
 	enum buffSize = 16 * 1024 * 1024;
@@ -61,7 +64,7 @@ void calculatesDigests(
 		if (xxh64sum !is null)
 			xxh64.put(buffer);
 
-		if (gotCtrlC !is null && *gotCtrlC)
+		if (gotCtrlC !is null && atomicLoad(*gotCtrlC))
 			return;
 
 		pos += buffer.length;

@@ -15,6 +15,7 @@ import std.string : empty, replace, startsWith, toLower;
 import std.stdio : File;
 import std.typecons : Nullable;
 
+import dosierarkivo.archive : escapeArchiveVirtualPath;
 import dosierskanilo.model.namedbinaryblob : NamedBinaryBlob;
 import dosierskanilo.operations : OperationControl, OperationTarget;
 import dosierskanilo.operationlease : TargetWriteLease;
@@ -27,7 +28,8 @@ import dosierskanilo.repository.scanner : scanRepositoryControlled;
 import dosierskanilo.repository.transfer : exportCatalogJson, importCatalogJson,
     loadCatalogFromDatabase, loadCatalogPageFromDatabase,
     loadCatalogQueryPageFromDatabase, loadCatalogQueryPageWithIdsFromDatabase,
-    loadBlobDetailsFromDatabase, countCatalogQueryFromDatabase,
+    loadBlobDetailsFromDatabase, loadBlobFingerprintFromDatabase,
+    countCatalogQueryFromDatabase,
     listDirectoriesFromDatabase, loadRootSummaryFromDatabase, listFilesFromDatabase,
     listFilesPageFromDatabase, listArchiveEntriesFromDatabase,
     listTorrentFilesFromDatabase, loadFileReferenceFromDatabase,
@@ -66,7 +68,11 @@ private:
         }
         catch (Exception ex)
         {
-            db.close();
+            try
+                db.close();
+            catch (Exception)
+            {
+            }
             throw ex;
         }
     }
@@ -200,12 +206,13 @@ public:
 
     private void backupDatabase()
     {
-        database.execute("PRAGMA wal_checkpoint(TRUNCATE)");
         import std.string : replace;
         auto stamp = currentTimestamp().replace(":", "-");
         auto backupPath = buildPath(repositoryPaths.backupsPath,
             "catalog-" ~ stamp ~ ".sqlite3");
-        copy(repositoryPaths.databasePath, backupPath);
+        /* VACUUM INTO produces a consistent snapshot, including rows that
+         * still live in the WAL, instead of copying a live database file. */
+        database.execute("VACUUM INTO ?", backupPath);
         appendLog("repository.backup", backupPath);
     }
 
@@ -235,6 +242,10 @@ public:
     void importJson(string jsonFile, JsonImportOptions options = JsonImportOptions())
     {
         requireOpen();
+        auto targetLease = TargetWriteLease.acquireRepositoryRoot(
+            repositoryPaths.rootPath);
+        scope (exit)
+            targetLease.release();
         if (blobCount > 0)
         {
             if (!options.force)
@@ -250,6 +261,10 @@ public:
     void exportJson(string jsonFile, JsonExportOptions options = JsonExportOptions())
     {
         requireOpen();
+        auto targetLease = TargetWriteLease.acquireRepositoryRoot(
+            repositoryPaths.rootPath);
+        scope (exit)
+            targetLease.release();
         exportCatalogJson(database, repositoryPaths.rootPath, jsonFile, options);
     }
 
@@ -315,6 +330,13 @@ public:
         return page;
     }
 
+    /** Load only the size and digests of one blob by stable repository ID. */
+    NamedBinaryBlob loadBlobFingerprint(long blobId)
+    {
+        requireOpen();
+        return loadBlobFingerprintFromDatabase(database, blobId);
+    }
+
     /** Load one blob and its related details by stable repository ID. */
     NamedBinaryBlob loadBlobDetails(long blobId,
         JsonExportOptions options = JsonExportOptions())
@@ -339,18 +361,29 @@ public:
     {
         if (database.execute("SELECT 1 FROM blobs WHERE id = ?", blobId).empty)
             throw new RepositoryException("Unknown blob ID: " ~ blobId.to!string);
-        if (password.length == 0)
+        database.execute("BEGIN IMMEDIATE");
+        try
         {
-            database.execute("DELETE FROM archive_passwords WHERE blob_id = ?", blobId);
+            if (password.length == 0)
+                database.execute("DELETE FROM archive_passwords WHERE blob_id = ?",
+                    blobId);
+            else
+                database.execute("INSERT INTO archive_passwords (blob_id, password) "
+                    ~ "VALUES (?, ?) ON CONFLICT(blob_id) DO UPDATE SET "
+                    ~ "password = excluded.password", blobId, password);
             database.execute("UPDATE repository SET updated_at = ? WHERE id = 1",
                 currentTimestamp());
-            return;
+            database.execute("COMMIT");
         }
-        database.execute("INSERT INTO archive_passwords (blob_id, password) "
-            ~ "VALUES (?, ?) ON CONFLICT(blob_id) DO UPDATE SET "
-            ~ "password = excluded.password", blobId, password);
-        database.execute("UPDATE repository SET updated_at = ? WHERE id = 1",
-            currentTimestamp());
+        catch (Exception ex)
+        {
+            try
+                database.execute("ROLLBACK");
+            catch (Exception)
+            {
+            }
+            throw ex;
+        }
     }
 
     /** Resolve a repository filename to its blob and set or remove its password. */
@@ -362,22 +395,15 @@ public:
         scope (exit)
             targetLease.release();
         auto relativePath = passwordRelativePath(fileName, repositoryPaths.rootPath);
-        long[] matchingBlobIds;
-        long[] basenameBlobIds;
-        foreach (row; database.execute("SELECT blob_id, relative_path FROM file_refs"))
-        {
-            auto rowBlobId = row.peek!long(0);
-            auto rowPath = row.peek!string(1);
-            if (rowPath == relativePath)
-                matchingBlobIds ~= rowBlobId;
-            else if (baseName(relativePath) == relativePath
-                && baseName(rowPath) == relativePath)
-                basenameBlobIds ~= rowBlobId;
-        }
-        auto matches = matchingBlobIds.length > 0
-            ? matchingBlobIds : basenameBlobIds;
-        matches.sort;
-        matches = matches.uniq.array;
+        long[] matches;
+        foreach (row; database.execute("SELECT DISTINCT blob_id FROM file_refs "
+            ~ "WHERE relative_path = ? ORDER BY blob_id", relativePath))
+            matches ~= row.peek!long(0);
+        if (matches.length == 0 && baseName(relativePath) == relativePath)
+            foreach (row; database.execute("SELECT DISTINCT blob_id FROM file_refs "
+                ~ "WHERE substr(relative_path, -length(?) - 1) = '/' || ? "
+                ~ "ORDER BY blob_id", relativePath, relativePath))
+                matches ~= row.peek!long(0);
         if (matches.length == 0)
             throw new RepositoryException("No repository file matches: " ~ fileName);
         if (matches.length > 1)
@@ -601,7 +627,8 @@ private string passwordRelativePath(string fileName, string rootPath)
     if (normalized.length == 0 || normalized == ".."
         || normalized.startsWith("../"))
         throw new RepositoryException("Invalid repository file path: " ~ fileName);
-    return normalized;
+    /* Stored references use the canonical escaped form. */
+    return escapeArchiveVirtualPath(normalized);
 }
 
 private string canonicalDirectory(string path)
@@ -922,6 +949,14 @@ unittest
     assert(secondCursorPage.total == 2);
     assert(!secondCursorPage.hasMore);
     assert(firstCursorPage.blobIds[0] != secondCursorPage.blobIds[0]);
+
+    query.text = "";
+    query.useCursor = false;
+    query.blobIds = [firstCursorPage.blobIds[0]];
+    auto restricted = repository.loadCatalogQueryPageWithIds(query);
+    assert(restricted.blobs.length == 1);
+    assert(restricted.blobIds == [firstCursorPage.blobIds[0]]);
+    query.blobIds = [];
 
     MetadataScanOptions checksumOptions;
     checksumOptions.calculateChecksums = true;
@@ -1584,6 +1619,38 @@ unittest
 
     repository.setArchivePasswordForPath("private.zip", "");
     assert(repository.loadCatalog()[0].archivePassword.length == 0);
+}
+
+@("archive password lookup resolves escaped file names")
+unittest
+{
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "repository-archive-password-escaped-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    auto archivePath = buildPath(root, "archive!.zip");
+    write(archivePath, "archive placeholder");
+    scope (exit)
+    {
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+
+    auto repository = Repository.initialize(root);
+    scope (exit)
+        repository.close();
+    repository.scan();
+    auto blobId = repository.loadCatalogQueryPageWithIds(
+        RepositoryQueryOptions()).blobIds[0];
+
+    repository.setArchivePasswordForPath(archivePath, "escaped-secret");
+    assert(repository.loadBlobDetails(blobId).archivePassword
+        == "escaped-secret");
+    repository.setArchivePasswordForPath("archive!.zip", "");
+    assert(repository.loadBlobDetails(blobId).archivePassword.length == 0);
 }
 
 @("repository metadata scan can target one archive path")

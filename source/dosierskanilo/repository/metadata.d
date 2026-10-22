@@ -168,16 +168,43 @@ private long[] metadataBlobIds(ref Database db, string filePath)
     return blobIds;
 }
 
+/** Persist one metadata result atomically, rolling back partial writes. */
+private void commitMetadataWork(ref Database db, scope void delegate() work)
+{
+    db.begin();
+    try
+    {
+        work();
+        db.commit();
+    }
+    catch (Exception ex)
+    {
+        try
+            db.rollback();
+        catch (Exception)
+        {
+        }
+        throw ex;
+    }
+}
+
 /** Run the selected metadata jobs one blob at a time. */
 MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
     MetadataScanOptions options)
 {
     scope (exit)
+    {
         if (options.scanArchives)
         {
             resolveArchiveMemberBlobLinks(db);
             deleteUnreachableBlobs(db);
         }
+        /* Metadata rewrites file_refs for archive members, so cursors issued
+         * before this run must become invalid even though sourceVersion only
+         * reads repository.updated_at. */
+        db.execute("UPDATE repository SET updated_at = ? WHERE id = 1",
+            currentTimestamp());
+    }
     if (options.threads > 1)
         return updateRepositoryMetadataParallel(db, rootPath, options);
 
@@ -195,9 +222,11 @@ MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
             try
             {
                 updateDigests(blob);
-                persistChecksums(db, blobId, blob);
-                setMetadataStatus(db, blobId, "checksums",
-                    metadataState(blob.checkSums.hasDigests), "");
+                commitMetadataWork(db, {
+                    persistChecksums(db, blobId, blob);
+                    setMetadataStatus(db, blobId, "checksums",
+                        metadataState(blob.checkSums.hasDigests), "");
+                });
                 summary.checksumsUpdated++;
             }
             catch (Exception ex)
@@ -214,10 +243,12 @@ MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
             try
             {
                 updateFileType(blob);
-                db.execute("UPDATE blobs SET file_type = ? WHERE id = ?",
-                    blob.fileType, blobId);
-                setMetadataStatus(db, blobId, "file_type",
-                    metadataState(blob.fileType.length > 0), "");
+                commitMetadataWork(db, {
+                    db.execute("UPDATE blobs SET file_type = ? WHERE id = ?",
+                        blob.fileType, blobId);
+                    setMetadataStatus(db, blobId, "file_type",
+                        metadataState(blob.fileType.length > 0), "");
+                });
                 summary.fileTypesUpdated++;
             }
             catch (Exception ex)
@@ -234,9 +265,12 @@ MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
             try
             {
                 updateMediaInfo(blob, options.rescan);
-                persistMediaInfo(db, blobId, blob.mediaInfoSig);
-                setMetadataStatus(db, blobId, "media_info", metadataState(
-                    blob.mediaInfoSig !is null && !blob.mediaInfoSig.empty), "");
+                commitMetadataWork(db, {
+                    persistMediaInfo(db, blobId, blob.mediaInfoSig);
+                    setMetadataStatus(db, blobId, "media_info", metadataState(
+                        blob.mediaInfoSig !is null && !blob.mediaInfoSig.empty),
+                        "");
+                });
                 if (blob.mediaInfoSig !is null && !blob.mediaInfoSig.empty)
                     summary.mediaInfoUpdated++;
             }
@@ -257,11 +291,15 @@ MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
                 updateArchives(blob, options.rescan, options.deepArchiveScan,
                     null, null, options.archivePasswordCallback, 0, 8, "", null,
                     options.detectFileTypes, options.extractMediaInfo);
-                persistArchives(db, blobId, blob.archiveSpecs,
-                    options.deepArchiveScan, summary);
-                persistArchivePassword(db, blobId, blob.archivePassword);
-                setMetadataStatus(db, blobId, "archives",
-                    blob.archiveSpecs is null ? "not_archive" : "completed", "");
+                commitMetadataWork(db, {
+                    persistArchives(db, blobId, blob.archiveSpecs,
+                        options.deepArchiveScan, summary);
+                    persistArchivePassword(db, blobId, blob.archivePassword);
+                    /* persistArchives already stores "empty"/"completed". */
+                    if (blob.archiveSpecs is null)
+                        setMetadataStatus(db, blobId, "archives",
+                            "not_archive", "");
+                });
                 if (blob.archiveSpecs !is null)
                     summary.archivesUpdated++;
             }
@@ -280,9 +318,11 @@ MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
             try
             {
                 updateTorrentInfo(blob, options.rescan);
-                persistTorrentInfo(db, blobId, blob.torrentInfo);
-                setMetadataStatus(db, blobId, "torrents",
-                    metadataState(blob.torrentInfo !is null), "");
+                commitMetadataWork(db, {
+                    persistTorrentInfo(db, blobId, blob.torrentInfo);
+                    setMetadataStatus(db, blobId, "torrents",
+                        metadataState(blob.torrentInfo !is null), "");
+                });
                 if (blob.torrentInfo !is null)
                     summary.torrentsUpdated++;
             }
@@ -306,11 +346,18 @@ MetadataExecutionResult updateRepositoryMetadataControlled(ref Database db,
     ulong operationId)
 {
     scope (exit)
+    {
         if (options.scanArchives)
         {
             resolveArchiveMemberBlobLinks(db);
             deleteUnreachableBlobs(db);
         }
+        /* Metadata rewrites file_refs for archive members, so cursors issued
+         * before this run must become invalid even though sourceVersion only
+         * reads repository.updated_at. */
+        db.execute("UPDATE repository SET updated_at = ? WHERE id = 1",
+            currentTimestamp());
+    }
     MetadataExecutionResult execution;
     auto blobIds = metadataBlobIds(db, options.filePath);
     auto batchSize = options.threads > 0 ? options.threads * 4 : 1;
@@ -722,21 +769,27 @@ private void processMetadataBatch(ref Database db, string rootPath,
 
     TaskPool pool = new TaskPool(options.threads);
     Task!(runMetadataWork, MetadataWorkItem)*[] tasks;
-    foreach (item; items)
+    try
     {
-        auto worker = task!runMetadataWork(item);
-        tasks ~= worker;
-        pool.put(worker);
-    }
+        foreach (item; items)
+        {
+            auto worker = task!runMetadataWork(item);
+            tasks ~= worker;
+            pool.put(worker);
+        }
 
-    summary.blobsVisited += items.length;
-    foreach (index, item; items)
-    {
-        tasks[index].workForce();
-        persistMetadataWork(db, item, summary);
+        summary.blobsVisited += items.length;
+        foreach (index, item; items)
+        {
+            tasks[index].workForce();
+            commitMetadataWork(db, { persistMetadataWork(db, item, summary); });
+        }
     }
-    pool.finish(true);
-    pool.stop();
+    finally
+    {
+        pool.finish(true);
+        pool.stop();
+    }
 }
 
 private void persistMetadataWork(ref Database db, MetadataWorkItem item,
@@ -756,9 +809,15 @@ private void persistMetadataWork(ref Database db, MetadataWorkItem item,
             return;
         }
         persist();
-        const auto state = kind == "archives" && !hasData
-            ? "not_archive" : metadataState(hasData);
-        setMetadataStatus(db, item.blobId, kind, state, "");
+        /* persistArchives records the authoritative "empty"/"completed" state;
+         * only a non-archive needs a status row here. */
+        if (kind == "archives")
+        {
+            if (!hasData)
+                setMetadataStatus(db, item.blobId, kind, "not_archive", "");
+        }
+        else
+            setMetadataStatus(db, item.blobId, kind, metadataState(hasData), "");
         if (hasData)
         {
             if (kind == "checksums") summary.checksumsUpdated++;
@@ -1001,9 +1060,15 @@ private void persistArchives(ref Database db, long blobId, ArchiveSpec[] entries
         auto md5 = checksumBlob(entry.checkSums.md5sum_b64);
         auto sha1 = checksumBlob(entry.checkSums.sha1sum_b64);
         auto xxh64 = checksumBlob(entry.checkSums.xxh64sum_b64);
-        if (entry.checkSums.hasDigests)
-            return ensureArchiveMemberBlob(db, cast(long) entry.fileSize,
-                md5, sha1, xxh64);
+        /* Corrupt or truncated digests must not be trusted, otherwise the
+         * content row lookup fails and a blob_id of 0 would be written. */
+        if (hasValidDigests(md5, sha1, xxh64))
+        {
+            const auto existingId = ensureArchiveMemberBlob(db,
+                cast(long) entry.fileSize, md5, sha1, xxh64);
+            if (existingId != 0)
+                return existingId;
+        }
         if (!existing.empty)
         {
             auto row = existing.front;
@@ -1211,10 +1276,23 @@ private Nullable!Blob checksumBlob(string value)
     Nullable!Blob result;
     if (value.length > 0)
     {
-        import std.base64 : Base64;
-        result = cast(Blob) Base64.decode(value);
+        import std.base64 : Base64, Base64Exception;
+        try
+            result = cast(Blob) Base64.decode(value);
+        catch (Base64Exception)
+        {
+            /* Treat malformed base64 like a missing digest. */
+        }
     }
     return result;
+}
+
+private bool hasValidDigests(Nullable!Blob md5, Nullable!Blob sha1,
+    Nullable!Blob xxh64)
+{
+    return !md5.isNull && !sha1.isNull && !xxh64.isNull
+        && md5.get.length == 16 && sha1.get.length == 20
+        && xxh64.get.length == 8;
 }
 
 private string currentTimestamp()

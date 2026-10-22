@@ -313,6 +313,10 @@ void migrate(ref Database db, string now)
             throw ex;
         }
     }
+
+    /* Keep SQLite's own version in sync with the migration table so external
+     * tools can inspect the schema without reading `schema_migrations`. */
+    db.execute("PRAGMA user_version = " ~ to!string(schemaVersion));
 }
 
 private struct MigrationFileReference

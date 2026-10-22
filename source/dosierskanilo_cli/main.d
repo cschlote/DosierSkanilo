@@ -21,6 +21,7 @@ module dosierskanilo_cli.main;
 
 /* ----------------------------------------------------------------------- */
 
+import core.atomic : atomicLoad, atomicStore;
 import core.stdc.signal;
 
 import std.algorithm.iteration;
@@ -96,10 +97,12 @@ int main(string[] args)
 				auto miv = getMediaInfoVersion();
 				logLineVerbose("Using ", miv);
 			}
-			auto oldhandler = signal(SIGINT, &signalHandler);
-			assert(oldhandler != SIG_ERR, "Problem setting signal handler");
+			const auto oldhandler = signal(SIGINT, &signalHandler);
+			if (oldhandler == SIG_ERR)
+				logLine("Warning: could not install the SIGINT handler.");
 			scope (exit)
-				signal(SIGINT, oldhandler);
+				if (oldhandler != SIG_ERR)
+					signal(SIGINT, oldhandler);
 
 			bool rc;
 			if (parsed.command == CliCommand.scan || parsed.command == CliCommand.analyze)
@@ -183,13 +186,13 @@ bool executeRepositoryOperation(ArgsArray options)
 				|| options.argDoFileTypes || options.argDoMediaSig
 				|| options.argScanArchives || options.argScanTorrents;
 			if ((!options.argScanFiles || !metadataRequested)
-				&& !executeRepositoryMetadata(backend, repository.rootPath, options))
+				&& !executeRepositoryMetadata(backend, sourceRoot, options))
 			{
 				return false;
 			}
 		}
 
-		executeRepositoryExport(backend, repository.rootPath, options);
+		executeRepositoryExport(backend, sourceRoot, options);
 		return true;
 	}
 	catch (Exception ex)
@@ -400,8 +403,18 @@ void executeRepositoryDuplicates(CatalogBackend backend, string repositoryRoot,
 {
 	logLineVerbose("Querying duplicate groups in catalog root: ", repositoryRoot);
 	auto groups = backend.queryDuplicateGroups(options.argDuplicateLimit);
+	long[] neededIds;
+	bool[long] seenId;
+	foreach (group; groups)
+		foreach (blobId; group.blobIds)
+			if (blobId !in seenId)
+			{
+				seenId[blobId] = true;
+				neededIds ~= blobId;
+			}
 	RepositoryQueryOptions lookupQuery;
-	lookupQuery.limit = size_t.max;
+	lookupQuery.blobIds = neededIds;
+	lookupQuery.limit = neededIds.length > 0 ? neededIds.length : 1;
 	auto blobs = backend.queryBlobs(lookupQuery);
 	string[long] pathByBlobId;
 	foreach (index, blob; blobs.blobs)
@@ -441,8 +454,37 @@ void executeRepositoryDuplicates(CatalogBackend backend, string repositoryRoot,
 /** Quote a string for the small, stable CLI JSON result objects. */
 string jsonQuote(string value)
 {
-	return "\"" ~ value.replace("\\", "\\\\").replace("\"", "\\\"")
-		.replace("\n", "\\n").replace("\r", "\\r") ~ "\"";
+	import std.format : format;
+
+	string result = "\"";
+	foreach (c; value)
+	{
+		switch (c)
+		{
+		case '"':
+			result ~= "\\\"";
+			break;
+		case '\\':
+			result ~= "\\\\";
+			break;
+		case '\n':
+			result ~= "\\n";
+			break;
+		case '\r':
+			result ~= "\\r";
+			break;
+		case '\t':
+			result ~= "\\t";
+			break;
+		default:
+			if (c < 0x20)
+				result ~= format("\\u%04x", cast(uint) c);
+			else
+				result ~= c;
+			break;
+		}
+	}
+	return result ~ "\"";
 }
 
 /** Execute the selected metadata extractors against a repository. */
@@ -493,7 +535,7 @@ OperationControl cliOperationControl(string label)
 	string lastReportedPath;
 	control = new OperationControl((OperationProgress event) {
 		// Signal handlers only set a flag; mutex/condition work happens here.
-		if (gotCtrlC && !control.cancellationRequested)
+		if (atomicLoad(gotCtrlC) && !control.cancellationRequested)
 			control.requestCancellation();
 		if (isVerboseOutputs())
 		{
@@ -524,18 +566,22 @@ OperationControl cliOperationControl(string label)
  */
 extern (C) nothrow @nogc @system void signalHandler(int sig)
 {
-	import core.stdc.stdlib : exit, abort;
+	import core.stdc.stdlib : abort;
+	import core.sys.posix.unistd : STDERR_FILENO, _exit, write;
 
 	bool do_abort = false;
 	debug (all)
-		printf("Got signal %d", sig);
+	{
+		enum message = "Got signal\n";
+		write(STDERR_FILENO, message.ptr, message.length);
+	}
 	switch (sig)
 	{
 	case SIGINT:
-		if (gotCtrlC)
-			exit(1);
+		if (atomicLoad(gotCtrlC))
+			_exit(1);
 		else
-			gotCtrlC = true;
+			atomicStore(gotCtrlC, true);
 		break;
 	case SIGTERM:
 		do_abort = true;

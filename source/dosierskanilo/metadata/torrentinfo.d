@@ -135,6 +135,11 @@ TorrentInfo getTorrentInfo(string filePath)
     enforce(isFile(filePath), "Path is not a file");
     enforce(filePath.endsWith(".torrent"), "File does not have .torrent extension");
 
+    enum size_t maxTorrentSize = 64 * 1024 * 1024;
+    const fileSize = getSize(filePath);
+    enforce(fileSize <= maxTorrentSize,
+        "Torrent file exceeds the %d byte limit".format(maxTorrentSize));
+
     auto rawData = cast(ubyte[]) read(filePath);
 
     auto parser = new BencodeParser(rawData);
@@ -147,10 +152,13 @@ TorrentInfo getTorrentInfo(string filePath)
         enforce(tryGetBDict(infoNode.value, infoDict),
             "Invalid torrent file '%s': info is not a dictionary".format(filePath));
 
-    // Encode info dict for hash
-    Appender!(ubyte[]) encodedInfo;
-    bencode(encodedInfo, infoNode);
-    auto hash = sha1Of(encodedInfo.data);
+    /* Hash the original bencoded bytes. Re-encoding can reorder dictionary
+     * keys and would change the info hash of non-canonical torrents. */
+    enforce(infoNode.endPos >= infoNode.startPos
+        && infoNode.endPos <= rawData.length,
+        "Invalid torrent file: truncated 'info' element");
+    const auto infoBytes = rawData[infoNode.startPos .. infoNode.endPos];
+    auto hash = sha1Of(infoBytes);
     auto hashHex = toHex(hash);
 
     auto ti = new TorrentInfo();
@@ -256,6 +264,8 @@ TorrentInfo getTorrentInfo(string filePath)
 /*private*/ struct BNode
 {
     BValue value;
+    size_t startPos; /// Byte offset of the value in the original stream.
+    size_t endPos; /// One past the last byte of the value.
 }
 
 /// Internal representation of a bencoded value
@@ -379,19 +389,30 @@ private class BencodeParser
     {
         enforce(pos < data.length, "Unexpected end of file");
 
+        const auto startPos = pos;
+        BNode node;
         switch (data[pos])
         {
         case 'i':
-            return parseInt();
+            node = parseInt();
+            break;
         case 'l':
-            return parseList();
+            node = parseList();
+            break;
         case 'd':
-            return parseDict();
+            node = parseDict();
+            break;
         default:
             if (data[pos] >= '0' && data[pos] <= '9')
-                return parseString();
+            {
+                node = parseString();
+                break;
+            }
             throw new Exception("Invalid bencode format");
         }
+        node.startPos = startPos;
+        node.endPos = pos;
+        return node;
     }
 
     BNode parseInt()
@@ -412,9 +433,15 @@ private class BencodeParser
         while (pos < data.length && data[pos] != ':')
             pos++;
         enforce(pos < data.length, "Invalid string length");
-        auto len = to!size_t(cast(string) data[start .. pos]);
+        long parsedLen;
+        try
+            parsedLen = to!long(cast(string) data[start .. pos]);
+        catch (ConvException)
+            throw new Exception("Invalid string length");
+        enforce(parsedLen >= 0, "Invalid negative string length");
+        const auto len = cast(size_t) parsedLen;
         pos++;
-        enforce(pos + len <= data.length, "Unexpected EOF in string");
+        enforce(len <= data.length - pos, "Unexpected EOF in string");
         auto s = cast(string) data[pos .. pos + len];
         pos += len;
         return BNode(BValue(s));
@@ -448,39 +475,6 @@ private class BencodeParser
     }
 }
 
-/** Encode a bencode node (used for info-dictionary hashing). */
-private void bencode(ref Appender!(ubyte[]) out_, BNode node)
-{
-    node.value.match!(
-        (long i) {
-        out_.put('i');
-        out_.put(cast(ubyte[]) to!string(i));
-        out_.put('e');
-    },
-        (string s) {
-        out_.put(cast(ubyte[]) to!string(s.length));
-        out_.put(':');
-        out_.put(cast(ubyte[]) s);
-    },
-        (BList list) {
-        out_.put('l');
-        foreach (e; list)
-            bencode(out_, e);
-        out_.put('e');
-    },
-        (BDict dict) {
-        out_.put('d');
-        foreach (k; dict.keys.sort)
-        {
-            out_.put(cast(ubyte[]) to!string(k.length));
-            out_.put(':');
-            out_.put(cast(ubyte[]) k);
-            bencode(out_, dict[k]);
-        }
-        out_.put('e');
-    }
-    );
-}
 
 /** Convert bytes to a lowercase hexadecimal string. */
 private string toHex(const ubyte[] data)
@@ -571,6 +565,32 @@ unittest
     foreach (entry; multi.files)
         sum += entry.length;
     assert(multi.totalSize == sum);
+}
+
+@("getTorrentInfo hashes the original info bytes")
+unittest
+{
+    import std.file : remove, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    /* Non-canonical key order: re-encoding would sort "length" first. */
+    auto pieces = cast(ubyte[]) [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+        14, 15, 16, 17, 18, 19];
+    auto info = cast(ubyte[]) "d4:name4:test6:lengthi1e12:piece lengthi16384e"
+        ~ cast(ubyte[]) "6:pieces20:" ~ pieces ~ cast(ubyte[]) "e";
+    auto torrent = cast(ubyte[]) "d4:info" ~ info ~ cast(ubyte[]) "e";
+    auto path = buildPath(tempDir(), "noncanonical-" ~ randomUUID().toString()
+        ~ ".torrent");
+    scope (exit)
+        if (path.exists)
+            remove(path);
+    write(path, torrent);
+
+    auto ti = getTorrentInfo(path);
+    assert(ti.infoHashHex == "6feae35297b1ff565207ff9a22f5c65e5850b4a4");
+    assert(ti.infoHashHex != "cc59f6a0df77e2cc19dc55f9f5a06469034f3db0",
+        "the hash must not be computed from a re-encoded dictionary");
 }
 
 @("TorrentInfo helpers")

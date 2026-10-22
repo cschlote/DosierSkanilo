@@ -44,6 +44,21 @@ For large synthetic catalogs, generate wrapper JSON with the required
 `dataArray`, `dataVersion`, and file reference fields, then pass its path to
 the script. Benchmark files should remain outside the Git repository.
 
+## Repository Page Queries
+
+The catalog page path used to load details and flags per blob. `list` on a
+synthetic repository with 30,000 one-line files, `--limit 1000 --format json`,
+issued about `4 * N + 2` statements for a page without media or archive data
+(`4,002` for 1,000 rows). It now issues 14 statements for the page regardless
+of row count; pages with media and torrent rows add only a fixed number of
+stream and file queries.
+
+Wall-clock time was unchanged in this measurement: 20 CLI invocations took
+`0.73 s` before and `0.74 s` after (`~37 ms` each). Process startup and
+in-process SQLite statement dispatch dominate at this size, so the statement
+bound matters mainly for embedded/GUI refresh paths and larger metadata rows.
+Measure the GUI page refresh on production data before drawing conclusions.
+
 ## Follow-Up Measurements
 
 - Measure a 250-row unfiltered repository page.

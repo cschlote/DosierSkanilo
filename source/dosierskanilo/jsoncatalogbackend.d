@@ -122,7 +122,18 @@ public:
             catalog = NamedBinaryBlobCatalog(DATA_CLASS_VERSION3, []);
         }
         if (catalogLoadError.length == 0)
-            rebuildIndex();
+        {
+            try
+                rebuildIndex();
+            catch (Exception failure)
+            {
+                /* Malformed virtual paths surface here as plain exceptions.
+                 * Keep the source readable but disable tree queries instead of
+                 * letting an untyped error escape the factory. */
+                catalogLoadError = failure.msg;
+                clearIndex();
+            }
+        }
     }
 
     override OperationTarget target()
@@ -227,7 +238,16 @@ public:
     override CatalogFilePage previousFilesPage(CatalogFileQuery query,
         CatalogPageCursor cursor)
     {
-        return listFiles(query, CatalogPageRequest(cursor.adapterPageSize, cursor));
+        if (!cursor.isValid)
+            throw new CatalogBackendException(CatalogBackendErrorCode.invalidCursor,
+                "A previous-page request requires a cursor.");
+        /* The cursor marks the first row of the current page, so the previous
+         * page starts one page size before it. */
+        const auto start = cursor.adapterIndex > cursor.adapterPageSize
+            ? cursor.adapterIndex - cursor.adapterPageSize : 0;
+        return listFiles(query, CatalogPageRequest(cursor.adapterPageSize,
+            CatalogPageCursor(start, cursor.adapterPageSize,
+                cursor.adapterQueryToken)));
     }
 
     override CatalogContentSnapshot loadContent(ContentId contentId,
@@ -251,6 +271,21 @@ public:
                 source.fingerprint.digests[index].value.dup;
         result.mediaStreams = source.mediaStreams.dup;
         result.extractors = source.extractors.dup;
+        /* The archive index is authoritative for entries, so refresh the
+         * summary at query time instead of trusting the build-time snapshot. */
+        const bool indexedArchive =
+            (result.id.adapterToken in archiveEntriesByToken) !is null;
+        if (indexedArchive)
+        {
+            result.hasArchive = true;
+            result.archiveSummary =
+                archiveSummaryForToken(result.id.adapterToken);
+        }
+        const auto archiveState = !result.hasArchive
+            ? CatalogExtractorState.notRequested
+            : (result.archiveSummary.entryCount == 0
+                ? CatalogExtractorState.empty
+                : CatalogExtractorState.completed);
         if (!details.fingerprint)
         {
             result.fingerprint.digests = [];
@@ -270,7 +305,24 @@ public:
             result.hasTorrent = false;
             result.torrentSummary = CatalogTorrentSummary.init;
         }
+        foreach (ref status; result.extractors)
+            if (status.extractor == "archives")
+                status.state = archiveState;
         return result;
+    }
+
+    CatalogArchiveSummary archiveSummaryForToken(string token) const
+    {
+        CatalogArchiveSummary summary;
+        auto entries = token in archiveEntriesByToken;
+        if (entries is null)
+            return summary;
+        summary.indexKnown = true;
+        summary.entryCount = (*entries).length;
+        foreach (entry; *entries)
+            if (entry.fingerprint.complete)
+                ++summary.entriesWithCompleteFingerprints;
+        return summary;
     }
 
     override CatalogArchiveEntryPage listArchiveEntries(ContentId contentId,
@@ -280,8 +332,16 @@ public:
         const auto token = contentId.adapterToken;
         auto entries = token in archiveEntriesByToken;
         if (entries is null)
-            throw new CatalogBackendException(CatalogBackendErrorCode.invalidIdentifier,
-                "Content has no JSON archive index.");
+        {
+            /* A known content without an archive index yields an empty page,
+             * matching the SQLite backend; only unknown ids are errors. */
+            if (token !in contentByToken)
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.invalidIdentifier,
+                    "Unknown JSON content identity.");
+            CatalogArchiveEntryPage empty;
+            return empty;
+        }
         auto slice = pageSlice(page, sourceToken ~ "\0"
             ~ indexGeneration.to!string ~ "\0archives\0" ~ token,
             (*entries).length);
@@ -382,8 +442,14 @@ public:
         const auto token = contentId.adapterToken;
         auto entries = token in torrentEntriesByToken;
         if (entries is null)
-            throw new CatalogBackendException(CatalogBackendErrorCode.invalidIdentifier,
-                "Content has no JSON torrent manifest.");
+        {
+            if (token !in contentByToken)
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.invalidIdentifier,
+                    "Unknown JSON content identity.");
+            CatalogTorrentEntryPage empty;
+            return empty;
+        }
         auto slice = pageSlice(page, sourceToken ~ "\0"
             ~ indexGeneration.to!string ~ "\0torrents\0" ~ token,
             (*entries).length);
@@ -397,7 +463,9 @@ public:
     override RepositoryBlobPage queryBlobs(RepositoryQueryOptions options)
     {
         requireOpen();
-        enforce(options.limit > 0, "Blob query limit must be greater than zero.");
+        enforce(options.limit > 0, new CatalogBackendException(
+            CatalogBackendErrorCode.invalidIdentifier,
+            "Blob query limit must be greater than zero."));
         CatalogFilter filter;
         filter.caseSensitive = options.caseSensitive;
         filter.video = options.video;
@@ -445,6 +513,17 @@ public:
             if (auto index = token in blobIndexByContentToken)
                 matchingIndices ~= *index;
         matchingIndices.sort;
+        if (options.blobIds.length > 0)
+        {
+            bool[long] wanted;
+            foreach (blobId; options.blobIds)
+                wanted[blobId] = true;
+            size_t[] restricted;
+            foreach (index; matchingIndices)
+                if ((cast(long) index + 1) in wanted)
+                    restricted ~= index;
+            matchingIndices = restricted;
+        }
 
         RepositoryBlobPage result;
         result.total = matchingIndices.length;
@@ -513,7 +592,9 @@ public:
     override RepositoryDuplicateGroup[] queryDuplicateGroups(size_t limit = 100)
     {
         requireOpen();
-        enforce(limit > 0, "Duplicate query limit must be greater than zero.");
+        enforce(limit > 0, new CatalogBackendException(
+                CatalogBackendErrorCode.invalidIdentifier,
+                "Duplicate query limit must be greater than zero."));
         long[][string] idsByFingerprint;
         size_t[string] sizeByFingerprint;
         foreach (index, blob; catalog.dataArray)
@@ -551,8 +632,9 @@ public:
     {
         requireTreeQueries();
         enforceJsonExportFormat(options);
-        enforce(options.outputPath.length > 0,
-            "A JSON subset export requires an explicit output path.");
+        enforce(options.outputPath.length > 0, new CatalogBackendException(
+            CatalogBackendErrorCode.invalidTarget,
+            "A JSON subset export requires an explicit output path."));
 
         size_t[string] blobByContent;
         NamedBinaryBlob[string] exportedByContent;
@@ -800,7 +882,8 @@ public:
         auto exported = NamedBinaryBlobCatalog(DATA_CLASS_VERSION5,
             exportedBlobs);
         enforce(commitJsonCatalog(options.outputPath, exported),
-            "Could not publish the JSON subset export.");
+            new CatalogBackendException(CatalogBackendErrorCode.backendFailure,
+                "Could not publish the JSON subset export."));
         result.contentsExported = exportedBlobs.length;
         foreach (contentToken; selectedMemberContents.keys)
             if (contentToken !in blobByContent)
@@ -1125,15 +1208,26 @@ private:
         result.fingerprint = fingerprintFor(blob);
         result.fileType = blob.fileType;
         result.mediaStreams = mediaStreamsFor(blob);
-        result.hasArchive = blob.archiveIndexKnown || blob.archiveSpecs !is null;
+        auto indexedArchiveEntries = contentId.adapterToken in archiveEntriesByToken;
+        const bool archiveIndexed = blob.archiveIndexKnown
+            || blob.archiveSpecs !is null || indexedArchiveEntries !is null;
+        result.hasArchive = archiveIndexed;
         result.hasTorrent = blob.torrentInfo !is null;
-        result.archiveSummary.indexKnown = blob.archiveIndexKnown
-            || blob.archiveSpecs !is null;
-        if (blob.archiveSpecs !is null)
+        result.archiveSummary.indexKnown = archiveIndexed;
+        if (indexedArchiveEntries !is null)
+        {
+            result.archiveSummary.entryCount = (*indexedArchiveEntries).length;
+            foreach (entry; *indexedArchiveEntries)
+                if (entry.fingerprint.complete)
+                    result.archiveSummary.entriesWithCompleteFingerprints++;
+        }
+        else if (blob.archiveSpecs !is null)
         {
             result.archiveSummary.entryCount = blob.archiveSpecs.length;
             foreach (entry; blob.archiveSpecs)
-                if (entry !is null && entry.checkSums.hasDigests)
+                if (entry !is null
+                    && fingerprintFor(cast(size_t) entry.fileSize,
+                        entry.checkSums).complete)
                     result.archiveSummary.entriesWithCompleteFingerprints++;
         }
         if (blob.torrentInfo !is null)
@@ -1169,10 +1263,12 @@ private:
         result.extractors ~= mediaStatus;
         CatalogExtractorStatus archiveStatus;
         archiveStatus.extractor = "archives";
-        archiveStatus.state = !blob.archiveIndexKnown && blob.archiveSpecs is null
-            ? CatalogExtractorState.notRequested
-            : (blob.archiveSpecs.length == 0 ? CatalogExtractorState.empty
-                : CatalogExtractorState.completed);
+        if (!archiveIndexed)
+            archiveStatus.state = CatalogExtractorState.notRequested;
+        else if (result.archiveSummary.entryCount == 0)
+            archiveStatus.state = CatalogExtractorState.empty;
+        else
+            archiveStatus.state = CatalogExtractorState.completed;
         result.extractors ~= archiveStatus;
         CatalogExtractorStatus torrentStatus;
         torrentStatus.extractor = "torrents";
@@ -1182,7 +1278,8 @@ private:
         return result;
     }
 
-    void rebuildIndex()
+    /** Drop every derived index and disable tree queries until a rebuild. */
+    void clearIndex()
     {
         fileRows = [];
         directoryRows = [];
@@ -1194,8 +1291,14 @@ private:
         fileSpecByRelativePath = null;
         directoryIndexByPath = null;
         archiveMemberReferenceByToken = null;
-        treeQueriesAvailable = sourceRoot.length > 0;
+        treeQueriesAvailable = false;
         torrentEntryDetailsUnavailable = false;
+    }
+
+    void rebuildIndex()
+    {
+        clearIndex();
+        treeQueriesAvailable = sourceRoot.length > 0;
         bool[string] seenPaths;
         bool[string] seenReferencePaths;
         string[string] v5ContentTokenByPath;
@@ -2046,7 +2149,26 @@ version (unittest)
         CatalogFileQuery archiveQuery;
         archiveQuery.directoryId = archiveDirectory;
         archiveQuery.filter.archive = true;
-        auto archivePage = backend.listFiles(archiveQuery);
+        CatalogPageRequest backwardsRequest;
+        backwardsRequest.limit = 1;
+        auto archivePage = backend.listFiles(archiveQuery, backwardsRequest);
+        assert(archivePage.files.length == 1 && archivePage.hasMore);
+        const auto secondArchivePage = backend.nextFilesPage(archiveQuery,
+            archivePage.nextCursor);
+        assert(secondArchivePage.hasMore);
+        const auto backToSecond = backend.previousFilesPage(archiveQuery,
+            secondArchivePage.nextCursor);
+        assert(backToSecond.files.length == 1);
+        assert(backToSecond.files[0].relativePath
+            == secondArchivePage.files[0].relativePath);
+        const auto backToFirst = backend.previousFilesPage(archiveQuery,
+            backToSecond.previousCursor);
+        assert(backToFirst.files.length == 1);
+        assert(backToFirst.files[0].relativePath
+            == archivePage.files[0].relativePath);
+        assert(!backToFirst.hasPrevious);
+
+        archivePage = backend.listFiles(archiveQuery);
         assert(archivePage.files.length == 3);
         CatalogFile sampleArchive;
         foreach (file; archivePage.files)

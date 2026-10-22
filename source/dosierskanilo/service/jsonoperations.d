@@ -13,7 +13,7 @@ import dosierarkivo.archive : escapeArchiveVirtualPath,
 import dosierskanilo.model.archivespec : ArchiveSpec;
 import dosierskanilo.model.namedbinaryblob : NamedBinaryBlob,
     DATA_CLASS_VERSION5, NamedBinaryBlobCatalog,
-    deserializeDataClassJsonWrapperFile,
+    deserializeDataClassJsonWrapperFile, isCatalogFormatFailure,
     cleanupInvalidatedDataClassObjs, invalidateDataClassObjs, mergeDataClassObjects,
     updateArchives, updateDigests,
     updateFileType, updateMediaInfo, updateTorrentInfo;
@@ -142,7 +142,7 @@ private NamedBinaryBlobCatalog loadJsonCatalog(string catalogPath,
             control is null ? null : &progress);
     catch (Exception ex)
     {
-        if (!forceOverwrite)
+        if (!forceOverwrite || !isCatalogFormatFailure(ex))
             throw ex;
         return NamedBinaryBlobCatalog(DATA_CLASS_VERSION5, []);
     }
@@ -194,9 +194,12 @@ private bool scanJsonDirectory(string root, RepositoryScanOptions options,
                 {
                     if (existing.fileSpecs.length > 1)
                     {
-                        existing.deleteFileSpec(entry.name);
-                        blobs ~= new NamedBinaryBlob(entry.name, entry.size,
-                            entry.timeLastModified);
+                        existing.deleteFileSpec(storedFileName);
+                        auto replacement = new NamedBinaryBlob(storedFileName,
+                            entry.size, entry.timeLastModified);
+                        replacement.fileSpecsUseArchiveVirtualGrammar =
+                            pathsUseV5Grammar;
+                        blobs ~= replacement;
                     }
                     else
                     {
@@ -439,6 +442,9 @@ private JsonMetadataExecutionResult updateJsonMetadata(ref NamedBinaryBlob[] blo
     shared(bool) cancellationFlag;
     if (control !is null)
         control.bindCancellationMirror(&cancellationFlag);
+    scope (exit)
+        if (control !is null)
+            control.unbindCancellationMirror();
     auto threads = options.threads > 0 ? options.threads : 1;
     auto batchSize = threads * 4;
     auto phases = jsonMetadataPhases(options);
@@ -578,6 +584,9 @@ private bool analyzeJsonRecords(ref NamedBinaryBlob[] blobs,
     shared(bool) cancellationFlag;
     if (control !is null)
         control.bindCancellationMirror(&cancellationFlag);
+    scope (exit)
+        if (control !is null)
+            control.unbindCancellationMirror();
     NamedBinaryBlob[] merged;
     size_t groupsVisited;
     foreach (size; sizeGroups.keys)

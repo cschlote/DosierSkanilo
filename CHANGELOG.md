@@ -7,7 +7,84 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
-## Unreleased
+## Release 26.11.4 - 2026-10-22
+
+- JSON catalog writes now serialize into a staging file and rename it into
+  place, and the copy-based backup fallback restores the original instead of
+  deleting the last remaining catalog.
+- Malformed JSON catalogs now raise a dedicated `CatalogFormatException`;
+  `--force` only starts from an empty catalog for format errors and never
+  swallows I/O failures.
+- Duplicate analysis now merges metadata, media streams, torrent data, and
+  archive passwords from the dropped blob before deleting it.
+- JSON rescans now update the escaped virtual member path instead of creating a
+  second record, malformed archive digests no longer abort metadata scans, and
+  FNV-1a hashing uses the standard offset basis.
+- JSON metadata scans now release their cancellation mirror before returning.
+- JSON catalog paging now supports backward continuation with the same
+  before-the-cursor semantics as SQLite, and the adapter tests cover it.
+- Repository metadata persistence is transactional per blob on every path, and
+  worker pools are always stopped. Metadata runs also bump `updated_at`, so
+  stale paging cursors are rejected.
+- Malformed `.torrent` length fields, missing SHA1 digests, and failing external
+  archive tools now fail cleanly instead of aborting a scan.
+- Legacy scans compare decoded physical paths, so escaped `!` names and v5
+  archive members are no longer treated as missing or mismatched.
+- The JSON backend disables tree queries instead of leaking untyped exceptions
+  when a virtual path cannot be parsed.
+- Repository import and export now take the write lease; backups use
+  `VACUUM INTO` for a consistent snapshot. File listings can use the directory
+  index again.
+- Repository duplicate listings fetch only the reported blob ids, archive
+  member pages use bounded keyset reads and fingerprint-only lookups, and the
+  SQLite backend reuses one read connection for its lifetime.
+- Duplicate merging now always keeps the lowest blob id, so repeated analyses
+  pick the same survivor.
+- Analyzed duplicates now merge in one transaction and cancellation reports no
+  applied changes. Archive scans keep the empty-archive state instead of
+  overwriting it with `completed`.
+- JSON catalog backups are written next to the catalog, so identically named
+  catalogs in different directories no longer share backup names.
+- CLI JSON output escapes control characters, and the progress path reads the
+  signal flag atomically.
+- Digest readers close their file handles deterministically, and torrent
+  metadata rejects files larger than 64 MiB.
+- Catalog pages load blob flags with one query instead of one query per blob
+  and flag. Repository file queries honor `offset`, and limit arithmetic no
+  longer overflows at `long.max`.
+- Archive password updates are written in one transaction, and a failing
+  repository constructor no longer hides the original error while closing.
+- The lint script covers the benchmark page and review reports, and CI now
+  uses the same Alpine base image everywhere and rejects `vv` version tags.
+- Repository scans update or delete virtual members through the escaped
+  container-path range instead of walking every virtual reference, and
+  directory sizes use an index-friendly range predicate instead of `LIKE`.
+- Torrent info hashes now use the original bencoded `info` bytes, so
+  non-canonical torrents keep their real info hash.
+- Archive password lookup resolves escaped `!` in stored paths and uses SQL
+  matching instead of walking every file reference.
+- The schema migration also sets SQLite's `PRAGMA user_version`, and catalog
+  backends raise typed `CatalogBackendException`s for invalid arguments and
+  export failures.
+- Member cache failures use typed exceptions derived from
+  `MemberContentCacheException`, and lease release is thread-safe.
+- JSON archive and torrent entry queries return an empty page for known
+  content without an index, like SQLite; unknown ids still fail.
+- Content detail snapshots now report the same archive summary and extractor
+  statuses on both backends, and JSON refreshes archive counts from the index
+  at query time instead of the build-time snapshot.
+- Operation leases use portable POSIX open/flock constants and `errno`, and
+  keep their lock files in a private per-user directory under
+  `XDG_RUNTIME_DIR` or the temporary directory.
+- Member cache sessions document that the cache must outlive its leases; the
+  cache still has no GC destructor because finalization order is unspecified.
+- Removed the unused `useJSONStorage` DUB version flag. `SqliteEnableUnlockNotify`
+  stays because d2sqlite3 consumes it.
+- Staging deployment is manual instead of running on every `main`/`testing`
+  push while `scripts/deploy.sh` is still a no-op.
+- Catalog pages load blob details with a fixed set of set-based queries, and
+  archive member listings restrict the query to the container path range.
+  A 1,000-row page now issues 14 statements instead of about 4,002.
 
 ## Release 26.11.3 - 2026-10-21
 
