@@ -73,6 +73,15 @@ They represent the functional evolution and are intentionally summarized.
 - Content detail snapshots now report the same archive summary and extractor
   statuses on both backends, and JSON refreshes archive counts from the index
   at query time instead of the build-time snapshot.
+- Operation leases use portable POSIX open/flock constants and `errno`, and
+  keep their lock files in a private per-user directory under
+  `XDG_RUNTIME_DIR` or the temporary directory.
+- Member cache sessions document that the cache must outlive its leases; the
+  cache still has no GC destructor because finalization order is unspecified.
+- Removed the unused `useJSONStorage` DUB version flag. `SqliteEnableUnlockNotify`
+  stays because d2sqlite3 consumes it.
+- Staging deployment is manual instead of running on every `main`/`testing`
+  push while `scripts/deploy.sh` is still a no-op.
 
 ## Release 26.11.3 - 2026-10-21
 

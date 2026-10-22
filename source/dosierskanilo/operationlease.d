@@ -4,6 +4,15 @@ module dosierskanilo.operationlease;
 import std.file : mkdirRecurse, tempDir;
 import std.format : format;
 import std.path : absolutePath, buildNormalizedPath, buildPath;
+import std.process : environment;
+
+version (Posix)
+{
+    import core.stdc.errno : EAGAIN, EWOULDBLOCK, errno;
+    import core.sys.posix.fcntl : O_CREAT, O_RDWR;
+    import core.sys.posix.sys.stat : chmod, mode_t;
+    import core.sys.posix.unistd : getuid;
+}
 
 import dosierskanilo.operations : OperationTarget, OperationStorageMode;
 
@@ -29,15 +38,15 @@ private:
         version (Posix)
         {
             import std.string : toStringz;
-            descriptor = cOpen(lockPath.toStringz, 0x40 | 0x02, 384);
+            descriptor = cOpen(lockPath.toStringz, O_RDWR | O_CREAT, 384 /* 0600 */);
             if (descriptor < 0)
                 throw new Exception("Unable to open operation lease file.");
-            if (cFlock(descriptor, 0x02 | 0x04) != 0)
+            if (cFlock(descriptor, LOCK_EX | LOCK_NB) != 0)
             {
-                auto error = *cErrnoLocation();
+                auto error = errno;
                 cClose(descriptor);
                 descriptor = -1;
-                if (error == 11)
+                if (error == EAGAIN || error == EWOULDBLOCK)
                     throw new OperationTargetBusyException(targetKey);
                 throw new Exception(format("Unable to acquire operation lease (errno %d).",
                     error));
@@ -74,7 +83,7 @@ public:
         {
             version (Posix)
             {
-                cFlock(descriptor, 0x08);
+                cFlock(descriptor, LOCK_UN);
                 cClose(descriptor);
             }
             descriptor = -1;
@@ -98,12 +107,12 @@ private:
         version (Posix)
         {
             import std.string : toStringz;
-            descriptor = cOpen(lockPath.toStringz, 0x40 | 0x02, 384);
+            descriptor = cOpen(lockPath.toStringz, O_RDWR | O_CREAT, 384 /* 0600 */);
             if (descriptor < 0)
                 throw new Exception("Unable to open operation lease file.");
-            if (cFlock(descriptor, 0x01) != 0)
+            if (cFlock(descriptor, LOCK_SH) != 0)
             {
-                auto error = *cErrnoLocation();
+                auto error = errno;
                 cClose(descriptor);
                 descriptor = -1;
                 throw new Exception(format("Unable to acquire JSON read lease (errno %d).",
@@ -130,7 +139,7 @@ public:
         {
             version (Posix)
             {
-                cFlock(descriptor, 0x08);
+                cFlock(descriptor, LOCK_UN);
                 cClose(descriptor);
             }
             descriptor = -1;
@@ -154,16 +163,16 @@ private:
         version (Posix)
         {
             import std.string : toStringz;
-            descriptor = cOpen(lockPath.toStringz, 0x40 | 0x02, 384);
+            descriptor = cOpen(lockPath.toStringz, O_RDWR | O_CREAT, 384 /* 0600 */);
             if (descriptor < 0)
                 throw new Exception("Unable to open catalog replacement lease file.");
-            auto flags = 0x02 | (wait ? 0 : 0x04);
+            auto flags = LOCK_EX | (wait ? 0 : LOCK_NB);
             if (cFlock(descriptor, flags) != 0)
             {
-                auto error = *cErrnoLocation();
+                auto error = errno;
                 cClose(descriptor);
                 descriptor = -1;
-                if (error == 11)
+                if (error == EAGAIN || error == EWOULDBLOCK)
                     throw new OperationTargetBusyException(targetKey);
                 throw new Exception(format("Unable to acquire catalog replacement lease (errno %d).",
                     error));
@@ -191,7 +200,7 @@ public:
         {
             version (Posix)
             {
-                cFlock(descriptor, 0x08);
+                cFlock(descriptor, LOCK_UN);
                 cClose(descriptor);
             }
             descriptor = -1;
@@ -228,27 +237,51 @@ private string targetLockName(string targetKey)
     return format("%016x%016x", first, second);
 }
 
+private string lockDirectory()
+{
+    version (Posix)
+    {
+        const runtime = environment.get("XDG_RUNTIME_DIR", null);
+        const directory = runtime.length > 0
+            ? buildPath(runtime, "dosierskanilo-operation-leases")
+            : buildPath(tempDir(), "dosierskanilo-operation-leases-"
+                ~ format("%d", getuid()));
+        import std.string : toStringz;
+
+        mkdirRecurse(directory);
+        /* Keep lock files private when the fallback temp directory is shared. */
+        chmod(directory.toStringz, cast(mode_t) 448 /* 0700 */);
+        return directory;
+    }
+    else
+        return buildPath(tempDir(), "dosierskanilo-operation-leases");
+}
+
 private string operationLockPath(string targetKey)
 {
-    auto directory = buildPath(tempDir(), "dosierskanilo-operation-leases");
-    mkdirRecurse(directory);
-    return buildPath(directory, "operation-" ~ targetLockName(targetKey) ~ ".lock");
+    return buildPath(lockDirectory(),
+        "operation-" ~ targetLockName(targetKey) ~ ".lock");
 }
 
 private string catalogLockPath(string targetKey)
 {
-    auto directory = buildPath(tempDir(), "dosierskanilo-operation-leases");
-    mkdirRecurse(directory);
-    return buildPath(directory, "catalog-" ~ targetLockName(targetKey) ~ ".lock");
+    return buildPath(lockDirectory(),
+        "catalog-" ~ targetLockName(targetKey) ~ ".lock");
 }
 
 version (Posix)
 {
+    /* sys/file.h defines the same lock operation values on Linux, the BSDs and
+     * macOS; druntime does not declare flock() or these constants. */
+    enum LOCK_SH = 0x01;
+    enum LOCK_EX = 0x02;
+    enum LOCK_NB = 0x04;
+    enum LOCK_UN = 0x08;
+
     pragma(mangle, "open") extern (C) nothrow int cOpen(const(char)* path,
         int flags, ...);
     pragma(mangle, "flock") extern (C) nothrow int cFlock(int fd, int operation);
     pragma(mangle, "close") extern (C) nothrow int cClose(int fd);
-    pragma(mangle, "__errno_location") extern (C) nothrow int* cErrnoLocation();
 }
 
 @("operation target lease key is stable for the same canonical source")

@@ -731,9 +731,15 @@ the
       lookup handles escaped names in SQL; member cache errors are typed and
       lease release is synchronized; migrations set `PRAGMA user_version`;
       backend argument/export errors use `CatalogBackendException`.
-- [ ] Open minor items: M5 scalability rewrite, `membercontentcache`
-      destructor (leases may outlive the cache during GC), `operationlease`
-      portability, unused DUB version flags, and the staging deploy job.
+- [x] Operation leases use portable POSIX flags and `errno`, and fall back to
+      a private per-user lock directory instead of a shared `tempDir()` path.
+- [x] Member cache lifetime is now an explicit documented contract: the cache
+      must outlive its leases and is closed explicitly, so the GC destructor
+      stays omitted for finalizer-ordering safety.
+- [x] Removed the unused `useJSONStorage` DUB flag; `SqliteEnableUnlockNotify`
+      remains because d2sqlite3 consumes it. `deploy_staging` is manual until
+      `scripts/deploy.sh` does real work.
+- [ ] Open minor items: M5 scalability rewrite only.
 
 ### Wave 5 - backend parity
 

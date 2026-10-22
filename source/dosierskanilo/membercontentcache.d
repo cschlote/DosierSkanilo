@@ -79,7 +79,11 @@ private class CachedMember
     bool materializing;
 }
 
-/** A pinned cache path. Call release when the extractor/preview no longer needs it. */
+/**
+ * A pinned cache path. Call release when the extractor/preview no longer needs
+ * it. A lease must not outlive the cache that created it; close the cache only
+ * after releasing its leases.
+ */
 final class MemberContentLease
 {
 private:
@@ -119,7 +123,13 @@ public:
     }
 }
 
-/** Thread-safe single-flight archive member cache with bounded disk usage. */
+/**
+ * Thread-safe single-flight archive member cache with bounded disk usage.
+ *
+ * Sessions are closed explicitly with close(). The cache deliberately has no
+ * GC destructor because finalization order relative to outstanding leases is
+ * not guaranteed; keep the cache alive until every lease is released.
+ */
 final class MemberContentCache
 {
 private:

@@ -17,7 +17,6 @@
 	},
 	"systemDependencies": "Install libraries on Debian/Ubuntu: apt install -y libmediainfo0v5 libmediainfo-dev libsqlite3-dev",
 	"versions": [
-		"useJSONStorage",
 		"SqliteEnableUnlockNotify"
 	],
 	"preGenerateCommands": [
