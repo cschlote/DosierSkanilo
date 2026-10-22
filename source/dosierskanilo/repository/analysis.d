@@ -274,6 +274,8 @@ AnalysisExecutionResult analyzeRepositoryControlled(ref Database db,
         if (control !is null && control.cancellationRequested)
         {
             db.rollback();
+            /* Nothing was committed, so report no applied changes. */
+            execution.summary = AnalysisSummary.init;
             execution.cancelled = true;
             return execution;
         }

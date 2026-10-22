@@ -135,6 +135,11 @@ TorrentInfo getTorrentInfo(string filePath)
     enforce(isFile(filePath), "Path is not a file");
     enforce(filePath.endsWith(".torrent"), "File does not have .torrent extension");
 
+    enum size_t maxTorrentSize = 64 * 1024 * 1024;
+    const fileSize = getSize(filePath);
+    enforce(fileSize <= maxTorrentSize,
+        "Torrent file exceeds the %d byte limit".format(maxTorrentSize));
+
     auto rawData = cast(ubyte[]) read(filePath);
 
     auto parser = new BencodeParser(rawData);

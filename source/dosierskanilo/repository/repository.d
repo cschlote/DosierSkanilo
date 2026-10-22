@@ -67,7 +67,11 @@ private:
         }
         catch (Exception ex)
         {
-            db.close();
+            try
+                db.close();
+            catch (Exception)
+            {
+            }
             throw ex;
         }
     }
@@ -356,18 +360,29 @@ public:
     {
         if (database.execute("SELECT 1 FROM blobs WHERE id = ?", blobId).empty)
             throw new RepositoryException("Unknown blob ID: " ~ blobId.to!string);
-        if (password.length == 0)
+        database.execute("BEGIN IMMEDIATE");
+        try
         {
-            database.execute("DELETE FROM archive_passwords WHERE blob_id = ?", blobId);
+            if (password.length == 0)
+                database.execute("DELETE FROM archive_passwords WHERE blob_id = ?",
+                    blobId);
+            else
+                database.execute("INSERT INTO archive_passwords (blob_id, password) "
+                    ~ "VALUES (?, ?) ON CONFLICT(blob_id) DO UPDATE SET "
+                    ~ "password = excluded.password", blobId, password);
             database.execute("UPDATE repository SET updated_at = ? WHERE id = 1",
                 currentTimestamp());
-            return;
+            database.execute("COMMIT");
         }
-        database.execute("INSERT INTO archive_passwords (blob_id, password) "
-            ~ "VALUES (?, ?) ON CONFLICT(blob_id) DO UPDATE SET "
-            ~ "password = excluded.password", blobId, password);
-        database.execute("UPDATE repository SET updated_at = ? WHERE id = 1",
-            currentTimestamp());
+        catch (Exception ex)
+        {
+            try
+                database.execute("ROLLBACK");
+            catch (Exception)
+            {
+            }
+            throw ex;
+        }
     }
 
     /** Resolve a repository filename to its blob and set or remove its password. */

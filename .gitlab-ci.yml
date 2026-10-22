@@ -4,7 +4,7 @@ variables:
   VA_TEST: "abc"
 
 default:
-  image: "alpine:3.20"
+  image: "alpine:3.23"
   tags:
     - gitlabdocker
     - ryzen
@@ -97,7 +97,7 @@ deploy_prod:
     name: production
     url: https://packages.vahanus.net
   rules:
-    - if: '$CI_COMMIT_TAG =~ /^(v+)\d+\.\d+\.\d+$/'
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
       when: always
     - when: manual
 

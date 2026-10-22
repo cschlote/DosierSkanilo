@@ -706,5 +706,25 @@ the
 - [ ] M3, M5, M6 - open; these need benchmarks and larger query rewrites before
       changing them.
 
+### Wave 4 - minor fixes
+
+- [x] CLI JSON output escapes control characters, the signal flag is read and
+      written atomically, and metadata/export use the backend root instead of a
+      nullable repository.
+- [x] Digest readers close their handle deterministically, scans use
+      `atomicLoad`, and torrent files over 64 MiB are rejected.
+- [x] Repository file listings honor `offset`, limit arithmetic no longer
+      overflows, and catalog pages load flags with one query per page.
+- [x] Archive password updates are transactional, and opening a repository no
+      longer hides the original error when closing the half-open database.
+- [x] Analysis cancellation reports no applied changes, and archive scans keep
+      the `empty` state written by `persistArchives`.
+- [x] Backups are written next to the catalog.
+- [x] `scripts/lint.sh` covers the benchmark page and review reports; CI uses
+      one Alpine version and rejects `vv` tags.
+- [ ] Open minor items: M3/M5/M6 scalability rewrites, `membercontentcache`
+      lifetime and typing, `operationlease` portability, JSON/SQLite parity
+      gaps, unused DUB version flags, and the staging deploy job.
+
 Verification: `DC=ldc2 dub test --config=library` - 151 passed, 0 failed;
-`./scripts/test-cli.sh` - passed.
+`./scripts/test-cli.sh` - passed; `./scripts/lint.sh` - passed.

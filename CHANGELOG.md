@@ -40,6 +40,22 @@ They represent the functional evolution and are intentionally summarized.
   SQLite backend reuses one read connection for its lifetime.
 - Duplicate merging now always keeps the lowest blob id, so repeated analyses
   pick the same survivor.
+- Analyzed duplicates now merge in one transaction and cancellation reports no
+  applied changes. Archive scans keep the empty-archive state instead of
+  overwriting it with `completed`.
+- JSON catalog backups are written next to the catalog, so identically named
+  catalogs in different directories no longer share backup names.
+- CLI JSON output escapes control characters, and the progress path reads the
+  signal flag atomically.
+- Digest readers close their file handles deterministically, and torrent
+  metadata rejects files larger than 64 MiB.
+- Catalog pages load blob flags with one query instead of one query per blob
+  and flag. Repository file queries honor `offset`, and limit arithmetic no
+  longer overflows at `long.max`.
+- Archive password updates are written in one transaction, and a failing
+  repository constructor no longer hides the original error while closing.
+- The lint script covers the benchmark page and review reports, and CI now
+  uses the same Alpine base image everywhere and rejects `vv` version tags.
 
 ## Release 26.11.3 - 2026-10-21
 

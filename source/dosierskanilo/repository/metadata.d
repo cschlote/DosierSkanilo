@@ -295,9 +295,10 @@ MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
                     persistArchives(db, blobId, blob.archiveSpecs,
                         options.deepArchiveScan, summary);
                     persistArchivePassword(db, blobId, blob.archivePassword);
-                    setMetadataStatus(db, blobId, "archives",
-                        blob.archiveSpecs is null ? "not_archive" : "completed",
-                        "");
+                    /* persistArchives already stores "empty"/"completed". */
+                    if (blob.archiveSpecs is null)
+                        setMetadataStatus(db, blobId, "archives",
+                            "not_archive", "");
                 });
                 if (blob.archiveSpecs !is null)
                     summary.archivesUpdated++;
@@ -808,9 +809,15 @@ private void persistMetadataWork(ref Database db, MetadataWorkItem item,
             return;
         }
         persist();
-        const auto state = kind == "archives" && !hasData
-            ? "not_archive" : metadataState(hasData);
-        setMetadataStatus(db, item.blobId, kind, state, "");
+        /* persistArchives records the authoritative "empty"/"completed" state;
+         * only a non-archive needs a status row here. */
+        if (kind == "archives")
+        {
+            if (!hasData)
+                setMetadataStatus(db, item.blobId, kind, "not_archive", "");
+        }
+        else
+            setMetadataStatus(db, item.blobId, kind, metadataState(hasData), "");
         if (hasData)
         {
             if (kind == "checksums") summary.checksumsUpdated++;

@@ -233,6 +233,15 @@ RepositoryFile[] listFilesFromDatabase(ref Database db, RepositoryFileQuery opti
     return listFilesPageFromDatabase(db, options).files;
 }
 
+/** Convert a page size to a SQLite LIMIT value; -1 means "all rows". */
+private long pageLimitSql(size_t limit, bool fetchExtra = false)
+{
+    if (limit >= cast(size_t) long.max)
+        return -1L;
+    const auto value = cast(long) limit;
+    return fetchExtra ? value + 1 : value;
+}
+
 /** List one keyset-paged file chunk and report continuation state. */
 RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuery options)
 {
@@ -334,6 +343,9 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
         break;
     }
     sql ~= " LIMIT :limit";
+    const useOffset = options.afterPath.empty && options.offset > 0;
+    if (useOffset)
+        sql ~= " OFFSET :offset";
     auto statement = db.prepare(sql);
     if (options.directoryId != 0)
         statement.bind(":directory_id", options.directoryId);
@@ -347,8 +359,9 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
             || options.sortOrder == RepositoryFileSortOrder.sizeDescending)
             statement.bind(":after_size", cast(long) options.afterSize);
     }
-    auto sqlLimit = options.limit == size_t.max ? -1L : cast(long) options.limit + 1;
-    statement.bind(":limit", sqlLimit);
+    statement.bind(":limit", pageLimitSql(options.limit, true));
+    if (useOffset)
+        statement.bind(":offset", cast(long) options.offset);
 
     RepositoryFilePage page;
     foreach (row; statement.execute())
@@ -585,7 +598,8 @@ RepositoryBlobPage loadCatalogQueryPageWithIdsFromDatabase(ref Database db,
         page.nextCursor = blobIds[options.limit - 1];
         blobIds = blobIds[0 .. options.limit];
     }
-    foreach (blobId; blobIds)
+    const flagValues = loadBlobFlagsBatch(db, blobIds);
+    foreach (index, blobId; blobIds)
     {
         auto blob = loadBlobDetailsFromDatabase(db, rootPath, blobId,
             exportOptions);
@@ -593,7 +607,7 @@ RepositoryBlobPage loadCatalogQueryPageWithIdsFromDatabase(ref Database db,
         {
             page.blobIds ~= blobId;
             page.blobs ~= blob;
-            page.flags ~= loadBlobFlags(db, blobId);
+            page.flags ~= flagValues[index];
         }
     }
     return page;
@@ -713,8 +727,8 @@ private Statement prepareCatalogQuery(ref Database db, string selectSql,
     if (paged)
     {
         auto limit = options.useCursor && options.limit < size_t.max
-            ? cast(long) options.limit + 1
-            : options.limit == size_t.max ? -1L : cast(long) options.limit;
+            ? pageLimitSql(options.limit, true)
+            : pageLimitSql(options.limit);
         statement.bind(":limit", limit);
         if (options.useCursor && options.afterBlobId > 0)
             statement.bind(":after_blob_id", options.afterBlobId);
@@ -794,27 +808,50 @@ NamedBinaryBlob loadBlobDetailsFromDatabase(ref Database db, string rootPath,
     return blob;
 }
 
-private RepositoryBlobFlags loadBlobFlags(ref Database db, long blobId)
+private RepositoryBlobFlags[] loadBlobFlagsBatch(ref Database db,
+    long[] blobIds)
 {
-    RepositoryBlobFlags flags;
-    flags.hasFileType = !db.execute("SELECT 1 FROM blobs WHERE id = ? "
-        ~ "AND file_type IS NOT NULL AND length(file_type) > 0", blobId).empty;
-    flags.hasMedia = !db.execute("SELECT 1 FROM media_signatures "
-        ~ "WHERE blob_id = ?", blobId).empty;
-    flags.hasVideo = !db.execute("SELECT 1 FROM media_video_streams "
-        ~ "WHERE blob_id = ?", blobId).empty;
-    flags.hasAudio = !db.execute("SELECT 1 FROM media_audio_streams "
-        ~ "WHERE blob_id = ?", blobId).empty;
-    flags.hasImage = !db.execute("SELECT 1 FROM media_image_streams "
-        ~ "WHERE blob_id = ?", blobId).empty;
-    flags.hasText = !db.execute("SELECT 1 FROM media_text_streams "
-        ~ "WHERE blob_id = ?", blobId).empty;
-    flags.hasArchive = !db.execute("SELECT 1 FROM metadata_status "
-        ~ "WHERE blob_id = ? AND metadata_kind = 'archives' "
-        ~ "AND state IN ('completed', 'empty')", blobId).empty;
-    flags.hasTorrent = !db.execute("SELECT 1 FROM torrent_info "
-        ~ "WHERE blob_id = ?", blobId).empty;
-    return flags;
+    if (blobIds.length == 0)
+        return [];
+
+    string[] placeholders;
+    foreach (index; 0 .. blobIds.length)
+        placeholders ~= ":flag_blob_" ~ index.to!string;
+    auto sql = "SELECT b.id, "
+        ~ "(b.file_type IS NOT NULL AND length(b.file_type) > 0), "
+        ~ "EXISTS (SELECT 1 FROM media_signatures ms WHERE ms.blob_id = b.id), "
+        ~ "EXISTS (SELECT 1 FROM media_video_streams mv WHERE mv.blob_id = b.id), "
+        ~ "EXISTS (SELECT 1 FROM media_audio_streams ma WHERE ma.blob_id = b.id), "
+        ~ "EXISTS (SELECT 1 FROM media_image_streams mi WHERE mi.blob_id = b.id), "
+        ~ "EXISTS (SELECT 1 FROM media_text_streams mt WHERE mt.blob_id = b.id), "
+        ~ "EXISTS (SELECT 1 FROM metadata_status ar WHERE ar.blob_id = b.id "
+        ~ "AND ar.metadata_kind = 'archives' AND ar.state IN ('completed', 'empty')), "
+        ~ "EXISTS (SELECT 1 FROM torrent_info ti WHERE ti.blob_id = b.id) "
+        ~ "FROM blobs b WHERE b.id IN (" ~ placeholders.join(", ") ~ ")";
+    auto statement = db.prepare(sql);
+    foreach (index, blobId; blobIds)
+        statement.bind(placeholders[index], blobId);
+
+    RepositoryBlobFlags[long] flagsById;
+    foreach (row; statement.execute())
+    {
+        RepositoryBlobFlags flags;
+        flags.hasFileType = row.peek!long(1) != 0;
+        flags.hasMedia = row.peek!long(2) != 0;
+        flags.hasVideo = row.peek!long(3) != 0;
+        flags.hasAudio = row.peek!long(4) != 0;
+        flags.hasImage = row.peek!long(5) != 0;
+        flags.hasText = row.peek!long(6) != 0;
+        flags.hasArchive = row.peek!long(7) != 0;
+        flags.hasTorrent = row.peek!long(8) != 0;
+        flagsById[row.peek!long(0)] = flags;
+    }
+
+    RepositoryBlobFlags[] result;
+    foreach (blobId; blobIds)
+        result ~= blobId in flagsById ? flagsById[blobId]
+            : RepositoryBlobFlags.init;
+    return result;
 }
 
 private void clearCatalog(ref Database db)

@@ -34,12 +34,18 @@ find scripts -type f -name '*.sh' | while IFS= read -r script_file; do
 done
 
 echo "Running markdown lint"
+# Keep the maintained documentation list in one place. Glob patterns expand
+# when the linters run.
+markdown_files="README.md docs/ARCHITECTURE.md docs/BENCHMARKS.md docs/JSON-FORMAT.md docs/DATABASE.md docs/OPERATION-API.md docs/CATALOG-DOMAIN.md docs/SQLITE-IMPLEMENTATION-PLAN.md docs/reviews/*.md CHANGELOG.md TODO.md"
 if command -v markdownlint-cli2 >/dev/null 2>&1; then
-	markdownlint-cli2 README.md docs/ARCHITECTURE.md docs/JSON-FORMAT.md docs/DATABASE.md docs/OPERATION-API.md docs/CATALOG-DOMAIN.md docs/SQLITE-IMPLEMENTATION-PLAN.md CHANGELOG.md TODO.md
+	# shellcheck disable=SC2086 # the glob and word splitting are intentional
+	markdownlint-cli2 $markdown_files
 elif command -v markdownlint >/dev/null 2>&1; then
-	markdownlint README.md docs/ARCHITECTURE.md docs/JSON-FORMAT.md docs/DATABASE.md docs/OPERATION-API.md docs/CATALOG-DOMAIN.md docs/SQLITE-IMPLEMENTATION-PLAN.md CHANGELOG.md TODO.md
+	# shellcheck disable=SC2086
+	markdownlint $markdown_files
 elif command -v mdl >/dev/null 2>&1; then
-	mdl README.md docs/ARCHITECTURE.md docs/JSON-FORMAT.md docs/DATABASE.md docs/OPERATION-API.md docs/CATALOG-DOMAIN.md docs/SQLITE-IMPLEMENTATION-PLAN.md CHANGELOG.md TODO.md
+	# shellcheck disable=SC2086
+	mdl $markdown_files
 else
 	echo "ERROR: markdownlint-cli2, markdownlint, or mdl is not installed." >&2
 	exit 1

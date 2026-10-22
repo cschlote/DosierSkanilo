@@ -5,6 +5,8 @@
  */
 module dosierskanilo.service.scanning;
 
+import core.atomic : atomicLoad;
+
 import std.array;
 import std.exception;
 import std.datetime.systime;
@@ -268,7 +270,7 @@ bool runScannerJobs(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCt
                     myTaskPool.put(obj.task_torrentscan);
                 }
             }
-            if (gotCtrlC)
+            if (atomicLoad(gotCtrlC))
             {
                 logLine("Received Ctrl-C - abort jobs");
                 rc = false;
@@ -309,7 +311,7 @@ bool runScannerJobs(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCt
                      * specs can no longer race with a worker. */
                     obj.fileSpecs = existingFiles;
 
-                    if (gotCtrlC)
+                    if (atomicLoad(gotCtrlC))
                     {
                         logLine("Received Ctrl-C - abort jobs");
                         rc = false;
@@ -362,7 +364,7 @@ bool runScannerJobs(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCt
                     updateTorrentInfo(obj, false);
                 }
 
-                if (gotCtrlC)
+                if (atomicLoad(gotCtrlC))
                 {
                     logLine("Received Ctrl-C - abort jobs");
                     rc = false;

@@ -118,7 +118,7 @@ unittest
     auto stamp = "2000-01-01T00:00:00";
     auto safeStamp = stamp.replace(":", "-");
     auto jsonFile = buildPath(tempDir(), "storageio-write-" ~ safeStamp ~ ".json");
-    auto backupFile = buildPath(getcwd(), "storageio-write-" ~ safeStamp ~ "-" ~ safeStamp ~ ".json");
+    auto backupFile = buildPath(tempDir(), "storageio-write-" ~ safeStamp ~ "-" ~ safeStamp ~ ".json");
     scope (exit)
     {
         if (exists(jsonFile))
@@ -156,8 +156,10 @@ private string getBackupFileName(string originalFile, string extension,
 {
     auto basename = originalFile.baseName(extension);
     auto backupName = basename ~ "-" ~ nowString.replace(":", "-") ~ extension;
-    return backupDirectory.length > 0 ? buildPath(backupDirectory, backupName)
-        : backupName;
+    /* Keep backups next to the catalog they belong to, so catalogs with the
+     * same base name in different directories cannot collide. */
+    return buildPath(backupDirectory.length > 0 ? backupDirectory
+        : dirName(originalFile), backupName);
 }
 
 /** Make a backup of the original file if it exists.
@@ -346,7 +348,8 @@ unittest
  *   dynObjectWrapper = source wrapper object.
  *   jsonFileExtension = file extension for backup files (default: ".json").
  *   nowString = optional timestamp string to use in backup file names (default: current time in ISO format).
- *   backupDirectory = optional directory for the backup file; empty preserves the legacy current-directory location.
+ *   backupDirectory = optional directory for the backup file; empty keeps the
+ *     backup next to the catalog.
  * Returns:
  *   `true` on success, `false` on failure. On failure, the original file is left unchanged if possible.
  */
