@@ -96,10 +96,12 @@ int main(string[] args)
 				auto miv = getMediaInfoVersion();
 				logLineVerbose("Using ", miv);
 			}
-			auto oldhandler = signal(SIGINT, &signalHandler);
-			assert(oldhandler != SIG_ERR, "Problem setting signal handler");
+			const auto oldhandler = signal(SIGINT, &signalHandler);
+			if (oldhandler == SIG_ERR)
+				logLine("Warning: could not install the SIGINT handler.");
 			scope (exit)
-				signal(SIGINT, oldhandler);
+				if (oldhandler != SIG_ERR)
+					signal(SIGINT, oldhandler);
 
 			bool rc;
 			if (parsed.command == CliCommand.scan || parsed.command == CliCommand.analyze)

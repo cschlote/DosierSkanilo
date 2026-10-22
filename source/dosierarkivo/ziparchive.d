@@ -111,7 +111,8 @@ class FileArchiveZip : FileArchive
         auto rc = execute(["unzip", "-P", password, "-d", destDir, zipPath, filename]);
         if (rc.status != 0 && isArchivePasswordFailure(rc.output))
             throw new ArchivePasswordRequiredException(rc.output);
-        assert(rc.status == 0, rc.output);
+        if (rc.status != 0)
+            throw new ArchiveToolException(rc.output);
         return true;
     }
 

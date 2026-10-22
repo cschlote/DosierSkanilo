@@ -9,6 +9,35 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- JSON catalog writes now serialize into a staging file and rename it into
+  place, and the copy-based backup fallback restores the original instead of
+  deleting the last remaining catalog.
+- Malformed JSON catalogs now raise a dedicated `CatalogFormatException`;
+  `--force` only starts from an empty catalog for format errors and never
+  swallows I/O failures.
+- Duplicate analysis now merges metadata, media streams, torrent data, and
+  archive passwords from the dropped blob before deleting it.
+- JSON rescans now update the escaped virtual member path instead of creating a
+  second record, malformed archive digests no longer abort metadata scans, and
+  FNV-1a hashing uses the standard offset basis.
+- JSON metadata scans now release their cancellation mirror before returning.
+- JSON catalog paging now supports backward continuation with the same
+  before-the-cursor semantics as SQLite, and the adapter tests cover it.
+- Repository metadata persistence is transactional per blob on every path, and
+  worker pools are always stopped. Metadata runs also bump `updated_at`, so
+  stale paging cursors are rejected.
+- Malformed `.torrent` length fields, missing SHA1 digests, and failing external
+  archive tools now fail cleanly instead of aborting a scan.
+- Legacy scans compare decoded physical paths, so escaped `!` names and v5
+  archive members are no longer treated as missing or mismatched.
+- The JSON backend disables tree queries instead of leaking untyped exceptions
+  when a virtual path cannot be parsed.
+- Repository import and export now take the write lease; backups use
+  `VACUUM INTO` for a consistent snapshot. File listings can use the directory
+  index again.
+- Duplicate merging now always keeps the lowest blob id, so repeated analyses
+  pick the same survivor.
+
 ## Release 26.11.3 - 2026-10-21
 
 - JSON catalog list and duplicate queries now work through the CLI backend facade,

@@ -109,7 +109,10 @@ bool scanDirTree(string scanPath, bool pickHidden = false, ref NamedBinaryBlob[]
 
                 auto fspec = currentBlob.getFileSpec(dirEntry.name);
                 enforce(fspec !is null, "\nFileSpec not found for existing filename.");
-                enforce(fspec.fileName == dirEntry.name, "\nName mismatch.");
+                /* v5 stores escaped names, so compare the decoded physical
+                 * path instead of the raw spec name. */
+                enforce(currentBlob.physicalPathForSpec(fspec) == dirEntry.name
+                    || fspec.fileName == dirEntry.name, "\nName mismatch.");
 
                 bool needNewNode = false;
 
@@ -214,6 +217,13 @@ bool runScannerJobs(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCt
         if (argsArray.argNumberOfThreads > 1)
         {
             TaskPool myTaskPool = new TaskPool(argsArray.argNumberOfThreads);
+            /* Wait for and stop the workers even when a job or the collector
+             * throws. */
+            scope (exit)
+            {
+                myTaskPool.finish(true);
+                myTaskPool.stop();
+            }
             logLine("Add jobs for all entries with no hash data or media signature to taskPool.");
             foreach (i, obj; dynObjectArray)
             {
@@ -261,7 +271,6 @@ bool runScannerJobs(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCt
             if (gotCtrlC)
             {
                 logLine("Received Ctrl-C - abort jobs");
-                myTaskPool.stop();
                 rc = false;
             }
             else
@@ -270,7 +279,6 @@ bool runScannerJobs(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCt
                 foreach (i, obj; dynObjectArray)
                 {
                     auto existingFiles = obj.getExistingFiles;
-                    obj.fileSpecs = existingFiles;
                     if (existingFiles.length == 0)
                         continue;
 
@@ -297,10 +305,13 @@ bool runScannerJobs(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCt
                         obj.task_torrentscan.workForce();
                     }
 
+                    /* All jobs for this blob have been joined, so replacing the
+                     * specs can no longer race with a worker. */
+                    obj.fileSpecs = existingFiles;
+
                     if (gotCtrlC)
                     {
                         logLine("Received Ctrl-C - abort jobs");
-                        myTaskPool.stop();
                         rc = false;
                         break;
                     }
@@ -309,9 +320,6 @@ bool runScannerJobs(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCt
             logLine();
 
             logLine("Waiting for checksum threads to terminate.");
-            myTaskPool.finish(true);
-            /* Important: Stop worker threads. Otherwise the program will hang on exit. */
-            myTaskPool.stop();
         }
 
         else /* Singlethreaded approach */

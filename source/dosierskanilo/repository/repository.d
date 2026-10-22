@@ -200,12 +200,13 @@ public:
 
     private void backupDatabase()
     {
-        database.execute("PRAGMA wal_checkpoint(TRUNCATE)");
         import std.string : replace;
         auto stamp = currentTimestamp().replace(":", "-");
         auto backupPath = buildPath(repositoryPaths.backupsPath,
             "catalog-" ~ stamp ~ ".sqlite3");
-        copy(repositoryPaths.databasePath, backupPath);
+        /* VACUUM INTO produces a consistent snapshot, including rows that
+         * still live in the WAL, instead of copying a live database file. */
+        database.execute("VACUUM INTO ?", backupPath);
         appendLog("repository.backup", backupPath);
     }
 
@@ -235,6 +236,10 @@ public:
     void importJson(string jsonFile, JsonImportOptions options = JsonImportOptions())
     {
         requireOpen();
+        auto targetLease = TargetWriteLease.acquireRepositoryRoot(
+            repositoryPaths.rootPath);
+        scope (exit)
+            targetLease.release();
         if (blobCount > 0)
         {
             if (!options.force)
@@ -250,6 +255,10 @@ public:
     void exportJson(string jsonFile, JsonExportOptions options = JsonExportOptions())
     {
         requireOpen();
+        auto targetLease = TargetWriteLease.acquireRepositoryRoot(
+            repositoryPaths.rootPath);
+        scope (exit)
+            targetLease.release();
         exportCatalogJson(database, repositoryPaths.rootPath, jsonFile, options);
     }
 

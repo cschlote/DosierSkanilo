@@ -85,7 +85,7 @@ struct CheckSums
 		if (!this.hasDigests)
 			return 0;
 
-		size_t hash = 1469598103934665603UL;
+		size_t hash = 14695981039346656037UL;
 		void mixString(string value) nothrow @safe
 		{
 			foreach (immutable char ch; value)

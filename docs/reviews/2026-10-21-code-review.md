@@ -656,3 +656,50 @@ consistency, signal-handler hardening, and Markdown lint coverage.
 the
   public package facade. Either fix the threading issues (M12, M15) or mark the
   modules deprecated and remove them in the next major release.
+
+## Remediation status
+
+### Wave 1 - data safety
+
+- [x] C1 - backup falls back to `copy` and `restoreOriginalFile()` restores the
+      data (plus a copy-fallback unittest); the write also stages into a
+      temporary file before renaming.
+- [x] C2 - `OperationControl.unbindCancellationMirror()` releases the mirror,
+      and both JSON metadata paths unbind on exit.
+- [x] C3 - `mergeBlobMetadata()` copies metadata status, media signatures and
+      streams, torrent data, archive passwords, and the file type before the
+      duplicate blob is deleted; the survivor is always the lowest id.
+- [x] C4 - empty `fileSpecs` and malformed catalogs raise
+      `CatalogFormatException` instead of asserting.
+- [x] C5 - `--force` only recovers from format errors; I/O failures propagate.
+- [x] M8 - legacy fixups keep the modification timestamp.
+- [x] M19 - JSON rescans escape virtual paths and update the existing spec.
+- [x] M24 - malformed base64 digests are ignored and `blob_id = 0` is never
+      written.
+
+### Wave 2 - shared contract correctness
+
+- [x] M1 - JSON `previousFilesPage` steps behind the cursor and a backward
+      paging check was added to the adapter test.
+- [x] M2 - every metadata persistence path is transactional per blob and the
+      parallel pool stops in `finally`.
+- [x] M10 - null SHA1 digests are skipped and the CLI signal-handler failure is
+      logged instead of asserted.
+- [x] M11 - bencode string lengths are validated without overflow.
+- [x] M12 - the legacy threaded scan joins jobs before replacing specs and
+      always stops the pool.
+- [x] M13 - archive tool failures raise `ArchiveToolException`.
+- [x] M14 - scans compare decoded physical paths.
+- [x] M15 - virtual members count as present while their container exists.
+- [x] M16 - metadata runs bump `repository.updated_at`.
+- [x] M20 - index-build failures degrade the JSON backend instead of escaping.
+
+### Wave 3 - scalability (partial)
+
+- [x] M4 - directory filtering no longer wraps the column in `COALESCE`.
+- [x] M7 - import/export take the write lease; backups use `VACUUM INTO`.
+- [ ] M3, M5, M6, M17, M21, M23 - open; these need benchmarks and larger
+      query rewrites before changing them.
+
+Verification: `DC=ldc2 dub test --config=library` - 151 passed, 0 failed;
+`./scripts/test-cli.sh` - passed.

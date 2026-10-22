@@ -122,7 +122,18 @@ public:
             catalog = NamedBinaryBlobCatalog(DATA_CLASS_VERSION3, []);
         }
         if (catalogLoadError.length == 0)
-            rebuildIndex();
+        {
+            try
+                rebuildIndex();
+            catch (Exception failure)
+            {
+                /* Malformed virtual paths surface here as plain exceptions.
+                 * Keep the source readable but disable tree queries instead of
+                 * letting an untyped error escape the factory. */
+                catalogLoadError = failure.msg;
+                clearIndex();
+            }
+        }
     }
 
     override OperationTarget target()
@@ -227,7 +238,16 @@ public:
     override CatalogFilePage previousFilesPage(CatalogFileQuery query,
         CatalogPageCursor cursor)
     {
-        return listFiles(query, CatalogPageRequest(cursor.adapterPageSize, cursor));
+        if (!cursor.isValid)
+            throw new CatalogBackendException(CatalogBackendErrorCode.invalidCursor,
+                "A previous-page request requires a cursor.");
+        /* The cursor marks the first row of the current page, so the previous
+         * page starts one page size before it. */
+        const auto start = cursor.adapterIndex > cursor.adapterPageSize
+            ? cursor.adapterIndex - cursor.adapterPageSize : 0;
+        return listFiles(query, CatalogPageRequest(cursor.adapterPageSize,
+            CatalogPageCursor(start, cursor.adapterPageSize,
+                cursor.adapterQueryToken)));
     }
 
     override CatalogContentSnapshot loadContent(ContentId contentId,
@@ -1182,7 +1202,8 @@ private:
         return result;
     }
 
-    void rebuildIndex()
+    /** Drop every derived index and disable tree queries until a rebuild. */
+    void clearIndex()
     {
         fileRows = [];
         directoryRows = [];
@@ -1194,8 +1215,14 @@ private:
         fileSpecByRelativePath = null;
         directoryIndexByPath = null;
         archiveMemberReferenceByToken = null;
-        treeQueriesAvailable = sourceRoot.length > 0;
+        treeQueriesAvailable = false;
         torrentEntryDetailsUnavailable = false;
+    }
+
+    void rebuildIndex()
+    {
+        clearIndex();
+        treeQueriesAvailable = sourceRoot.length > 0;
         bool[string] seenPaths;
         bool[string] seenReferencePaths;
         string[string] v5ContentTokenByPath;
@@ -2046,7 +2073,26 @@ version (unittest)
         CatalogFileQuery archiveQuery;
         archiveQuery.directoryId = archiveDirectory;
         archiveQuery.filter.archive = true;
-        auto archivePage = backend.listFiles(archiveQuery);
+        CatalogPageRequest backwardsRequest;
+        backwardsRequest.limit = 1;
+        auto archivePage = backend.listFiles(archiveQuery, backwardsRequest);
+        assert(archivePage.files.length == 1 && archivePage.hasMore);
+        const auto secondArchivePage = backend.nextFilesPage(archiveQuery,
+            archivePage.nextCursor);
+        assert(secondArchivePage.hasMore);
+        const auto backToSecond = backend.previousFilesPage(archiveQuery,
+            secondArchivePage.nextCursor);
+        assert(backToSecond.files.length == 1);
+        assert(backToSecond.files[0].relativePath
+            == secondArchivePage.files[0].relativePath);
+        const auto backToFirst = backend.previousFilesPage(archiveQuery,
+            backToSecond.previousCursor);
+        assert(backToFirst.files.length == 1);
+        assert(backToFirst.files[0].relativePath
+            == archivePage.files[0].relativePath);
+        assert(!backToFirst.hasPrevious);
+
+        archivePage = backend.listFiles(archiveQuery);
         assert(archivePage.files.length == 3);
         CatalogFile sampleArchive;
         foreach (file; archivePage.files)

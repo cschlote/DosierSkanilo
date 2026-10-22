@@ -33,7 +33,8 @@ class FileArchiveRar : FileArchive
         auto rc = execute(["unrar", "lb", passwordOption, this.fileName]);
         if (rc.status != 0 && isArchivePasswordFailure(rc.output))
             throw new ArchivePasswordRequiredException(rc.output);
-        assert(rc.status == 0, rc.output);
+        if (rc.status != 0)
+            throw new ArchiveToolException(rc.output);
         return rc.output.split("\n").filter!(a => !a.empty).array;
     }
 
@@ -44,7 +45,8 @@ class FileArchiveRar : FileArchive
         auto rc = execute(["unrar", "x", passwordOption, tarPath, filename, destDir]);
         if (rc.status != 0 && isArchivePasswordFailure(rc.output))
             throw new ArchivePasswordRequiredException(rc.output);
-        assert(rc.status == 0, rc.output);
+        if (rc.status != 0)
+            throw new ArchiveToolException(rc.output);
         return true;
     }
 

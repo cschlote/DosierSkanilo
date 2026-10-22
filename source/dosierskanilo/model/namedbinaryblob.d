@@ -39,6 +39,38 @@ public import dosierskanilo.model.archivespec;
 public import dosierskanilo.model.checksums;
 public import dosierskanilo.model.filespec;
 
+/** Raised when a serialized catalog cannot be interpreted as a supported
+ * version or shape.
+ *
+ * Callers may treat this as a recoverable malformed-input error, unlike I/O or
+ * callback failures.
+ */
+class CatalogFormatException : Exception
+{
+	this(string message)
+	{
+		super(message);
+	}
+}
+
+/** Whether a catalog read failure indicates malformed input.
+ *
+ * Such failures may be recovered by starting with an empty catalog when the
+ * caller explicitly allows an overwrite. I/O, callback and out-of-memory
+ * failures are not recoverable and must never be treated as "malformed".
+ */
+bool isCatalogFormatFailure(Throwable error) @safe nothrow
+{
+	import std.json : JSONException;
+	import jsonizer.exceptions : JsonizeException;
+
+	if (error is null)
+		return false;
+	return cast(CatalogFormatException) error !is null
+		|| cast(JSONException) error !is null
+		|| cast(JsonizeException) error !is null;
+}
+
 enum int DATA_CLASS_VERSION1 = 1; ///< Current version of the NamedBinaryBlob structure, v1
 enum int DATA_CLASS_VERSION2 = 2; ///< Current version of the NamedBinaryBlob structure, v2
 enum int DATA_CLASS_VERSION3 = 3; ///< Legacy NamedBinaryBlob representation, v3
@@ -311,8 +343,8 @@ class NamedBinaryBlob
 	this(NamedBinaryBlob other)
 	{
 		this();
-		fileSpecs = other.fileSpecs;
-		fileNames = other.fileNames;
+		fileSpecs = other.fileSpecs.dup;
+		fileNames = other.fileNames.dup;
 		fileSize = other.fileSize;
 		timeLastModified = other.timeLastModified;
 		checkSums = other.checkSums;
@@ -477,9 +509,20 @@ class NamedBinaryBlob
 			else
 				foreach (spec; fileSpecs)
 				{
-					const auto path = physicalPathForSpec(spec);
-					if (path.length > 0 && exists(path))
-						rs ~= new FileSpec(path, spec.timeLastModified);
+					/* A virtual member exists as long as its container exists;
+					 * its own path is not a file on disk. Keep the original spec
+					 * so the escaped grammar is not lost. */
+					ParsedArchiveVirtualPath parsed;
+					try
+						parsed = parseArchiveVirtualPath(spec.fileName);
+					catch (Exception)
+						continue;
+					if (parsed.physicalPath.length == 0
+						|| !exists(parsed.physicalPath))
+						continue;
+					rs ~= parsed.isVirtual
+						? spec
+						: new FileSpec(parsed.physicalPath, spec.timeLastModified);
 				}
 			if (rs.length > 1)
 				rs.sort;
@@ -487,7 +530,7 @@ class NamedBinaryBlob
 		return rs;
 	}
 
-	private string physicalPathForSpec(FileSpec spec) const @safe
+	package(dosierskanilo) string physicalPathForSpec(FileSpec spec) const @safe
 	{
 		if (spec is null || spec.fileName.length == 0)
 			return "";
@@ -526,8 +569,11 @@ class NamedBinaryBlob
 			rc = true;
 		if (!rc && fileSpecsUseArchiveVirtualGrammar)
 			foreach (spec; fileSpecs)
-				if (physicalPathForSpec(spec) == filename)
+			{
+				const path = physicalPathForSpec(spec);
+				if (path.length > 0 && path == filename)
 					return true;
+			}
 		return rc;
 	}
 
@@ -543,8 +589,11 @@ class NamedBinaryBlob
 			return found[0];
 		if (fileSpecsUseArchiveVirtualGrammar)
 			foreach (spec; fileSpecs)
-				if (physicalPathForSpec(spec) == filename)
+			{
+				const path = physicalPathForSpec(spec);
+				if (path.length > 0 && path == filename)
 					return spec;
+			}
 		return null;
 	}
 
@@ -824,13 +873,7 @@ NamedBinaryBlob[] sortDataClassArrayByFileName(NamedBinaryBlob[] dataArray)
 	import std.algorithm.mutation : SwapStrategy;
 
 	alias myCmp = (a, b) {
-		assert(a.fileSpecs.length > 0,
-			"NamedBinaryBlob entry a has no filenames!");
-		assert(b.fileSpecs.length > 0,
-			"NamedBinaryBlob entry b has no filenames!");
-
 		return a.getFirstFileName < b.getFirstFileName;
-
 	};
 	auto sortedData_rng = sort!(myCmp, SwapStrategy.unstable,
 		typeof(dataArray))(dataArray);
@@ -866,16 +909,10 @@ unittest
 NamedBinaryBlob[] uniqDataClassArrayByFileName(NamedBinaryBlob[] dataArray)
 {
 	import std.algorithm.iteration : uniq;
-	import std.algorithm.mutation : copy;
+	import std.array : array;
 
-	NamedBinaryBlob[] uniqSortedData;
-	uniqSortedData.length = dataArray.length;
 	enum myEqual = "a.getFirstFileName == b.getFirstFileName";
-	auto uniqSortedData_rng = uniq!(myEqual, typeof(dataArray))(
-		dataArray);
-	const auto remainingRng = copy(uniqSortedData_rng, uniqSortedData);
-	uniqSortedData.length -= remainingRng.length;
-	return uniqSortedData;
+	return uniq!(myEqual, typeof(dataArray))(dataArray).array;
 }
 
 @("uniqDataClassArrayByFileName")
@@ -924,9 +961,13 @@ NamedBinaryBlob[] fixupDataClassArrayIn(NamedBinaryBlob[] dataArray,
 		 * filename (fileName) or multiple filenames (fileNames).
 		 * We convert all entries to use the fileNames array.
 		 */
+		/* Capture the timestamp before clearing the legacy field so a record
+		 * that carries both `fileName` and `fileNames` keeps it for every
+		 * reference. */
+		const legacyModifiedAt = obj.timeLastModified;
 		if (obj.fileName.empty == false)
 		{
-			obj.fileSpecs ~= new FileSpec(obj.fileName, obj.timeLastModified);
+			obj.fileSpecs ~= new FileSpec(obj.fileName, legacyModifiedAt);
 			obj.fileName = null;
 			obj.timeLastModified = null;
 		}
@@ -934,7 +975,7 @@ NamedBinaryBlob[] fixupDataClassArrayIn(NamedBinaryBlob[] dataArray,
 		if (obj.fileNames.empty == false)
 		{
 			foreach (fn; obj.fileNames)
-				obj.fileSpecs ~= new FileSpec(fn, obj.timeLastModified);
+				obj.fileSpecs ~= new FileSpec(fn, legacyModifiedAt);
 			obj.fileNames = [];
 			obj.timeLastModified = null;
 		}
@@ -1022,13 +1063,21 @@ NamedBinaryBlob[] fixupDataClassArrayOut(NamedBinaryBlob[] dataArray,
 			obj.timeLastModified = "";
 		}
 		// -- We have just a single name, setup the single filename --
-		else
+		else if (obj.fileSpecs.length == 1)
 		{
 			obj.fileName = obj.fileSpecs[0].fileName;
 			obj.timeLastModified = obj.fileSpecs[0].timeLastModified;
 			obj.fileSpecs = [];
 		}
-		assert(obj.fileNames.length == 0, "fileNames are of service.");
+		// -- No reference at all, keep the legacy fields empty ------
+		else
+		{
+			obj.fileName = "";
+			obj.timeLastModified = "";
+		}
+		if (obj.fileNames.length != 0)
+			throw new CatalogFormatException(
+				"Internal error: fileNames must be empty before serialization.");
 
 		// -- Clear legacy digest fields ---------------------------
 		obj.md5sum_b64 = null;
@@ -1100,7 +1149,7 @@ NamedBinaryBlobCatalog deserializeDataClassJsonWrapperString(const string serial
 
 		auto json = parseJSON(serializedData);
 		if (json.type != JSONType.object)
-			assert(false, "Unexpected JSON root type.");
+			throw new CatalogFormatException("Unexpected JSON root type.");
 
 		wrapper.dataVersion = DATA_CLASS_VERSION3;
 		if ("dataVersion" in json.object)
@@ -1119,10 +1168,10 @@ NamedBinaryBlobCatalog deserializeDataClassJsonWrapperString(const string serial
 			&& wrapper.dataVersion != DATA_CLASS_VERSION3
 			&& wrapper.dataVersion != DATA_CLASS_VERSION4
 			&& wrapper.dataVersion != DATA_CLASS_VERSION5)
-			assert(false, "Data version mismatch, expected " ~ to!string(
-				DATA_CLASS_VERSION2) ~ ", " ~ to!string(DATA_CLASS_VERSION3)
-				~ ", " ~ to!string(DATA_CLASS_VERSION4) ~ " or "
-				~ to!string(DATA_CLASS_VERSION5) ~ ", got "
+			throw new CatalogFormatException("Data version mismatch, expected "
+				~ to!string(DATA_CLASS_VERSION2) ~ ", " ~ to!string(
+				DATA_CLASS_VERSION3) ~ ", " ~ to!string(DATA_CLASS_VERSION4)
+				~ " or " ~ to!string(DATA_CLASS_VERSION5) ~ ", got "
 				~ to!string(wrapper.dataVersion));
 	}
 	// Check for old plain array JSON
@@ -1134,7 +1183,7 @@ NamedBinaryBlobCatalog deserializeDataClassJsonWrapperString(const string serial
 	}
 	// Shouldn't happen
 	else
-		assert(false, "Unknow JSON format?");
+		throw new CatalogFormatException("Unknown JSON format.");
 
 	wrapper.dataArray = fixupDataClassArrayIn(wrapper.dataArray, progressCallBack);
 	if (wrapper.dataVersion == DATA_CLASS_VERSION5)
@@ -1529,7 +1578,6 @@ unittest
 @("deserializeDataClassJsonFile")
 unittest
 {
-	import core.exception : AssertError;
 	import std.file : exists, readText, tempDir, getSize, getTimes, mkdirRecurse, rmdirRecurse;
 
 	auto dca = deserializeDataClassJsonFile("./test/json_file_notexisting.json");
@@ -1553,7 +1601,7 @@ unittest
 		assert(s0[index].toString == s2[index].toString, s0[index].toString ~ " != " ~ s2[index].toString);
 	}
 
-	assertThrown!AssertError(deserializeDataClassJsonFile("./test/json_file_v1_wrongversion.json"), "No bumm?");
+	assertThrown!CatalogFormatException(deserializeDataClassJsonFile("./test/json_file_v1_wrongversion.json"), "No bumm?");
 }
 
 /** Serialize an array of NamedBinaryBlob classes
@@ -2363,7 +2411,8 @@ NamedBinaryBlob mergeDataClassObjects(NamedBinaryBlob[] objs)
 
 	enforce(objs.length >= 2, "Need at least 2 objects");
 	MediaInfoSig mis = null;
-	assert(objs.filter!(a => a.checkSums.hasDigests).array.length, "Missing checksums?");
+	enforce(objs.filter!(a => a.checkSums.hasDigests).array.length > 0,
+		"Missing checksums.");
 
 	foreach (obj; objs[1 .. $])
 	{
@@ -2379,7 +2428,18 @@ NamedBinaryBlob mergeDataClassObjects(NamedBinaryBlob[] objs)
 	newobj.mediaInfoSig = mis;
 	foreach (o; objs[1 .. $])
 		newobj.fileSpecs ~= o.fileSpecs;
-	newobj.fileSpecs = newobj.fileSpecs.uniq!("a.fileName == b.fileName", FileSpec[]).array;
+	/* Remove all duplicate references, not only adjacent ones. The inputs are
+	 * concatenated from independently ordered lists. */
+	FileSpec[] uniqueSpecs;
+	bool[string] seenNames;
+	foreach (spec; newobj.fileSpecs)
+	{
+		if (spec is null || (spec.fileName in seenNames) !is null)
+			continue;
+		seenNames[spec.fileName] = true;
+		uniqueSpecs ~= spec;
+	}
+	newobj.fileSpecs = uniqueSpecs;
 	return newobj;
 }
 

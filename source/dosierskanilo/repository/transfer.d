@@ -249,7 +249,12 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
         ~ "EXISTS (SELECT 1 FROM torrent_info ti WHERE ti.blob_id = b.id), "
         ~ "CASE WHEN " ~ isVirtualFileReferenceSql("f.relative_path") ~ " "
         ~ "THEN 1 ELSE 0 END, 0, 0, 0, 0, '' FROM file_refs f "
-        ~ "JOIN blobs b ON b.id = f.blob_id WHERE COALESCE(f.directory_id, 0) = :directory_id";
+        ~ "JOIN blobs b ON b.id = f.blob_id WHERE ";
+    /* Do not wrap the column in COALESCE: that would disable
+     * idx_file_refs_directory. Zero means the root (NULL) directory. */
+    sql ~= options.directoryId == 0
+        ? "f.directory_id IS NULL"
+        : "f.directory_id = :directory_id";
     if (!options.includeArchiveMembers)
         sql ~= " AND NOT (" ~ isVirtualFileReferenceSql("f.relative_path") ~ ")";
     if (!options.text.empty)
@@ -330,7 +335,8 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
     }
     sql ~= " LIMIT :limit";
     auto statement = db.prepare(sql);
-    statement.bind(":directory_id", options.directoryId);
+    if (options.directoryId != 0)
+        statement.bind(":directory_id", options.directoryId);
     if (!options.text.empty)
         statement.bind(":text", options.text);
     if (!options.afterPath.empty)

@@ -33,6 +33,75 @@ RepositoryDuplicateGroup[] queryDuplicateGroups(ref Database db, size_t limit = 
     return groups;
 }
 
+/** Copy per-blob metadata from a duplicate blob before it is deleted.
+ *
+ * The merge repoints file references from the dropped blob to the kept blob.
+ * Dependent tables use `ON DELETE CASCADE`, so without this step the surviving
+ * blob would silently lose torrent data, archive passwords, media streams, or
+ * metadata state that only the dropped blob carried. Existing rows of the kept
+ * blob win; successful states from the dropped blob replace unsuccessful ones.
+ */
+private void mergeBlobMetadata(ref Database db, long keepId, long dropId)
+{
+    db.execute("UPDATE blobs SET file_type = (SELECT file_type FROM blobs "
+        ~ "WHERE id = ?2) WHERE id = ?1 AND (file_type IS NULL OR file_type = '') "
+        ~ "AND COALESCE((SELECT file_type FROM blobs WHERE id = ?2), '') != ''",
+        keepId, dropId);
+
+    db.execute("INSERT OR IGNORE INTO metadata_status (blob_id, metadata_kind, "
+        ~ "state, extractor_version, scanned_at, error_message) "
+        ~ "SELECT ?1, metadata_kind, state, extractor_version, scanned_at, "
+        ~ "error_message FROM metadata_status WHERE blob_id = ?2", keepId, dropId);
+    /* Prefer a completed/empty state over an unsuccessful one. */
+    db.execute("DELETE FROM metadata_status WHERE blob_id = ?1 "
+        ~ "AND state NOT IN ('completed', 'empty') AND metadata_kind IN "
+        ~ "(SELECT metadata_kind FROM metadata_status WHERE blob_id = ?2 "
+        ~ "AND state IN ('completed', 'empty'))", keepId, dropId);
+    db.execute("INSERT OR IGNORE INTO metadata_status (blob_id, metadata_kind, "
+        ~ "state, extractor_version, scanned_at, error_message) "
+        ~ "SELECT ?1, metadata_kind, state, extractor_version, scanned_at, "
+        ~ "error_message FROM metadata_status WHERE blob_id = ?2 "
+        ~ "AND state IN ('completed', 'empty')", keepId, dropId);
+
+    db.execute("INSERT OR IGNORE INTO media_signatures "
+        ~ "(blob_id, extractor_version, scanned_at) SELECT ?1, "
+        ~ "extractor_version, scanned_at FROM media_signatures WHERE blob_id = ?2",
+        keepId, dropId);
+    db.execute("INSERT OR IGNORE INTO media_image_streams "
+        ~ "(blob_id, stream_index, format, width, height) SELECT ?1, "
+        ~ "stream_index, format, width, height FROM media_image_streams "
+        ~ "WHERE blob_id = ?2", keepId, dropId);
+    db.execute("INSERT OR IGNORE INTO media_video_streams "
+        ~ "(blob_id, stream_index, language, format, width, height, frame_rate, "
+        ~ "bit_rate, duration) SELECT ?1, stream_index, language, format, width, "
+        ~ "height, frame_rate, bit_rate, duration FROM media_video_streams "
+        ~ "WHERE blob_id = ?2", keepId, dropId);
+    db.execute("INSERT OR IGNORE INTO media_audio_streams "
+        ~ "(blob_id, stream_index, language, format, channels, bit_rate, "
+        ~ "duration) SELECT ?1, stream_index, language, format, channels, "
+        ~ "bit_rate, duration FROM media_audio_streams WHERE blob_id = ?2",
+        keepId, dropId);
+    db.execute("INSERT OR IGNORE INTO media_text_streams "
+        ~ "(blob_id, stream_index, language, format, frame_rate, bit_rate, "
+        ~ "duration) SELECT ?1, stream_index, language, format, frame_rate, "
+        ~ "bit_rate, duration FROM media_text_streams WHERE blob_id = ?2",
+        keepId, dropId);
+
+    db.execute("INSERT OR IGNORE INTO torrent_info (blob_id, name, magnet_uri, "
+        ~ "total_size, is_multi_file, info_hash_hex, announce, piece_length, "
+        ~ "pieces_count) SELECT ?1, name, magnet_uri, total_size, is_multi_file, "
+        ~ "info_hash_hex, announce, piece_length, pieces_count FROM torrent_info "
+        ~ "WHERE blob_id = ?2", keepId, dropId);
+    db.execute("INSERT OR IGNORE INTO torrent_files (torrent_blob_id, "
+        ~ "file_index, relative_path, file_size) SELECT ?1, file_index, "
+        ~ "relative_path, file_size FROM torrent_files WHERE torrent_blob_id = ?2",
+        keepId, dropId);
+
+    db.execute("INSERT OR IGNORE INTO archive_passwords (blob_id, password) "
+        ~ "SELECT ?1, password FROM archive_passwords WHERE blob_id = ?2",
+        keepId, dropId);
+}
+
 /** Analyze current repository rows without materializing the catalog. */
 AnalysisSummary analyzeRepository(ref Database db, RepositoryAnalysisOptions options)
 {
@@ -52,25 +121,36 @@ AnalysisSummary analyzeRepository(ref Database db, RepositoryAnalysisOptions opt
 
         if (options.mergeDuplicates)
         {
-            auto groups = db.execute("SELECT group_concat(id) FROM blobs "
+            auto groups = db.execute("SELECT min(id), group_concat(id) FROM blobs "
                 ~ "WHERE md5 IS NOT NULL AND sha1 IS NOT NULL AND xxh64 IS NOT NULL "
                 ~ "AND EXISTS (SELECT 1 FROM file_refs f WHERE f.blob_id = blobs.id) "
                 ~ "GROUP BY file_size, md5, sha1, xxh64 "
                 ~ "HAVING count(*) > 1");
-            string[] duplicateGroups;
+            long[][] duplicateGroups;
             foreach (row; groups)
-                duplicateGroups ~= row.peek!string(0);
-
-            foreach (group; duplicateGroups)
             {
-                auto ids = group.split(",");
+                long[] ids;
+                foreach (idText; row.peek!string(1).split(","))
+                    ids ~= idText.to!long;
+                duplicateGroups ~= ids;
+            }
+
+            foreach (ids; duplicateGroups)
+            {
                 if (ids.length < 2)
                     continue;
                 summary.duplicateGroups++;
-                auto keepId = ids[0].to!long;
-                foreach (dropText; ids[1 .. $])
+                /* Keep the lowest id so repeated analyses choose the same
+                 * survivor, matching the controlled analysis path. */
+                auto keepId = ids[0];
+                foreach (id; ids)
+                    if (id < keepId)
+                        keepId = id;
+                foreach (dropId; ids)
                 {
-                    auto dropId = dropText.to!long;
+                    if (dropId == keepId)
+                        continue;
+                    mergeBlobMetadata(db, keepId, dropId);
                     db.execute("UPDATE file_refs SET blob_id = ? "
                         ~ "WHERE blob_id = ?", keepId, dropId);
                     db.execute("DELETE FROM blobs WHERE id = ?", dropId);
@@ -182,6 +262,7 @@ AnalysisExecutionResult analyzeRepositoryControlled(ref Database db,
         {
             auto keepId = row.peek!long(0);
             auto dropId = row.peek!long(1);
+            mergeBlobMetadata(db, keepId, dropId);
             db.execute("UPDATE file_refs SET blob_id = ? WHERE blob_id = ?",
                 keepId, dropId);
             db.execute("DELETE FROM blobs WHERE id = ?", dropId);
@@ -288,6 +369,44 @@ unittest
     assert(db.execute("SELECT count(*) FROM blobs").oneValue!long == 1);
     assert(db.execute("SELECT blob_id FROM file_refs ORDER BY id LIMIT 1")
         .oneValue!long == 1);
+}
+
+@("mergeBlobMetadata preserves dependent metadata of the dropped blob")
+unittest
+{
+    auto db = Database(":memory:");
+    migrate(db, "2026-01-01T00:00:00");
+
+    db.execute("INSERT INTO blobs (id, file_size) VALUES (1, 10), (2, 10)");
+    db.execute("UPDATE blobs SET file_type = 'application/zip' WHERE id = 2");
+    db.execute("INSERT INTO metadata_status (blob_id, metadata_kind, state) "
+        ~ "VALUES (1, 'media', 'failed'), (2, 'media', 'completed'), "
+        ~ "(1, 'file_type', 'completed'), (2, 'file_type', 'completed')");
+    db.execute("INSERT INTO archive_passwords (blob_id, password) "
+        ~ "VALUES (2, 'secret')");
+    db.execute("INSERT INTO torrent_info (blob_id, name) VALUES (2, 'x')");
+    db.execute("INSERT INTO torrent_files (torrent_blob_id, file_index, "
+        ~ "relative_path, file_size) VALUES (2, 0, 'a', 1)");
+    db.execute("INSERT INTO media_signatures (blob_id) VALUES (2)");
+    db.execute("INSERT INTO media_image_streams (blob_id, stream_index) "
+        ~ "VALUES (2, 0)");
+
+    mergeBlobMetadata(db, 1, 2);
+
+    assert(db.execute("SELECT state FROM metadata_status WHERE blob_id = 1 "
+        ~ "AND metadata_kind = 'media'").oneValue!string == "completed");
+    assert(db.execute("SELECT password FROM archive_passwords WHERE blob_id = 1")
+        .oneValue!string == "secret");
+    assert(db.execute("SELECT file_type FROM blobs WHERE id = 1")
+        .oneValue!string == "application/zip");
+    assert(db.execute("SELECT count(*) FROM torrent_info WHERE blob_id = 1")
+        .oneValue!long == 1);
+    assert(db.execute("SELECT count(*) FROM torrent_files "
+        ~ "WHERE torrent_blob_id = 1").oneValue!long == 1);
+    assert(db.execute("SELECT count(*) FROM media_signatures WHERE blob_id = 1")
+        .oneValue!long == 1);
+    assert(db.execute("SELECT count(*) FROM media_image_streams "
+        ~ "WHERE blob_id = 1").oneValue!long == 1);
 }
 
 @("queryDuplicateGroups")

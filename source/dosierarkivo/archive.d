@@ -28,6 +28,15 @@ class ArchivePasswordCancelledException : Exception
     }
 }
 
+/** Raised when an external archive tool exits unsuccessfully. */
+class ArchiveToolException : Exception
+{
+    this(string message)
+    {
+        super(message);
+    }
+}
+
 /** Callback that requests a password; return false when the request is cancelled. */
 alias ArchivePasswordCallback = bool delegate(string archivePath, string reason,
     out string password);

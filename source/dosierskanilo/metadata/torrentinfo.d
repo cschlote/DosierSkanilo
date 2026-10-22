@@ -412,9 +412,15 @@ private class BencodeParser
         while (pos < data.length && data[pos] != ':')
             pos++;
         enforce(pos < data.length, "Invalid string length");
-        auto len = to!size_t(cast(string) data[start .. pos]);
+        long parsedLen;
+        try
+            parsedLen = to!long(cast(string) data[start .. pos]);
+        catch (ConvException)
+            throw new Exception("Invalid string length");
+        enforce(parsedLen >= 0, "Invalid negative string length");
+        const auto len = cast(size_t) parsedLen;
         pos++;
-        enforce(pos + len <= data.length, "Unexpected EOF in string");
+        enforce(len <= data.length - pos, "Unexpected EOF in string");
         auto s = cast(string) data[pos .. pos + len];
         pos += len;
         return BNode(BValue(s));
