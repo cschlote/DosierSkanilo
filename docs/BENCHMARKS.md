@@ -101,6 +101,22 @@ dosierskanilo scan /tmp/scanbench --recursive
 dosierskanilo scan /tmp/scanbench --recursive
 ```
 
+## Directory Projection
+
+Filtering 2,000 immediate directories in a JSON catalog with 200,000 files used
+to take about `7.4 s`. Each directory check scanned every file row, so the cost
+grew with directories times files. File rows are already sorted by path, so the
+check now binary-searches the `directoryPath ~ "/"` to `directoryPath ~ "0"`
+range and scans only that directory's files. The same query now takes about
+`0.06 s`. The upper bound is byte-tight for every UTF-8 suffix, including
+non-BMP paths, unlike a `\uFFFF` sentinel.
+
+Reproduce with:
+
+```bash
+dub run --single scripts/benchmark-json-directories.d --build=release -- 2000 100
+```
+
 ## Metadata Checksum Pass
 
 A 10,000-file repository (one byte per file) took about `29 s` for

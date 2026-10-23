@@ -2148,17 +2148,42 @@ private:
 
     bool directoryHasMatch(string directoryPath, CatalogFilter filter)
     {
-        auto prefix = directoryPath ~ "/";
-        foreach (file; fileRows)
-            if (file.relativePath.startsWith(prefix) && matches(file, filter))
+        const prefix = directoryPath ~ "/";
+        const start = lowerBoundPath(prefix);
+        /* "dir0" is the tight upper bound for "dir/" plus any byte suffix, and
+         * unlike prefix ~ "\uFFFF" it also includes non-BMP UTF-8 paths. */
+        const end = lowerBoundPath(directoryPath ~ "0");
+        foreach (index; start .. end)
+        {
+            auto file = fileRows[index];
+            if (matches(file, filter))
                 return true;
+        }
         if (filter.includeArchiveMembers)
-            foreach (container; fileRows)
-                if (container.relativePath.startsWith(prefix))
+            foreach (index; start .. end)
+            {
+                auto container = fileRows[index];
+                if (container.hasArchive)
                     foreach (member; archiveMemberFiles(container))
                         if (matches(member, filter))
                             return true;
+            }
         return false;
+    }
+
+    size_t lowerBoundPath(string path) const
+    {
+        size_t low;
+        size_t high = fileRows.length;
+        while (low < high)
+        {
+            const middle = low + (high - low) / 2;
+            if (fileRows[middle].relativePath < path)
+                low = middle + 1;
+            else
+                high = middle;
+        }
+        return low;
     }
 
     CatalogFile[] archiveMemberFiles(CatalogFile container)
@@ -2376,6 +2401,40 @@ version (unittest)
         deserializeDataClassJsonWrapperFile;
     import dosierskanilo.operations : OperationState;
     import dosierskanilo.testdata : copySyntheticCatalogForTest;
+
+    @("JSON directory filters include non-BMP descendants")
+    unittest
+    {
+        import std.datetime.systime : SysTime;
+        import dosierskanilo.model.namedbinaryblob :
+            serializeDataClassWrapperFile;
+        const token = randomUUID().toString();
+        const catalogPath = buildPath(tempDir(), "json-nonbmp-" ~ token ~ ".json");
+        scope (exit)
+            if (exists(catalogPath))
+                remove(catalogPath);
+
+        NamedBinaryBlobCatalog catalog;
+        catalog.dataVersion = DATA_CLASS_VERSION5;
+        catalog.dataArray = [
+            new NamedBinaryBlob("media/\U0001F600.txt", 5, SysTime(0)),
+            new NamedBinaryBlob("other/plain.txt", 5, SysTime(0))
+        ];
+        serializeDataClassWrapperFile(catalogPath, catalog);
+
+        auto backend = new JsonCatalogBackend(
+            OperationTarget.jsonTarget(catalogPath, tempDir()));
+        scope (exit)
+            backend.close();
+
+        CatalogDirectoryQuery query;
+        query.filter.pathText = "\U0001F600";
+        CatalogPageRequest request;
+        request.limit = 10;
+        const page = backend.listDirectories(query, request);
+        assert(page.directories.length == 1);
+        assert(page.directories[0].name == "media");
+    }
 
     @("JSON backend indexes and operates on the generated catalog without SQLite")
     unittest

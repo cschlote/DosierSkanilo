@@ -9,6 +9,10 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- Filtered JSON directory listings binary-search the sorted file rows for each
+  directory instead of scanning every file per directory. A 200,000-file,
+  2,000-directory filter dropped from about `7.4 s` to about `0.06 s`, including
+  non-BMP UTF-8 paths.
 - Checksum calculation reuses a 64 KiB buffer instead of allocating a 16 MiB
   chunk buffer per file. A 10,000-small-file `metadata --checksums` run dropped
   from about `29 s` to about `0.6 s`; metadata persistence also commits once per
