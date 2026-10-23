@@ -63,18 +63,14 @@ ScanExecutionResult scanRepositoryControlled(ref Database db, string rootPath,
                 execution.summary.filesFound++;
                 auto modified = entry.timeLastModified.toISOExtString;
                 const auto canonicalRelative = escapeArchiveVirtualPath(relative);
-                db.execute("INSERT OR REPLACE INTO temp.scan_stage_files "
-                    ~ "(relative_path, file_size, time_last_modified) "
-                    ~ "VALUES (?, ?, ?)", canonicalRelative, cast(long) entry.size,
-                    modified);
-                db.execute("DELETE FROM temp.scan_missing_candidates "
-                    ~ "WHERE relative_path = ?", canonicalRelative);
+                statements.stageFile.inject(canonicalRelative,
+                    cast(long) entry.size, modified);
+                statements.removeMissingCandidate.inject(canonicalRelative);
             }
             else
             {
                 execution.summary.directoriesFound++;
-                db.execute("INSERT OR IGNORE INTO temp.scan_stage_directories "
-                    ~ "(relative_path) VALUES (?)", relative);
+                statements.stageDirectory.inject(relative);
             }
 
             if (!reportScanProgress(control, operationId, OperationPhase.scanning,
@@ -143,9 +139,19 @@ private struct ScanStatements
 {
     Statement selectFile;
     Statement markFileSeen;
+    Statement stageFile;
+    Statement stageDirectory;
+    Statement removeMissingCandidate;
 
     this(ref Database db)
     {
+        stageFile = db.prepare("INSERT OR REPLACE INTO temp.scan_stage_files "
+            ~ "(relative_path, file_size, time_last_modified) "
+            ~ "VALUES (?, ?, ?)");
+        stageDirectory = db.prepare("INSERT OR IGNORE INTO "
+            ~ "temp.scan_stage_directories (relative_path) VALUES (?)");
+        removeMissingCandidate = db.prepare("DELETE FROM "
+            ~ "temp.scan_missing_candidates WHERE relative_path = ?");
         selectFile = db.prepare("SELECT file_refs.id, file_refs.blob_id, "
             ~ "blobs.file_size, file_refs.time_last_modified FROM file_refs "
             ~ "JOIN blobs ON blobs.id = file_refs.blob_id "

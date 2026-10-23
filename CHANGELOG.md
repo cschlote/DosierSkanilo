@@ -11,8 +11,8 @@ They represent the functional evolution and are intentionally summarized.
 
 - Repository rescans no longer remove each present file from an unindexed
   temporary candidate table. A 10,000-file unchanged rescan dropped from about
-  `1.9 s` to about `0.29 s`; unchanged-file updates also reuse prepared
-  statements and ordinary files no longer query virtual archive references.
+  `1.9 s` to about `0.2 s`; staging and unchanged-file updates reuse prepared
+  statements, and ordinary files no longer query virtual archive references.
 - Opening an initialized SQLite repository no longer writes
   `PRAGMA user_version` when the schema version is already current.
 - JSON archive-member pages now use a per-directory member order that is built

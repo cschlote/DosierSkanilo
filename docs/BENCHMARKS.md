@@ -80,11 +80,12 @@ archive details), `list --limit 250 --format json` completed in under 10 ms and
 
 A repository with 10,000 files in 100 directories was scanned, then rescanned
 with no changes. Rescanning used to take about `1.9 s`; it now takes about
-`0.29 s` (first scan about `0.43 s`). The temporary missing-reference candidate
+`0.2 s` (first scan about `0.39 s`). The temporary missing-reference candidate
 table had no index on `relative_path`, so removing each still-present file from
 the candidate set scanned the whole table, making the walk quadratic in the
-number of present files. The temporary table now declares `relative_path UNIQUE`,
-and the unchanged-file update path reuses prepared statements.
+number of present files. The temporary table now declares `relative_path UNIQUE`.
+Staging and unchanged-file updates also reuse prepared statements instead of
+preparing the same SQL for every file.
 
 The scan also checks the virtual-container set once instead of issuing a
 virtual-reference range query for every ordinary file. Peak RSS stayed around
