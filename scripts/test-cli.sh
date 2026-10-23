@@ -12,9 +12,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if [[ ! -x "${BIN}" ]]; then
-    dub build --config=cli
-fi
+dub build --config=cli --compiler="${DC}" >/dev/null
 
 # Generate one D-owned corpus and exercise both explicit storage modes against it.
 fixture_bundle="${TMP_DIR}/synthetic-catalog"
@@ -66,7 +64,7 @@ awk 'BEGIN {
     for (i = 0; i < 100000; i++) {
         if (i)
             print ","
-        printf "{\"fileSize\":1,\"fileSpecs\":[{\"fileName\":\"f%06d\",\"timeLastModified\":\"2020-01-02T04:04:06\"}]}", i
+        printf "{\"checkSums\":{\"md5sum_b64\":\"AAAAAAAAAAAAAAAAAAAAAA==\",\"sha1sum_b64\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAA=\",\"xxh64sum_b64\":\"AAAAAAAAAAA=\"},\"fileSize\":1,\"fileSpecs\":[{\"fileName\":\"f%06d\",\"timeLastModified\":\"2020-01-02T04:04:06\"}]}", i
     }
     print "]}"
 }' > "${crash_source}"
@@ -112,6 +110,21 @@ wait "${scan_pid}" || scan_rc=$?
 grep -q "cancelled" "${TMP_DIR}/cancel-scan-stdout"
 [[ ! -e "${TMP_DIR}/cancel-scan.json" ]]
 
+# The same corpus through SQLite: cancellation during metadata leaves the
+# repository readable, whether or not discovery was already committed.
+"${BIN}" init "${cancel_scan_tree}" >/dev/null
+"${BIN}" scan "${cancel_scan_tree}" --recursive --checksums \
+    >"${TMP_DIR}/cancel-sqlite-scan-stdout" 2>&1 &
+sqlite_scan_pid=$!
+sleep 0.2
+kill -INT "${sqlite_scan_pid}" 2>/dev/null || true
+sqlite_scan_rc=0
+wait "${sqlite_scan_pid}" || sqlite_scan_rc=$?
+[[ "${sqlite_scan_rc}" -ne 0 ]]
+grep -q "cancelled" "${TMP_DIR}/cancel-sqlite-scan-stdout"
+"${BIN}" info "${cancel_scan_tree}" >/dev/null
+"${BIN}" list "${cancel_scan_tree}" --format=json >/dev/null
+
 # SIGINT during SQLite metadata cancels and leaves the repository usable.
 "${BIN}" metadata "${crash_repo}" --checksums \
     >"${TMP_DIR}/metadata-cancel-stdout" 2>&1 &
@@ -123,6 +136,18 @@ wait "${metadata_pid}" || metadata_rc=$?
 [[ "${metadata_rc}" -ne 0 ]]
 grep -q "cancelled" "${TMP_DIR}/metadata-cancel-stdout"
 "${BIN}" info "${crash_repo}" >/dev/null
+
+# SIGINT during a large SQLite duplicate merge rolls the transaction back.
+"${BIN}" analyze "${crash_repo}" >"${TMP_DIR}/analyze-cancel-stdout" 2>&1 &
+analyze_pid=$!
+sleep 0.5
+kill -INT "${analyze_pid}" 2>/dev/null || true
+analyze_rc=0
+wait "${analyze_pid}" || analyze_rc=$?
+[[ "${analyze_rc}" -ne 0 ]]
+grep -q "cancelled" "${TMP_DIR}/analyze-cancel-stdout"
+"${BIN}" info "${crash_repo}" >/dev/null
+[[ "$("${BIN}" list "${crash_repo}" --format=json)" == *'"total":100000'* ]]
 
 # SIGINT during a JSON analysis cancels cooperatively: the process fails, the
 # original catalog is left in place, and no staging file is published.

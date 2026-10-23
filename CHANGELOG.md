@@ -9,6 +9,9 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- SQLite duplicate analysis now polls for cancellation while merging inside the
+  transaction and rolls the whole merge back, so Ctrl-C no longer waits for a
+  large merge to finish and commit.
 - JSON catalogs are backed up with a hard link (or a copy where links are
   unavailable) and replaced by an atomic rename, so a killed or crashed writer
   leaves the previous catalog intact at its canonical path.
