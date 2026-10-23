@@ -27,8 +27,9 @@ repository; repository operations do not write a JSON catalog implicitly.
   exclusion works across processes.
 - `scripts/test-cli.sh` exercises JSON-target scan/analyze, SQLite scan with metadata,
   standalone metadata, analysis, import/export, mode isolation, and command output.
-  It also sends SIGINT during a JSON analysis and checks the cooperative
-  cancellation message plus an unchanged catalog.
+  It also sends SIGINT during a JSON analysis, a JSON scan, and SQLite
+  metadata, checking the cooperative cancellation message, worker shutdown, an
+  unpublished JSON catalog, and a still-usable repository.
 - GUI `operationrequests.d` executes GUI-built requests against both modes and
   compares their scan, metadata, and analysis summaries. `operationtaskstate.d`
   tests acknowledged pause transitions, stale progress rejection, and refresh
@@ -38,9 +39,9 @@ repository; repository operations do not write a JSON catalog implicitly.
 
 ## Remaining verification
 
-- Add process-level Ctrl-C tests for the remaining CLI operation families (JSON
-  scan, standalone metadata, SQLite operations), including worker shutdown,
-  stream ownership, and repository/catalog usability after cancellation.
+- Add process-level Ctrl-C tests for the remaining CLI operation families
+  (SQLite scan, analyze, import, and export), including stream ownership and
+  repository/catalog usability after cancellation.
 - Add display-backed GTK interaction tests that start an operation from Tools,
   exercise Cancel/Pause/Resume, and verify progress and refresh in the owning tab.
 - Basic cross-process contention is covered. Still open: cancellation/pause

@@ -95,6 +95,35 @@ cmp "${crash_pristine}" "${crash_output}"
 rm -f "${crash_output}".tmp-*
 "${BIN}" analyze --json "${crash_output}" >/dev/null
 
+# SIGINT during a JSON scan stops the workers and never publishes a catalog.
+cancel_scan_tree="${TMP_DIR}/cancel-scan-tree"
+mkdir -p "${cancel_scan_tree}"
+for index in $(seq 1 200); do
+    ln "${crash_source}" "${cancel_scan_tree}/f${index}.json"
+done
+"${BIN}" scan "${cancel_scan_tree}" --json "${TMP_DIR}/cancel-scan.json" \
+    --recursive --checksums >"${TMP_DIR}/cancel-scan-stdout" 2>&1 &
+scan_pid=$!
+sleep 0.2
+kill -INT "${scan_pid}" 2>/dev/null || true
+scan_rc=0
+wait "${scan_pid}" || scan_rc=$?
+[[ "${scan_rc}" -ne 0 ]]
+grep -q "cancelled" "${TMP_DIR}/cancel-scan-stdout"
+[[ ! -e "${TMP_DIR}/cancel-scan.json" ]]
+
+# SIGINT during SQLite metadata cancels and leaves the repository usable.
+"${BIN}" metadata "${crash_repo}" --checksums \
+    >"${TMP_DIR}/metadata-cancel-stdout" 2>&1 &
+metadata_pid=$!
+sleep 0.5
+kill -INT "${metadata_pid}" 2>/dev/null || true
+metadata_rc=0
+wait "${metadata_pid}" || metadata_rc=$?
+[[ "${metadata_rc}" -ne 0 ]]
+grep -q "cancelled" "${TMP_DIR}/metadata-cancel-stdout"
+"${BIN}" info "${crash_repo}" >/dev/null
+
 # SIGINT during a JSON analysis cancels cooperatively: the process fails, the
 # original catalog is left in place, and no staging file is published.
 cancel_catalog="${TMP_DIR}/cancel-catalog.json"
