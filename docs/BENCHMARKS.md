@@ -76,6 +76,30 @@ On the same 100,000-row synthetic repository (checksums only, no media or
 archive details), `list --limit 250 --format json` completed in under 10 ms and
 `--limit 1000` in about 40 ms per invocation, including process startup.
 
+## Repository Rescan
+
+A repository with 10,000 files in 100 directories was scanned, then rescanned
+with no changes. Rescanning used to take about `1.9 s`; it now takes about
+`0.29 s` (first scan about `0.43 s`). The temporary missing-reference candidate
+table had no index on `relative_path`, so removing each still-present file from
+the candidate set scanned the whole table, making the walk quadratic in the
+number of present files. The temporary table now declares `relative_path UNIQUE`,
+and the unchanged-file update path reuses prepared statements.
+
+The scan also checks the virtual-container set once instead of issuing a
+virtual-reference range query for every ordinary file. Peak RSS stayed around
+10 MB on this fixture.
+
+Reproduce with a local directory tree; the CLI scans the repository root:
+
+```bash
+mkdir -p /tmp/scanbench/data
+# populate /tmp/scanbench/data
+dosierskanilo init /tmp/scanbench
+dosierskanilo scan /tmp/scanbench --recursive
+dosierskanilo scan /tmp/scanbench --recursive
+```
+
 ## JSON Archive Member Pages
 
 `includeArchiveMembers` pages used to count duplicate member paths with a nested

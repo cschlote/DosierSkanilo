@@ -1239,9 +1239,9 @@ which unfinished baseline work is intentional versus forgotten.
 - [ ] Profile representative repeated work in SQLite scan/metadata, JSON
   filtering, directory projection, and TreeView filter/clear cycles. Record
   elapsed time, peak process memory, and GC allocation/collection behavior where
-  tooling permits. The JSON archive-member page baseline is recorded in
-  `docs/BENCHMARKS.md`; remaining measurements are repository scan/metadata and
-  the GTK-side TreeView/filter cycles.
+  tooling permits. JSON archive-member page and repository rescan baselines are
+  recorded in `docs/BENCHMARKS.md`; remaining measurements are metadata
+  extraction, directory projection, and the GTK-side TreeView/filter cycles.
 - [ ] Identify allocations inside per-file/per-directory loops, including
   temporary normalized paths, formatted strings, one-use arrays, duplicate
   filtered row/tree projections, and unbounded retained results.
