@@ -2003,6 +2003,15 @@ private:
         if (auto cached = key in archiveMemberRowsByDirectory)
             return cached;
         ArchiveMemberRows rows;
+        size_t expectedMembers;
+        foreach (containerRow, container; fileRows)
+            if (container.directoryId == directoryId)
+            {
+                const auto contentToken = container.contentId.adapterToken;
+                if (auto entries = contentToken in archiveEntriesByToken)
+                    expectedMembers += (*entries).length;
+            }
+        rows.rows.reserve(expectedMembers);
         foreach (containerRow, container; fileRows)
             if (container.directoryId == directoryId)
             {

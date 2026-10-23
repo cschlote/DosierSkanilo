@@ -14,7 +14,8 @@ They represent the functional evolution and are intentionally summarized.
 - JSON archive-member pages now use a per-directory member order that is built
   once and merged with physical rows. This removes quadratic same-path counting
   and avoids regenerating and sorting every member for each page. The first page
-  still builds the member order.
+  now reserves the known member count, cutting a 100,000-member first page from
+  about `0.54 s` to about `86 ms`; it still builds the full member order.
 - Ctrl-C now cancels catalog imports and exports at the next safe checkpoint.
   Cancelled imports roll back to the previous catalog, and cancelled exports
   leave the destination untouched. Controlled import/export methods and

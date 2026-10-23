@@ -10,6 +10,7 @@ module benchmark_json_members;
  *   dub run --single scripts/benchmark-json-members.d --build=release -- \
  *       [member-count]
  */
+import core.memory : GC;
 import std.conv : to;
 import std.datetime.stopwatch : AutoStart, StopWatch;
 import std.datetime.systime : Clock;
@@ -62,16 +63,24 @@ void main(string[] args)
     request.limit = 250;
 
     auto stopwatch = StopWatch(AutoStart.yes);
+    auto allocatedBefore = GC.stats.allocatedInCurrentThread;
     auto page = backend.listFiles(query, request);
     stopwatch.stop();
+    auto allocatedAfter = GC.stats.allocatedInCurrentThread;
     writeln("members=", memberCount,
         " first_page_ms=", stopwatch.peek.total!"msecs",
+        " first_page_alloc_mb=",
+        (allocatedAfter - allocatedBefore) / (1024.0 * 1024.0),
         " files=", page.files.length, " hasMore=", page.hasMore);
 
     stopwatch.reset();
     stopwatch.start();
+    allocatedBefore = GC.stats.allocatedInCurrentThread;
     page = backend.nextFilesPage(query, page.nextCursor);
     stopwatch.stop();
+    allocatedAfter = GC.stats.allocatedInCurrentThread;
     writeln("second_page_ms=", stopwatch.peek.total!"msecs",
+        " second_page_alloc_mb=",
+        (allocatedAfter - allocatedBefore) / (1024.0 * 1024.0),
         " files=", page.files.length);
 }
