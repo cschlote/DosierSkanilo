@@ -93,8 +93,9 @@ intentional transitional type coupling, not all confirmed defects.
   per-directory member order and merge it with physical rows. The first page
   still materializes the member order. Remaining work: measure the transitional
   blob virtual tables and other large JSON/materialization paths.
-- [ ] WP-11.3: Decide whether the transitional Blob table remains coupled to
-  `NamedBinaryBlob` or migrates to source-neutral summary/detail DTOs.
+- [x] WP-11.3: Keep the transitional Blob table coupled to the canonical JSON
+  `NamedBinaryBlob` model for now. Source-neutral summary/detail DTOs are a
+  WP-13 redesign prerequisite, not a local WP-11 API change.
 - [x] WP-11.4: Reconcile the backend dependency diagram and close WP-00 baseline
   status; remaining large-path measurement is tracked under WP-11.2/WP-11.5.
 
@@ -103,13 +104,13 @@ issue.
 
 ## P2 — Network-filesystem compatibility decision
 
-- [ ] Evaluate SQLite repository placement on CIFS/SMB: document locking, WAL,
-  atomic-rename, backup, and failure assumptions; identify supported and
-  unsupported mount configurations; test only where a representative
-  environment is available.
-- [ ] Record a support decision. If reliable locking/transactions cannot be
-  established, document a clear restriction and actionable diagnostic rather
-  than implying support.
+- [x] Evaluate SQLite repository placement on CIFS/SMB and record the decision:
+  network mounts are unsupported until they provide cross-host locks, WAL shared
+  memory, atomic rename, durable sync, and working hard links (or the copy
+  fallback). `docs/DATABASE.md` lists the requirements, observed failures, and
+  supported deployment alternatives. No representative CIFS/SMB environment is
+  available for testing in this repository, so the restriction is documented
+  rather than guessed at.
 
 **Exit:** reviewed decision with evidence, constraints, and follow-up tasks; this
 is a decision package, not an assumption that CIFS/SMB support must be implemented.

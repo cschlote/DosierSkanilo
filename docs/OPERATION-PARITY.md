@@ -44,5 +44,6 @@ repository; repository operations do not write a JSON catalog implicitly.
 - Add display-backed GTK interaction tests that start an operation from Tools,
   exercise Cancel/Pause/Resume, and verify progress and refresh in the owning tab.
 - Basic cross-process contention is covered. Still open: cancellation/pause
-  while another process is active, lease release after backend failure, and
-  CIFS/SMB lock behavior.
+  while another process is active and lease release after backend failure.
+  CIFS/SMB placement is documented as unsupported in `docs/DATABASE.md`; there
+  is no operation-level verification to add unless network support is revisited.
