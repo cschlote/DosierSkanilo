@@ -27,8 +27,9 @@ import dosierskanilo.repository.types : JsonImportOptions, RepositoryBlobPage,
     RepositoryQueryOptions;
 import dosierskanilo.operationrunner;
 import dosierskanilo.operations : AnalysisOperationRequest, MetadataOperationRequest,
-    OperationControl, OperationKind, OperationResult, OperationStorageMode,
-    OperationTarget, ScanOperationRequest;
+    OperationControl, OperationKind, OperationPhase, OperationProgress,
+    OperationResult, OperationState, OperationStorageMode, OperationTarget,
+    ScanOperationRequest;
 import dosierskanilo.service.jsonoperations : commitJsonCatalog;
 
 private struct JsonLocation
@@ -715,11 +716,45 @@ public:
     override CatalogExportResult exportSubset(CatalogSubsetQuery query,
         CatalogExportOptions options)
     {
+        return exportSubsetControlled(query, options, null, 0);
+    }
+
+    override CatalogExportResult exportSubsetControlled(CatalogSubsetQuery query,
+        CatalogExportOptions options, OperationControl control,
+        ulong operationId)
+    {
         requireTreeQueries();
         enforceJsonExportFormat(options);
         enforce(options.outputPath.length > 0, new CatalogBackendException(
             CatalogBackendErrorCode.invalidTarget,
             "A JSON subset export requires an explicit output path."));
+
+        bool cancelled;
+        void reportProgress(size_t completed, size_t total)
+        {
+            if (control is null)
+                return;
+            OperationProgress progress;
+            progress.operationId = operationId;
+            progress.operation = OperationKind.catalogExport;
+            progress.state = OperationState.running;
+            progress.phase = OperationPhase.jsonWrite;
+            progress.completed = completed;
+            progress.total = total;
+            progress.totalKnown = true;
+            progress.message = "Writing JSON catalog.";
+            control.report(progress);
+            cancelled = control.cancellationRequested;
+        }
+        bool checkCancelled()
+        {
+            if (control !is null && control.cancellationRequested)
+                cancelled = true;
+            return cancelled;
+        }
+        reportProgress(0, 0);
+        if (cancelled)
+            return CatalogExportResult.init;
 
         size_t[string] blobByContent;
         NamedBinaryBlob[string] exportedByContent;
@@ -808,6 +843,8 @@ public:
 
         foreach (file; fileRows)
         {
+            if (checkCancelled())
+                return CatalogExportResult.init;
             if (!matches(file, query.filter)
                 || !hasPathPrefix(file.relativePath, query.pathPrefix))
                 continue;
@@ -823,11 +860,15 @@ public:
                         memberByToken[member.referenceId.adapterToken] = member;
             foreach (container; fileRows)
             {
+                if (checkCancelled())
+                    return CatalogExportResult.init;
                 if (!container.hasArchive)
                     continue;
                 auto blobIndex = blobIndexByRelativePath[container.relativePath];
                 foreach (member; archiveMemberFiles(container))
                 {
+                    if (checkCancelled())
+                        return CatalogExportResult.init;
                     if (!matches(member, query.filter)
                         || !hasPathPrefix(member.relativePath, query.pathPrefix))
                         continue;
@@ -905,8 +946,14 @@ public:
 
         NamedBinaryBlob[] exportedBlobs;
         CatalogExportResult result;
+        const size_t exportTotal = blobByContent.length;
+        reportProgress(0, exportTotal);
+        if (cancelled)
+            return result;
         foreach (contentToken; blobByContent.keys)
         {
+            if (checkCancelled())
+                return result;
             auto exportBlob = exportedByContent[contentToken];
             result.referencesExported += exportBlob.fileSpecs.length;
             if (!options.includeContentDetails)
@@ -971,9 +1018,22 @@ public:
         }
         auto exported = NamedBinaryBlobCatalog(DATA_CLASS_VERSION5,
             exportedBlobs);
-        enforce(commitJsonCatalog(options.outputPath, exported),
-            new CatalogBackendException(CatalogBackendErrorCode.backendFailure,
-                "Could not publish the JSON subset export."));
+        reportProgress(exportTotal, exportTotal);
+        if (cancelled)
+            return result;
+        const bool committed = commitJsonCatalog(options.outputPath, exported,
+            () {
+                reportProgress(exportTotal, exportTotal);
+                return cancelled;
+            });
+        if (!committed)
+        {
+            if (cancelled)
+                return result;
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.backendFailure,
+                "Could not publish the JSON subset export.");
+        }
         result.contentsExported = exportedBlobs.length;
         foreach (contentToken; selectedMemberContents.keys)
             if (contentToken !in blobByContent)
@@ -988,6 +1048,13 @@ public:
         requireOpen();
         throw new CatalogBackendException(CatalogBackendErrorCode.unsupportedOperation,
             "JSON catalogs cannot import into themselves through this adapter.");
+    }
+
+    override bool importJsonControlled(string jsonPath, JsonImportOptions options,
+        OperationControl control, ulong operationId)
+    {
+        importJson(jsonPath, options);
+        return true;
     }
 
     override OperationResult runOperation(ScanOperationRequest request,

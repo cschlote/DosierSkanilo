@@ -28,9 +28,10 @@ repository; repository operations do not write a JSON catalog implicitly.
 - `scripts/test-cli.sh` exercises JSON-target scan/analyze, SQLite scan with metadata,
   standalone metadata, analysis, import/export, mode isolation, and command output.
   It also sends SIGINT during a JSON analysis, a JSON scan, SQLite metadata, a
-  SQLite scan, and a large SQLite duplicate merge, checking the cooperative
-  cancellation message, worker shutdown, an unpublished JSON catalog, a
-  rolled-back merge, and a still-usable repository.
+  SQLite scan, a large SQLite duplicate merge, a catalog import, and a catalog
+  export, checking the cooperative cancellation message, worker shutdown, an
+  unpublished JSON catalog, a rolled-back merge, an unchanged repository, and a
+  still-usable repository.
 - GUI `operationrequests.d` executes GUI-built requests against both modes and
   compares their scan, metadata, and analysis summaries. `operationtaskstate.d`
   tests acknowledged pause transitions, stale progress rejection, and refresh
@@ -40,8 +41,6 @@ repository; repository operations do not write a JSON catalog implicitly.
 
 ## Remaining verification
 
-- Import and export do not yet poll for cancellation; add checkpoints and
-  process-level Ctrl-C tests for both.
 - Add display-backed GTK interaction tests that start an operation from Tools,
   exercise Cancel/Pause/Resume, and verify progress and refresh in the owning tab.
 - Basic cross-process contention is covered. Still open: cancellation/pause

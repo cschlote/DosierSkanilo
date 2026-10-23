@@ -175,8 +175,9 @@ bool executeRepositoryOperation(ArgsArray options)
 			return true;
 		}
 
-		if (!options.argImportJSON.empty)
-			executeRepositoryImport(backend, sourceRoot, options);
+		if (!options.argImportJSON.empty
+			&& !executeRepositoryImport(backend, sourceRoot, options))
+			return false;
 
 		if (options.argRunMetadata || options.argDoChecksums
 			|| options.argDoFileTypes || options.argDoMediaSig
@@ -192,7 +193,8 @@ bool executeRepositoryOperation(ArgsArray options)
 			}
 		}
 
-		executeRepositoryExport(backend, sourceRoot, options);
+		if (!executeRepositoryExport(backend, sourceRoot, options))
+			return false;
 		return true;
 	}
 	catch (Exception ex)
@@ -203,15 +205,24 @@ bool executeRepositoryOperation(ArgsArray options)
 }
 
 /** Import a JSON catalog into a repository. */
-void executeRepositoryImport(CatalogBackend backend, string repositoryRoot,
+bool executeRepositoryImport(CatalogBackend backend, string repositoryRoot,
 	ArgsArray options)
 {
 	logLine("Catalog phase: import JSON.");
 	logLineVerbose("Importing into catalog root: ", repositoryRoot);
 	JsonImportOptions importOptions;
 	importOptions.force = options.argReplaceCatalog;
-	backend.importJson(options.argImportJSON, importOptions);
+	auto control = cliOperationControl("Catalog import");
+	const bool imported = backend.importJsonControlled(
+		options.argImportJSON, importOptions, control, 6);
+	clearOperationProgress();
+	if (!imported)
+	{
+		errorLine("Catalog import cancelled; the previous catalog was kept.");
+		return false;
+	}
 	logFLine("Imported JSON catalog '%s'.", options.argImportJSON);
+	return true;
 }
 
 /** Execute a scan or analysis through the shared backend contract. */
@@ -310,22 +321,30 @@ bool executeCatalogOperation(ArgsArray options)
 }
 
 /** Export the repository catalog when requested. */
-void executeRepositoryExport(CatalogBackend backend, string repositoryRoot,
+bool executeRepositoryExport(CatalogBackend backend, string repositoryRoot,
 	ArgsArray options)
 {
 	auto exportPath = options.argExportJSON;
 	if (exportPath.empty && options.argWriteJSON)
 		exportPath = options.argJSONFile;
 	if (exportPath.empty)
-		return;
+		return true;
 	logLine("Catalog phase: export JSON.");
 	logLineVerbose("Exporting catalog root: ", repositoryRoot);
 	CatalogExportOptions exportOptions;
 	exportOptions.outputPath = exportPath;
 	exportOptions.format = CatalogExportFormat.jsonV5;
-	auto result = backend.exportSubset(CatalogSubsetQuery("", CatalogFilter.init),
-		exportOptions);
+	auto control = cliOperationControl("Catalog export");
+	auto result = backend.exportSubsetControlled(
+		CatalogSubsetQuery("", CatalogFilter.init), exportOptions, control, 7);
+	clearOperationProgress();
+	if (!result.committed)
+	{
+		errorLine("Catalog export cancelled; no catalog was written.");
+		return false;
+	}
 	logFLine("Exported repository JSON to '%s'.", result.outputPath);
+	return true;
 }
 
 /** Print catalog metadata and current content counts. */

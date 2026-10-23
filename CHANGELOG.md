@@ -11,6 +11,11 @@ They represent the functional evolution and are intentionally summarized.
 
 - Opening an initialized SQLite repository no longer writes
   `PRAGMA user_version` when the schema version is already current.
+- Ctrl-C now cancels catalog imports and exports at the next safe checkpoint.
+  Cancelled imports roll back to the previous catalog, and cancelled exports
+  leave the destination untouched. Controlled import/export methods and
+  `OperationKind.catalogImport`/`catalogExport` progress values were added to
+  the public API.
 - SQLite duplicate analysis now polls for cancellation while merging inside the
   transaction and rolls the whole merge back, so Ctrl-C no longer waits for a
   large merge to finish and commit.

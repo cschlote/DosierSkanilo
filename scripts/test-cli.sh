@@ -93,6 +93,37 @@ cmp "${crash_pristine}" "${crash_output}"
 rm -f "${crash_output}".tmp-*
 "${BIN}" analyze --json "${crash_output}" >/dev/null
 
+# SIGINT during repository import or export cancels without publishing.
+cancel_import_repo="${TMP_DIR}/cancel-import-repo"
+mkdir -p "${cancel_import_repo}"
+"${BIN}" init "${cancel_import_repo}" >/dev/null
+"${BIN}" import "${cancel_import_repo}" "${crash_source}" \
+    >"${TMP_DIR}/cancel-import-stdout" 2>"${TMP_DIR}/cancel-import-stderr" &
+cancel_import_pid=$!
+sleep 0.2
+kill -INT "${cancel_import_pid}" 2>/dev/null || true
+if wait "${cancel_import_pid}"; then
+    printf '%s\n' "Expected interrupted import to fail." >&2
+    exit 1
+fi
+grep -q "Catalog import cancelled" "${TMP_DIR}/cancel-import-stderr"
+cancel_import_info=$("${BIN}" info "${cancel_import_repo}" --format=json)
+[[ "${cancel_import_info}" == *'"blobs":0'* ]]
+
+cancel_export_path="${TMP_DIR}/cancel-export.json"
+"${BIN}" export "${crash_repo}" --output "${cancel_export_path}" \
+    >"${TMP_DIR}/cancel-export-stdout" 2>"${TMP_DIR}/cancel-export-stderr" &
+cancel_export_pid=$!
+sleep 0.2
+kill -INT "${cancel_export_pid}" 2>/dev/null || true
+if wait "${cancel_export_pid}"; then
+    printf '%s\n' "Expected interrupted export to fail." >&2
+    exit 1
+fi
+grep -q "Catalog export cancelled" "${TMP_DIR}/cancel-export-stderr"
+[[ ! -e "${cancel_export_path}" ]]
+"${BIN}" info "${crash_repo}" >/dev/null
+
 # SIGINT during a JSON scan stops the workers and never publishes a catalog.
 cancel_scan_tree="${TMP_DIR}/cancel-scan-tree"
 mkdir -p "${cancel_scan_tree}"

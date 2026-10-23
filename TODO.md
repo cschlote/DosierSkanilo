@@ -64,8 +64,8 @@ Remaining verification is enumerated in WP-09 and
 operation families, lease races while a second process is active, and
 display-backed GTK operation start/progress/pause/cancel/refresh tests.
 `test-cli.sh` covers SIGINT during JSON analysis, JSON scan, SQLite metadata,
-SQLite scan, and a large duplicate merge; a forked-process test covers basic
-cross-process lease exclusion. Import/export cancellation remains open. Do not
+SQLite scan, a large duplicate merge, catalog import, and catalog export; a
+forked-process test covers basic cross-process lease exclusion. Do not
 reintroduce an HMI-owned scan or analysis implementation.
 
 ## P1 — Storage-neutral catalog and archive-content model (WP-13)

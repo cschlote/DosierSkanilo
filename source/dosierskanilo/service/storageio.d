@@ -352,14 +352,20 @@ unittest
  *   nowString = optional timestamp string to use in backup file names (default: current time in ISO format).
  *   backupDirectory = optional directory for the backup file; empty keeps the
  *     backup next to the catalog.
+ *   cancelCheck = optional callback invoked before work starts and after
+ *     serialization. A `true` result discards the staging file and leaves the
+ *     original catalog unchanged.
  * Returns:
- *   `true` on success, `false` on failure. On failure, the original file is left unchanged if possible.
+ *   `true` on success, `false` on failure or cancellation. On failure, the original file is left unchanged if possible.
  */
 bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlobCatalog dynObjectWrapper,
     string jsonFileExtension = ".json",
     string nowString = Clock.currTime.toISOExtString(),
-    string backupDirectory = "")
+    string backupDirectory = "",
+    bool delegate() cancelCheck = null)
 {
+    if (cancelCheck !is null && cancelCheck())
+        return false;
     string newname = null;
     bool mustCopy = false;
     if (jsonFile.exists)
@@ -371,6 +377,8 @@ bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlobCatalog dynObjectW
         if (!rc)
             return false;
     }
+    if (cancelCheck !is null && cancelCheck())
+        return false;
     logLine("Serialize Array of Objects");
     /* Serialize into a staging file in the target directory and rename it into
      * place afterwards, so a crash or a full disk cannot leave a truncated
@@ -379,6 +387,12 @@ bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlobCatalog dynObjectW
     try
     {
         serializeDataClassWrapperFile(stagingFile, dynObjectWrapper);
+        if (cancelCheck !is null && cancelCheck())
+        {
+            if (exists(stagingFile))
+                remove(stagingFile);
+            return false;
+        }
         /* POSIX rename replaces the target atomically, so a crash can never
          * observe a missing catalog. Windows rename refuses existing targets. */
         version (Windows)

@@ -725,8 +725,23 @@ interface CatalogBackend
     CatalogExportResult exportSubset(CatalogSubsetQuery query,
         CatalogExportOptions options);
 
+    /**
+     * Export a subset with cooperative cancellation. Implementations stop at
+     * safe checkpoints and leave `committed` false when cancelled.
+     */
+    CatalogExportResult exportSubsetControlled(CatalogSubsetQuery query,
+        CatalogExportOptions options, OperationControl control,
+        ulong operationId);
+
     /** Import a JSON catalog into the bound repository source. */
     void importJson(string jsonPath, JsonImportOptions options = JsonImportOptions.init);
+
+    /**
+     * Import a JSON catalog with cooperative cancellation. Returns `false` when
+     * the import was cancelled before commit.
+     */
+    bool importJsonControlled(string jsonPath, JsonImportOptions options,
+        OperationControl control, ulong operationId);
 
     /** Run scan synchronously and require its explicit root to match this source. */
     OperationResult runOperation(ScanOperationRequest request,
@@ -1286,6 +1301,13 @@ version (unittest)
             return [RepositoryDuplicateGroup(10, [1])];
         }
 
+        override CatalogExportResult exportSubsetControlled(CatalogSubsetQuery query,
+            CatalogExportOptions options, OperationControl control,
+            ulong operationId)
+        {
+            return exportSubset(query, options);
+        }
+
         override CatalogExportResult exportSubset(CatalogSubsetQuery query,
             CatalogExportOptions options)
         {
@@ -1321,6 +1343,14 @@ version (unittest)
             requireOpen();
             assert(jsonPath.length > 0);
             cast(void) options;
+        }
+
+        override bool importJsonControlled(string jsonPath,
+            JsonImportOptions options, OperationControl control,
+            ulong operationId)
+        {
+            importJson(jsonPath, options);
+            return true;
         }
 
         override OperationResult runOperation(ScanOperationRequest request,
