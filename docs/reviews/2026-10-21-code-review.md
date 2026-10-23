@@ -764,8 +764,11 @@ the
       member trees.
 - [x] The `opIndex` finding was incorrect: D associative-array reads throw a
       `RangeError` on a missing key instead of inserting a default.
-- [ ] Open parity item: pages with `includeArchiveMembers` still generate and
-      sort all archive members before slicing.
+- [ ] Pages with `includeArchiveMembers` now build one member order per
+      directory, cache it, and merge it with physical rows for path and size
+      pages. They no longer regenerate and re-sort members for every page.
+      The first page still builds the full member order, so a single very large
+      archive keeps member-proportional memory.
 
 Verification: `DC=ldc2 dub test --config=library` - 151 passed, 0 failed;
 `./scripts/test-cli.sh` - passed; `./scripts/lint.sh` - passed.

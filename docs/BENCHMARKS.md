@@ -76,6 +76,29 @@ On the same 100,000-row synthetic repository (checksums only, no media or
 archive details), `list --limit 250 --format json` completed in under 10 ms and
 `--limit 1000` in about 40 ms per invocation, including process startup.
 
+## JSON Archive Member Pages
+
+`includeArchiveMembers` pages used to count duplicate member paths with a nested
+scan and regenerate and sort the full member set for every page. A synthetic
+catalog with one archive container and unique member paths showed the
+quadratic path counting clearly: with 50,000 members the first 250-row page took
+`6.5 s`. Replacing the nested count with one path-count pass reduced that to
+`0.24 s`; with 100,000 members the first page takes about `0.51 s`.
+
+Member rows are now ordered once per directory and cached. Physical rows and
+member rows are merged lazily for path and size order, so later pages no longer
+regenerate or sort the member set. On the 100,000-member catalog the second
+250-row page takes about `1 ms`. The first page still allocates the full member
+order, so peak memory remains proportional to the number of members in the
+queried directory. The benchmark process used about `660 MB` in total for that
+catalog, including JSON indexing and content snapshots.
+
+Reproduce with:
+
+```bash
+dub run --single scripts/benchmark-json-members.d --build=release -- 100000
+```
+
 ## Follow-Up Measurements
 
 - Measure a 250-row unfiltered repository page.

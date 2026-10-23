@@ -89,9 +89,10 @@ intentional transitional type coupling, not all confirmed defects.
   No read-only open path was added: WAL still needs write access for `-shm` and
   `-wal`, so read-only mounts remain unsupported. Independent read connections
   are retained for concurrent queries.
-- [ ] WP-11.2: Trace production JSON paging/materialization call paths and
-  measure representative JSON and virtual-table memory/latency before caching or
-  changing load behavior.
+- [ ] WP-11.2: JSON archive-member pages were measured and now cache one
+  per-directory member order and merge it with physical rows. The first page
+  still materializes the member order. Remaining work: measure the transitional
+  blob virtual tables and other large JSON/materialization paths.
 - [ ] WP-11.3: Decide whether the transitional Blob table remains coupled to
   `NamedBinaryBlob` or migrates to source-neutral summary/detail DTOs.
 - [x] WP-11.4: Reconcile the backend dependency diagram and close WP-00 baseline

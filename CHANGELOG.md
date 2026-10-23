@@ -11,6 +11,10 @@ They represent the functional evolution and are intentionally summarized.
 
 - Opening an initialized SQLite repository no longer writes
   `PRAGMA user_version` when the schema version is already current.
+- JSON archive-member pages now use a per-directory member order that is built
+  once and merged with physical rows. This removes quadratic same-path counting
+  and avoids regenerating and sorting every member for each page. The first page
+  still builds the member order.
 - Ctrl-C now cancels catalog imports and exports at the next safe checkpoint.
   Cancelled imports roll back to the previous catalog, and cancelled exports
   leave the destination untouched. Controlled import/export methods and
