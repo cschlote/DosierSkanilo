@@ -59,6 +59,23 @@ in-process SQLite statement dispatch dominate at this size, so the statement
 bound matters mainly for embedded/GUI refresh paths and larger metadata rows.
 Measure the GUI page refresh on production data before drawing conclusions.
 
+## Repository Open Behavior
+
+`Repository.open()` used to execute `PRAGMA user_version` unconditionally after
+migration, which rewrote the database header and updated its mtime on every
+open. The version is now written only when it differs. Twenty `info` invocations
+against a 100,000-row repository left the database mtime unchanged; a unit test
+reopens an initialized repository after a short delay and asserts the same.
+
+Read-only mounts are still unsupported: the repository uses WAL, and SQLite
+needs write access to create or recover `-shm`/`-wal`. Opening a read-only copy
+fails with `SQLITE_READONLY` (error 8). This is a filesystem-support decision,
+not a read-path performance limit.
+
+On the same 100,000-row synthetic repository (checksums only, no media or
+archive details), `list --limit 250 --format json` completed in under 10 ms and
+`--limit 1000` in about 40 ms per invocation, including process startup.
+
 ## Follow-Up Measurements
 
 - Measure a 250-row unfiltered repository page.

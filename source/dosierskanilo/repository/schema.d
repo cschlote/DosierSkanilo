@@ -315,8 +315,17 @@ void migrate(ref Database db, string now)
     }
 
     /* Keep SQLite's own version in sync with the migration table so external
-     * tools can inspect the schema without reading `schema_migrations`. */
-    db.execute("PRAGMA user_version = " ~ to!string(schemaVersion));
+     * tools can inspect the schema without reading `schema_migrations`. Only
+     * write when it changed, so opening an initialized repository stays
+     * read-only. */
+    ulong pragmaVersion;
+    {
+        auto result = db.execute("PRAGMA user_version");
+        if (!result.empty)
+            pragmaVersion = cast(ulong) result.front.peek!long(0);
+    }
+    if (pragmaVersion != schemaVersion)
+        db.execute("PRAGMA user_version = " ~ to!string(schemaVersion));
 }
 
 private struct MigrationFileReference

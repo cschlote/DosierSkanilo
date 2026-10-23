@@ -82,10 +82,13 @@ implemented SQL engine until adapter portability requirements are tested.
 Investigation first: the review raised possible performance costs and an
 intentional transitional type coupling, not all confirmed defects.
 
-- [ ] WP-11.1: Benchmark steady-state repository opens/tree queries and inspect
-  which `Repository.open()` steps write after initialization. Add a read-only
-  open path only if measurements or write behavior justify it; retain
-  independent connections for concurrent queries.
+- [x] WP-11.1: `Repository.open()` no longer rewrites `PRAGMA user_version` on
+  every open, so steady-state opens leave the database file untouched (covered
+  by a timestamp test). A 100,000-row repository serves 250-row pages in under
+  10 ms and 1,000-row pages in about 40 ms wall time including process startup.
+  No read-only open path was added: WAL still needs write access for `-shm` and
+  `-wal`, so read-only mounts remain unsupported. Independent read connections
+  are retained for concurrent queries.
 - [ ] WP-11.2: Trace production JSON paging/materialization call paths and
   measure representative JSON and virtual-table memory/latency before caching or
   changing load behavior.

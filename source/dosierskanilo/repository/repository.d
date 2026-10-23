@@ -673,7 +673,18 @@ unittest
     mkdirRecurse(nested);
     auto reopened = Repository.open(nested);
     assert(reopened.rootPath == buildNormalizedPath(root));
+    const databasePath = reopened.databasePath;
     reopened.close();
+
+    import core.thread : Thread;
+    import core.time : msecs;
+    import std.file : timeLastModified;
+    auto stamp = timeLastModified(databasePath);
+    Thread.sleep(20.msecs);
+    auto steady = Repository.open(root);
+    steady.close();
+    assert(timeLastModified(databasePath) == stamp,
+        "Opening an initialized repository must not write to the database.");
 }
 
 @("repository JSON import and export roundtrip")
