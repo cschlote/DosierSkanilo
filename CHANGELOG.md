@@ -9,6 +9,10 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- Checksum calculation reuses a 64 KiB buffer instead of allocating a 16 MiB
+  chunk buffer per file. A 10,000-small-file `metadata --checksums` run dropped
+  from about `29 s` to about `0.6 s`; metadata persistence also commits once per
+  worker batch instead of once per blob.
 - Repository rescans no longer remove each present file from an unindexed
   temporary candidate table. A 10,000-file unchanged rescan dropped from about
   `1.9 s` to about `0.2 s`; staging and unchanged-file updates reuse prepared

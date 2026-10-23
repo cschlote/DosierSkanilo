@@ -101,6 +101,15 @@ dosierskanilo scan /tmp/scanbench --recursive
 dosierskanilo scan /tmp/scanbench --recursive
 ```
 
+## Metadata Checksum Pass
+
+A 10,000-file repository (one byte per file) took about `29 s` for
+`metadata --checksums`. Each digest calculation asked `std.stdio.chunks` for a
+16 MiB buffer, so every tiny file allocated and scanned a 16 MiB buffer. The
+digest pass now reads into a reusable 64 KiB stack buffer and reports progress
+per chunk. That run takes about `0.6 s`. The same change also batches the
+per-group persistence transaction instead of committing each blob separately.
+
 ## JSON Archive Member Pages
 
 `includeArchiveMembers` pages used to count duplicate member paths with a nested
