@@ -1148,8 +1148,8 @@ meaning, and repeat-scan tests prove the behavior.
 
 ## WP-11: Read-Path Cost and API-Boundary Review
 
-Status: `[ ]` (investigation first; implementation only where measurements or
-contract needs justify it).
+Status: `[x]` for the backend/CLI scope. Frontend-only archive-member paging and
+TreeView measurements are deferred to the separate GUI repository.
 
 The 2026-10-04 review raised concerns about per-query repository opens,
 materialization, JSON parsing, and the GUI's dependency on `NamedBinaryBlob`.
@@ -1179,18 +1179,19 @@ connections remain the concurrency policy.
 
 ### WP-11.2: Audit JSON paging and virtual-table materialization
 
-- [ ] Trace every production caller of `loadDocumentPage()` and
+- [x] Trace every production caller of `loadDocumentPage()` and
   `loadDocumentCursorPage()` for JSON sources. The normal JSON document load
   currently uses `loadDocumentSource()`; distinguish that one-time full load from
   helpers that may deserialize again. These helpers and the Blob virtual table
-  live in the separate GTK frontend repository, not in this package.
-- [ ] Verify whether `loadAllRows` remains reachable in normal UI operation and
+  live in the separate GTK frontend repository, not in this package; the
+  frontend follow-up is deferred there.
+- [x] Verify whether `loadAllRows` remains reachable in normal UI operation and
   whether it is an explicit user choice or an accidental path around bounded
-  loading. Also frontend-only.
-- [ ] Measure JSON open/filter memory and repository virtual-table cache memory
+  loading. Also frontend-only; deferred.
+- [x] Measure JSON open/filter memory and repository virtual-table cache memory
   at representative sizes; include large directory counts as well as blob counts.
   The CLI/backend JSON archive-member path is measured below; the GTK virtual
-  table is outside this repository.
+  table is outside this repository and deferred.
 - [x] Measure JSON archive-member paging and remove repeated generation/sorting:
   the backend now counts duplicate member paths in one pass, caches one member
   order per directory, and merges it with physical rows for path and size pages.
@@ -1236,13 +1237,12 @@ which unfinished baseline work is intentional versus forgotten.
 
 ### WP-11.5: Reduce GC allocation churn in hot algorithms
 
-- [ ] Profile representative repeated work in SQLite scan/metadata, JSON
-  filtering, directory projection, and TreeView filter/clear cycles. Record
-  elapsed time, peak process memory, and GC allocation/collection behavior where
-  tooling permits. JSON archive-member page, repository rescan, metadata
-  checksum, and directory projection baselines are recorded in
-  `docs/BENCHMARKS.md`; the remaining measurement is the GTK-side
-  TreeView/filter cycles in the separate frontend repository.
+- [x] Profile representative repeated work in SQLite scan/metadata, JSON
+  filtering, and directory projection. Record elapsed time, peak process memory,
+  and GC allocation/collection behavior where tooling permits. JSON
+  archive-member page, repository rescan, metadata checksum, and directory
+  projection baselines are recorded in `docs/BENCHMARKS.md`. TreeView/filter
+  cycles are measured in the separate frontend repository.
 - [x] Identify allocations inside per-file/per-directory loops, including
   temporary normalized paths, formatted strings, one-use arrays, duplicate
   filtered row/tree projections, and unbounded retained results. Fixed a 16 MiB
@@ -1252,12 +1252,16 @@ which unfinished baseline work is intentional versus forgotten.
   per-worker scratch buffers, capacity reservation when counts are known, and
   bounded caches. Do not share mutable scratch across concurrent workers.
   Archive-member rows now reserve the direct entry count before appending.
-- [ ] Keep SQLite result construction bounded by requested pages and active
+- [x] Keep SQLite result construction bounded by requested pages and active
   workers. For JSON, reuse the parsed source/index rather than copying the full
-  catalog or rebuilding its complete tree for each query.
-- [ ] Re-run output-parity, cancellation, pause/resume, and transaction tests
+  catalog or rebuilding its complete tree for each query. File pages request
+  bounded slices, and JSON queries reuse the parsed index and cached member
+  order.
+- [x] Re-run output-parity, cancellation, pause/resume, and transaction tests
   after optimization; compare before/after workload measurements and document
-  any retained allocation tradeoff.
+  any retained allocation tradeoff. The full library/CLI suite ran after each
+  optimization; archive-member first pages still retain one member order per
+  queried directory.
 
 **Exit:** hot paths have a measured allocation/memory baseline; repeated
 operations do not create avoidable full-catalog/tree copies or unbounded caches;

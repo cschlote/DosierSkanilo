@@ -89,11 +89,11 @@ intentional transitional type coupling, not all confirmed defects.
   No read-only open path was added: WAL still needs write access for `-shm` and
   `-wal`, so read-only mounts remain unsupported. Independent read connections
   are retained for concurrent queries.
-- [ ] WP-11.2: JSON archive-member pages were measured and now cache one
-  per-directory member order and merge it with physical rows. The first page
-  still materializes the member order. Remaining work (`loadDocumentPage`,
-  `loadAllRows`, and the Blob virtual table) is in the separate GTK frontend
-  repository; measure it there before changing those paths.
+- [x] WP-11.2: JSON archive-member pages now cache one per-directory member
+  order and merge it with physical rows. The first page still materializes the
+  member order. Backend/CLI work is complete; `loadDocumentPage`, `loadAllRows`,
+  and the Blob virtual table are in the separate GTK frontend repository and are
+  deferred until the GUI work starts.
 - [x] WP-11.3: Keep the transitional Blob table coupled to the canonical JSON
   `NamedBinaryBlob` model for now. Source-neutral summary/detail DTOs are a
   WP-13 redesign prerequisite, not a local WP-11 API change.
