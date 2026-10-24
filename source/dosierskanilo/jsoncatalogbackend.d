@@ -27,8 +27,9 @@ import dosierskanilo.repository.types : JsonImportOptions, RepositoryBlobPage,
     RepositoryQueryOptions;
 import dosierskanilo.operationrunner;
 import dosierskanilo.operations : AnalysisOperationRequest, MetadataOperationRequest,
-    OperationControl, OperationKind, OperationResult, OperationStorageMode,
-    OperationTarget, ScanOperationRequest;
+    OperationControl, OperationKind, OperationPhase, OperationProgress,
+    OperationResult, OperationState, OperationStorageMode, OperationTarget,
+    ScanOperationRequest;
 import dosierskanilo.service.jsonoperations : commitJsonCatalog;
 
 private struct JsonLocation
@@ -69,6 +70,19 @@ private struct CatalogSlice
     bool hasPrevious;
 }
 
+private struct ArchiveMemberRow
+{
+    CatalogFile file;
+    size_t containerRow;
+}
+
+private struct ArchiveMemberRows
+{
+    ArchiveMemberRow[] rows;
+    size_t[] sizeAscending;
+    size_t[] sizeDescending;
+}
+
 /** JSON-backed catalog adapter for legacy and version-5 catalogs. */
 final class JsonCatalogBackend : CatalogBackend
 {
@@ -92,6 +106,9 @@ private:
 
     CatalogFile[] fileRows;
     CatalogDirectory[] directoryRows;
+    size_t[] sizeAscendingOrder;
+    size_t[] sizeDescendingOrder;
+    ArchiveMemberRows[string] archiveMemberRowsByDirectory;
     CatalogContentSnapshot[string] contentByToken;
     CatalogArchiveEntry[][string] archiveEntriesByToken;
     CatalogTorrentManifestEntry[][string] torrentEntriesByToken;
@@ -99,7 +116,6 @@ private:
     size_t[string] blobIndexByContentToken;
     FileSpec[string] fileSpecByRelativePath;
     size_t[string] directoryIndexByPath;
-    CatalogFile[string] archiveMemberReferenceByToken;
 
 public:
     /** Open a direct JSON catalog and optionally bind its filesystem source root. */
@@ -224,9 +240,110 @@ public:
         CatalogPageRequest page = CatalogPageRequest.init)
     {
         requireTreeQueries();
-        auto matching = matchingFiles(query);
-        auto slice = pageSlice(page, fileQueryToken(query), matching.length);
-        return makeFilePage(matching, slice);
+        if (!query.filter.includeArchiveMembers)
+        {
+            size_t total;
+            foreach (offset; 0 .. fileRows.length)
+                if (fileRowMatches(fileOrderIndex(query.sortOrder, offset), query))
+                    ++total;
+            const auto slice = pageSlice(page, fileQueryToken(query), total);
+
+            CatalogFilePage result;
+            result.files.reserve(slice.end - slice.start);
+            size_t matched;
+            foreach (offset; 0 .. fileRows.length)
+            {
+                if (!fileRowMatches(fileOrderIndex(query.sortOrder, offset), query))
+                    continue;
+                if (matched >= slice.start && matched < slice.end)
+                {
+                    auto file = fileRows[fileOrderIndex(query.sortOrder, offset)];
+                    refreshAvailability(file);
+                    result.files ~= file;
+                }
+                ++matched;
+                if (matched >= slice.end)
+                    break;
+            }
+            result.nextCursor = slice.nextCursor;
+            result.previousCursor = slice.previousCursor;
+            result.hasMore = slice.hasMore;
+            result.hasPrevious = slice.hasPrevious;
+            return result;
+        }
+
+        const auto queryToken = fileQueryToken(query);
+        size_t total;
+        forEachFileCandidate(query, (ref CatalogFile, size_t) { ++total; });
+        const auto slice = pageSlice(page, queryToken, total);
+
+        CatalogFile[] matching;
+        matching.reserve(slice.end - slice.start);
+        size_t matched;
+        forEachFileCandidate(query, (ref CatalogFile file, size_t containerRow) {
+            if (matched >= slice.start && matched < slice.end)
+            {
+                if (containerRow == size_t.max)
+                    refreshAvailability(file);
+                else
+                {
+                    auto container = fileRows[containerRow];
+                    refreshAvailability(container);
+                    file.availability = container.availability;
+                }
+                matching ~= file;
+            }
+            ++matched;
+        });
+        CatalogFilePage result;
+        result.files = matching;
+        result.nextCursor = slice.nextCursor;
+        result.previousCursor = slice.previousCursor;
+        result.hasMore = slice.hasMore;
+        result.hasPrevious = slice.hasPrevious;
+        return result;
+    }
+
+    size_t fileOrderIndex(CatalogSortOrder sortOrder, size_t offset)
+    {
+        final switch (sortOrder)
+        {
+        case CatalogSortOrder.pathAscending:
+            return offset;
+        case CatalogSortOrder.pathDescending:
+            return fileRows.length - 1 - offset;
+        case CatalogSortOrder.sizeAscending:
+            if (sizeAscendingOrder.length == 0 && fileRows.length > 0)
+            {
+                sizeAscendingOrder.length = fileRows.length;
+                foreach (index; 0 .. fileRows.length)
+                    sizeAscendingOrder[index] = index;
+                sizeAscendingOrder.sort!((left, right) =>
+                    fileRows[left].size < fileRows[right].size
+                    || (fileRows[left].size == fileRows[right].size
+                        && fileRows[left].relativePath < fileRows[right].relativePath));
+            }
+            return sizeAscendingOrder[offset];
+        case CatalogSortOrder.sizeDescending:
+            if (sizeDescendingOrder.length == 0 && fileRows.length > 0)
+            {
+                sizeDescendingOrder.length = fileRows.length;
+                foreach (index; 0 .. fileRows.length)
+                    sizeDescendingOrder[index] = index;
+                sizeDescendingOrder.sort!((left, right) =>
+                    fileRows[left].size > fileRows[right].size
+                    || (fileRows[left].size == fileRows[right].size
+                        && fileRows[left].relativePath < fileRows[right].relativePath));
+            }
+            return sizeDescendingOrder[offset];
+        }
+    }
+
+    bool fileRowMatches(size_t rowIndex, CatalogFileQuery query) const
+    {
+        const file = fileRows[rowIndex];
+        return file.directoryId == query.directoryId
+            && matches(file, query.filter);
     }
 
     override CatalogFilePage nextFilesPage(CatalogFileQuery query,
@@ -370,11 +487,19 @@ public:
                 break;
             }
         if (!foundContainer)
-            if (auto archiveContainer = referenceToken
-                in archiveMemberReferenceByToken)
+            foreach (candidate; fileRows)
             {
-                container = *archiveContainer;
-                foundContainer = true;
+                if (!candidate.hasArchive)
+                    continue;
+                foreach (member; archiveMemberFiles(candidate))
+                    if (member.referenceId.adapterToken == referenceToken)
+                    {
+                        container = member;
+                        foundContainer = true;
+                        break;
+                    }
+                if (foundContainer)
+                    break;
             }
         if (!foundContainer || !container.hasArchive)
             throw new CatalogBackendException(
@@ -388,6 +513,7 @@ public:
                 if (entry.hasSafePath && !entry.isDirectory)
                     entries ~= entry;
 
+        refreshAvailability(container);
         const auto queryToken = sourceToken ~ "\0" ~ indexGeneration.to!string
             ~ "\0archive-members\0" ~ referenceToken;
         const auto slice = pageSlice(page, queryToken, entries.length);
@@ -424,8 +550,6 @@ public:
             memberFile.availability = member.availability;
             memberFile.hasArchive = (member.contentId.adapterToken
                 in archiveEntriesByToken) !is null;
-            archiveMemberReferenceByToken[member.referenceId.adapterToken] =
-                memberFile;
         }
         result.nextCursor = slice.nextCursor;
         result.hasMore = slice.hasMore;
@@ -630,11 +754,45 @@ public:
     override CatalogExportResult exportSubset(CatalogSubsetQuery query,
         CatalogExportOptions options)
     {
+        return exportSubsetControlled(query, options, null, 0);
+    }
+
+    override CatalogExportResult exportSubsetControlled(CatalogSubsetQuery query,
+        CatalogExportOptions options, OperationControl control,
+        ulong operationId)
+    {
         requireTreeQueries();
         enforceJsonExportFormat(options);
         enforce(options.outputPath.length > 0, new CatalogBackendException(
             CatalogBackendErrorCode.invalidTarget,
             "A JSON subset export requires an explicit output path."));
+
+        bool cancelled;
+        void reportProgress(size_t completed, size_t total)
+        {
+            if (control is null)
+                return;
+            OperationProgress progress;
+            progress.operationId = operationId;
+            progress.operation = OperationKind.catalogExport;
+            progress.state = OperationState.running;
+            progress.phase = OperationPhase.jsonWrite;
+            progress.completed = completed;
+            progress.total = total;
+            progress.totalKnown = true;
+            progress.message = "Writing JSON catalog.";
+            control.report(progress);
+            cancelled = control.cancellationRequested;
+        }
+        bool checkCancelled()
+        {
+            if (control !is null && control.cancellationRequested)
+                cancelled = true;
+            return cancelled;
+        }
+        reportProgress(0, 0);
+        if (cancelled)
+            return CatalogExportResult.init;
 
         size_t[string] blobByContent;
         NamedBinaryBlob[string] exportedByContent;
@@ -723,6 +881,8 @@ public:
 
         foreach (file; fileRows)
         {
+            if (checkCancelled())
+                return CatalogExportResult.init;
             if (!matches(file, query.filter)
                 || !hasPathPrefix(file.relativePath, query.pathPrefix))
                 continue;
@@ -731,13 +891,22 @@ public:
         }
         if (query.filter.includeArchiveMembers)
         {
+            CatalogFile[string] memberByToken;
+            foreach (container; fileRows)
+                if (container.hasArchive)
+                    foreach (member; archiveMemberFiles(container))
+                        memberByToken[member.referenceId.adapterToken] = member;
             foreach (container; fileRows)
             {
+                if (checkCancelled())
+                    return CatalogExportResult.init;
                 if (!container.hasArchive)
                     continue;
                 auto blobIndex = blobIndexByRelativePath[container.relativePath];
                 foreach (member; archiveMemberFiles(container))
                 {
+                    if (checkCancelled())
+                        return CatalogExportResult.init;
                     if (!matches(member, query.filter)
                         || !hasPathPrefix(member.relativePath, query.pathPrefix))
                         continue;
@@ -751,7 +920,7 @@ public:
                         if (parentReference == container.referenceId)
                             parentContainer = container;
                         else if (auto parentMember = parentReference.adapterToken
-                            in archiveMemberReferenceByToken)
+                            in memberByToken)
                             parentContainer = *parentMember;
                         else
                             throw new CatalogBackendException(
@@ -815,8 +984,14 @@ public:
 
         NamedBinaryBlob[] exportedBlobs;
         CatalogExportResult result;
+        const size_t exportTotal = blobByContent.length;
+        reportProgress(0, exportTotal);
+        if (cancelled)
+            return result;
         foreach (contentToken; blobByContent.keys)
         {
+            if (checkCancelled())
+                return result;
             auto exportBlob = exportedByContent[contentToken];
             result.referencesExported += exportBlob.fileSpecs.length;
             if (!options.includeContentDetails)
@@ -881,9 +1056,22 @@ public:
         }
         auto exported = NamedBinaryBlobCatalog(DATA_CLASS_VERSION5,
             exportedBlobs);
-        enforce(commitJsonCatalog(options.outputPath, exported),
-            new CatalogBackendException(CatalogBackendErrorCode.backendFailure,
-                "Could not publish the JSON subset export."));
+        reportProgress(exportTotal, exportTotal);
+        if (cancelled)
+            return result;
+        const bool committed = commitJsonCatalog(options.outputPath, exported,
+            () {
+                reportProgress(exportTotal, exportTotal);
+                return cancelled;
+            });
+        if (!committed)
+        {
+            if (cancelled)
+                return result;
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.backendFailure,
+                "Could not publish the JSON subset export.");
+        }
         result.contentsExported = exportedBlobs.length;
         foreach (contentToken; selectedMemberContents.keys)
             if (contentToken !in blobByContent)
@@ -898,6 +1086,13 @@ public:
         requireOpen();
         throw new CatalogBackendException(CatalogBackendErrorCode.unsupportedOperation,
             "JSON catalogs cannot import into themselves through this adapter.");
+    }
+
+    override bool importJsonControlled(string jsonPath, JsonImportOptions options,
+        OperationControl control, ulong operationId)
+    {
+        importJson(jsonPath, options);
+        return true;
     }
 
     override OperationResult runOperation(ScanOperationRequest request,
@@ -933,6 +1128,7 @@ public:
         contentByToken = null;
         archiveEntriesByToken = null;
         torrentEntriesByToken = null;
+        archiveMemberRowsByDirectory = null;
     }
 
 private:
@@ -1283,6 +1479,9 @@ private:
     {
         fileRows = [];
         directoryRows = [];
+        sizeAscendingOrder = null;
+        sizeDescendingOrder = null;
+        archiveMemberRowsByDirectory = null;
         contentByToken = null;
         archiveEntriesByToken = null;
         torrentEntriesByToken = null;
@@ -1290,7 +1489,6 @@ private:
         blobIndexByContentToken = null;
         fileSpecByRelativePath = null;
         directoryIndexByPath = null;
-        archiveMemberReferenceByToken = null;
         treeQueriesAvailable = false;
         torrentEntryDetailsUnavailable = false;
     }
@@ -1589,6 +1787,10 @@ private:
         if (specs !is null && containerToken !in archiveEntriesByToken)
             archiveEntriesByToken[containerToken] = [];
         size_t[string] occurrences;
+        bool[string] indexedEntryIds;
+        if (auto existingEntries = containerToken in archiveEntriesByToken)
+            foreach (existing; *existingEntries)
+                indexedEntryIds[existing.id.adapterToken] = true;
         foreach (index, spec; specs)
         {
             if (spec is null)
@@ -1642,11 +1844,6 @@ private:
             entry.size = cast(ulong) spec.fileSize;
             entry.modifiedAt = spec.timeLastModified;
             entry.fingerprint = fingerprint;
-            bool alreadyIndexed;
-            if (auto existingEntries = containerToken in archiveEntriesByToken)
-                foreach (existing; *existingEntries)
-                    if (existing.id == entry.id)
-                        alreadyIndexed = true;
             if (memberToken.length > 0)
             {
                 auto memberId = contentIdFromToken(memberToken);
@@ -1662,8 +1859,11 @@ private:
                 if (spec.nestedEntries !is null)
                     indexArchiveSpecs(spec.nestedEntries, memberToken, depth + 1);
             }
-            if (!alreadyIndexed)
+            if (entry.id.adapterToken !in indexedEntryIds)
+            {
                 archiveEntriesByToken[containerToken] ~= entry;
+                indexedEntryIds[entry.id.adapterToken] = true;
+            }
         }
     }
 
@@ -1787,36 +1987,147 @@ private:
         }
     }
 
-    CatalogFile[] matchingFiles(CatalogFileQuery query)
+    void refreshAvailability(ref CatalogFile file) const
     {
-        CatalogFile[] result;
-        foreach (file; fileRows)
-            if (file.directoryId == query.directoryId && matches(file, query.filter))
-                result ~= file;
-        if (query.filter.includeArchiveMembers)
-            foreach (container; fileRows)
-                if (container.directoryId == query.directoryId)
-                    foreach (member; archiveMemberFiles(container))
-                        if (matches(member, query.filter))
-                            result ~= member;
-        final switch (query.sortOrder)
+        if (file.locator.kind != ContentLocator.Kind.filesystem)
+            return;
+        file.availability = exists(buildPath(sourceRoot,
+            file.locator.filesystem.relativePath))
+            ? CatalogReferenceAvailability.available
+            : CatalogReferenceAvailability.unavailable;
+    }
+
+    ArchiveMemberRows* archiveMemberRows(DirectoryId directoryId)
+    {
+        const key = directoryId.adapterToken;
+        if (auto cached = key in archiveMemberRowsByDirectory)
+            return cached;
+        ArchiveMemberRows rows;
+        size_t expectedMembers;
+        foreach (containerRow, container; fileRows)
+            if (container.directoryId == directoryId)
+            {
+                const auto contentToken = container.contentId.adapterToken;
+                if (auto entries = contentToken in archiveEntriesByToken)
+                    expectedMembers += (*entries).length;
+            }
+        rows.rows.reserve(expectedMembers);
+        foreach (containerRow, container; fileRows)
+            if (container.directoryId == directoryId)
+            {
+                auto freshContainer = container;
+                refreshAvailability(freshContainer);
+                foreach (member; archiveMemberFiles(freshContainer))
+                    rows.rows ~= ArchiveMemberRow(member, containerRow);
+            }
+        rows.rows.sort!((left, right) =>
+            left.file.relativePath < right.file.relativePath);
+        rows.sizeAscending.length = rows.rows.length;
+        rows.sizeDescending.length = rows.rows.length;
+        foreach (index; 0 .. rows.rows.length)
+        {
+            rows.sizeAscending[index] = index;
+            rows.sizeDescending[index] = index;
+        }
+        rows.sizeAscending.sort!((left, right) {
+            const leftFile = rows.rows[left].file;
+            const rightFile = rows.rows[right].file;
+            return leftFile.size < rightFile.size
+                || (leftFile.size == rightFile.size
+                    && leftFile.relativePath < rightFile.relativePath);
+        });
+        rows.sizeDescending.sort!((left, right) {
+            const leftFile = rows.rows[left].file;
+            const rightFile = rows.rows[right].file;
+            return leftFile.size > rightFile.size
+                || (leftFile.size == rightFile.size
+                    && leftFile.relativePath < rightFile.relativePath);
+        });
+        archiveMemberRowsByDirectory[key] = rows;
+        return key in archiveMemberRowsByDirectory;
+    }
+
+    static bool fileBefore(in CatalogFile left, in CatalogFile right,
+        CatalogSortOrder sortOrder)
+    {
+        final switch (sortOrder)
         {
         case CatalogSortOrder.pathAscending:
-            result.sort!((left, right) => left.relativePath < right.relativePath);
-            break;
+            return left.relativePath < right.relativePath;
         case CatalogSortOrder.pathDescending:
-            result.sort!((left, right) => left.relativePath > right.relativePath);
-            break;
+            return left.relativePath > right.relativePath;
         case CatalogSortOrder.sizeAscending:
-            result.sort!((left, right) => left.size < right.size
-                || (left.size == right.size && left.relativePath < right.relativePath));
-            break;
+            return left.size < right.size
+                || (left.size == right.size
+                    && left.relativePath < right.relativePath);
         case CatalogSortOrder.sizeDescending:
-            result.sort!((left, right) => left.size > right.size
-                || (left.size == right.size && left.relativePath < right.relativePath));
-            break;
+            return left.size > right.size
+                || (left.size == right.size
+                    && left.relativePath < right.relativePath);
         }
-        return result;
+    }
+
+    void forEachFileCandidate(CatalogFileQuery query,
+        scope void delegate(ref CatalogFile file, size_t containerRow) sink)
+    {
+        auto rows = archiveMemberRows(query.directoryId);
+        const physicalCount = fileRows.length;
+        const memberCount = rows.rows.length;
+        size_t physicalPosition;
+        size_t memberPosition;
+        while (physicalPosition < physicalCount || memberPosition < memberCount)
+        {
+            bool takePhysical;
+            if (memberPosition >= memberCount)
+                takePhysical = true;
+            else if (physicalPosition >= physicalCount)
+                takePhysical = false;
+            else
+            {
+                const physicalIndex = fileOrderIndex(query.sortOrder,
+                    physicalPosition);
+                const memberIndex = memberOrderIndex(*rows, query.sortOrder,
+                    memberPosition);
+                takePhysical = !fileBefore(rows.rows[memberIndex].file,
+                    fileRows[physicalIndex], query.sortOrder);
+            }
+
+            if (takePhysical)
+            {
+                auto index = fileOrderIndex(query.sortOrder, physicalPosition++);
+                auto file = fileRows[index];
+                if (file.directoryId != query.directoryId
+                    || !matches(file, query.filter))
+                    continue;
+                sink(file, size_t.max);
+            }
+            else
+            {
+                auto index = memberOrderIndex(*rows, query.sortOrder,
+                    memberPosition++);
+                auto row = rows.rows[index];
+                if (!matches(row.file, query.filter))
+                    continue;
+                auto file = row.file;
+                sink(file, row.containerRow);
+            }
+        }
+    }
+
+    static size_t memberOrderIndex(in ArchiveMemberRows rows,
+        CatalogSortOrder sortOrder, size_t position)
+    {
+        final switch (sortOrder)
+        {
+        case CatalogSortOrder.pathAscending:
+            return position;
+        case CatalogSortOrder.pathDescending:
+            return rows.rows.length - 1 - position;
+        case CatalogSortOrder.sizeAscending:
+            return rows.sizeAscending[position];
+        case CatalogSortOrder.sizeDescending:
+            return rows.sizeDescending[position];
+        }
     }
 
     CatalogDirectory[] matchingDirectories(CatalogDirectoryQuery query)
@@ -1837,17 +2148,42 @@ private:
 
     bool directoryHasMatch(string directoryPath, CatalogFilter filter)
     {
-        auto prefix = directoryPath ~ "/";
-        foreach (file; fileRows)
-            if (file.relativePath.startsWith(prefix) && matches(file, filter))
+        const prefix = directoryPath ~ "/";
+        const start = lowerBoundPath(prefix);
+        /* "dir0" is the tight upper bound for "dir/" plus any byte suffix, and
+         * unlike prefix ~ "\uFFFF" it also includes non-BMP UTF-8 paths. */
+        const end = lowerBoundPath(directoryPath ~ "0");
+        foreach (index; start .. end)
+        {
+            auto file = fileRows[index];
+            if (matches(file, filter))
                 return true;
+        }
         if (filter.includeArchiveMembers)
-            foreach (container; fileRows)
-                if (container.relativePath.startsWith(prefix))
+            foreach (index; start .. end)
+            {
+                auto container = fileRows[index];
+                if (container.hasArchive)
                     foreach (member; archiveMemberFiles(container))
                         if (matches(member, filter))
                             return true;
+            }
         return false;
+    }
+
+    size_t lowerBoundPath(string path) const
+    {
+        size_t low;
+        size_t high = fileRows.length;
+        while (low < high)
+        {
+            const middle = low + (high - low) / 2;
+            if (fileRows[middle].relativePath < path)
+                low = middle + 1;
+            else
+                high = middle;
+        }
+        return low;
     }
 
     CatalogFile[] archiveMemberFiles(CatalogFile container)
@@ -1871,6 +2207,9 @@ private:
         auto entries = contentToken in archiveEntriesByToken;
         if (entries is null)
             return result;
+        size_t[string] occurrenceCounts;
+        foreach (entry; *entries)
+            occurrenceCounts[entry.relativePath] = occurrenceCounts.get(entry.relativePath, 0) + 1;
         foreach (entry; *entries)
         {
             if (!entry.hasSafePath || entry.isDirectory || !entry.contentId.isValid)
@@ -1887,10 +2226,7 @@ private:
                 == ContentLocator.Kind.filesystem
                 ? escapeArchiveVirtualPath(container.relativePath)
                 : container.relativePath;
-            size_t samePathCount;
-            foreach (candidate; *entries)
-                if (candidate.relativePath == entry.relativePath)
-                    ++samePathCount;
+            const samePathCount = occurrenceCounts.get(entry.relativePath, 1);
             member.relativePath = appendArchiveVirtualPath(displayContainerPath,
                 entry.relativePath, samePathCount > 1 ? entry.occurrence
                     : size_t.max);
@@ -1914,7 +2250,6 @@ private:
             member.hasTorrent = (*content).hasTorrent;
             }
             result ~= member;
-            archiveMemberReferenceByToken[member.referenceId.adapterToken] = member;
             if (member.hasArchive)
                 result ~= archiveMemberFiles(member, depth + 1, activeContents);
         }
@@ -2058,14 +2393,48 @@ final class JsonCatalogBackendFactory : CatalogBackendFactory
 version (unittest)
 {
     import std.algorithm.searching : canFind;
-    import std.file : DirEntry, SpanMode, dirEntries, exists, getcwd, remove,
-        rmdirRecurse, tempDir;
+    import std.file : DirEntry, SpanMode, dirEntries, exists, getcwd, read,
+        remove, rmdirRecurse, tempDir, write;
     import std.path : baseName;
     import std.uuid : randomUUID;
     import dosierskanilo.model.namedbinaryblob :
         deserializeDataClassJsonWrapperFile;
     import dosierskanilo.operations : OperationState;
     import dosierskanilo.testdata : copySyntheticCatalogForTest;
+
+    @("JSON directory filters include non-BMP descendants")
+    unittest
+    {
+        import std.datetime.systime : SysTime;
+        import dosierskanilo.model.namedbinaryblob :
+            serializeDataClassWrapperFile;
+        const token = randomUUID().toString();
+        const catalogPath = buildPath(tempDir(), "json-nonbmp-" ~ token ~ ".json");
+        scope (exit)
+            if (exists(catalogPath))
+                remove(catalogPath);
+
+        NamedBinaryBlobCatalog catalog;
+        catalog.dataVersion = DATA_CLASS_VERSION5;
+        catalog.dataArray = [
+            new NamedBinaryBlob("media/\U0001F600.txt", 5, SysTime(0)),
+            new NamedBinaryBlob("other/plain.txt", 5, SysTime(0))
+        ];
+        serializeDataClassWrapperFile(catalogPath, catalog);
+
+        auto backend = new JsonCatalogBackend(
+            OperationTarget.jsonTarget(catalogPath, tempDir()));
+        scope (exit)
+            backend.close();
+
+        CatalogDirectoryQuery query;
+        query.filter.pathText = "\U0001F600";
+        CatalogPageRequest request;
+        request.limit = 10;
+        const page = backend.listDirectories(query, request);
+        assert(page.directories.length == 1);
+        assert(page.directories[0].name == "media");
+    }
 
     @("JSON backend indexes and operates on the generated catalog without SQLite")
     unittest
@@ -2168,6 +2537,20 @@ version (unittest)
             == archivePage.files[0].relativePath);
         assert(!backToFirst.hasPrevious);
 
+        CatalogFileQuery sizeQuery;
+        sizeQuery.directoryId = archiveDirectory;
+        sizeQuery.sortOrder = CatalogSortOrder.sizeDescending;
+        auto sizePage = backend.listFiles(sizeQuery);
+        assert(sizePage.files.length == 3);
+        foreach (index; 1 .. sizePage.files.length)
+            assert(sizePage.files[index - 1].size >= sizePage.files[index].size);
+        CatalogPageRequest sizeRequest;
+        sizeRequest.limit = 1;
+        auto sizeFirst = backend.listFiles(sizeQuery, sizeRequest);
+        auto sizeSecond = backend.nextFilesPage(sizeQuery, sizeFirst.nextCursor);
+        assert(sizeFirst.files[0].relativePath == sizePage.files[0].relativePath);
+        assert(sizeSecond.files[0].relativePath == sizePage.files[1].relativePath);
+
         archivePage = backend.listFiles(archiveQuery);
         assert(archivePage.files.length == 3);
         CatalogFile sampleArchive;
@@ -2199,6 +2582,21 @@ version (unittest)
             entry.name == "payload/copy.txt"), archiveEntryNames);
         assert(archiveEntries.entries[0].fingerprint.complete);
 
+        /* Removing the container after indexing refreshes member availability. */
+        const auto sampleArchivePath = buildPath(root, "archives", "sample.zip");
+        const auto sampleArchiveBytes = read(sampleArchivePath);
+        remove(sampleArchivePath);
+        auto unavailableMembers = backend.listArchiveMembers(
+            sampleArchive.referenceId, archiveMemberRequest);
+        assert(unavailableMembers.members.length == 1);
+        assert(unavailableMembers.members[0].availability
+            == CatalogReferenceAvailability.unavailable);
+        write(sampleArchivePath, sampleArchiveBytes);
+        auto availableMembers = backend.listArchiveMembers(
+            sampleArchive.referenceId, archiveMemberRequest);
+        assert(availableMembers.members[0].availability
+            == CatalogReferenceAvailability.available);
+
         CatalogFileQuery mediaQuery;
         mediaQuery.directoryId = mediaDirectory;
         mediaQuery.filter.audio = true;
@@ -2211,6 +2609,20 @@ version (unittest)
         assert(media.fingerprint.complete);
         assert(media.mediaStreams.length == 1);
         assert(media.mediaStreams[0].kind == CatalogMediaKind.audio);
+
+        /* Availability is checked when the page is served, not when indexed. */
+        const auto mediaFilePath = buildPath(root, "media",
+            mediaPage.files[0].name);
+        const auto mediaBytes = read(mediaFilePath);
+        remove(mediaFilePath);
+        auto unavailableMedia = backend.listFiles(mediaQuery);
+        assert(unavailableMedia.files.length == 1);
+        assert(unavailableMedia.files[0].availability
+            == CatalogReferenceAvailability.unavailable);
+        write(mediaFilePath, mediaBytes);
+        auto availableMedia = backend.listFiles(mediaQuery);
+        assert(availableMedia.files[0].availability
+            == CatalogReferenceAvailability.available);
 
         CatalogFileQuery torrentQuery;
         torrentQuery.directoryId = torrentDirectory;
@@ -2344,4 +2756,96 @@ version (unittest)
         assert(replaced.changesCommitted);
         assert(deserializeDataClassJsonWrapperFile(catalogPath).dataArray.length == 0);
     }
+    @("JSON archive member pages merge physical and member sort orders")
+    unittest
+    {
+        import std.algorithm.mutation : reverse;
+        import std.datetime.systime : Clock;
+        import dosierskanilo.model.archivespec : ArchiveSpec;
+        import dosierskanilo.model.checksums : CheckSums;
+        import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION5,
+            NamedBinaryBlob, NamedBinaryBlobCatalog,
+            serializeDataClassWrapperFile;
+
+        const token = randomUUID().toString();
+        const root = buildPath(tempDir(), "json-member-pages-" ~ token);
+        const catalogPath = buildPath(tempDir(), "json-member-pages-"
+            ~ token ~ ".json");
+        scope (exit)
+        {
+            if (exists(catalogPath))
+                remove(catalogPath);
+            if (exists(root))
+                rmdirRecurse(root);
+        }
+
+        auto container = new NamedBinaryBlob("archive.zip", 100,
+            Clock.currTime());
+        container.archiveSpecs = [
+            new ArchiveSpec("c.txt", 3, "2020-01-02T04:04:06", CheckSums.init),
+            new ArchiveSpec("a.txt", 1, "2020-01-02T04:04:06", CheckSums.init),
+            new ArchiveSpec("b.txt", 2, "2020-01-02T04:04:06", CheckSums.init)
+        ];
+        container.archiveIndexKnown = true;
+        container.archiveIndexDeep = true;
+        NamedBinaryBlobCatalog catalog;
+        catalog.dataVersion = DATA_CLASS_VERSION5;
+        catalog.dataArray = [
+            container,
+            new NamedBinaryBlob("plain.txt", 4, Clock.currTime())
+        ];
+        serializeDataClassWrapperFile(catalogPath, catalog);
+
+        auto backend = new JsonCatalogBackend(
+            OperationTarget.jsonTarget(catalogPath, root));
+        scope (exit)
+            backend.close();
+
+        CatalogFileQuery query;
+        query.filter.includeArchiveMembers = true;
+        string[] collect(CatalogFileQuery current)
+        {
+            string[] paths;
+            CatalogPageRequest request;
+            request.limit = 2;
+            auto page = backend.listFiles(current, request);
+            foreach (file; page.files)
+                paths ~= file.relativePath;
+            while (page.hasMore)
+            {
+                page = backend.nextFilesPage(current, page.nextCursor);
+                foreach (file; page.files)
+                    paths ~= file.relativePath;
+            }
+            return paths;
+        }
+
+        const string[] pathAscending = ["archive.zip", "archive.zip!/a.txt",
+            "archive.zip!/b.txt", "archive.zip!/c.txt", "plain.txt"];
+        assert(collect(query) == pathAscending);
+
+        query.sortOrder = CatalogSortOrder.pathDescending;
+        assert(collect(query) == pathAscending.dup.reverse);
+
+        query.sortOrder = CatalogSortOrder.sizeAscending;
+        assert(collect(query) == ["archive.zip!/a.txt", "archive.zip!/b.txt",
+            "archive.zip!/c.txt", "plain.txt", "archive.zip"]);
+
+        query.sortOrder = CatalogSortOrder.sizeDescending;
+        assert(collect(query) == ["archive.zip", "plain.txt",
+            "archive.zip!/c.txt", "archive.zip!/b.txt", "archive.zip!/a.txt"]);
+
+        query.sortOrder = CatalogSortOrder.pathAscending;
+        CatalogPageRequest firstRequest;
+        firstRequest.limit = 2;
+        const auto firstPage = backend.listFiles(query, firstRequest);
+        const auto secondPage = backend.nextFilesPage(query,
+            firstPage.nextCursor);
+        const auto backPage = backend.previousFilesPage(query,
+            secondPage.previousCursor);
+        assert(firstPage.files.length == 2 && secondPage.files.length == 2);
+        assert(backPage.files[0].relativePath == firstPage.files[0].relativePath);
+        assert(backPage.files[1].relativePath == firstPage.files[1].relativePath);
+    }
+
 }

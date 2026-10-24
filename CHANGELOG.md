@@ -7,6 +7,42 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
+## Release 26.12.0 - 2026-10-24
+
+- Filtered JSON directory listings binary-search the sorted file rows for each
+  directory instead of scanning every file per directory. A 200,000-file,
+  2,000-directory filter dropped from about `7.4 s` to about `0.06 s`, including
+  non-BMP UTF-8 paths.
+- Checksum calculation reuses a 64 KiB buffer instead of allocating a 16 MiB
+  chunk buffer per file. A 10,000-small-file `metadata --checksums` run dropped
+  from about `29 s` to about `0.6 s`; metadata persistence also commits once per
+  worker batch instead of once per blob.
+- Repository rescans no longer remove each present file from an unindexed
+  temporary candidate table. A 10,000-file unchanged rescan dropped from about
+  `1.9 s` to about `0.2 s`; staging and unchanged-file updates reuse prepared
+  statements, and ordinary files no longer query virtual archive references.
+- Opening an initialized SQLite repository no longer writes
+  `PRAGMA user_version` when the schema version is already current.
+- JSON archive-member pages now use a per-directory member order that is built
+  once and merged with physical rows. This removes quadratic same-path counting
+  and avoids regenerating and sorting every member for each page. The first page
+  now reserves the known member count, cutting a 100,000-member first page from
+  about `0.54 s` to about `86 ms`; it still builds the full member order.
+- Ctrl-C now cancels catalog imports and exports at the next safe checkpoint.
+  Cancelled imports roll back to the previous catalog, and cancelled exports
+  leave the destination untouched. Controlled import/export methods and
+  `OperationKind.catalogImport`/`catalogExport` progress values were added to
+  the public API.
+- SQLite duplicate analysis now polls for cancellation while merging inside the
+  transaction and rolls the whole merge back, so Ctrl-C no longer waits for a
+  large merge to finish and commit.
+- JSON catalogs are backed up with a hard link (or a copy where links are
+  unavailable) and replaced by an atomic rename, so a killed or crashed writer
+  leaves the previous catalog intact at its canonical path.
+- JSON file pages refresh reference availability when served instead of using
+  the index-build snapshot, and physical file pages no longer materialize and
+  sort the whole matching set.
+
 ## Release 26.11.4 - 2026-10-22
 
 - JSON catalog writes now serialize into a staging file and rename it into
@@ -70,6 +106,9 @@ They represent the functional evolution and are intentionally summarized.
   `MemberContentCacheException`, and lease release is thread-safe.
 - JSON archive and torrent entry queries return an empty page for known
   content without an index, like SQLite; unknown ids still fail.
+- JSON file pages refresh reference availability when queried instead of using
+  the index-build snapshot, and physical file pages no longer materialize and
+  sort the whole matching set.
 - Content detail snapshots now report the same archive summary and extractor
   statuses on both backends, and JSON refreshes archive counts from the index
   at query time instead of the build-time snapshot.

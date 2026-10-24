@@ -12,6 +12,40 @@ import dosierskanilo.repository.archiveindex : deleteUnreachableBlobs;
 import dosierskanilo.repository.schema : migrate;
 import dosierskanilo.repository.types;
 
+@("controlled analysis cancels during a large duplicate merge")
+unittest
+{
+    auto db = Database(":memory:");
+    migrate(db, "2026-01-01T00:00:00");
+
+    foreach (index; 1 .. 601)
+    {
+        db.execute("INSERT INTO blobs (id, file_size, md5, sha1, xxh64) VALUES "
+            ~ "(?, 11, X'00112233445566778899AABBCCDDEEFF', "
+            ~ "X'00112233445566778899AABBCCDDEEFF00112233', "
+            ~ "X'0011223344556677')", cast(long) index);
+        db.execute("INSERT INTO file_refs (id, blob_id, relative_path, "
+            ~ "exists_on_disk) VALUES (?, ?, ?, 1)", cast(long) index,
+            cast(long) index, "file" ~ index.to!string);
+    }
+
+    OperationControl control;
+    control = new OperationControl((OperationProgress event) {
+        if (event.phase == OperationPhase.analysisCleanup
+            && event.completed > 0)
+            control.requestCancellation();
+    });
+    auto execution = analyzeRepositoryControlled(db,
+        RepositoryAnalysisOptions(false, true), control, 42);
+
+    assert(execution.cancelled);
+    assert(!execution.committed);
+    assert(execution.summary == AnalysisSummary.init);
+    assert(db.execute("SELECT count(*) FROM blobs").oneValue!long == 600);
+    assert(db.execute("SELECT count(*) FROM file_refs AS f JOIN blobs AS b "
+        ~ "ON b.id = f.blob_id").oneValue!long == 600);
+}
+
 /** Return duplicate groups without modifying repository state. */
 RepositoryDuplicateGroup[] queryDuplicateGroups(ref Database db, size_t limit = 100)
 {
@@ -258,6 +292,8 @@ AnalysisExecutionResult analyzeRepositoryControlled(ref Database db,
 
         auto merges = db.execute("SELECT keep_id, drop_id FROM "
             ~ "temp.analysis_merge_plan ORDER BY keep_id, drop_id");
+        size_t processed;
+        immutable totalMerges = execution.summary.mergedBlobs;
         foreach (row; merges)
         {
             auto keepId = row.peek!long(0);
@@ -266,11 +302,37 @@ AnalysisExecutionResult analyzeRepositoryControlled(ref Database db,
             db.execute("UPDATE file_refs SET blob_id = ? WHERE blob_id = ?",
                 keepId, dropId);
             db.execute("DELETE FROM blobs WHERE id = ?", dropId);
+            processed++;
+            if (control !is null)
+            {
+                /* Progress callbacks only translate frontend cancellation
+                 * requests; they never wait for pause inside the transaction. */
+                if (processed % 512 == 0)
+                {
+                    OperationProgress progress;
+                    progress.operationId = operationId;
+                    progress.operation = OperationKind.analyze;
+                    progress.state = OperationState.running;
+                    progress.phase = OperationPhase.analysisCleanup;
+                    progress.completed = processed;
+                    progress.total = totalMerges;
+                    progress.totalKnown = true;
+                    progress.message = "Merging duplicate blobs.";
+                    control.report(progress);
+                }
+                if (control.cancellationRequested)
+                {
+                    db.rollback();
+                    /* Nothing was committed, so report no applied changes. */
+                    execution.summary = AnalysisSummary.init;
+                    execution.cancelled = true;
+                    return execution;
+                }
+            }
         }
 
         execution.summary.orphanedBlobs = deleteUnreachableBlobs(db);
-        // Cancellation is checked before commit. No pause or callback waits
-        // while the operation-wide transaction is active.
+        // Cancellation is checked before commit.
         if (control !is null && control.cancellationRequested)
         {
             db.rollback();

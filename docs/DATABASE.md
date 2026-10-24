@@ -203,19 +203,35 @@ to normalize relationships and reconstruct JSON at the boundary.
 ## Filesystem Compatibility
 
 SQLite locking was validated on the local exFAT volume used for development in
-single-process operation. CIFS/SMB mounts are not a supported database location
-yet: the same catalog initialization fails with `database is locked`, including
-when WAL is disabled. SQLite network-filesystem locking must be treated as an
-open compatibility issue rather than bypassed with unsafe lock-disabling flags.
+single-process operation. CIFS/SMB mounts are not a supported database location:
+catalog initialization fails with `database is locked`, including when WAL is
+disabled. SQLite network-filesystem locking must not be bypassed with unsafe
+lock-disabling flags.
 
-Current options are tracked as low-priority follow-up work:
+Decision: keep the repository requirements explicit instead of implying network
+support. A supported location must provide:
 
+- advisory locks that exclude other hosts, so SQLite transactions and the
+  operation lease work across processes;
+- working WAL shared-memory files, or a deliberate non-WAL configuration shared
+  by every process;
+- atomic rename of the staging catalog after serialization;
+- durable `fsync`/directory sync semantics;
+- hard links for backup snapshots, or the documented copy fallback.
+
+CIFS/SMB, NFS, WSL `drvfs`, and FUSE mounts remain unsupported unless a
+representative environment passes those checks. The observable failure is an
+initialization/open error such as `database is locked` or `SQLITE_READONLY`.
+Do not disable SQLite locking or place the database on a share that only
+pretends to provide POSIX locks.
+
+Supported deployment options remain:
+
+- Keep the SQLite repository on a local filesystem and keep media on the NAS.
 - Remount the CIFS share with a locking configuration known to support SQLite,
-  with corruption risk evaluated explicitly.
-- Store the SQLite catalog on a local filesystem while retaining NAS paths for
-  media files.
-- Add an explicit external database-root configuration if the second option is
-  selected.
+  after evaluating corruption risk explicitly.
+- Add an explicit external database-root configuration if local metadata with
+  remote media is not sufficient.
 
 ## Public API Boundary: Current and Target
 

@@ -59,7 +59,9 @@ were a CLI capability.
 operation request fields. `--text`, `--limit`, `--offset`, media/presence query
 filters and `--format` belong to read-only repository queries; `--replace` and
 `--output` belong to import/export. They are not scan/metadata/analyze request
-settings. Import/export are outside the first WP-09 operation set.
+settings. Import/export remain outside the typed WP-09 request set, but the
+backend exposes `importJsonControlled` and `exportSubsetControlled` so both CLI
+paths honor the same cooperative cancellation channel.
 
 The request types intentionally reuse repository option structs. Validation
 rejects an analysis request that disables duplicate merging. Validation also

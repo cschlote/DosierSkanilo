@@ -164,68 +164,70 @@ private string getBackupFileName(string originalFile, string extension,
 
 /** Make a backup of the original file if it exists.
  *
- * The function prefers rename-based backup creation and falls back to copy and
- * delete when renaming is not possible.
+ * The backup never removes the original from its canonical path: POSIX uses a
+ * hard link, and other platforms or filesystems fall back to a copy. This
+ * keeps the previous catalog readable if the process dies while the staging
+ * file is written.
  *
  * Params:
  *   backupFile = the backup file path to create.
  *   originalFile = the original file path to back up.
- *   mustCopy = if true, attempt to copy the original file to the backup location instead of renaming. This is used when the original file cannot be renamed due to permissions or other issues.
+ *   mustCopy = set to true when a copy was made instead of a hard link.
  * Returns:
  *   `true` on success, `false` on failure.
  */
 private bool makeBackupFile(string backupFile, string originalFile, ref bool mustCopy)
 {
-    bool rc = true;
+    version (Posix)
+    {
+        import core.sys.posix.unistd : link;
+        import std.string : toStringz;
+
+        if (link(toStringz(originalFile), toStringz(backupFile)) == 0)
+        {
+            mustCopy = false;
+            logFLine("Linked backup '%s' to '%s'.", backupFile, originalFile);
+            return true;
+        }
+    }
+
     try
     {
-        rename(originalFile, backupFile);
-        logFLine("Backuped file '%s' to '%s'.", originalFile, backupFile);
+        copy(originalFile, backupFile);
+        mustCopy = true;
+        logFLine("Copied existing file '%s' to '%s'.", originalFile, backupFile);
     }
-    catch (FileException e)
+    catch (Exception ex)
     {
-        logLine(
-            "Failed to rename existing file for backup. Attempting to copy and delete original.");
-        logLine(e.msg);
-        try
-        {
-            copy(originalFile, backupFile);
-            remove(originalFile);
-            logFLine("Copied existing file '%s' to '%s' and removed original.", originalFile, backupFile);
-            mustCopy = true;
-        }
-        catch (Exception ex)
-        {
-            logLine("Failed to backup existing file. Aborting write operation to avoid data loss.");
-            logLine(ex.msg);
-            return false;
-        }
+        logLine("Failed to backup existing file. Aborting write operation to avoid data loss.");
+        logLine(ex.msg);
+        return false;
     }
-    return rc;
+    return true;
 }
 
-/** Restore the original file from the backup if possible, or remove the backup if it was copied.
+/** Restore the original file from the backup.
  *
- * This is the counterpart to `makeBackupFile` and undoes the temporary rename
- * or copy step after a failed write.
+ * This is the counterpart to `makeBackupFile`. A renamed hard-link backup is
+ * moved back and consumed; a copy backup is kept, and the canonical file is
+ * only recreated when it is missing because copying never removed it.
  *
  * Params:
  *   jsonFile = the original file path to restore.
- *   newname = the backup file path to use for restoration or removal.
- *   mustCopy = if true, indicates that the backup was created by copying and should be removed instead of renamed back.
+ *   newname = the backup file path to use for restoration.
+ *   mustCopy = true when the backup was created by copying.
  */
 private void restoreOriginalFile(string jsonFile, string newname, bool mustCopy)
 {
     if (mustCopy)
     {
-        /* The copy-based backup removed the original. Restore the data instead
-         * of deleting the only remaining copy. Keep the backup on failure so
-         * the catalog stays recoverable. */
+        /* The canonical file was never removed, so only recreate it when it is
+         * missing. Keep the backup on failure so the catalog stays
+         * recoverable. */
         try
         {
-            if (exists(jsonFile))
-                remove(jsonFile);
-            copy(newname, jsonFile);
+            if (!exists(jsonFile))
+                copy(newname, jsonFile);
             logFLine("Restored file '%s' from backup '%s'.", jsonFile, newname);
         }
         catch (Exception ex)
@@ -242,7 +244,7 @@ private void restoreOriginalFile(string jsonFile, string newname, bool mustCopy)
     }
 }
 
-@("Unittest for backup and restore 1 - rename")
+@("Unittest for backup and restore 1 - hard link")
 unittest
 {
     import std.process;
@@ -252,7 +254,7 @@ unittest
 
     auto nowString = Clock.currTime.toISOExtString();
 
-    /* Test with local file to trigger rename-based backup and restore. */
+    /* Test with local file to trigger hard-link backup and rename restore. */
     auto localFile = buildPath(getcwd(), "storageio-backup-test1-" ~ nowString.replace(":", "-") ~ ".json");
     scope (exit)
     {
@@ -350,14 +352,20 @@ unittest
  *   nowString = optional timestamp string to use in backup file names (default: current time in ISO format).
  *   backupDirectory = optional directory for the backup file; empty keeps the
  *     backup next to the catalog.
+ *   cancelCheck = optional callback invoked before work starts and after
+ *     serialization. A `true` result discards the staging file and leaves the
+ *     original catalog unchanged.
  * Returns:
- *   `true` on success, `false` on failure. On failure, the original file is left unchanged if possible.
+ *   `true` on success, `false` on failure or cancellation. On failure, the original file is left unchanged if possible.
  */
 bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlobCatalog dynObjectWrapper,
     string jsonFileExtension = ".json",
     string nowString = Clock.currTime.toISOExtString(),
-    string backupDirectory = "")
+    string backupDirectory = "",
+    bool delegate() cancelCheck = null)
 {
+    if (cancelCheck !is null && cancelCheck())
+        return false;
     string newname = null;
     bool mustCopy = false;
     if (jsonFile.exists)
@@ -369,6 +377,8 @@ bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlobCatalog dynObjectW
         if (!rc)
             return false;
     }
+    if (cancelCheck !is null && cancelCheck())
+        return false;
     logLine("Serialize Array of Objects");
     /* Serialize into a staging file in the target directory and rename it into
      * place afterwards, so a crash or a full disk cannot leave a truncated
@@ -377,8 +387,17 @@ bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlobCatalog dynObjectW
     try
     {
         serializeDataClassWrapperFile(stagingFile, dynObjectWrapper);
-        if (exists(jsonFile))
-            remove(jsonFile);
+        if (cancelCheck !is null && cancelCheck())
+        {
+            if (exists(stagingFile))
+                remove(stagingFile);
+            return false;
+        }
+        /* POSIX rename replaces the target atomically, so a crash can never
+         * observe a missing catalog. Windows rename refuses existing targets. */
+        version (Windows)
+            if (exists(jsonFile))
+                remove(jsonFile);
         rename(stagingFile, jsonFile);
     }
     catch (Exception ex)

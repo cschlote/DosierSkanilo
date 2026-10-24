@@ -59,6 +59,100 @@ in-process SQLite statement dispatch dominate at this size, so the statement
 bound matters mainly for embedded/GUI refresh paths and larger metadata rows.
 Measure the GUI page refresh on production data before drawing conclusions.
 
+## Repository Open Behavior
+
+`Repository.open()` used to execute `PRAGMA user_version` unconditionally after
+migration, which rewrote the database header and updated its mtime on every
+open. The version is now written only when it differs. Twenty `info` invocations
+against a 100,000-row repository left the database mtime unchanged; a unit test
+reopens an initialized repository after a short delay and asserts the same.
+
+Read-only mounts are still unsupported: the repository uses WAL, and SQLite
+needs write access to create or recover `-shm`/`-wal`. Opening a read-only copy
+fails with `SQLITE_READONLY` (error 8). This is a filesystem-support decision,
+not a read-path performance limit.
+
+On the same 100,000-row synthetic repository (checksums only, no media or
+archive details), `list --limit 250 --format json` completed in under 10 ms and
+`--limit 1000` in about 40 ms per invocation, including process startup.
+
+## Repository Rescan
+
+A repository with 10,000 files in 100 directories was scanned, then rescanned
+with no changes. Rescanning used to take about `1.9 s`; it now takes about
+`0.2 s` (first scan about `0.39 s`). The temporary missing-reference candidate
+table had no index on `relative_path`, so removing each still-present file from
+the candidate set scanned the whole table, making the walk quadratic in the
+number of present files. The temporary table now declares `relative_path UNIQUE`.
+Staging and unchanged-file updates also reuse prepared statements instead of
+preparing the same SQL for every file.
+
+The scan also checks the virtual-container set once instead of issuing a
+virtual-reference range query for every ordinary file. Peak RSS stayed around
+10 MB on this fixture.
+
+Reproduce with a local directory tree; the CLI scans the repository root:
+
+```bash
+mkdir -p /tmp/scanbench/data
+# populate /tmp/scanbench/data
+dosierskanilo init /tmp/scanbench
+dosierskanilo scan /tmp/scanbench --recursive
+dosierskanilo scan /tmp/scanbench --recursive
+```
+
+## Directory Projection
+
+Filtering 2,000 immediate directories in a JSON catalog with 200,000 files used
+to take about `7.4 s`. Each directory check scanned every file row, so the cost
+grew with directories times files. File rows are already sorted by path, so the
+check now binary-searches the `directoryPath ~ "/"` to `directoryPath ~ "0"`
+range and scans only that directory's files. The same query now takes about
+`0.06 s`. The upper bound is byte-tight for every UTF-8 suffix, including
+non-BMP paths, unlike a `\uFFFF` sentinel.
+
+Reproduce with:
+
+```bash
+dub run --single scripts/benchmark-json-directories.d --build=release -- 2000 100
+```
+
+## Metadata Checksum Pass
+
+A 10,000-file repository (one byte per file) took about `29 s` for
+`metadata --checksums`. Each digest calculation asked `std.stdio.chunks` for a
+16 MiB buffer, so every tiny file allocated and scanned a 16 MiB buffer. The
+digest pass now reads into a reusable 64 KiB stack buffer and reports progress
+per chunk. That run takes about `0.6 s`. The same change also batches the
+per-group persistence transaction instead of committing each blob separately.
+
+## JSON Archive Member Pages
+
+`includeArchiveMembers` pages used to count duplicate member paths with a nested
+scan and regenerate and sort the full member set for every page. A synthetic
+catalog with one archive container and unique member paths showed the
+quadratic path counting clearly: with 50,000 members the first 250-row page took
+`6.5 s`. Replacing the nested count with one path-count pass reduced that to
+`0.24 s`.
+
+Member rows are now ordered once per directory and cached. The row array reserves
+the known direct entry count before appending, which avoids repeated growth and
+copying of the full member array. Physical rows and member rows are merged lazily
+for path and size order, so later pages do not regenerate or sort the member set.
+On the 100,000-member catalog the first 250-row page now takes about `86 ms` and
+allocates about `46 MB`; the second page takes about `6 ms` and allocates about
+`0.05 MB`. Measured with `GC.stats.allocatedInCurrentThread` in the benchmark.
+The first page still builds the full member order, so peak memory remains
+proportional to the number of members in the queried directory. The benchmark
+process used about `680 MB` in total for that catalog, including JSON indexing and
+content snapshots.
+
+Reproduce with:
+
+```bash
+dub run --single scripts/benchmark-json-members.d --build=release -- 100000
+```
+
 ## Follow-Up Measurements
 
 - Measure a 250-row unfiltered repository page.

@@ -60,10 +60,13 @@ actions using the same typed requests. Backend and GUI tests compare source mode
 request construction, task-state reduction, and refresh decisions.
 
 Remaining verification is enumerated in WP-09 and
-`docs/OPERATION-PARITY.md`: process-level Ctrl-C/worker-shutdown checks,
-multi-process lease races, and display-backed GTK operation start/progress/
-pause/cancel/refresh tests. Do not reintroduce an HMI-owned scan or analysis
-implementation.
+`docs/OPERATION-PARITY.md`: process-level Ctrl-C checks for the remaining
+operation families, lease races while a second process is active, and
+display-backed GTK operation start/progress/pause/cancel/refresh tests.
+`test-cli.sh` covers SIGINT during JSON analysis, JSON scan, SQLite metadata,
+SQLite scan, a large duplicate merge, catalog import, and catalog export; a
+forked-process test covers basic cross-process lease exclusion. Do not
+reintroduce an HMI-owned scan or analysis implementation.
 
 ## P1 — Storage-neutral catalog and archive-content model (WP-13)
 
@@ -79,15 +82,21 @@ implemented SQL engine until adapter portability requirements are tested.
 Investigation first: the review raised possible performance costs and an
 intentional transitional type coupling, not all confirmed defects.
 
-- [ ] WP-11.1: Benchmark steady-state repository opens/tree queries and inspect
-  which `Repository.open()` steps write after initialization. Add a read-only
-  open path only if measurements or write behavior justify it; retain
-  independent connections for concurrent queries.
-- [ ] WP-11.2: Trace production JSON paging/materialization call paths and
-  measure representative JSON and virtual-table memory/latency before caching or
-  changing load behavior.
-- [ ] WP-11.3: Decide whether the transitional Blob table remains coupled to
-  `NamedBinaryBlob` or migrates to source-neutral summary/detail DTOs.
+- [x] WP-11.1: `Repository.open()` no longer rewrites `PRAGMA user_version` on
+  every open, so steady-state opens leave the database file untouched (covered
+  by a timestamp test). A 100,000-row repository serves 250-row pages in under
+  10 ms and 1,000-row pages in about 40 ms wall time including process startup.
+  No read-only open path was added: WAL still needs write access for `-shm` and
+  `-wal`, so read-only mounts remain unsupported. Independent read connections
+  are retained for concurrent queries.
+- [x] WP-11.2: JSON archive-member pages now cache one per-directory member
+  order and merge it with physical rows. The first page still materializes the
+  member order. Backend/CLI work is complete; `loadDocumentPage`, `loadAllRows`,
+  and the Blob virtual table are in the separate GTK frontend repository and are
+  deferred until the GUI work starts.
+- [x] WP-11.3: Keep the transitional Blob table coupled to the canonical JSON
+  `NamedBinaryBlob` model for now. Source-neutral summary/detail DTOs are a
+  WP-13 redesign prerequisite, not a local WP-11 API change.
 - [x] WP-11.4: Reconcile the backend dependency diagram and close WP-00 baseline
   status; remaining large-path measurement is tracked under WP-11.2/WP-11.5.
 
@@ -96,13 +105,13 @@ issue.
 
 ## P2 — Network-filesystem compatibility decision
 
-- [ ] Evaluate SQLite repository placement on CIFS/SMB: document locking, WAL,
-  atomic-rename, backup, and failure assumptions; identify supported and
-  unsupported mount configurations; test only where a representative
-  environment is available.
-- [ ] Record a support decision. If reliable locking/transactions cannot be
-  established, document a clear restriction and actionable diagnostic rather
-  than implying support.
+- [x] Evaluate SQLite repository placement on CIFS/SMB and record the decision:
+  network mounts are unsupported until they provide cross-host locks, WAL shared
+  memory, atomic rename, durable sync, and working hard links (or the copy
+  fallback). `docs/DATABASE.md` lists the requirements, observed failures, and
+  supported deployment alternatives. No representative CIFS/SMB environment is
+  available for testing in this repository, so the restriction is documented
+  rather than guessed at.
 
 **Exit:** reviewed decision with evidence, constraints, and follow-up tasks; this
 is a decision package, not an assumption that CIFS/SMB support must be implemented.

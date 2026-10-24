@@ -17,6 +17,10 @@ import dosierarkivo.archive : appendArchiveVirtualPath, archiveIndexVersion,
     escapeArchiveVirtualPath, parseArchiveVirtualPath,
     ParsedArchiveVirtualPath;
 import dosierskanilo.metadata.mediainfosig;
+import dosierskanilo.operations : OperationControl, OperationKind,
+    OperationPhase, OperationProgress, OperationState;
+import dosierskanilo.progress : ProgressCallBack;
+import dosierskanilo.service.storageio : writeStorageJsonFile;
 import dosierskanilo.metadata.torrentinfo;
 import dosierskanilo.model.namedbinaryblob;
 import dosierskanilo.repository.archiveindex : deleteUnreachableBlobs,
@@ -35,20 +39,56 @@ private struct ImportedArchiveIndex
 void importCatalogJson(ref Database db, string rootPath, string jsonFile,
     JsonImportOptions options)
 {
-    auto catalog = deserializeDataClassJsonWrapperFile(jsonFile);
+    importCatalogJsonControlled(db, rootPath, jsonFile, options, null, 0);
+}
+
+/**
+ * Import a JSON catalog with cooperative cancellation.
+ *
+ * Returns `false` when cancellation was requested; the transaction is rolled
+ * back, so no imported row is visible.
+ */
+bool importCatalogJsonControlled(ref Database db, string rootPath,
+    string jsonFile, JsonImportOptions options, OperationControl control,
+    ulong operationId)
+{
+    ProgressCallBack progress;
+    if (control !is null)
+        progress.contextual = (size_t completed, size_t total) {
+            reportImportProgress(control, operationId,
+                OperationPhase.jsonRead, completed, total,
+                "Reading JSON catalog.");
+        };
+    auto catalog = deserializeDataClassJsonWrapperFile(jsonFile,
+        control is null ? null : &progress);
     if (!options.replaceExisting)
         throw new RepositoryException("Appending JSON data is not implemented yet.");
     upgradeDataClassCatalogToV5(catalog);
+    if (control !is null && control.cancellationRequested)
+        return false;
 
     try
     {
         db.begin();
         clearCatalog(db);
 
+        const size_t total = catalog.dataArray.length;
+        size_t processed;
+        reportImportProgress(control, operationId, OperationPhase.jsonWrite,
+            0, total, "Importing JSON catalog.");
+
         ImportedArchiveIndex[] archiveIndexes;
         foreach (physicalPass; [true, false])
             foreach (blob; catalog.dataArray)
             {
+                if (control !is null)
+                {
+                    if (control.cancellationRequested)
+                    {
+                        db.rollback();
+                        return false;
+                    }
+                }
                 if (blob is null || hasPhysicalFileReference(blob)
                     != physicalPass)
                     continue;
@@ -56,6 +96,10 @@ void importCatalogJson(ref Database db, string rootPath, string jsonFile,
                 if (blob.archiveIndexKnown)
                     archiveIndexes ~= ImportedArchiveIndex(blobId,
                         blob.archiveIndexDeep);
+                if (control !is null && ++processed % 512 == 0)
+                    reportImportProgress(control, operationId,
+                        OperationPhase.jsonWrite, processed, total,
+                        "Importing JSON catalog.");
             }
         persistImportedArchiveStatuses(db, archiveIndexes);
         resolveArchiveMemberBlobLinks(db);
@@ -65,7 +109,18 @@ void importCatalogJson(ref Database db, string rootPath, string jsonFile,
             ~ "media_info_version = ?, file_utility_version = ? WHERE id = 1",
             currentTimestamp(), catalog.mediaInfoVersion,
             catalog.fileUtilityVersion);
+        if (control !is null)
+        {
+            reportImportProgress(control, operationId, OperationPhase.jsonWrite,
+                processed, total, "Importing JSON catalog.");
+            if (control.cancellationRequested)
+            {
+                db.rollback();
+                return false;
+            }
+        }
         db.commit();
+        return true;
     }
     catch (Exception ex)
     {
@@ -78,13 +133,66 @@ void importCatalogJson(ref Database db, string rootPath, string jsonFile,
     }
 }
 
+private void reportImportProgress(OperationControl control, ulong operationId,
+    OperationPhase phase, size_t completed, size_t total, string message)
+{
+    if (control is null)
+        return;
+    OperationProgress progress;
+    progress.operationId = operationId;
+    progress.operation = OperationKind.catalogImport;
+    progress.state = OperationState.running;
+    progress.phase = phase;
+    progress.completed = completed;
+    progress.total = total;
+    progress.totalKnown = true;
+    progress.message = message;
+    control.report(progress);
+}
+
 /** Export repository data as the current JSON catalog format. */
 void exportCatalogJson(ref Database db, string rootPath, string jsonFile,
     JsonExportOptions options)
 {
+    exportCatalogJsonControlled(db, rootPath, jsonFile, options, null, 0);
+}
+
+/** Export repository data with cooperative cancellation. */
+bool exportCatalogJsonControlled(ref Database db, string rootPath,
+    string jsonFile, JsonExportOptions options, OperationControl control,
+    ulong operationId)
+{
+    if (control !is null && control.cancellationRequested)
+        return false;
     auto blobs = loadCatalogFromDatabase(db, rootPath, options);
+    if (control !is null && control.cancellationRequested)
+        return false;
     auto wrapper = NamedBinaryBlobCatalog(DATA_CLASS_VERSION5, blobs);
-    serializeDataClassWrapperFile(jsonFile, wrapper);
+    return writeStorageJsonFile(jsonFile, wrapper, ".json", currentTimestamp(),
+        "", () {
+            if (control is null)
+                return false;
+            reportExportProgress(control, operationId, 0, blobs.length,
+                "Writing JSON catalog.");
+            return control.cancellationRequested;
+        });
+}
+
+private void reportExportProgress(OperationControl control, ulong operationId,
+    size_t completed, size_t total, string message)
+{
+    if (control is null)
+        return;
+    OperationProgress progress;
+    progress.operationId = operationId;
+    progress.operation = OperationKind.catalogExport;
+    progress.state = OperationState.running;
+    progress.phase = OperationPhase.jsonWrite;
+    progress.completed = completed;
+    progress.total = total;
+    progress.totalKnown = true;
+    progress.message = message;
+    control.report(progress);
 }
 
 /** Load repository data into the existing domain model for library consumers. */

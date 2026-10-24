@@ -1497,3 +1497,39 @@ unittest
     assert(secondResult.errorCode == OperationErrorCode.targetBusy);
     assert(firstResult.state == OperationState.completed);
 }
+
+@("write lease is released after backend failure")
+unittest
+{
+    import dosierskanilo.operationlease : TargetWriteLease;
+    import dosierskanilo.repository : Repository;
+    import dosierskanilo.repository.types : RepositoryPaths;
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "operation-lease-failure-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+    {
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+    write(buildPath(root, "one.txt"), "one");
+    auto repository = Repository.initialize(root);
+    repository.close();
+
+    rmdirRecurse(RepositoryPaths.fromRoot(root).metadataPath);
+
+    ScanOperationRequest request;
+    request.operationId = 701;
+    request.target = OperationTarget.repositoryTarget(root);
+    auto result = runOperation(request, new OperationControl());
+
+    assert(result.state == OperationState.failed);
+    assert(result.errorCode == OperationErrorCode.backendFailure);
+
+    auto nextLease = TargetWriteLease.acquire(request.target);
+    nextLease.release();
+}

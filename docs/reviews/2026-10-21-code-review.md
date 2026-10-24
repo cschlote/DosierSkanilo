@@ -647,8 +647,9 @@ consistency, signal-handler hardening, and Markdown lint coverage.
 
 ## Open measurements and follow-ups
 
-- Add a regression test for the JSON replacement crash window (write a large
-  catalog and kill the process during the write).
+- [x] Regression test for the JSON replacement crash window: `test-cli.sh`
+  exports a 100,000-blob catalog, kills the writer while its staging file
+  exists, and verifies the previous catalog is unchanged and readable.
 - The `TODO.md` items for process-level Ctrl-C, multi-process lease races and
   CIFS/SMB behavior remain the right home for the remaining verification work;
   the findings above do not duplicate them.
@@ -661,9 +662,10 @@ the
 
 ### Wave 1 - data safety
 
-- [x] C1 - backup falls back to `copy` and `restoreOriginalFile()` restores the
-      data (plus a copy-fallback unittest); the write also stages into a
-      temporary file before renaming.
+- [x] C1 - backups use a hard link or `copy` without removing the original,
+      `restoreOriginalFile()` restores the data (plus a copy-fallback unittest),
+      writes stage into a file that is renamed atomically on POSIX, and a
+      process-kill test covers the crash window.
 - [x] C2 - `OperationControl.unbindCancellationMirror()` releases the mirror,
       and both JSON metadata paths unbind on exit.
 - [x] C3 - `mergeBlobMetadata()` copies metadata status, media signatures and
@@ -754,10 +756,19 @@ the
       name, and extractor statuses; JSON refreshes archive counts from the
       index at query time and both count complete fingerprints the same way.
       The cross-backend test now asserts these values.
-- [ ] Open parity items: JSON availability is still a build-time snapshot,
-      JSON pages still materialize the whole matching set, several JSON maps
-      insert defaults on `opIndex` misses, and
-      `archiveMemberReferenceByToken` still grows on reads.
+- [x] JSON file pages refresh availability when served, and the common
+      physical-file path scans for the requested page instead of materializing
+      and sorting the whole matching set.
+- [x] Reads no longer populate `archiveMemberReferenceByToken`; subset export
+      builds a local member map, and nested member lookups search the generated
+      member trees.
+- [x] The `opIndex` finding was incorrect: D associative-array reads throw a
+      `RangeError` on a missing key instead of inserting a default.
+- [ ] Pages with `includeArchiveMembers` now build one member order per
+      directory, cache it, and merge it with physical rows for path and size
+      pages. They no longer regenerate and re-sort members for every page.
+      The first page still builds the full member order, so a single very large
+      archive keeps member-proportional memory.
 
 Verification: `DC=ldc2 dub test --config=library` - 151 passed, 0 failed;
 `./scripts/test-cli.sh` - passed; `./scripts/lint.sh` - passed.

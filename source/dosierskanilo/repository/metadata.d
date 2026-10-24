@@ -422,30 +422,40 @@ MetadataExecutionResult updateRepositoryMetadataControlled(ref Database db,
 
         runControlledMetadataBatch(items, options.threads);
         // All worker calls are joined before any result is persisted or pause is
-        // acknowledged. Each blob's requested metadata is one transaction.
-        foreach (item; items)
+        // acknowledged. One transaction covers the batch; a persistence failure
+        // rolls the batch back as a unit.
+        bool transactionOpen;
+        bool persistedWork;
+        try
         {
-            if (hasMetadataWork(item))
+            db.begin();
+            transactionOpen = true;
+            foreach (item; items)
             {
-                db.begin();
-                try
+                if (hasMetadataWork(item))
                 {
                     persistMetadataWork(db, item, execution.summary);
-                    db.commit();
-                    execution.committed = true;
+                    persistedWork = true;
                 }
-                catch (Exception ex)
+                execution.summary.blobsVisited++;
+            }
+            db.commit();
+            transactionOpen = false;
+        }
+        catch (Exception ex)
+        {
+            if (transactionOpen)
+            {
+                try
+                    db.rollback();
+                catch (Exception)
                 {
-                    try
-                        db.rollback();
-                    catch (Exception)
-                    {
-                    }
-                    throw ex;
                 }
             }
-            execution.summary.blobsVisited++;
+            throw ex;
         }
+        if (persistedWork)
+            execution.committed = true;
 
         const auto checkpointPhase = phases.length > 0
             ? phases[$ - 1] : OperationPhase.discovering;

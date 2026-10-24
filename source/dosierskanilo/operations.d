@@ -20,7 +20,9 @@ enum OperationKind
 {
     scan,
     metadata,
-    analyze
+    analyze,
+    catalogImport,
+    catalogExport
 }
 
 /** Lifecycle states used in progress notifications and terminal results. */

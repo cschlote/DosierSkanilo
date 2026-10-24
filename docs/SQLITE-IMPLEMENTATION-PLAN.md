@@ -1148,8 +1148,8 @@ meaning, and repeat-scan tests prove the behavior.
 
 ## WP-11: Read-Path Cost and API-Boundary Review
 
-Status: `[ ]` (investigation first; implementation only where measurements or
-contract needs justify it).
+Status: `[x]` for the backend/CLI scope. Frontend-only archive-member paging and
+TreeView measurements are deferred to the separate GUI repository.
 
 The 2026-10-04 review raised concerns about per-query repository opens,
 materialization, JSON parsing, and the GUI's dependency on `NamedBinaryBlob`.
@@ -1158,42 +1158,51 @@ confirmed defects. Measure and inspect actual call paths before optimizing.
 
 ### WP-11.1: Measure repository connection-open overhead
 
-- [ ] Measure steady-state directory expansion/query cost separately from
+- [x] Measure steady-state directory expansion/query cost separately from
   repository initialization and schema migration, using a representative large
   directory tree and repeated independent source operations.
-- [ ] Inspect which statements on `Repository.open()` write on an already
+- [x] Inspect which statements on `Repository.open()` write on an already
   initialized/current repository; distinguish first-open/migration writes from
-  repeated-read behavior.
-- [ ] If the measured overhead or write-capable open path is material, design a
+  repeated-read behavior. The only repeated write was the unconditional
+  `PRAGMA user_version` update.
+- [x] If the measured overhead or write-capable open path is material, design a
   validated read-only open mode or another connection-lifetime policy that keeps
   concurrent operations independent and does not run migrations on readers.
-- [ ] Re-run source concurrency tests and benchmark before/after; retain bounded
+  Writes on steady-state opens were removed; no read-only mode was added because
+  WAL still needs write access for `-shm`/`-wal`.
+- [x] Re-run source concurrency tests and benchmark before/after; retain bounded
   root summaries and do not share a non-thread-safe connection between workers.
 
-**Exit:** record measured baseline and a decision. If code changes are
-unnecessary, document why; if needed, tests prove read-only opens cannot mutate
-repository state and independent query behavior remains correct.
+**Exit:** recorded in `docs/BENCHMARKS.md` and `TODO.md`: steady-state opens
+leave the database file unchanged, a unit test proves it, and independent read
+connections remain the concurrency policy.
 
 ### WP-11.2: Audit JSON paging and virtual-table materialization
 
-- [ ] Trace every production caller of `loadDocumentPage()` and
+- [x] Trace every production caller of `loadDocumentPage()` and
   `loadDocumentCursorPage()` for JSON sources. The normal JSON document load
   currently uses `loadDocumentSource()`; distinguish that one-time full load from
-  helpers that may deserialize again.
-- [ ] Verify whether `loadAllRows` remains reachable in normal UI operation and
+  helpers that may deserialize again. These helpers and the Blob virtual table
+  live in the separate GTK frontend repository, not in this package; the
+  frontend follow-up is deferred there.
+- [x] Verify whether `loadAllRows` remains reachable in normal UI operation and
   whether it is an explicit user choice or an accidental path around bounded
-  loading.
-- [ ] Measure JSON open/filter memory and latency and repository virtual-table
-  cache memory at representative sizes; include large directory counts as well
-  as blob counts.
-- [ ] If repeated JSON parsing or unbounded materialization occurs in a normal
-  workflow, cache/reuse the parsed source or remove that call path without
-  changing legacy JSON compatibility. Keep explicit full-materialization modes
-  documented if they remain available.
+  loading. Also frontend-only; deferred.
+- [x] Measure JSON open/filter memory and repository virtual-table cache memory
+  at representative sizes; include large directory counts as well as blob counts.
+  The CLI/backend JSON archive-member path is measured below; the GTK virtual
+  table is outside this repository and deferred.
+- [x] Measure JSON archive-member paging and remove repeated generation/sorting:
+  the backend now counts duplicate member paths in one pass, caches one member
+  order per directory, and merges it with physical rows for path and size pages.
+  `scripts/benchmark-json-members.d` reproduces the result. The first page still
+  builds the member order, so very large single archives keep
+  member-proportional memory.
 
-**Exit:** production call paths and costs are documented; any optimization is
+**Exit:** backend call paths and costs are documented; any optimization is
 justified by a reproducible measurement and tested for result parity and bounded
-repository cache behavior.
+repository cache behavior. Frontend-only helpers remain tracked in the GTK
+repository.
 
 ### WP-11.3: Decide the long-term Blob DTO boundary
 
@@ -1228,22 +1237,31 @@ which unfinished baseline work is intentional versus forgotten.
 
 ### WP-11.5: Reduce GC allocation churn in hot algorithms
 
-- [ ] Profile representative repeated work in SQLite scan/metadata, JSON
-  filtering, directory projection, and TreeView filter/clear cycles. Record
-  elapsed time, peak process memory, and GC allocation/collection behavior where
-  tooling permits.
-- [ ] Identify allocations inside per-file/per-directory loops, including
+- [x] Profile representative repeated work in SQLite scan/metadata, JSON
+  filtering, and directory projection. Record elapsed time, peak process memory,
+  and GC allocation/collection behavior where tooling permits. JSON
+  archive-member page, repository rescan, metadata checksum, and directory
+  projection baselines are recorded in `docs/BENCHMARKS.md`. TreeView/filter
+  cycles are measured in the separate frontend repository.
+- [x] Identify allocations inside per-file/per-directory loops, including
   temporary normalized paths, formatted strings, one-use arrays, duplicate
-  filtered row/tree projections, and unbounded retained results.
-- [ ] Prefer stable source objects/IDs, in-place match/visibility state,
+  filtered row/tree projections, and unbounded retained results. Fixed a 16 MiB
+  per-file digest buffer, scan staging statements, and per-directory full
+  file-row scans.
+- [x] Prefer stable source objects/IDs, in-place match/visibility state,
   per-worker scratch buffers, capacity reservation when counts are known, and
   bounded caches. Do not share mutable scratch across concurrent workers.
-- [ ] Keep SQLite result construction bounded by requested pages and active
+  Archive-member rows now reserve the direct entry count before appending.
+- [x] Keep SQLite result construction bounded by requested pages and active
   workers. For JSON, reuse the parsed source/index rather than copying the full
-  catalog or rebuilding its complete tree for each query.
-- [ ] Re-run output-parity, cancellation, pause/resume, and transaction tests
+  catalog or rebuilding its complete tree for each query. File pages request
+  bounded slices, and JSON queries reuse the parsed index and cached member
+  order.
+- [x] Re-run output-parity, cancellation, pause/resume, and transaction tests
   after optimization; compare before/after workload measurements and document
-  any retained allocation tradeoff.
+  any retained allocation tradeoff. The full library/CLI suite ran after each
+  optimization; archive-member first pages still retain one member order per
+  queried directory.
 
 **Exit:** hot paths have a measured allocation/memory baseline; repeated
 operations do not create avoidable full-catalog/tree copies or unbounded caches;

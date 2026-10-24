@@ -18,6 +18,9 @@ import xxhash3;
 
 import dosierskanilo.progress : ProgressCallBack;
 
+/// Digest buffer reused on the stack for each file read.
+private enum digestBufferSize = 64 * 1024;
+
 /** Calculate MD5, SHA1, and XXH64 digests for a file.
  *
  * Just read the binary data *once* per file and feed it to all checksummers.
@@ -54,20 +57,23 @@ void calculatesDigests(
 		fh.close();
 	size_t msz = fh.size;
 	size_t pos = 0;
-	enum buffSize = 16 * 1024 * 1024;
-	foreach (ubyte[] buffer; chunks(fh, buffSize))
+	ubyte[digestBufferSize] buffer;
+	while (true)
 	{
+		auto chunk = fh.rawRead(buffer[]);
+		if (chunk.length == 0)
+			break;
 		if (md5sum !is null)
-			md5.put(buffer);
+			md5.put(chunk);
 		if (sha1sum !is null)
-			sha1.put(buffer);
+			sha1.put(chunk);
 		if (xxh64sum !is null)
-			xxh64.put(buffer);
+			xxh64.put(chunk);
 
 		if (gotCtrlC !is null && atomicLoad(*gotCtrlC))
 			return;
 
-		pos += buffer.length;
+		pos += chunk.length;
 		if (progressCallBack)
 			progressCallBack.report(pos, msz);
 	}
@@ -139,8 +145,10 @@ unittest
 	ubyte[] md5sum;
 	calculatesDigests(null, tmpFile, &md5sum, null, null, &cb);
 
-	assert(progressSeen.length == 2, "Expected two chunks for >16 MiB test file");
-	assert(progressSeen[0] == 16 * 1024 * 1024, "First chunk should equal buffer size");
+	assert(progressSeen.length == (testSize + digestBufferSize - 1)
+		/ digestBufferSize, "Expected one progress report per buffer chunk");
+	assert(progressSeen[0] == digestBufferSize,
+		"First chunk should equal buffer size");
 	assert(progressSeen[$ - 1] == testSize, "Final progress should match full size");
 }
 

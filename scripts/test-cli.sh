@@ -12,9 +12,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if [[ ! -x "${BIN}" ]]; then
-    dub build --config=cli
-fi
+dub build --config=cli --compiler="${DC}" >/dev/null
 
 # Generate one D-owned corpus and exercise both explicit storage modes against it.
 fixture_bundle="${TMP_DIR}/synthetic-catalog"
@@ -53,6 +51,150 @@ sqlite_duplicates_output=$("${BIN}" duplicates \
     | sed -E 's/"id":[0-9]+,//g')
 [[ "${json_duplicates_output}" == "${sqlite_duplicates_output}" ]]
 popd >/dev/null
+
+# A killed JSON export never leaves a truncated or missing catalog at the
+# canonical path: the writer serializes into a staging file and renames it.
+crash_source="${TMP_DIR}/crash-source.json"
+crash_repo="${TMP_DIR}/crash-repo"
+crash_output="${TMP_DIR}/crash-output.json"
+crash_pristine="${TMP_DIR}/crash-pristine.json"
+mkdir -p "${crash_repo}"
+awk 'BEGIN {
+    print "{\"dataVersion\":5,\"dataArray\":["
+    for (i = 0; i < 100000; i++) {
+        if (i)
+            print ","
+        printf "{\"checkSums\":{\"md5sum_b64\":\"AAAAAAAAAAAAAAAAAAAAAA==\",\"sha1sum_b64\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAA=\",\"xxh64sum_b64\":\"AAAAAAAAAAA=\"},\"fileSize\":1,\"fileSpecs\":[{\"fileName\":\"f%06d\",\"timeLastModified\":\"2020-01-02T04:04:06\"}]}", i
+    }
+    print "]}"
+}' > "${crash_source}"
+"${BIN}" init "${crash_repo}" >/dev/null
+"${BIN}" import "${crash_repo}" "${crash_source}" >/dev/null
+printf '%s\n' '{"dataVersion":5,"dataArray":[]}' > "${crash_pristine}"
+cp "${crash_pristine}" "${crash_output}"
+"${BIN}" export "${crash_repo}" --output "${crash_output}" >/dev/null &
+export_pid=$!
+crash_staged=false
+for _ in $(seq 1 60000); do
+    if compgen -G "${crash_output}.tmp-*" >/dev/null; then
+        crash_staged=true
+        kill -STOP "${export_pid}" 2>/dev/null || true
+        kill -KILL "${export_pid}" 2>/dev/null || true
+        break
+    fi
+    if ! kill -0 "${export_pid}" 2>/dev/null; then
+        break
+    fi
+    sleep 0.001
+done
+wait "${export_pid}" 2>/dev/null || true
+[[ "${crash_staged}" == true ]]
+cmp "${crash_pristine}" "${crash_output}"
+rm -f "${crash_output}".tmp-*
+"${BIN}" analyze --json "${crash_output}" >/dev/null
+
+# SIGINT during repository import or export cancels without publishing.
+cancel_import_repo="${TMP_DIR}/cancel-import-repo"
+mkdir -p "${cancel_import_repo}"
+"${BIN}" init "${cancel_import_repo}" >/dev/null
+"${BIN}" import "${cancel_import_repo}" "${crash_source}" \
+    >"${TMP_DIR}/cancel-import-stdout" 2>"${TMP_DIR}/cancel-import-stderr" &
+cancel_import_pid=$!
+sleep 0.2
+kill -INT "${cancel_import_pid}" 2>/dev/null || true
+if wait "${cancel_import_pid}"; then
+    printf '%s\n' "Expected interrupted import to fail." >&2
+    exit 1
+fi
+grep -q "Catalog import cancelled" "${TMP_DIR}/cancel-import-stderr"
+cancel_import_info=$("${BIN}" info "${cancel_import_repo}" --format=json)
+[[ "${cancel_import_info}" == *'"blobs":0'* ]]
+
+cancel_export_path="${TMP_DIR}/cancel-export.json"
+"${BIN}" export "${crash_repo}" --output "${cancel_export_path}" \
+    >"${TMP_DIR}/cancel-export-stdout" 2>"${TMP_DIR}/cancel-export-stderr" &
+cancel_export_pid=$!
+sleep 0.2
+kill -INT "${cancel_export_pid}" 2>/dev/null || true
+if wait "${cancel_export_pid}"; then
+    printf '%s\n' "Expected interrupted export to fail." >&2
+    exit 1
+fi
+grep -q "Catalog export cancelled" "${TMP_DIR}/cancel-export-stderr"
+[[ ! -e "${cancel_export_path}" ]]
+"${BIN}" info "${crash_repo}" >/dev/null
+
+# SIGINT during a JSON scan stops the workers and never publishes a catalog.
+cancel_scan_tree="${TMP_DIR}/cancel-scan-tree"
+mkdir -p "${cancel_scan_tree}"
+for index in $(seq 1 200); do
+    ln "${crash_source}" "${cancel_scan_tree}/f${index}.json"
+done
+"${BIN}" scan "${cancel_scan_tree}" --json "${TMP_DIR}/cancel-scan.json" \
+    --recursive --checksums >"${TMP_DIR}/cancel-scan-stdout" 2>&1 &
+scan_pid=$!
+sleep 0.2
+kill -INT "${scan_pid}" 2>/dev/null || true
+scan_rc=0
+wait "${scan_pid}" || scan_rc=$?
+[[ "${scan_rc}" -ne 0 ]]
+grep -q "cancelled" "${TMP_DIR}/cancel-scan-stdout"
+[[ ! -e "${TMP_DIR}/cancel-scan.json" ]]
+
+# The same corpus through SQLite: cancellation during metadata leaves the
+# repository readable, whether or not discovery was already committed.
+"${BIN}" init "${cancel_scan_tree}" >/dev/null
+"${BIN}" scan "${cancel_scan_tree}" --recursive --checksums \
+    >"${TMP_DIR}/cancel-sqlite-scan-stdout" 2>&1 &
+sqlite_scan_pid=$!
+sleep 0.2
+kill -INT "${sqlite_scan_pid}" 2>/dev/null || true
+sqlite_scan_rc=0
+wait "${sqlite_scan_pid}" || sqlite_scan_rc=$?
+[[ "${sqlite_scan_rc}" -ne 0 ]]
+grep -q "cancelled" "${TMP_DIR}/cancel-sqlite-scan-stdout"
+"${BIN}" info "${cancel_scan_tree}" >/dev/null
+"${BIN}" list "${cancel_scan_tree}" --format=json >/dev/null
+
+# SIGINT during SQLite metadata cancels and leaves the repository usable.
+"${BIN}" metadata "${crash_repo}" --checksums \
+    >"${TMP_DIR}/metadata-cancel-stdout" 2>&1 &
+metadata_pid=$!
+sleep 0.5
+kill -INT "${metadata_pid}" 2>/dev/null || true
+metadata_rc=0
+wait "${metadata_pid}" || metadata_rc=$?
+[[ "${metadata_rc}" -ne 0 ]]
+grep -q "cancelled" "${TMP_DIR}/metadata-cancel-stdout"
+"${BIN}" info "${crash_repo}" >/dev/null
+
+# SIGINT during a large SQLite duplicate merge rolls the transaction back.
+"${BIN}" analyze "${crash_repo}" >"${TMP_DIR}/analyze-cancel-stdout" 2>&1 &
+analyze_pid=$!
+sleep 0.5
+kill -INT "${analyze_pid}" 2>/dev/null || true
+analyze_rc=0
+wait "${analyze_pid}" || analyze_rc=$?
+[[ "${analyze_rc}" -ne 0 ]]
+grep -q "cancelled" "${TMP_DIR}/analyze-cancel-stdout"
+"${BIN}" info "${crash_repo}" >/dev/null
+[[ "$("${BIN}" list "${crash_repo}" --format=json)" == *'"total":100000'* ]]
+
+# SIGINT during a JSON analysis cancels cooperatively: the process fails, the
+# original catalog is left in place, and no staging file is published.
+cancel_catalog="${TMP_DIR}/cancel-catalog.json"
+cancel_pristine="${TMP_DIR}/cancel-pristine.json"
+cp "${crash_source}" "${cancel_catalog}"
+cp "${cancel_catalog}" "${cancel_pristine}"
+"${BIN}" analyze --json "${cancel_catalog}" >"${TMP_DIR}/cancel-stdout" 2>&1 &
+analyze_pid=$!
+sleep 0.5
+kill -INT "${analyze_pid}" 2>/dev/null || true
+cancel_rc=0
+wait "${analyze_pid}" || cancel_rc=$?
+[[ "${cancel_rc}" -ne 0 ]]
+cmp "${cancel_pristine}" "${cancel_catalog}"
+grep -q "cancelled" "${TMP_DIR}/cancel-stdout"
 
 library="${TMP_DIR}/library"
 catalog="${TMP_DIR}/library.json"

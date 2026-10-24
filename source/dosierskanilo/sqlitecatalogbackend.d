@@ -18,8 +18,9 @@ import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION5, NamedBinaryBlo
     NamedBinaryBlobCatalog;
 import dosierskanilo.operationrunner;
 import dosierskanilo.operations : AnalysisOperationRequest,
-    MetadataOperationRequest, OperationControl, OperationKind, OperationResult,
-    OperationStorageMode, OperationTarget, ScanOperationRequest;
+    MetadataOperationRequest, OperationControl, OperationKind, OperationPhase,
+    OperationProgress, OperationResult, OperationState, OperationStorageMode,
+    OperationTarget, ScanOperationRequest;
 import dosierskanilo.repository;
 import dosierskanilo.repository.types : JsonExportOptions,
     RepositoryArchiveQuery, RepositoryBlobPage, RepositoryDirectoryQuery,
@@ -496,6 +497,13 @@ public:
     override CatalogExportResult exportSubset(CatalogSubsetQuery query,
         CatalogExportOptions options)
     {
+        return exportSubsetControlled(query, options, null, 0);
+    }
+
+    override CatalogExportResult exportSubsetControlled(CatalogSubsetQuery query,
+        CatalogExportOptions options, OperationControl control,
+        ulong operationId)
+    {
         return withRepository((Repository repository) {
             if (options.format != CatalogExportFormat.jsonV5)
                 throw new CatalogBackendException(
@@ -507,6 +515,34 @@ public:
             if (query.pathPrefix.length > 0)
                 ContentLocator.file(query.pathPrefix);
 
+            CatalogExportResult result;
+            result.referencesExported = 0;
+            bool cancelled;
+            void checkCancelled()
+            {
+                if (control !is null && control.cancellationRequested)
+                    cancelled = true;
+            }
+            void reportProgress(size_t completed, size_t total, string message)
+            {
+                if (control is null)
+                    return;
+                OperationProgress progress;
+                progress.operationId = operationId;
+                progress.operation = OperationKind.catalogExport;
+                progress.state = OperationState.running;
+                progress.phase = OperationPhase.jsonWrite;
+                progress.completed = completed;
+                progress.total = total;
+                progress.totalKnown = true;
+                progress.message = message;
+                control.report(progress);
+            }
+            reportProgress(0, 0, "Selecting export content.");
+            checkCancelled();
+            if (cancelled)
+                return result;
+
             RepositoryFile[][long] selectedReferences;
             long[] selectedBlobIds;
             bool[long][long] selectedReferenceIds;
@@ -515,6 +551,9 @@ public:
             bool selectedMemberReference;
             void addReference(RepositoryFile reference)
             {
+                checkCancelled();
+                if (cancelled)
+                    return;
                 if (reference.blobId !in selectedReferences)
                     selectedBlobIds ~= reference.blobId;
                 if (auto selectedIds = reference.blobId in selectedReferenceIds)
@@ -583,6 +622,9 @@ public:
                     else
                         retainArchiveMemberChain(file);
                 });
+            checkCancelled();
+            if (cancelled)
+                return result;
             if (selectedMemberReference
                 && (!options.includeContentDetails || !options.includeArchiveEntries))
                 throw new CatalogBackendException(
@@ -592,6 +634,9 @@ public:
             if (options.includeContentDetails && options.includeArchiveEntries)
                 foreach (container; archiveContainersToExpand)
                 {
+                    checkCancelled();
+                    if (cancelled)
+                        return result;
                     RepositoryFileQuery memberQuery;
                     memberQuery.directoryId = container.directoryId;
                     memberQuery.includeArchiveMembers = true;
@@ -609,10 +654,13 @@ public:
                 }
 
             NamedBinaryBlob[] exportedBlobs;
-            CatalogExportResult result;
-            result.referencesExported = 0;
+            const auto exportTotal = selectedBlobIds.length;
+            size_t processed;
             foreach (blobId; selectedBlobIds)
             {
+                checkCancelled();
+                if (cancelled)
+                    return result;
                 JsonExportOptions loadOptions;
                 loadOptions.absolutePaths = false;
                 loadOptions.includeDetails = options.includeContentDetails;
@@ -646,13 +694,31 @@ public:
                     blob.archiveIndexDeep = false;
                 }
                 exportedBlobs ~= blob;
+                if (control !is null && ++processed % 512 == 0)
+                    reportProgress(processed, exportTotal,
+                        "Writing JSON catalog.");
             }
 
+            reportProgress(exportTotal, exportTotal, "Writing JSON catalog.");
+            checkCancelled();
+            if (cancelled)
+                return result;
             auto catalog = NamedBinaryBlobCatalog(DATA_CLASS_VERSION5,
                 exportedBlobs);
-            enforce(commitJsonCatalog(options.outputPath, catalog),
-                new CatalogBackendException(CatalogBackendErrorCode.backendFailure,
-                    "Could not publish the SQLite subset export."));
+            const bool committed = commitJsonCatalog(options.outputPath, catalog,
+                () {
+                    reportProgress(exportTotal, exportTotal,
+                        "Writing JSON catalog.");
+                    return control !is null && control.cancellationRequested;
+                });
+            if (!committed)
+            {
+                if (control !is null && control.cancellationRequested)
+                    return result;
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.backendFailure,
+                    "Could not publish the SQLite subset export.");
+            }
             result.contentsExported = exportedBlobs.length;
             result.outputPath = canonicalPath(options.outputPath);
             result.committed = true;
@@ -662,8 +728,15 @@ public:
 
     override void importJson(string jsonPath, JsonImportOptions options = JsonImportOptions.init)
     {
+        importJsonControlled(jsonPath, options, null, 0);
+    }
+
+    override bool importJsonControlled(string jsonPath, JsonImportOptions options,
+        OperationControl control, ulong operationId)
+    {
         return withRepository((Repository repository) {
-            repository.importJson(jsonPath, options);
+            return repository.importJsonControlled(jsonPath, options, control,
+                operationId);
         });
     }
 
@@ -1409,6 +1482,67 @@ private:
 }
 
 /** Explicit factory for SQLite repository targets. */
+@("SQLite backend export cancellation writes no output")
+unittest
+{
+    import std.datetime.systime : Clock;
+    import std.file : exists, mkdirRecurse, remove, rmdirRecurse, tempDir;
+    import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION5,
+        NamedBinaryBlobCatalog, serializeDataClassWrapperFile;
+    import dosierskanilo.operations : OperationProgress;
+
+    const token = randomUUID().toString();
+    const root = buildPath(tempDir(), "sqlite-export-cancel-" ~ token);
+    const sourcePath = buildPath(tempDir(), "sqlite-export-cancel-"
+        ~ token ~ ".json");
+    const outputPath = buildPath(tempDir(), "sqlite-export-cancel-output-"
+        ~ token ~ ".json");
+    mkdirRecurse(root);
+    scope (exit)
+    {
+        if (exists(sourcePath))
+            remove(sourcePath);
+        if (exists(outputPath))
+            remove(outputPath);
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+
+    NamedBinaryBlobCatalog catalog;
+    catalog.dataVersion = DATA_CLASS_VERSION5;
+    foreach (index; 0 .. 600)
+        catalog.dataArray ~= new NamedBinaryBlob("item" ~ index.to!string, 1,
+            Clock.currTime());
+    serializeDataClassWrapperFile(sourcePath, catalog);
+    {
+        auto repository = Repository.initialize(root);
+        scope (exit)
+            repository.close();
+        repository.importJson(sourcePath);
+        assert(repository.blobCount == 600);
+    }
+
+    auto backend = new DefaultCatalogBackendFactory().open(
+        OperationTarget.repositoryTarget(root));
+    scope (exit)
+        backend.close();
+
+    OperationControl control;
+    control = new OperationControl((OperationProgress event) {
+        if (event.operation == OperationKind.catalogExport
+            && event.completed > 0)
+            control.requestCancellation();
+    });
+    CatalogSubsetQuery query;
+    CatalogExportOptions options;
+    options.format = CatalogExportFormat.jsonV5;
+    options.outputPath = outputPath;
+    const auto result = backend.exportSubsetControlled(query, options, control, 7);
+    assert(!result.committed);
+    assert(!exists(outputPath), "Cancelled export must not publish a catalog.");
+    assert(backend.repositoryInfo().schemaVersion > 0);
+}
+
 final class SqliteCatalogBackendFactory : CatalogBackendFactory
 {
     override CatalogBackend open(OperationTarget target)

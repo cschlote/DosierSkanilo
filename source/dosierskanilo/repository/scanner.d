@@ -49,6 +49,8 @@ ScanExecutionResult scanRepositoryControlled(ref Database db, string rootPath,
 
     try
     {
+        const virtualContainers = virtualContainerPaths(db);
+        auto statements = ScanStatements(db);
         foreach (entry; dirEntries(rootPath,
             options.recursive ? SpanMode.depth : SpanMode.shallow))
         {
@@ -61,18 +63,14 @@ ScanExecutionResult scanRepositoryControlled(ref Database db, string rootPath,
                 execution.summary.filesFound++;
                 auto modified = entry.timeLastModified.toISOExtString;
                 const auto canonicalRelative = escapeArchiveVirtualPath(relative);
-                db.execute("INSERT OR REPLACE INTO temp.scan_stage_files "
-                    ~ "(relative_path, file_size, time_last_modified) "
-                    ~ "VALUES (?, ?, ?)", canonicalRelative, cast(long) entry.size,
-                    modified);
-                db.execute("DELETE FROM temp.scan_missing_candidates "
-                    ~ "WHERE relative_path = ?", canonicalRelative);
+                statements.stageFile.inject(canonicalRelative,
+                    cast(long) entry.size, modified);
+                statements.removeMissingCandidate.inject(canonicalRelative);
             }
             else
             {
                 execution.summary.directoriesFound++;
-                db.execute("INSERT OR IGNORE INTO temp.scan_stage_directories "
-                    ~ "(relative_path) VALUES (?)", relative);
+                statements.stageDirectory.inject(relative);
             }
 
             if (!reportScanProgress(control, operationId, OperationPhase.scanning,
@@ -104,8 +102,9 @@ ScanExecutionResult scanRepositoryControlled(ref Database db, string rootPath,
         auto now = currentTimestamp();
         db.begin();
         applyStagedDirectories(db);
-        applyStagedFiles(db, now, execution.summary);
-        applyStagedMissing(db);
+        applyStagedFiles(db, now, execution.summary, virtualContainers,
+            statements);
+        applyStagedMissing(db, virtualContainers);
         if (options.dropMissing)
         {
             execution.summary.filesDropped = cast(size_t) db.execute(
@@ -136,14 +135,54 @@ ScanExecutionResult scanRepositoryControlled(ref Database db, string rootPath,
     return execution;
 }
 
-private void upsertFileReference(ref Database db, string relativePath,
-    ulong fileSize, string modified, string now, ref ScanSummary summary)
+private struct ScanStatements
 {
-    auto result = db.execute("SELECT file_refs.id, file_refs.blob_id, "
-        ~ "blobs.file_size, file_refs.time_last_modified FROM file_refs "
-        ~ "JOIN blobs ON blobs.id = file_refs.blob_id "
-        ~ "WHERE file_refs.relative_path = ?", relativePath);
-    if (result.empty)
+    Statement selectFile;
+    Statement markFileSeen;
+    Statement stageFile;
+    Statement stageDirectory;
+    Statement removeMissingCandidate;
+
+    this(ref Database db)
+    {
+        stageFile = db.prepare("INSERT OR REPLACE INTO temp.scan_stage_files "
+            ~ "(relative_path, file_size, time_last_modified) "
+            ~ "VALUES (?, ?, ?)");
+        stageDirectory = db.prepare("INSERT OR IGNORE INTO "
+            ~ "temp.scan_stage_directories (relative_path) VALUES (?)");
+        removeMissingCandidate = db.prepare("DELETE FROM "
+            ~ "temp.scan_missing_candidates WHERE relative_path = ?");
+        selectFile = db.prepare("SELECT file_refs.id, file_refs.blob_id, "
+            ~ "blobs.file_size, file_refs.time_last_modified FROM file_refs "
+            ~ "JOIN blobs ON blobs.id = file_refs.blob_id "
+            ~ "WHERE file_refs.relative_path = ?");
+        markFileSeen = db.prepare("UPDATE file_refs SET exists_on_disk = 1, "
+            ~ "last_seen_at = ? WHERE id = ?");
+    }
+}
+
+private void upsertFileReference(ref Database db, string relativePath,
+    ulong fileSize, string modified, string now, ref ScanSummary summary,
+    in bool[string] virtualContainers, ref ScanStatements statements)
+{
+    statements.selectFile.bindAll(relativePath);
+    auto result = statements.selectFile.execute();
+    const bool exists = !result.empty;
+    long fileId;
+    long oldBlobId;
+    ulong oldSize;
+    string oldModified;
+    if (exists)
+    {
+        auto row = result.front;
+        fileId = row.peek!long(0);
+        oldBlobId = row.peek!long(1);
+        oldSize = cast(ulong) row.peek!long(2);
+        oldModified = row.peek!string(3);
+    }
+    result = ResultRange.init;
+    statements.selectFile.reset();
+    if (!exists)
     {
         db.execute("INSERT INTO blobs (file_size) VALUES (?)",
             cast(long) fileSize);
@@ -167,15 +206,11 @@ private void upsertFileReference(ref Database db, string relativePath,
                 relativePath, modified, now);
         }
         summary.filesAdded++;
-        updateVirtualReferencesAvailability(db, relativePath, true, now);
+        if (relativePath in virtualContainers)
+            updateVirtualReferencesAvailability(db, relativePath, true, now);
         return;
     }
 
-    auto row = result.front;
-    auto fileId = row.peek!long(0);
-    auto oldBlobId = row.peek!long(1);
-    auto oldSize = cast(ulong) row.peek!long(2);
-    auto oldModified = row.peek!string(3);
     if (oldSize != fileSize || oldModified != modified)
     {
         db.execute("INSERT INTO blobs (file_size) VALUES (?)",
@@ -193,10 +228,12 @@ private void upsertFileReference(ref Database db, string relativePath,
     }
     else
     {
-        db.execute("UPDATE file_refs SET exists_on_disk = 1, "
-            ~ "last_seen_at = ? WHERE id = ?", now, fileId);
+        statements.markFileSeen.bindAll(now, fileId);
+        statements.markFileSeen.execute();
+        statements.markFileSeen.reset();
     }
-    updateVirtualReferencesAvailability(db, relativePath, true, now);
+    if (relativePath in virtualContainers)
+        updateVirtualReferencesAvailability(db, relativePath, true, now);
 }
 
 private void deleteVirtualDescendants(ref Database db, string containerPath)
@@ -276,7 +313,7 @@ private void resetScanStage(ref Database db)
         ~ "(relative_path TEXT PRIMARY KEY, file_size INTEGER NOT NULL, "
         ~ "time_last_modified TEXT NOT NULL)");
     db.execute("CREATE TEMP TABLE scan_missing_candidates "
-        ~ "(id INTEGER PRIMARY KEY, relative_path TEXT NOT NULL)");
+        ~ "(id INTEGER PRIMARY KEY, relative_path TEXT NOT NULL UNIQUE)");
     db.execute("CREATE TEMP TABLE scan_stage_missing (id INTEGER PRIMARY KEY)");
 }
 
@@ -352,16 +389,18 @@ private void applyStagedDirectories(ref Database db)
 }
 
 private void applyStagedFiles(ref Database db, string now,
-    ref ScanSummary summary)
+    ref ScanSummary summary, in bool[string] virtualContainers,
+    ref ScanStatements statements)
 {
     auto files = db.execute("SELECT relative_path, file_size, "
         ~ "time_last_modified FROM temp.scan_stage_files ORDER BY relative_path");
     foreach (row; files)
         upsertFileReference(db, row.peek!string(0),
-            cast(ulong) row.peek!long(1), row.peek!string(2), now, summary);
+            cast(ulong) row.peek!long(1), row.peek!string(2), now, summary,
+            virtualContainers, statements);
 }
 
-private void applyStagedMissing(ref Database db)
+private void applyStagedMissing(ref Database db, in bool[string] virtualContainers)
 {
     auto missing = db.execute("SELECT id FROM temp.scan_stage_missing ORDER BY id");
     foreach (row; missing)
@@ -371,8 +410,18 @@ private void applyStagedMissing(ref Database db)
             ~ "WHERE id = ?", id).oneValue!string;
         db.execute("UPDATE file_refs SET exists_on_disk = 0 WHERE id = ?",
             id);
-        updateVirtualReferencesAvailability(db, path, false, "");
+        if (path in virtualContainers)
+            updateVirtualReferencesAvailability(db, path, false, "");
     }
+}
+
+private bool[string] virtualContainerPaths(ref Database db)
+{
+    bool[string] result;
+    foreach (row; db.execute("SELECT relative_path FROM file_refs WHERE "
+        ~ isVirtualFileReferenceSql("relative_path")))
+        result[parseArchiveVirtualPath(row.peek!string(0)).physicalPath] = true;
+    return result;
 }
 
 private bool reportScanProgress(OperationControl control, ulong operationId,

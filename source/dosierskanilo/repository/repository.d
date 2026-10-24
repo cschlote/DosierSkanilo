@@ -25,7 +25,8 @@ import dosierskanilo.repository.analysis : queryDuplicateGroups;
 import dosierskanilo.repository.metadata : updateRepositoryMetadataControlled;
 import dosierskanilo.repository.schema : migrate;
 import dosierskanilo.repository.scanner : scanRepositoryControlled;
-import dosierskanilo.repository.transfer : exportCatalogJson, importCatalogJson,
+import dosierskanilo.repository.transfer : exportCatalogJson,
+    exportCatalogJsonControlled, importCatalogJson, importCatalogJsonControlled,
     loadCatalogFromDatabase, loadCatalogPageFromDatabase,
     loadCatalogQueryPageFromDatabase, loadCatalogQueryPageWithIdsFromDatabase,
     loadBlobDetailsFromDatabase, loadBlobFingerprintFromDatabase,
@@ -241,7 +242,21 @@ public:
     /** Replace the repository catalog with data from a JSON file. */
     void importJson(string jsonFile, JsonImportOptions options = JsonImportOptions())
     {
+        importJsonControlled(jsonFile, options, null, 0);
+    }
+
+    /**
+     * Replace the repository catalog with cooperative cancellation.
+     *
+     * Returns `false` when cancelled before commit; the previous catalog is
+     * unchanged.
+     */
+    bool importJsonControlled(string jsonFile, JsonImportOptions options,
+        OperationControl control, ulong operationId)
+    {
         requireOpen();
+        if (control !is null && control.cancellationRequested)
+            return false;
         auto targetLease = TargetWriteLease.acquireRepositoryRoot(
             repositoryPaths.rootPath);
         scope (exit)
@@ -254,18 +269,31 @@ public:
             if (options.backupExisting)
                 backupDatabase();
         }
-        importCatalogJson(database, repositoryPaths.rootPath, jsonFile, options);
+        if (control !is null && control.cancellationRequested)
+            return false;
+        return importCatalogJsonControlled(database, repositoryPaths.rootPath,
+            jsonFile, options, control, operationId);
     }
 
     /** Export repository data to a JSON file. */
     void exportJson(string jsonFile, JsonExportOptions options = JsonExportOptions())
     {
+        exportJsonControlled(jsonFile, options, null, 0);
+    }
+
+    /** Export repository data with cooperative cancellation. */
+    bool exportJsonControlled(string jsonFile, JsonExportOptions options,
+        OperationControl control, ulong operationId)
+    {
         requireOpen();
+        if (control !is null && control.cancellationRequested)
+            return false;
         auto targetLease = TargetWriteLease.acquireRepositoryRoot(
             repositoryPaths.rootPath);
         scope (exit)
             targetLease.release();
-        exportCatalogJson(database, repositoryPaths.rootPath, jsonFile, options);
+        return exportCatalogJsonControlled(database, repositoryPaths.rootPath,
+            jsonFile, options, control, operationId);
     }
 
     /** Load repository blobs using the shared domain model for consumers. */
@@ -673,7 +701,71 @@ unittest
     mkdirRecurse(nested);
     auto reopened = Repository.open(nested);
     assert(reopened.rootPath == buildNormalizedPath(root));
+    const databasePath = reopened.databasePath;
     reopened.close();
+
+    import core.thread : Thread;
+    import core.time : msecs;
+    import std.file : timeLastModified;
+    auto stamp = timeLastModified(databasePath);
+    Thread.sleep(20.msecs);
+    auto steady = Repository.open(root);
+    steady.close();
+    assert(timeLastModified(databasePath) == stamp,
+        "Opening an initialized repository must not write to the database.");
+}
+
+@("repository import cancellation keeps the previous catalog")
+unittest
+{
+    import std.datetime.systime : Clock;
+    import std.file : remove, rmdirRecurse, tempDir;
+    import dosierskanilo.operations : OperationKind, OperationProgress;
+    import std.uuid : randomUUID;
+    import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION5,
+        NamedBinaryBlobCatalog, serializeDataClassWrapperFile;
+
+    auto root = buildPath(tempDir(), "repository-import-cancel-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+    {
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+
+    auto repository = Repository.initialize(root);
+    scope (exit)
+        repository.close();
+
+    auto smallPath = buildPath(root, "small.json");
+    NamedBinaryBlobCatalog small;
+    small.dataVersion = DATA_CLASS_VERSION5;
+    small.dataArray = [new NamedBinaryBlob("keep.txt", 1, Clock.currTime())];
+    serializeDataClassWrapperFile(smallPath, small);
+    repository.importJson(smallPath);
+    assert(repository.blobCount == 1);
+
+    auto largePath = buildPath(root, "large.json");
+    NamedBinaryBlobCatalog large;
+    large.dataVersion = DATA_CLASS_VERSION5;
+    foreach (index; 0 .. 600)
+        large.dataArray ~= new NamedBinaryBlob(
+            "drop" ~ index.to!string, 1, Clock.currTime());
+    serializeDataClassWrapperFile(largePath, large);
+
+    OperationControl control;
+    control = new OperationControl((OperationProgress event) {
+        if (event.operation == OperationKind.catalogImport
+            && event.completed > 0)
+            control.requestCancellation();
+    });
+    JsonImportOptions options;
+    options.force = true;
+    assert(!repository.importJsonControlled(largePath, options, control, 6));
+    assert(repository.blobCount == 1,
+        "Cancelled import must roll back the replacement catalog.");
+    assert(repository.info.updatedAt.length > 0);
 }
 
 @("repository JSON import and export roundtrip")
