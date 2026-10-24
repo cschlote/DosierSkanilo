@@ -7,7 +7,7 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
-## Unreleased
+## Release 26.12.0 - 2026-10-24
 
 - Filtered JSON directory listings binary-search the sorted file rows for each
   directory instead of scanning every file per directory. A 200,000-file,
