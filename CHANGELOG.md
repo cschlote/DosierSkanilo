@@ -7,7 +7,7 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
-## Unreleased
+## Release 26.12.2 - 2026-10-25
 
 - The Flatpak build now targets the supported Freedesktop 25.08 runtime,
   bundles MediaInfo with ZenLib, and uses the current LDC/LLVM SDK extensions.
