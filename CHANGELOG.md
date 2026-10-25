@@ -9,6 +9,9 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- CLI JSON scans and analyses now load the catalog once, skip the query-index
+  rebuild that blocked startup on large catalogs, and still archive the previous
+  catalog before writing the replacement.
 - Interrupting a JSON scan with Ctrl-C now saves the records collected so far
   unless `--dry-run` is active. The CLI waits for the save to finish and a
   second Ctrl-C terminates immediately.

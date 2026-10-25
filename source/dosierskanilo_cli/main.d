@@ -45,6 +45,7 @@ import dosierarkivo;
 
 import dosierskanilo_cli.parser;
 import dosierskanilo_cli.logging : errorLine, noticeFLine;
+import dosierskanilo.operationrunner : runOperation;
 
 version (ldc)
 {
@@ -240,46 +241,82 @@ bool executeCatalogOperation(ArgsArray options)
 		target = OperationTarget.repositoryTarget(repositoryPath);
 	}
 	else
-		target = OperationTarget.jsonTarget(options.argJSONFile, options.argBaseDir);
+	{
+		target = OperationTarget.jsonTarget(options.argJSONFile,
+			options.argBaseDir);
+		return executeJsonCatalogOperation(options, target);
+	}
 
 	auto backendFactory = new DefaultCatalogBackendFactory;
 	auto backend = backendFactory.open(target);
 	scope (exit)
 		backend.close();
 	auto backendTarget = backend.target();
-	auto backendName = "Catalog";
 	auto control = cliOperationControl(options.argScanFiles
 		? "Catalog scan" : "Catalog analysis");
 	OperationResult result;
 	if (options.argScanFiles)
-	{
-		ScanOperationRequest request;
-		request.operationId = 4;
-		request.target = backendTarget;
-		request.scanOptions.recursive = options.argRecursive;
-		request.scanOptions.pickHidden = options.argPickHidden;
-		request.forceJsonOverwrite = options.argReplaceCatalog;
-		request.mergeDuplicates = options.argMergeDuplicates;
-		request.savePartialOnCancel = !options.argJSONFile.empty
-			&& !options.argDryRun;
-		request.dryRun = options.argDryRun;
-		request.metadataOptions = metadataOptionsFromCli(options);
-		result = backend.runOperation(request, control);
-		clearOperationProgress();
-	}
+		result = backend.runOperation(scanRequestFromCli(options, backendTarget),
+			control);
 	else
-	{
-		AnalysisOperationRequest request;
-		request.operationId = 5;
-		request.target = backendTarget;
-		request.options.dropMissing = options.argDropMissing;
-		request.metadataOptions = metadataOptionsFromCli(options);
-		request.forceJsonOverwrite = options.argReplaceCatalog;
-		request.dryRun = options.argDryRun;
-		result = backend.runOperation(request, control);
-		clearOperationProgress();
-	}
+		result = backend.runOperation(analysisRequestFromCli(options, backendTarget),
+			control);
+	clearOperationProgress();
+	return reportCatalogOperationResult("Catalog", options, result);
+}
 
+/** Run a one-shot JSON operation without the query backend.
+ *
+ * The operation runner owns the single catalog load and committed replacement.
+ * Avoiding the query backend here also avoids rebuilding its read index for a
+ * process that exits immediately after the operation.
+ */
+private bool executeJsonCatalogOperation(ArgsArray options, OperationTarget target)
+{
+	auto control = cliOperationControl(options.argScanFiles
+		? "Catalog scan" : "Catalog analysis");
+	OperationResult result;
+	if (options.argScanFiles)
+		result = runOperation(scanRequestFromCli(options, target), control);
+	else
+		result = runOperation(analysisRequestFromCli(options, target), control);
+	clearOperationProgress();
+	return reportCatalogOperationResult("Catalog", options, result);
+}
+
+private ScanOperationRequest scanRequestFromCli(ArgsArray options,
+	OperationTarget target)
+{
+	ScanOperationRequest request;
+	request.operationId = 4;
+	request.target = target;
+	request.scanOptions.recursive = options.argRecursive;
+	request.scanOptions.pickHidden = options.argPickHidden;
+	request.forceJsonOverwrite = options.argReplaceCatalog;
+	request.mergeDuplicates = options.argMergeDuplicates;
+	request.savePartialOnCancel = !options.argJSONFile.empty
+		&& !options.argDryRun;
+	request.dryRun = options.argDryRun;
+	request.metadataOptions = metadataOptionsFromCli(options);
+	return request;
+}
+
+private AnalysisOperationRequest analysisRequestFromCli(ArgsArray options,
+	OperationTarget target)
+{
+	AnalysisOperationRequest request;
+	request.operationId = 5;
+	request.target = target;
+	request.options.dropMissing = options.argDropMissing;
+	request.metadataOptions = metadataOptionsFromCli(options);
+	request.forceJsonOverwrite = options.argReplaceCatalog;
+	request.dryRun = options.argDryRun;
+	return request;
+}
+
+private bool reportCatalogOperationResult(string backendName, ArgsArray options,
+	OperationResult result)
+{
 	const bool cancelledWithSavedData = result.state == OperationState.cancelled
 		&& result.changesCommitted;
 	if (result.state != OperationState.completed && !cancelledWithSavedData)

@@ -35,6 +35,9 @@ synthetic_json_output=$("${BIN}" scan "${fixture_root}" \
     --json "${synthetic_catalog}" --recursive --checksums)
 [[ "${synthetic_json_output}" == *"Catalog scan: 12 files, 12 added"* ]]
 [[ ! -d "${fixture_root}/.dosierskanilo" ]]
+json_rescan_output=$("${BIN}" scan "${fixture_root}" \
+    --json "${synthetic_catalog}" --recursive --checksums)
+[[ "$(grep -c "Read serialized data from JSON file" <<<"${json_rescan_output}" || true)" -eq 1 ]]
 json_analysis_output=$("${BIN}" analyze --json "${synthetic_catalog}")
 [[ "${json_analysis_output}" == *"Catalog analysis: 0 missing, 0 dropped, 1 duplicate groups, 1 merged blobs, 0 orphaned blobs."* ]]
 json_list_output=$("${BIN}" list --json "${synthetic_catalog}" \
