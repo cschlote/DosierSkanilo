@@ -12,12 +12,11 @@ Debian. The project is publicly mirrored at
 The GUI is packaged separately in `DosierSkanilo-Gui` as `dosierskanilo-gui`
 and `dosierskanilo-gui-git`. There is intentionally no umbrella package.
 
-The current stable release is `26.12.0` (`v26.12.0`). The existing `v26.12.0`
-tag predates the git-less `VERSION` fallback, so its source archive cannot be
-packaged without `.git`; cut a new patch tag before publishing packages. Replace
-`SKIP` and other placeholders in distribution recipes before publishing packages.
-The project is licensed under `GPL-3.0-only`; package recipes should install the
-repository's `LICENSE.md`.
+The current stable release is `26.12.1` (`v26.12.1`). Versions before 26.12.1
+predate the git-less `VERSION` fallback, so their source archives cannot be
+packaged without `.git`. Replace `SKIP` and other placeholders in distribution
+recipes before publishing packages. The project is licensed under
+`GPL-3.0-only`; package recipes should install the repository's `LICENSE.md`.
 
 The scanner depends on MediaInfo and archive tools at runtime. Debian/Fedora
 recipes below are drafts and should be built in their native clean-build tools.

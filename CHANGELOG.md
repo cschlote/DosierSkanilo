@@ -7,7 +7,7 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
-## Unreleased
+## Release 26.12.1 - 2026-10-25
 
 - Archive extraction now terminates option parsing before member names, blocking
   command injection through crafted tar, ZIP, RAR, or 7z entries.
@@ -24,7 +24,7 @@ They represent the functional evolution and are intentionally summarized.
   values, and archive members of containers with `!` in their names track
   availability correctly.
 - Release archives without `.git` build using the tracked `VERSION` fallback;
-  packaging metadata and the Flatpak build were refreshed for `26.12.0`.
+  packaging metadata and the Flatpak build were refreshed for `26.12.1`.
 - `--scan-archives` can be repeated to enable deep archive scanning.
 - SQLite validates unknown archive/torrent content IDs and rejects cursors
   beyond the end of archive/torrent entry lists, matching JSON behavior;

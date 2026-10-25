@@ -1,3 +1,10 @@
+dosierskanilo (26.12.1-1) unstable; urgency=medium
+
+  * Package DosierSkanilo 26.12.1 with the code review fixes and containerized
+    Debian build support.
+
+ -- Carsten Schlote <schlote@vahanus.net>  Sun, 25 Oct 2026 00:00:00 +0000
+
 dosierskanilo (26.12.0-1) unstable; urgency=medium
 
   * Package DosierSkanilo 26.12.0.
