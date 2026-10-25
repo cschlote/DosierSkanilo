@@ -21,6 +21,21 @@ recipes before publishing packages. The project is licensed under
 The scanner depends on MediaInfo and archive tools at runtime. Debian/Fedora
 recipes below are drafts and should be built in their native clean-build tools.
 
+## Flatpak build
+
+Install `flatpak` and `flatpak-builder`, then build the manifest from the
+repository root. `--install-deps-from=flathub` installs the required 25.08 SDK,
+LDC, and LLVM extensions if they are missing:
+
+```sh
+flatpak-builder --force-clean --install-deps-from=flathub \
+    build/flatpak-build packaging/flatpak/org.dosierskanilo.DosierSkanilo.yml
+```
+
+The DUB dependency resolution runs inside the build sandbox with network access.
+The Flatpak bundles MediaInfo for media metadata; 7z and RAR scanning remain
+unavailable until their command-line tools are added to the manifest.
+
 ## Containerized Debian build
 
 `packaging/debian/build-in-container.sh` builds a `.deb` in a clean Debian 13
