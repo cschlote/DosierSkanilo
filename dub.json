@@ -21,7 +21,7 @@
 	],
 	"preGenerateCommands": [
 		"mkdir -p build/bin",
-		"git describe --long --always > build/bin/build-version.txt"],
+		"git describe --long --always > build/bin/build-version.txt 2>/dev/null || sed 's/^/v/' VERSION > build/bin/build-version.txt"],
 	"dflags": [
 		"-J."
 	],

@@ -208,7 +208,7 @@ ParsedCommandLine parseCommandLine(string[] args)
             "file-types", "SAM------ Query file type with 'file' utility", &argsarray.argDoFileTypes,
             "media-info", "SAM------ Calculate the media signature", &argsarray.argDoMediaSig,
             "rescan-media-info", "SAM------ Rescan all files for media signature", &argsarray.argRescanMediaSig,
-            "scan-archives", "SAM------ Get the contents of archives", &argsarray.argScanArchivesOption,
+            "scan-archives+", "SAM------ Get the contents of archives (repeat for deep scanning)", &argsarray.argScanArchives,
             "scan-torrents", "SAM------ Get the contents of torrent files", &argsarray.argScanTorrents,
             "drop-missing", "SA------- Drop missing files from database", &argsarray.argDropMissing,
             "threads", "SAM------ Number of worker threads", &argsarray.argNumberOfThreads,
@@ -271,8 +271,7 @@ ParsedCommandLine parseCommandLine(string[] args)
     default:
         break;
     }
-	if (argsarray.argScanArchivesOption && argsarray.argScanArchives == 0)
-		argsarray.argScanArchives = 1;
+	argsarray.argScanArchivesOption = argsarray.argScanArchives > 0;
 
     if (helpInformation.helpWanted)
     {
@@ -407,7 +406,13 @@ unittest
     assert(allMetadataOptions.options.argDoFileTypes);
     assert(allMetadataOptions.options.argDoMediaSig);
     assert(allMetadataOptions.options.argScanArchives == 1);
+    assert(allMetadataOptions.options.argScanArchivesOption);
     assert(allMetadataOptions.options.argScanTorrents);
+    auto deepArchive = parseCommandLine(["program", "metadata", "./test",
+        "--scan-archives", "--scan-archives"]);
+    assert(deepArchive.status == ParseStatus.run);
+    assert(deepArchive.options.argScanArchives == 2);
+    assert(deepArchive.options.argScanArchivesOption);
     assert(allMetadataOptions.options.argVerboseOutputs);
     assert(helpText.canFind("--checksums"));
     assert(helpText.canFind("--file-types"));

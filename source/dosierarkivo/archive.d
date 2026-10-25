@@ -90,6 +90,20 @@ struct ArchiveEntryDescriptor
     bool hasDuplicateName; /// True when another entry has the same normalized path.
 }
 
+/** Convert native path separators to the slash form used in catalog storage.
+ *
+ * On POSIX a backslash is a legal filename character and must be preserved.
+ */
+string nativePathToStoragePath(string path) @safe
+{
+    import std.string : replace;
+
+    version (Windows)
+        return path.replace('\\', '/');
+    else
+        return path;
+}
+
 /** Normalize a member name without permitting absolute or traversal paths. */
 string normalizeArchiveEntryPath(string name, out bool safe, out bool isDirectory) @safe
 {

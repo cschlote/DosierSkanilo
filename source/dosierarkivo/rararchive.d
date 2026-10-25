@@ -42,7 +42,7 @@ class FileArchiveRar : FileArchive
     {
         auto tarPath = buildPath(getcwd(), this.fileName);
         auto passwordOption = password.length > 0 ? "-p" ~ password : "-p-";
-        auto rc = execute(["unrar", "x", passwordOption, tarPath, filename, destDir]);
+        auto rc = execute(["unrar", "x", passwordOption, tarPath, "--", filename, destDir]);
         if (rc.status != 0 && isArchivePasswordFailure(rc.output))
             throw new ArchivePasswordRequiredException(rc.output);
         if (rc.status != 0)

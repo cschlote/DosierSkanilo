@@ -41,7 +41,7 @@ class FileArchiveTar : FileArchive
     override bool extractEntry(string filename, string destDir, string password = "")
     {
         auto tarPath = buildPath(getcwd(), this.fileName);
-        auto rc = execute(["tar", "-xf", tarPath, "-C", destDir, filename]);
+        auto rc = execute(["tar", "-xf", tarPath, "-C", destDir, "--", filename]);
         if (rc.status != 0)
             throw new ArchiveToolException(rc.output);
         return true;
@@ -63,7 +63,7 @@ class FileArchiveTar : FileArchive
         const auto occurrenceOption = "--occurrence="
             ~ (descriptor.occurrence + 1).to!string;
         const auto rc = execute(["tar", "--extract", "--file=" ~ tarPath,
-            "--directory=" ~ destDir, occurrenceOption, descriptor.name]);
+            "--directory=" ~ destDir, occurrenceOption, "--", descriptor.name]);
         return rc.status == 0;
     }
 
@@ -136,4 +136,38 @@ unittest
     assert(archive.extractEntry(entries[1], secondOutput));
     assert(readText(buildPath(firstOutput, "same.txt")) == "first occurrence");
     assert(readText(buildPath(secondOutput, "same.txt")) == "second occurrence");
+}
+
+
+@("tar extraction does not interpret member names as options")
+unittest
+{
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath, dirName;
+    import std.process : execute;
+    import std.uuid : randomUUID;
+
+    const auto root = buildPath(tempDir(), "tar-member-injection-"
+        ~ randomUUID().toString());
+    const auto source = buildPath(root, "source");
+    const auto output = buildPath(root, "output");
+    const auto archivePath = buildPath(root, "evil.tar");
+    const auto marker = buildPath(root, "pwned");
+    const auto member = "--to-command=touch " ~ marker;
+    mkdirRecurse(source);
+    mkdirRecurse(output);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+
+    const auto memberPath = buildPath(source, member);
+    mkdirRecurse(dirName(memberPath));
+    write(memberPath, "payload");
+    auto created = execute(["tar", "-cf", archivePath, "-C", source, "--",
+        member]);
+    assert(created.status == 0, created.output);
+
+    auto archive = new FileArchiveTar(archivePath);
+    assert(archive.extractEntry(member, output));
+    assert(!exists(marker), "tar executed a member name as an option");
 }

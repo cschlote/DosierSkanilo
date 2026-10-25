@@ -2,6 +2,9 @@
 set -eu
 
 DC="${DC:-ldc2}"
+SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+cd "$REPO_ROOT"
 
 echo "[clean] Running dub clean"
 dub clean -v

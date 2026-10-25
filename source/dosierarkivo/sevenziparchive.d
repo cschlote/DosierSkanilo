@@ -61,8 +61,8 @@ class FileArchive7z : FileArchive
         auto tarPath = buildPath(getcwd(), this.fileName);
         auto passwordOption = password.length > 0
             ? "-p" ~ password : "-p__dosierskanilo_no_password__";
-        auto rc = execute(["7z", "x", passwordOption, tarPath, filename,
-            "-o" ~ destDir]);
+        auto rc = execute(["7z", "x", passwordOption, "-o" ~ destDir, tarPath,
+            "--", filename]);
         if (rc.status != 0 && isArchivePasswordFailure(rc.output))
             throw new ArchivePasswordRequiredException(rc.output);
         if (rc.status != 0)

@@ -108,7 +108,7 @@ class FileArchiveZip : FileArchive
     override bool extractEntry(string filename, string destDir, string password = "")
     {
         auto zipPath = buildPath(getcwd(), this.fileName);
-        auto rc = execute(["unzip", "-P", password, "-d", destDir, zipPath, filename]);
+        auto rc = execute(["unzip", "-P", password, "-d", destDir, "--", zipPath, filename]);
         if (rc.status != 0 && isArchivePasswordFailure(rc.output))
             throw new ArchivePasswordRequiredException(rc.output);
         if (rc.status != 0)

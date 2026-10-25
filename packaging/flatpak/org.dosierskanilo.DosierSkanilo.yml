@@ -2,16 +2,21 @@ app-id: org.dosierskanilo.DosierSkanilo
 runtime: org.freedesktop.Platform
 runtime-version: '24.08'
 sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.ldc
 command: dosierskanilo
 finish-args:
   - --filesystem=home
 modules:
   - name: dosierskanilo
     buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/ldc/bin
     build-commands:
+      - DC=ldc2 dub build --build=release --compiler=ldc2 --config=cli
       - install -Dm755 build/bin/dosierskanilo /app/bin/dosierskanilo
       - install -Dm644 LICENSE.md /app/share/licenses/org.dosierskanilo.DosierSkanilo/LICENSE.md
     sources:
       - type: archive
-        url: https://github.com/cschlote/DosierSkanilo/archive/refs/tags/v26.9.2.tar.gz
+        url: https://github.com/cschlote/DosierSkanilo/archive/refs/tags/v26.12.0.tar.gz
         sha256: REPLACE_WITH_RELEASE_ARCHIVE_HASH

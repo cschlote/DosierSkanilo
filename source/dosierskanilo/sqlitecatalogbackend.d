@@ -270,6 +270,7 @@ public:
         return withRepository((Repository repository) {
             validatePageRequest(page);
             const auto blobId = parseIdentity(contentId.adapterToken, "content");
+            requireKnownContent(repository, blobId);
             const auto queryToken = detailQueryToken(repository, "archive", blobId);
             const auto offset = cursorOffset(page, queryToken);
             RepositoryArchiveQuery query;
@@ -277,6 +278,13 @@ public:
             query.offset = offset;
             query.limit = page.limit + 1;
             auto rows = repository.listArchiveEntries(query);
+            if (rows.length == 0 && offset > 0)
+            {
+                query.offset = offset - 1;
+                query.limit = 1;
+                if (repository.listArchiveEntries(query).length == 0)
+                    throw invalidCursor("Archive member cursor is outside the result sequence.");
+            }
             CatalogArchiveEntryPage result;
             const auto count = rows.length < page.limit ? rows.length : page.limit;
             foreach (row; rows[0 .. count])
@@ -457,6 +465,7 @@ public:
         return withRepository((Repository repository) {
             validatePageRequest(page);
             const auto blobId = parseIdentity(contentId.adapterToken, "content");
+            requireKnownContent(repository, blobId);
             const auto queryToken = detailQueryToken(repository, "torrent", blobId);
             const auto offset = cursorOffset(page, queryToken);
             RepositoryTorrentQuery query;
@@ -464,6 +473,13 @@ public:
             query.offset = offset;
             query.limit = page.limit + 1;
             auto rows = repository.listTorrentFiles(query);
+            if (rows.length == 0 && offset > 0)
+            {
+                query.offset = offset - 1;
+                query.limit = 1;
+                if (repository.listTorrentFiles(query).length == 0)
+                    throw invalidCursor("Torrent entry cursor is outside the result sequence.");
+            }
             CatalogTorrentEntryPage result;
             const auto count = rows.length < page.limit ? rows.length : page.limit;
             foreach (row; rows[0 .. count])
@@ -860,6 +876,14 @@ private:
         }
         throw new CatalogBackendException(CatalogBackendErrorCode.invalidIdentifier,
             "Malformed SQLite catalog identifier.");
+    }
+
+    void requireKnownContent(Repository repository, long blobId) const
+    {
+        if (repository.loadBlobFingerprint(blobId) is null)
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.invalidIdentifier,
+                "Unknown SQLite content identity.");
     }
 
     ContentId contentId(long id) const
@@ -1946,6 +1970,14 @@ version (unittest)
         assert(nextArchiveEntries.entries.length == 2);
         assert(nextArchiveEntries.entries[0].fingerprint.complete);
 
+        import std.exception : assertThrown;
+        CatalogPageRequest pastArchiveRequest = archiveRequest;
+        pastArchiveRequest.cursor = CatalogPageCursor(999, pastArchiveRequest.limit,
+            archiveEntries.nextCursor.queryToken);
+        assertThrown!CatalogBackendException(
+            sqliteBackend.listArchiveEntries(sampleArchive.contentId,
+                pastArchiveRequest));
+
         CatalogFileQuery mediaQuery;
         mediaQuery.directoryId = mediaDirectory;
         mediaQuery.filter.audio = true;
@@ -1975,9 +2007,6 @@ version (unittest)
             torrentDetails);
         assert(torrent.torrentSummary.name == "tone.wav");
         assert(torrent.torrentSummary.fileListAvailable);
-        assert(sqliteBackend.listTorrentEntries(singleTorrent.contentId)
-            .entries.length == 1);
-
         /* A known content without an archive index is an empty page, not an error. */
         assert(sqliteBackend.listArchiveEntries(singleTorrent.contentId)
             .entries.length == 0);

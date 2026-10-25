@@ -87,9 +87,9 @@ install_hadolint_binary() {
     hadolint_tmp="/tmp/hadolint.$$"
 
     if have_cmd curl; then
-        run_as_root sh -c "curl -fsSL '$hadolint_url' -o '$hadolint_tmp'"
+        run_as_root curl -fsSL "$hadolint_url" -o "$hadolint_tmp"
     elif have_cmd wget; then
-        run_as_root sh -c "wget -qO '$hadolint_tmp' '$hadolint_url'"
+        run_as_root wget -qO "$hadolint_tmp" "$hadolint_url"
     else
         echo "ERROR: Neither curl nor wget is available to download hadolint." >&2
         return 1

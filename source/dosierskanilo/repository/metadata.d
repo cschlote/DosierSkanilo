@@ -14,7 +14,8 @@ import std.typecons : Nullable;
 
 import dosierarkivo.archive : archiveIndexVersion,
     appendArchiveVirtualPath, escapeArchiveVirtualPath,
-    normalizeArchiveEntryPath, parseArchiveVirtualPath;
+    nativePathToStoragePath, normalizeArchiveEntryPath,
+    parseArchiveVirtualPath;
 import dosierskanilo.metadata.mediainfosig : MediaInfoSig;
 import dosierskanilo.metadata.torrentinfo : TorrentInfo;
 import dosierskanilo.model.archivespec : ArchiveSpec;
@@ -157,7 +158,7 @@ private long[] metadataBlobIds(ref Database db, string filePath)
     }
     else
     {
-        const auto canonical = escapeArchiveVirtualPath(filePath.replace('\\', '/'));
+        const auto canonical = escapeArchiveVirtualPath(nativePathToStoragePath(filePath));
         foreach (row; db.execute("SELECT DISTINCT b.id FROM blobs b "
             ~ "JOIN file_refs f ON f.blob_id = b.id "
             ~ "WHERE f.relative_path = ? AND "

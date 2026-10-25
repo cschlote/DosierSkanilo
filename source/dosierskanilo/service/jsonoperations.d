@@ -9,8 +9,9 @@ import std.path : absolutePath, baseName, buildNormalizedPath, dirSeparator;
 import std.string : empty, endsWith, replace, split;
 
 import dosierarkivo.archive : escapeArchiveVirtualPath,
-    parseArchiveVirtualPath;
+    nativePathToStoragePath, parseArchiveVirtualPath;
 import dosierskanilo.model.archivespec : ArchiveSpec;
+import dosierskanilo.model.checksums : CheckSums;
 import dosierskanilo.model.namedbinaryblob : NamedBinaryBlob,
     DATA_CLASS_VERSION5, NamedBinaryBlobCatalog,
     deserializeDataClassJsonWrapperFile, isCatalogFormatFailure,
@@ -173,7 +174,7 @@ private bool scanJsonDirectory(string root, RepositoryScanOptions options,
         {
             summary.filesFound++;
             auto storedFileName = pathsUseV5Grammar
-                ? escapeArchiveVirtualPath(entry.name.replace('\\', '/'))
+                ? escapeArchiveVirtualPath(nativePathToStoragePath(entry.name))
                 : entry.name;
             NamedBinaryBlob existing;
             foreach (blob; blobs)
@@ -213,6 +214,7 @@ private bool scanJsonDirectory(string root, RepositoryScanOptions options,
                     {
                         existing.fileSize = entry.size;
                         fileSpec.timeLastModified = modified;
+                        clearJsonDerivedMetadata(existing);
                     }
                     summary.filesChanged++;
                 }
@@ -227,6 +229,18 @@ private bool scanJsonDirectory(string root, RepositoryScanOptions options,
             return false;
     }
     return !cancellationRequested(control);
+}
+
+private void clearJsonDerivedMetadata(NamedBinaryBlob blob)
+{
+    blob.checkSums = CheckSums();
+    blob.fileType = null;
+    blob.mediaInfoSig = null;
+    blob.archiveSpecs = null;
+    blob.archiveIndexKnown = false;
+    blob.archiveIndexDeep = false;
+    blob.archivePassword = "";
+    blob.torrentInfo = null;
 }
 
 private bool hasHiddenPathComponent(string root, string path)
@@ -280,6 +294,40 @@ unittest
         blobs, null, 1, summary));
     assert(summary.filesFound == 1);
     assert(blobs.length == 1);
+}
+
+@("JSON rescan clears derived metadata for changed files")
+unittest
+{
+    import std.datetime.systime : SysTime;
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const auto root = buildPath(tempDir(), "json-rescan-metadata-"
+        ~ randomUUID().toString());
+    const auto filePath = buildPath(root, "changed.bin");
+    mkdirRecurse(root);
+    write(filePath, "original");
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+
+    auto blob = new NamedBinaryBlob(filePath, 8, SysTime(1_000_000));
+    blob.checkSums.md5sum_b64 = "stale-digest";
+    blob.fileType = "stale file type";
+    blob.archiveIndexKnown = true;
+    blob.archiveIndexDeep = true;
+    NamedBinaryBlob[] blobs = [blob];
+
+    RepositoryScanOptions options;
+    ScanSummary summary;
+    assert(scanJsonDirectory(root, options, false, blobs, null, 1, summary));
+    assert(summary.filesChanged == 1);
+    assert(!blob.checkSums.hasDigests);
+    assert(blob.fileType.empty);
+    assert(!blob.archiveIndexKnown);
+    assert(!blob.archiveIndexDeep);
 }
 
 private struct JsonMetadataWork

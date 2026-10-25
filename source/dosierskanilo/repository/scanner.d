@@ -9,7 +9,7 @@ import std.path : buildNormalizedPath, buildPath, dirName, dirSeparator;
 import std.string : empty, replace, split;
 
 import dosierarkivo.archive : escapeArchiveVirtualPath,
-    parseArchiveVirtualPath;
+    nativePathToStoragePath, parseArchiveVirtualPath;
 import dosierskanilo.repository.archiveindex : deleteUnreachableBlobs,
     isVirtualFileReferenceSql;
 import dosierskanilo.repository.errors;
@@ -243,7 +243,7 @@ private void deleteVirtualDescendants(ref Database db, string containerPath)
     long[] staleIds;
     foreach (row; db.execute("SELECT id FROM file_refs WHERE "
         ~ "relative_path >= ? AND relative_path < ?",
-        prefix, prefix ~ "\uFFFF"))
+        prefix, prefix[0 .. $ - 1] ~ "0"))
         staleIds ~= row.peek!long(0);
     foreach (id; staleIds)
         db.execute("DELETE FROM file_refs WHERE id = ?", id);
@@ -260,7 +260,7 @@ private void updateVirtualReferencesAvailability(ref Database db,
     foreach (row; db.execute("SELECT id, relative_path FROM file_refs WHERE "
         ~ "relative_path >= ? AND relative_path < ? AND "
         ~ isVirtualFileReferenceSql("relative_path"),
-        prefix, prefix ~ "\uFFFF"))
+        prefix, prefix[0 .. $ - 1] ~ "0"))
     {
         const auto parsed = parseArchiveVirtualPath(row.peek!string(1));
         if (parsed.physicalPath == physical)
@@ -282,13 +282,18 @@ unittest
 
     auto db = Database(":memory:");
     migrate(db, "2026-01-01T00:00:00");
-    db.execute("INSERT INTO blobs (id, file_size) VALUES (1, 10), (2, 20), (3, 30)");
+    db.execute("INSERT INTO blobs (id, file_size) VALUES (1, 10), (2, 20), (3, 30), (4, 40)");
     db.execute("INSERT INTO file_refs (id, blob_id, relative_path, "
         ~ "exists_on_disk, last_seen_at) VALUES "
         ~ "(1, 1, 'sample!!.zip', 1, ?), "
         ~ "(2, 2, 'sample!!.zip!/inner!!.txt', 1, ?), "
-        ~ "(3, 3, 'other!!.zip!/inner!!.txt', 1, ?)",
-        "2026-01-01T00:00:00", "2026-01-01T00:00:00", "2026-01-01T00:00:00");
+        ~ "(3, 3, 'other!!.zip!/inner!!.txt', 1, ?), "
+        ~ "(4, 4, 'sample!!.zip!/😀.txt', 1, ?)",
+        "2026-01-01T00:00:00", "2026-01-01T00:00:00", "2026-01-01T00:00:00",
+        "2026-01-01T00:00:00");
+    auto containers = virtualContainerPaths(db);
+    assert("sample!!.zip" in containers);
+    assert("other!!.zip" in containers);
 
     updateVirtualReferencesAvailability(db,
         escapeArchiveVirtualPath("sample!.zip"), false, "");
@@ -299,6 +304,8 @@ unittest
         .oneValue!long == 0);
     assert(db.execute("SELECT exists_on_disk FROM file_refs WHERE id = 3")
         .oneValue!long == 1);
+    assert(db.execute("SELECT exists_on_disk FROM file_refs WHERE id = 4")
+        .oneValue!long == 0);
 }
 
 private void resetScanStage(ref Database db)
@@ -420,7 +427,8 @@ private bool[string] virtualContainerPaths(ref Database db)
     bool[string] result;
     foreach (row; db.execute("SELECT relative_path FROM file_refs WHERE "
         ~ isVirtualFileReferenceSql("relative_path")))
-        result[parseArchiveVirtualPath(row.peek!string(0)).physicalPath] = true;
+        result[escapeArchiveVirtualPath(
+            parseArchiveVirtualPath(row.peek!string(0)).physicalPath)] = true;
     return result;
 }
 
@@ -460,7 +468,7 @@ private long ensureDirectory(ref Database db, string relativeDirectory)
     if (relativeDirectory.empty || relativeDirectory == ".")
         return 0;
 
-    auto normalized = relativeDirectory.replace('\\', '/');
+    auto normalized = nativePathToStoragePath(relativeDirectory);
     long parentId;
     string current;
     foreach (part; normalized.split("/"))
@@ -492,7 +500,7 @@ private string repositoryRelativePath(string rootPath, string path)
     if (!normalized.startsWith(prefix))
         throw new RepositoryException("Scanned path is outside repository root: "
             ~ path);
-    return normalized[prefix.length .. $].replace('\\', '/');
+    return nativePathToStoragePath(normalized[prefix.length .. $]);
 }
 
 private bool hasHiddenComponent(string relativePath)
@@ -507,4 +515,24 @@ private string currentTimestamp()
 {
     import std.datetime.systime : Clock;
     return Clock.currTime.toISOExtString;
+}
+
+version (Windows) {} else
+@("repository paths preserve POSIX backslashes")
+unittest
+{
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const auto root = buildPath(tempDir(), "scanner-backslash-"
+        ~ randomUUID().toString());
+    const auto filePath = buildPath(root, "a\\b.txt");
+    mkdirRecurse(root);
+    write(filePath, "data");
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+
+    assert(repositoryRelativePath(root, filePath) == "a\\b.txt");
 }

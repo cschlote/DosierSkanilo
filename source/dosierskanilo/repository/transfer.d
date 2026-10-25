@@ -14,8 +14,8 @@ import std.string : empty, endsWith, replace, split;
 import std.typecons : Nullable;
 
 import dosierarkivo.archive : appendArchiveVirtualPath, archiveIndexVersion,
-    escapeArchiveVirtualPath, parseArchiveVirtualPath,
-    ParsedArchiveVirtualPath;
+    escapeArchiveVirtualPath, nativePathToStoragePath,
+    parseArchiveVirtualPath, ParsedArchiveVirtualPath;
 import dosierskanilo.metadata.mediainfosig;
 import dosierskanilo.operations : OperationControl, OperationKind,
     OperationPhase, OperationProgress, OperationState;
@@ -246,15 +246,15 @@ RepositoryDirectory[] listDirectoriesFromDatabase(ref Database db,
 {
     auto statement = db.prepare(
         "SELECT d.id, d.parent_id, d.name, d.relative_path, "
-        ~ "(SELECT count(*) FROM directories child WHERE child.parent_id = d.id), "
-        ~ "(SELECT count(*) FROM file_refs f WHERE f.directory_id = d.id AND "
-        ~ "NOT (" ~ isVirtualFileReferenceSql("f.relative_path") ~ ")), "
+        ~         "(SELECT count(*) FROM directories child WHERE child.parent_id = d.id), "
+        ~ "(SELECT count(*) FROM file_refs f JOIN blobs b ON b.id = f.blob_id "
+        ~ "WHERE f.directory_id = d.id" ~ directoryFileFilterSql(options) ~ "), "
         ~ "COALESCE((SELECT sum(b.file_size) FROM file_refs f "
         ~ "JOIN blobs b ON b.id = f.blob_id WHERE "
         ~ "(f.relative_path = d.relative_path "
         ~ "OR (f.relative_path >= d.relative_path || '/' "
-        ~ "AND f.relative_path < d.relative_path || '/\uFFFF')) "
-        ~ "AND NOT (" ~ isVirtualFileReferenceSql("f.relative_path") ~ ")), 0) "
+        ~ "AND f.relative_path < d.relative_path || '0')) "
+        ~ directoryFileFilterSql(options) ~ "), 0) "
         ~ "FROM directories d WHERE "
         ~ (options.parentId == 0 ? "d.parent_id IS NULL" : "d.parent_id = :parent_id")
         ~ directoryFilterSql(options)
@@ -289,6 +289,42 @@ RepositoryRootSummary loadRootSummaryFromDatabase(ref Database db)
     auto row = result.front;
     return RepositoryRootSummary(cast(size_t) row.peek!long(0),
         cast(size_t) row.peek!long(1), cast(ulong) row.peek!long(2));
+}
+
+private string directoryFileFilterSql(RepositoryDirectoryQuery options,
+    string fileAlias = "f", string blobAlias = "b")
+{
+    string sql;
+    if (!options.includeArchiveMembers)
+        sql ~= " AND NOT (" ~ isVirtualFileReferenceSql(fileAlias ~ ".relative_path") ~ ")";
+    if (!options.text.empty)
+        sql ~= options.caseSensitive
+            ? " AND instr(" ~ fileAlias ~ ".relative_path, :directory_text) > 0"
+            : " AND instr(lower(" ~ fileAlias ~ ".relative_path), "
+                ~ "lower(:directory_text)) > 0";
+    if (options.availableOnly)
+        sql ~= " AND " ~ fileAlias ~ ".exists_on_disk = 1";
+
+    string[] media;
+    if (options.video) media ~= "EXISTS (SELECT 1 FROM media_video_streams x WHERE x.blob_id = " ~ blobAlias ~ ".id)";
+    if (options.audio) media ~= "EXISTS (SELECT 1 FROM media_audio_streams x WHERE x.blob_id = " ~ blobAlias ~ ".id)";
+    if (options.image) media ~= "EXISTS (SELECT 1 FROM media_image_streams x WHERE x.blob_id = " ~ blobAlias ~ ".id)";
+    if (options.textStream) media ~= "EXISTS (SELECT 1 FROM media_text_streams x WHERE x.blob_id = " ~ blobAlias ~ ".id)";
+    if (media.length > 0)
+        sql ~= options.mediaNegated ? " AND NOT (" ~ media.join(" OR ") ~ ")"
+            : " AND (" ~ media.join(" OR ") ~ ")";
+
+    string[] other;
+    if (options.fileType) other ~= "(" ~ blobAlias ~ ".file_type IS NOT NULL AND length("
+        ~ blobAlias ~ ".file_type) > 0)";
+    if (options.archive) other ~= "EXISTS (SELECT 1 FROM metadata_status a "
+        ~ "WHERE a.blob_id = " ~ blobAlias ~ ".id AND a.metadata_kind = 'archives' "
+        ~ "AND a.state IN ('completed', 'empty'))";
+    if (options.torrent) other ~= "EXISTS (SELECT 1 FROM torrent_info t WHERE t.blob_id = "
+        ~ blobAlias ~ ".id)";
+    if (other.length > 0)
+        sql ~= " AND (" ~ other.join(" OR ") ~ ")";
+    return sql;
 }
 
 private string directoryFilterSql(RepositoryDirectoryQuery options)
@@ -604,7 +640,7 @@ RepositoryArchiveEntry[] listArchiveEntriesFromDatabase(ref Database db,
         rangeConditions ~= "(f.relative_path >= " ~ startName
             ~ " AND f.relative_path < " ~ endName ~ ")";
         rangeStarts[startName] = prefix;
-        rangeStarts[endName] = prefix ~ "\uFFFF";
+        rangeStarts[endName] = prefix[0 .. $ - 1] ~ "0";
     }
     if (rangeConditions.length == 0)
         return [];
@@ -1468,7 +1504,7 @@ private long ensureDirectory(ref Database db, string relativeDirectory)
 
 private string repositoryRelativePath(string rootPath, string path)
 {
-    auto normalized = buildNormalizedPath(path).replace('\\', '/');
+    auto normalized = nativePathToStoragePath(buildNormalizedPath(path));
     auto normalizedRoot = rootPath.empty ? "" : buildNormalizedPath(rootPath);
     if (!isAbsolute(normalized))
         return normalized;

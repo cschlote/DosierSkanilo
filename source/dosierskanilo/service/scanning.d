@@ -330,9 +330,9 @@ bool runScannerJobs(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCt
             foreach (i, obj; dynObjectArray)
             {
                 auto existingFiles = obj.getExistingFiles;
-                obj.fileSpecs = existingFiles;
                 if (existingFiles.length == 0)
                     continue;
+                obj.fileSpecs = existingFiles;
 
                 printProgress(i, dynObjectArray.length, obj.getFirstFileName);
 

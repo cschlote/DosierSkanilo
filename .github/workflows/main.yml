@@ -6,6 +6,15 @@ on:
       - "**"
   pull_request:
   workflow_dispatch:
+    inputs:
+      deploy:
+        description: "Deployment target"
+        type: choice
+        options:
+          - none
+          - staging
+          - production
+        default: none
 
 env:
   VA_TEST: "abc"
@@ -123,7 +132,7 @@ jobs:
       image: alpine:3.20
     needs:
       - test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.deploy == 'staging'
     environment:
       name: staging
       url: https://packages.vahanus.net
@@ -144,7 +153,7 @@ jobs:
       image: alpine:3.20
     needs:
       - test
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.deploy == 'production'
     environment:
       name: production
       url: https://packages.vahanus.net

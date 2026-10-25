@@ -1,3 +1,9 @@
+dosierskanilo (26.12.0-1) unstable; urgency=medium
+
+  * Package DosierSkanilo 26.12.0.
+
+ -- Carsten Schlote <schlote@vahanus.net>  Sat, 24 Oct 2026 00:00:00 +0000
+
 dosierskanilo (26.9.2-1) unstable; urgency=medium
 
   * Package DosierSkanilo 26.9.2.

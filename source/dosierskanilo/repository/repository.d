@@ -15,7 +15,8 @@ import std.string : empty, replace, startsWith, toLower;
 import std.stdio : File;
 import std.typecons : Nullable;
 
-import dosierarkivo.archive : escapeArchiveVirtualPath;
+import dosierarkivo.archive : escapeArchiveVirtualPath,
+    nativePathToStoragePath;
 import dosierskanilo.model.namedbinaryblob : NamedBinaryBlob;
 import dosierskanilo.operations : OperationControl, OperationTarget;
 import dosierskanilo.operationlease : TargetWriteLease;
@@ -642,8 +643,8 @@ public:
 
 private string passwordRelativePath(string fileName, string rootPath)
 {
-    auto normalized = buildNormalizedPath(fileName).replace('\\', '/');
-    auto normalizedRoot = buildNormalizedPath(rootPath).replace('\\', '/');
+    auto normalized = nativePathToStoragePath(buildNormalizedPath(fileName));
+    auto normalizedRoot = nativePathToStoragePath(buildNormalizedPath(rootPath));
     if (isAbsolute(normalized))
     {
         auto prefix = normalizedRoot ~ "/";
@@ -673,7 +674,7 @@ private string escapeLogValue(string value)
 {
     import std.string : replace;
     return value.replace("\\", "\\\\").replace("\"", "\\\"")
-        .replace("\n", "\\n").replace("\r", "\\r");
+        .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t");
 }
 
 @("repository initialization and root discovery")
@@ -1332,9 +1333,11 @@ unittest
     assert(duplicateGroups.length == 1);
     assert(duplicateGroups[0].blobIds.length == 2);
 
+    const auto updatedBeforeAnalysis = repository.info.updatedAt;
     auto duplicates = repository.analyze();
     assert(duplicates.duplicateGroups == 1);
     assert(duplicates.mergedBlobs == 1);
+    assert(repository.info.updatedAt != updatedBeforeAnalysis);
 
     remove(second);
     repository.scan();

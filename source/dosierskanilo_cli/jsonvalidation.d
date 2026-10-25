@@ -25,6 +25,13 @@ bool validateJsonOptions(string command, ref ArgsArray options)
         return false;
     }
 
+    if ((command == "analyze" || command == "list" || command == "duplicates")
+        && (!exists(options.argJSONFile) || !isFile(options.argJSONFile)))
+    {
+        errorFLine("JSON catalog '%s' does not exist.", options.argJSONFile);
+        return false;
+    }
+
     switch (command)
     {
     case "scan":

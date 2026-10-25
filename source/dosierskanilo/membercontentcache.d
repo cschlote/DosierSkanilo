@@ -215,7 +215,8 @@ public:
                     }
                     cachedBytes -= entry.size;
                     membersByKey.remove(key);
-                    removeDirectory(entry.directory);
+                    if (entry.leaseCount == 0)
+                        removeDirectory(entry.directory);
                 }
 
                 entry = new CachedMember();
@@ -375,7 +376,8 @@ private:
             identity = "locator:" ~ fallbackIdentity;
         enforce(identity.length > "locator:".length,
             "Member cache requires a content identity or archive locator.");
-        return identity ~ "\0" ~ extension(memberPath).toLower;
+        return identity ~ "\0" ~ memberPath ~ "\0"
+            ~ extension(memberPath).toLower;
     }
 
     bool cancellationRequested(shared(bool)* cancellation) const

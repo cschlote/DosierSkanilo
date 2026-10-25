@@ -4,6 +4,7 @@ module dosierskanilo.repository.analysis;
 import d2sqlite3;
 
 import std.conv : to;
+import std.datetime.systime : Clock;
 import std.string : split;
 
 import dosierskanilo.operations : OperationControl, OperationKind,
@@ -136,6 +137,12 @@ private void mergeBlobMetadata(ref Database db, long keepId, long dropId)
         keepId, dropId);
 }
 
+private bool analysisChanged(const AnalysisSummary summary) @safe
+{
+    return summary.droppedFiles > 0 || summary.mergedBlobs > 0
+        || summary.orphanedBlobs > 0;
+}
+
 /** Analyze current repository rows without materializing the catalog. */
 AnalysisSummary analyzeRepository(ref Database db, RepositoryAnalysisOptions options)
 {
@@ -194,6 +201,9 @@ AnalysisSummary analyzeRepository(ref Database db, RepositoryAnalysisOptions opt
         }
 
         summary.orphanedBlobs = deleteUnreachableBlobs(db);
+        if (analysisChanged(summary))
+            db.execute("UPDATE repository SET updated_at = ? WHERE id = 1",
+                Clock.currTime.toISOExtString);
         db.commit();
     }
     catch (Exception ex)
@@ -332,6 +342,9 @@ AnalysisExecutionResult analyzeRepositoryControlled(ref Database db,
         }
 
         execution.summary.orphanedBlobs = deleteUnreachableBlobs(db);
+        if (analysisChanged(execution.summary))
+            db.execute("UPDATE repository SET updated_at = ? WHERE id = 1",
+                Clock.currTime.toISOExtString);
         // Cancellation is checked before commit.
         if (control !is null && control.cancellationRequested)
         {

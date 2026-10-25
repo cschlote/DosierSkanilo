@@ -171,7 +171,7 @@ struct CatalogPageCursor
 {
     private size_t index;
     private size_t pageSize;
-    private string queryToken;
+    package(dosierskanilo) string queryToken;
     private bool valid;
 
     package(dosierskanilo) this(size_t index, size_t pageSize,

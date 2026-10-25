@@ -7,6 +7,32 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
+## Unreleased
+
+- Archive extraction now terminates option parsing before member names, blocking
+  command injection through crafted tar, ZIP, RAR, or 7z entries.
+- JSON rescans invalidate checksums, file type, media, archive, and torrent
+  metadata when a file's size or modification time changes.
+- POSIX filenames containing backslashes are preserved; native separators are
+  normalized only on Windows.
+- SQLite archive ranges include non-BMP names, and analysis changes invalidate
+  repository cursors by updating `repository.updated_at`.
+- Malformed torrents with missing keys or excessive nesting fail cleanly instead
+  of aborting the process.
+- Duplicate JSON merges preserve media metadata from every merged object, and
+  archive members of containers with `!` in their names track availability
+  correctly.
+- Release archives without `.git` build using the tracked `VERSION` fallback;
+  packaging metadata and the Flatpak build were refreshed for `26.12.0`.
+- `--scan-archives` can be repeated to enable deep archive scanning.
+- SQLite validates unknown archive/torrent content IDs and rejects cursors
+  beyond the end of archive/torrent entry lists, matching JSON behavior;
+  directory counts honor filters; member-cache keys include the member path;
+  password prompts are bounded; missing JSON catalogs are rejected for
+  `list`/`duplicates`; log JSON escapes tabs.
+- CI staging deployment is manual, helper scripts resolve the repository root,
+  and HADOLINT download avoids shell interpolation.
+
 ## Release 26.12.0 - 2026-10-24
 
 - Filtered JSON directory listings binary-search the sorted file rows for each

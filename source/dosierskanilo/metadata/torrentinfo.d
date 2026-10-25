@@ -202,6 +202,9 @@ TorrentInfo getTorrentInfo(string filePath)
 
     // Files and total size
     ti.files = [];
+    enforce("length" in infoDict || "files" in infoDict,
+        "Invalid torrent file: missing file list");
+
     if ("length" in infoDict)
     {
         // Single file
@@ -211,6 +214,7 @@ TorrentInfo getTorrentInfo(string filePath)
         long length;
         enforce(tryGetLong(infoDict["length"].value, length),
                 "Invalid length field: expected integer");
+        enforce(length >= 0, "Invalid length field: negative value");
         fe.length = cast(ulong) length;
         ti.files ~= fe;
         ti.totalSize = fe.length;
@@ -230,11 +234,14 @@ TorrentInfo getTorrentInfo(string filePath)
                 "Invalid file entry: expected dictionary");
             auto fe = new TorrentFileEntry();
             long length;
+            enforce("length" in dict, "Invalid file entry: missing length");
             enforce(tryGetLong(dict["length"].value, length),
                 "Invalid file length: expected integer");
+            enforce(length >= 0, "Invalid file length: negative value");
             fe.length = cast(ulong) length;
 
             BList pathList;
+            enforce("path" in dict, "Invalid file entry: missing path");
             enforce(tryGetBList(dict["path"].value, pathList),
                 "Invalid file path: expected list");
             string[] relativePath;
@@ -370,6 +377,8 @@ private class BencodeParser
 {
     private const(ubyte)[] data;
     private size_t pos;
+    private size_t depth;
+    private enum size_t maxNestingDepth = 128;
 
     this(const(ubyte)[] data)
     {
@@ -388,6 +397,10 @@ private class BencodeParser
     BNode parseValue()
     {
         enforce(pos < data.length, "Unexpected end of file");
+        enforce(depth < maxNestingDepth, "Bencode nesting exceeds limit");
+        ++depth;
+        scope (exit)
+            --depth;
 
         const auto startPos = pos;
         BNode node;
@@ -626,4 +639,39 @@ unittest
 	assert(copy.piecesCount == filled.piecesCount);
 	assert(copy.files.length == 1);
 	assert(copy.files !is filled.files);
+}
+
+@("getTorrentInfo rejects malformed torrent dictionaries")
+unittest
+{
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const auto root = buildPath(tempDir(), "dosierskanilo-torrent-invalid-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+
+    void expectFailure(string name, string body)
+    {
+        const auto path = buildPath(root, name ~ ".torrent");
+        write(path, body);
+        assertThrown!Exception(getTorrentInfo(path));
+    }
+
+    expectFailure("missing-info", "de");
+    expectFailure("missing-length",
+        "d4:infod4:name1:x5:filesld4:pathl1:aeeee");
+    expectFailure("missing-path",
+        "d4:infod4:name1:x5:filesld6:lengthi1eeee");
+    string deep = "d4:info";
+    foreach (i; 0 .. 130)
+        deep ~= "l";
+    foreach (i; 0 .. 130)
+        deep ~= "e";
+    deep ~= "e";
+    expectFailure("deep-nesting", deep);
 }

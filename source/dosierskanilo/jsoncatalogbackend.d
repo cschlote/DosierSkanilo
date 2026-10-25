@@ -13,7 +13,8 @@ import std.uuid : randomUUID;
 
 import dosierarkivo.archive : appendArchiveVirtualPath,
     ArchiveVirtualPathLayer, escapeArchiveVirtualPath,
-    normalizeArchiveEntryPath, parseArchiveVirtualPath,
+    nativePathToStoragePath, normalizeArchiveEntryPath,
+    parseArchiveVirtualPath,
     ParsedArchiveVirtualPath;
 import dosierskanilo.catalogbackend;
 import dosierskanilo.model.archivespec : ArchiveSpec;
@@ -834,7 +835,7 @@ public:
             auto exportFileName = spec.fileName;
             if (catalog.dataVersion != DATA_CLASS_VERSION5)
                 exportFileName = escapeArchiveVirtualPath(
-                    exportFileName.replace('\\', '/'));
+                    nativePathToStoragePath(exportFileName));
             bool alreadySelected;
             foreach (selected; exportedByContent[contentToken].fileSpecs)
                 if (selected.fileName == exportFileName)
@@ -1201,7 +1202,7 @@ private:
 
     string canonicalPath(string path) const
     {
-        return buildNormalizedPath(absolutePath(path)).replace('\\', '/');
+        return nativePathToStoragePath(buildNormalizedPath(absolutePath(path)));
     }
 
     void enforceJsonTarget(OperationTarget target) const
@@ -1241,7 +1242,7 @@ private:
     JsonLocation resolvePath(string fileName, bool parseVirtual = false) const
     {
         JsonLocation result;
-        auto input = fileName.replace('\\', '/');
+        auto input = nativePathToStoragePath(fileName);
         auto physicalInput = input;
         if (parseVirtual)
         {
@@ -1255,7 +1256,7 @@ private:
         string physicalRelative;
         if (sourceRoot.length == 0)
         {
-            normalizedPhysical = buildNormalizedPath(physicalInput).replace('\\', '/');
+            normalizedPhysical = nativePathToStoragePath(buildNormalizedPath(physicalInput));
             physicalRelative = normalizedPhysical;
             result.physicalRelativePath = physicalRelative;
             result.isInSourceRoot = false;
@@ -1269,8 +1270,8 @@ private:
         }
 
         normalizedPhysical = isAbsolute(physicalInput)
-            ? buildNormalizedPath(physicalInput).replace('\\', '/')
-            : buildNormalizedPath(buildPath(sourceRoot, physicalInput)).replace('\\', '/');
+            ? nativePathToStoragePath(buildNormalizedPath(physicalInput))
+            : nativePathToStoragePath(buildNormalizedPath(buildPath(sourceRoot, physicalInput)));
         prefix = sourceRoot == "/" ? "/" : sourceRoot ~ "/";
         if (!normalizedPhysical.startsWith(prefix))
         {

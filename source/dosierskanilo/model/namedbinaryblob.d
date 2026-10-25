@@ -22,7 +22,8 @@ import jsonizer;
 
 import dosierarkivo;
 import dosierarkivo.archive : appendArchiveVirtualPath,
-    escapeArchiveVirtualPath, normalizeArchiveEntryPath, parseArchiveVirtualPath;
+    escapeArchiveVirtualPath, nativePathToStoragePath,
+    normalizeArchiveEntryPath, parseArchiveVirtualPath;
 import dosierskanilo.catalogbackend : ArchiveEntryId, ContentId,
     ContentLocator, ReferenceId;
 import dosierskanilo.logging;
@@ -613,7 +614,7 @@ class NamedBinaryBlob
 			"FileSpec with filename '%s' already exists.".format(filename));
 
 		auto fileNameToStore = fileSpecsUseArchiveVirtualGrammar
-			? escapeArchiveVirtualPath(filename.replace('\\', '/')) : filename;
+			? escapeArchiveVirtualPath(nativePathToStoragePath(filename)) : filename;
 		auto fs = new FileSpec(fileNameToStore, timeLastModified);
 		this.fileSpecs ~= fs;
 		this.fileSpecs.sort;
@@ -1279,7 +1280,7 @@ private string canonicalV5FilePath(string fileName, bool fromLegacyVersion)
 	import std.string : replace;
 
 	if (fromLegacyVersion)
-		return escapeArchiveVirtualPath(fileName.replace('\\', '/'));
+		return escapeArchiveVirtualPath(nativePathToStoragePath(fileName));
 
 	const auto parsed = parseArchiveVirtualPath(fileName);
 	auto result = escapeArchiveVirtualPath(parsed.physicalPath);
@@ -1934,6 +1935,7 @@ void updateArchives(NamedBinaryBlob obj,
 					string password = obj.archivePassword;
                     ArchiveEntryDescriptor[] archiveEntries;
                     bool passwordPrompted;
+                    size_t passwordAttempts;
                     while (true)
                     {
                         try
@@ -1946,6 +1948,10 @@ void updateArchives(NamedBinaryBlob obj,
 						}
 						catch (ArchivePasswordRequiredException ex)
 						{
+							if (++passwordAttempts >= 3)
+								throw new ArchivePasswordRequiredException(
+									"Archive password rejected repeatedly for '"
+									~ archiveDisplayPath ~ "'.");
 							requestPassword(ex.msg, archiveDisplayPath,
 								passwordCallback, password);
 							passwordPrompted = true;
@@ -1997,6 +2003,7 @@ void updateArchives(NamedBinaryBlob obj,
                             bool exOk;
                             bool extractionPasswordPrompted;
                             bool occurrenceNotExtractable;
+                            size_t extractionPasswordAttempts;
                             while (true)
                             {
                                 try
@@ -2029,6 +2036,10 @@ void updateArchives(NamedBinaryBlob obj,
                                 }
                                 catch (ArchivePasswordRequiredException ex)
                                 {
+                                    if (++extractionPasswordAttempts >= 3)
+                                        throw new ArchivePasswordRequiredException(
+                                            "Archive password rejected repeatedly for '"
+                                            ~ archiveDisplayPath ~ "'.");
                                     requestPassword(ex.msg, archiveDisplayPath,
                                         passwordCallback, password);
                                     extractionPasswordPrompted = true;
@@ -2354,23 +2365,19 @@ void updateTorrentInfo(NamedBinaryBlob obj, bool rescan = false)
 
 	if (obj.torrentInfo is null || rescan)
 	{
-		import std.algorithm.sorting : sort;
-		import std.file : exists;
-
 		if (obj.fileSize) // Empty files surely have no info at all....
 		{
-			auto filespecs = obj.fileSpecs.sort;
-			foreach (spec; filespecs)
+			foreach (spec; torrentFiles)
 			{
 				try
 				{
 					obj.torrentInfo = getTorrentInfo(spec.fileName);
+					break;
 				}
 				catch (Exception e)
 				{
 					logFLineVerbose("Cannot analyse torrent: %s", e.msg);
 				}
-				break;
 			}
 		}
 	}
@@ -2414,14 +2421,17 @@ NamedBinaryBlob mergeDataClassObjects(NamedBinaryBlob[] objs)
 	enforce(objs.filter!(a => a.checkSums.hasDigests).array.length > 0,
 		"Missing checksums.");
 
-	foreach (obj; objs[1 .. $])
+	foreach (obj; objs)
 	{
 		enforce(objs[0] == obj, "Objects not identical.\n%s\n%s\n"
 				.format(objs[0].toString, obj.toString));
-		if (!mis)
-			mis = obj.mediaInfoSig;
-		else
-			enforce(mis == obj.mediaInfoSig, "Mismatching MediaInfoSig");
+		if (obj.mediaInfoSig !is null)
+		{
+			if (mis is null)
+				mis = obj.mediaInfoSig;
+			else
+				enforce(mis == obj.mediaInfoSig, "Mismatching MediaInfoSig");
+		}
 	}
 
 	auto newobj = (objs[0]).dup;
@@ -2515,6 +2525,11 @@ unittest
 	assert(mdco);
 	assert(mdco.mediaInfoSig);
 	assert(mdco.fileSpecs.length == 2);
+
+	auto withoutMedia = dco1.dup;
+	withoutMedia.mediaInfoSig = null;
+	auto mergedWithLaterMedia = mergeDataClassObjects([withoutMedia, dco2]);
+	assert(mergedWithLaterMedia.mediaInfoSig !is null);
 
 	// Test fixups for (de)serialisation
 	auto dcobjs2 = fixupDataClassArrayOut(dcobjs1);
