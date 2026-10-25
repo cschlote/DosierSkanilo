@@ -22,16 +22,17 @@ repository; repository operations do not write a JSON catalog implicitly.
   duplicate-analysis summaries plus the resulting shared-file relationships.
 - Backend operation tests cover staged scan cancellation/resume, metadata batch
   commits and pause/resume, analysis rollback boundaries, JSON cancel-before-write,
-  JSON pause-before-replacement, and target-lease ownership. A forked process
+  JSON partial-save cancellation, JSON pause-before-replacement, and target-lease
+  ownership. A forked process
   holds the lease lock while a second acquisition is rejected, proving the
   exclusion works across processes.
 - `scripts/test-cli.sh` exercises JSON-target scan/analyze, SQLite scan with metadata,
   standalone metadata, analysis, import/export, mode isolation, and command output.
   It also sends SIGINT during a JSON analysis, a JSON scan, SQLite metadata, a
   SQLite scan, a large SQLite duplicate merge, a catalog import, and a catalog
-  export, checking the cooperative cancellation message, worker shutdown, an
-  unpublished JSON catalog, a rolled-back merge, an unchanged repository, and a
-  still-usable repository.
+  export, checking the cooperative cancellation message, worker shutdown, a saved
+  partial JSON catalog, a dry-run that writes nothing, a rolled-back merge, an
+  unchanged repository, and a still-usable repository.
 - GUI `operationrequests.d` executes GUI-built requests against both modes and
   compares their scan, metadata, and analysis summaries. `operationtaskstate.d`
   tests acknowledged pause transitions, stale progress rejection, and refresh

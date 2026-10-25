@@ -172,7 +172,11 @@ dosierskanilo analyze [ROOT] --json CATALOG.json [--base-dir DIR] [OPTIONS]
 Common options use kebab-case: `--recursive`, `--checksums`, `--file-types`,
 `--media-info`, `--scan-archives`, `--scan-torrents`, `--drop-missing`,
 `--pick-hidden`, `--threads`, `--verbose`, and `--format=table|json` for query
-commands. Help is `--help`; version is `--version`.
+commands. Help is `--help`; version is `--version`. Normal commands print
+`DosierSkanilo <version>` to stderr at startup so stdout stays usable for
+command output and JSON formats. Interrupting a JSON scan with Ctrl-C saves the
+records collected so far unless `--dry-run` is active; press Ctrl-C a second time
+to terminate immediately.
 
 SQLite commands may discover `ROOT` from the current directory and its parent
 directories. JSON commands require an explicit catalog path and never create a

@@ -39,3 +39,16 @@ void errorLine(T...)(T args)
 		stderr.flush;
 	}
 }
+
+/** Write an informational CLI message to stderr. */
+void noticeFLine(T...)(T args)
+{
+	version (unittest)
+	{
+	}
+	else
+	{
+		stderr.writefln(args);
+		stderr.flush;
+	}
+}

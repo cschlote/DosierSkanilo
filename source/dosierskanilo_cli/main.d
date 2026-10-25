@@ -44,7 +44,7 @@ import dosierskanilo;
 import dosierarkivo;
 
 import dosierskanilo_cli.parser;
-import dosierskanilo_cli.logging : errorLine;
+import dosierskanilo_cli.logging : errorLine, noticeFLine;
 
 version (ldc)
 {
@@ -92,6 +92,7 @@ int main(string[] args)
 			return 2;
 		case ParseStatus.run:
 			auto options = parsed.options;
+			noticeFLine("%s %s", appName, appVersion);
 			if (options.argDoMediaSig)
 			{
 				auto miv = getMediaInfoVersion();
@@ -259,6 +260,8 @@ bool executeCatalogOperation(ArgsArray options)
 		request.scanOptions.pickHidden = options.argPickHidden;
 		request.forceJsonOverwrite = options.argReplaceCatalog;
 		request.mergeDuplicates = options.argMergeDuplicates;
+		request.savePartialOnCancel = !options.argJSONFile.empty
+			&& !options.argDryRun;
 		request.dryRun = options.argDryRun;
 		request.metadataOptions = metadataOptionsFromCli(options);
 		result = backend.runOperation(request, control);
@@ -277,14 +280,18 @@ bool executeCatalogOperation(ArgsArray options)
 		clearOperationProgress();
 	}
 
-	if (result.state != OperationState.completed)
+	const bool cancelledWithSavedData = result.state == OperationState.cancelled
+		&& result.changesCommitted;
+	if (result.state != OperationState.completed && !cancelledWithSavedData)
 	{
 		if (result.state == OperationState.cancelled)
-			errorLine(backendName ~ " operation cancelled; the original catalog was not replaced.");
+			errorLine(backendName ~ " operation cancelled; no changes were written.");
 		else
 			errorLine(backendName ~ " operation failed: ", result.error);
 		return false;
 	}
+	if (cancelledWithSavedData)
+		errorLine(backendName ~ " operation cancelled; collected data was saved.");
 	if (result.operation == OperationKind.scan)
 	{
 		logFLine("%s scan: %d files, %d added, %d changed.", backendName,
@@ -316,8 +323,9 @@ bool executeCatalogOperation(ArgsArray options)
 	}
 	if (options.argDryRun)
 		logLine("Dry run: " ~ backendName ~ " catalog was not written.");
-	logLine(backendName ~ " operation complete.");
-	return true;
+	else if (result.state == OperationState.completed)
+		logLine(backendName ~ " operation complete.");
+	return result.state == OperationState.completed;
 }
 
 /** Export the repository catalog when requested. */
@@ -548,7 +556,8 @@ bool executeRepositoryMetadata(CatalogBackend backend, string repositoryRoot,
 OperationControl cliOperationControl(string label)
 {
 	OperationControl control;
-	OperationPhase lastPhase = OperationPhase.none;
+	SysTime lastVerboseProgress;
+	bool haveVerboseProgress;
 	size_t lastReported;
 	ulong lastSubtaskReported;
 	string lastReportedPath;
@@ -559,13 +568,8 @@ OperationControl cliOperationControl(string label)
 		if (isVerboseOutputs())
 		{
 			if (event.state == OperationState.running)
-			{
-				if (event.phase != lastPhase)
-				{
-					lastPhase = event.phase;
-					logFLineVerbose("%s phase: %s.", label, event.phase);
-				}
-			}
+				printVerboseOperationProgress(label, event,
+					lastVerboseProgress, haveVerboseProgress);
 		}
 		else if (event.state == OperationState.running)
 			printOperationProgress(label, event);
@@ -598,9 +602,17 @@ extern (C) nothrow @nogc @system void signalHandler(int sig)
 	{
 	case SIGINT:
 		if (atomicLoad(gotCtrlC))
+		{
+			enum hardStop = "Second Ctrl-C received. Terminating immediately.\n";
+			write(STDERR_FILENO, hardStop.ptr, hardStop.length);
 			_exit(1);
+		}
 		else
+		{
+			enum waitMessage = "Ctrl-C received. Waiting for the application to finish before exiting. Press Ctrl-C again to terminate immediately.\n";
+			write(STDERR_FILENO, waitMessage.ptr, waitMessage.length);
 			atomicStore(gotCtrlC, true);
+		}
 		break;
 	case SIGTERM:
 		do_abort = true;

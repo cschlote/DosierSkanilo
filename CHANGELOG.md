@@ -7,6 +7,18 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
+## Unreleased
+
+- Interrupting a JSON scan with Ctrl-C now saves the records collected so far
+  unless `--dry-run` is active. The CLI waits for the save to finish and a
+  second Ctrl-C terminates immediately.
+- Normal CLI commands now announce the application name and version on stderr
+  at startup, keeping stdout clean for command output and JSON formats.
+- JSON directory rescans index existing blob paths instead of searching every
+  blob for each file, removing a quadratic lookup on large catalogs.
+- Verbose JSON scans now print throttled progress lines with phase, item count,
+  and current path instead of only reporting phase changes.
+
 ## Release 26.12.2 - 2026-10-25
 
 - The Flatpak build now targets the supported Freedesktop 25.08 runtime,
