@@ -99,3 +99,33 @@ unittest
     auto obj = fileArchive(_7zFileName);
     testAbstractImpl(obj);
 }
+
+@("7z extraction treats option-like member names as files")
+unittest
+{
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.process : execute, executeShell;
+    import std.uuid : randomUUID;
+
+    if (executeShell("command -v 7z").status != 0)
+        return;
+    const auto root = buildPath(tempDir(), "7z-option-member-"
+        ~ randomUUID().toString());
+    const auto source = buildPath(root, "source", "-oevil.txt");
+    const auto archivePath = buildPath(root, "option.7z");
+    const auto output = buildPath(root, "output");
+    mkdirRecurse(buildPath(root, "source"));
+    mkdirRecurse(output);
+    write(source, "payload");
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+
+    const auto created = execute(["7z", "a", archivePath, source]);
+    assert(created.status == 0, created.output);
+    auto archive = new FileArchive7z(archivePath);
+    assert(archive.extractEntry("-oevil.txt", output));
+    assert(exists(buildPath(output, "-oevil.txt")));
+    assert(!exists(buildPath(output, "evil.txt")));
+}

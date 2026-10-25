@@ -19,9 +19,10 @@ They represent the functional evolution and are intentionally summarized.
   repository cursors by updating `repository.updated_at`.
 - Malformed torrents with missing keys or excessive nesting fail cleanly instead
   of aborting the process.
-- Duplicate JSON merges preserve media metadata from every merged object, and
-  archive members of containers with `!` in their names track availability
-  correctly.
+- Duplicate JSON merges preserve file type, media, torrent, archive password,
+  and archive member metadata from every merged object, reject conflicting
+  values, and archive members of containers with `!` in their names track
+  availability correctly.
 - Release archives without `.git` build using the tracked `VERSION` fallback;
   packaging metadata and the Flatpak build were refreshed for `26.12.0`.
 - `--scan-archives` can be repeated to enable deep archive scanning.
@@ -32,6 +33,10 @@ They represent the functional evolution and are intentionally summarized.
   `list`/`duplicates`; log JSON escapes tabs.
 - CI staging deployment is manual, helper scripts resolve the repository root,
   and HADOLINT download avoids shell interpolation.
+- The packaging documentation now describes a containerized Debian build that
+  keeps host dependencies out of the release process. Packaging builds use
+  explicit LDC flags so distributions with mismatched DUB/LDC release flag
+  conventions can still build the release binary.
 
 ## Release 26.12.0 - 2026-10-24
 

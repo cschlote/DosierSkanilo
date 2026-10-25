@@ -24,7 +24,7 @@ JSON results for duplicate detection.
 %autosetup -n DosierSkanilo-%{version}
 
 %build
-DC=ldc2 dub build --build=release --compiler=ldc2 --config=cli
+DC=ldc2 DFLAGS="-O3 -release -boundscheck=off" dub build --compiler=ldc2 --config=cli --build=plain
 
 %install
 install -Dpm0755 build/bin/dosierskanilo %{buildroot}%{_bindir}/dosierskanilo

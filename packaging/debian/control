@@ -2,7 +2,7 @@ Source: dosierskanilo
 Section: utils
 Priority: optional
 Maintainer: Carsten Schlote <schlote@vahanus.net>
-Build-Depends: debhelper-compat (= 13), ldc, dub, libmediainfo-dev
+Build-Depends: debhelper-compat (= 13), ldc, dub, libmediainfo-dev, libsqlite3-dev
 Standards-Version: 4.7.0
 Homepage: https://github.com/cschlote/DosierSkanilo
 

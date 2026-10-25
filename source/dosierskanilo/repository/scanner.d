@@ -536,3 +536,26 @@ unittest
 
     assert(repositoryRelativePath(root, filePath) == "a\\b.txt");
 }
+
+@("virtual descendant cleanup removes non-BMP members")
+unittest
+{
+    import dosierskanilo.repository.schema : migrate;
+    import d2sqlite3 : Database;
+
+    auto db = Database(":memory:");
+    migrate(db, "2026-01-01T00:00:00");
+    db.execute("INSERT INTO blobs (id, file_size) VALUES (1, 100), (2, 1), "
+        ~ "(3, 2), (4, 3)");
+    db.execute("INSERT INTO file_refs (id, blob_id, relative_path, "
+        ~ "exists_on_disk) VALUES "
+        ~ "(1, 1, 'sample.zip', 1), "
+        ~ "(2, 2, 'sample.zip!/😀.txt', 1), "
+        ~ "(3, 3, 'sample.zip!/z.txt', 1), "
+        ~ "(4, 4, 'other.zip!/keep.txt', 1)");
+    deleteVirtualDescendants(db, "sample.zip");
+    assert(db.execute("SELECT count(*) FROM file_refs WHERE "
+        ~ "relative_path >= 'sample.zip!/'").oneValue!long == 0);
+    assert(db.execute("SELECT count(*) FROM file_refs WHERE "
+        ~ "relative_path = 'other.zip!/keep.txt'").oneValue!long == 1);
+}

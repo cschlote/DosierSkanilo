@@ -270,3 +270,32 @@ unittest
     assert(readText(buildPath(firstDirectory, "same.txt")) == "first occurrence");
     assert(readText(buildPath(secondDirectory, "same.txt")) == "second occurrence");
 }
+
+@("zip extraction treats option-like member names as files")
+unittest
+{
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.process : execute, executeShell;
+    import std.uuid : randomUUID;
+
+    if (executeShell("command -v zip").status != 0)
+        return;
+    const auto root = buildPath(tempDir(), "zip-option-member-"
+        ~ randomUUID().toString());
+    const auto source = buildPath(root, "source", "-d");
+    const auto archivePath = buildPath(root, "option.zip");
+    const auto output = buildPath(root, "output");
+    mkdirRecurse(buildPath(root, "source"));
+    mkdirRecurse(output);
+    write(source, "payload");
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+
+    const auto created = execute(["zip", "-q", "-j", archivePath, source]);
+    assert(created.status == 0, created.output);
+    auto archive = new FileArchiveZip(archivePath);
+    assert(archive.extractEntry("-d", output));
+    assert(exists(buildPath(output, "-d")));
+}

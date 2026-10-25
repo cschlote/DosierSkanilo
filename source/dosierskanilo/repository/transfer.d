@@ -1841,3 +1841,44 @@ private string currentTimestamp()
     import std.datetime.systime : Clock;
     return Clock.currTime.toISOExtString;
 }
+
+@("SQLite archive ranges include non-BMP members and aggregates")
+unittest
+{
+    auto db = Database(":memory:");
+    migrate(db, "2026-01-01T00:00:00");
+    db.execute("INSERT INTO directories (id, parent_id, relative_path, name) "
+        ~ "VALUES (1, NULL, 'archives', 'archives')");
+    db.execute("INSERT INTO blobs (id, file_size) VALUES (1, 100), (2, 1), (3, 2)");
+    db.execute("INSERT INTO file_refs (id, blob_id, directory_id, relative_path, "
+        ~ "time_last_modified, exists_on_disk, last_seen_at) VALUES "
+        ~ "(1, 1, 1, 'archives/emoji.zip', '2026-01-01T00:00:00', 1, ?), "
+        ~ "(2, 2, 1, 'archives/emoji.zip!/😀.txt', '2026-01-01T00:00:00', 1, ?), "
+        ~ "(3, 3, 1, 'archives/emoji.zip!/z.txt', '2026-01-01T00:00:00', 1, ?)",
+        "2026-01-01T00:00:00", "2026-01-01T00:00:00",
+        "2026-01-01T00:00:00");
+    db.execute("INSERT INTO metadata_status (blob_id, metadata_kind, state, "
+        ~ "extractor_version, scanned_at, error_message) VALUES "
+        ~ "(1, 'archives', 'completed', ?, ?, NULL)",
+        archiveIndexVersion ~ ":deep", "2026-01-01T00:00:00");
+
+    auto entries = listArchiveEntriesFromDatabase(db,
+        RepositoryArchiveQuery(1, 0, 10));
+    assert(entries.length == 2);
+    bool foundEmoji;
+    bool foundZ;
+    foreach (entry; entries)
+    {
+        foundEmoji = foundEmoji || entry.name == "😀.txt";
+        foundZ = foundZ || entry.name == "z.txt";
+    }
+    assert(foundEmoji && foundZ);
+
+    RepositoryDirectoryQuery directoryQuery;
+    directoryQuery.limit = 10;
+    directoryQuery.includeArchiveMembers = true;
+    auto directories = listDirectoriesFromDatabase(db, directoryQuery);
+    assert(directories.length == 1);
+    assert(directories[0].fileCount == 3);
+    assert(directories[0].aggregateSize == 103);
+}

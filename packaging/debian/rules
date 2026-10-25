@@ -4,7 +4,7 @@
 	dh $@
 
 override_dh_auto_build:
-	DC=ldc2 dub build --build=release --compiler=ldc2 --config=cli
+	DC=ldc2 DFLAGS="-O3 -release -boundscheck=off" dub build --compiler=ldc2 --config=cli --build=plain
 
 override_dh_auto_install:
 	install -D -m 0755 build/bin/dosierskanilo debian/dosierskanilo/usr/bin/dosierskanilo

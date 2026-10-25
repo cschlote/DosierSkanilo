@@ -2413,29 +2413,83 @@ unittest
  */
 NamedBinaryBlob mergeDataClassObjects(NamedBinaryBlob[] objs)
 {
-	import std.algorithm.iteration : uniq;
 	import std.string : format;
 
 	enforce(objs.length >= 2, "Need at least 2 objects");
-	MediaInfoSig mis = null;
 	enforce(objs.filter!(a => a.checkSums.hasDigests).array.length > 0,
 		"Missing checksums.");
+
+	string mergedFileType;
+	MediaInfoSig mergedMediaInfo;
+	TorrentInfo mergedTorrentInfo;
+	string mergedArchivePassword;
+	ArchiveSpec[] mergedArchiveSpecs;
+	bool mergedArchiveIndexKnown;
+	bool mergedArchiveIndexDeep;
 
 	foreach (obj; objs)
 	{
 		enforce(objs[0] == obj, "Objects not identical.\n%s\n%s\n"
 				.format(objs[0].toString, obj.toString));
+		if (obj.fileType.length > 0)
+		{
+			if (mergedFileType.length == 0)
+				mergedFileType = obj.fileType;
+			else
+				enforce(mergedFileType == obj.fileType,
+					"Mismatching fileType");
+		}
 		if (obj.mediaInfoSig !is null)
 		{
-			if (mis is null)
-				mis = obj.mediaInfoSig;
+			if (mergedMediaInfo is null)
+				mergedMediaInfo = obj.mediaInfoSig;
 			else
-				enforce(mis == obj.mediaInfoSig, "Mismatching MediaInfoSig");
+				enforce(mergedMediaInfo == obj.mediaInfoSig,
+					"Mismatching MediaInfoSig");
 		}
+		if (obj.torrentInfo !is null)
+		{
+			if (mergedTorrentInfo is null)
+				mergedTorrentInfo = obj.torrentInfo;
+			else
+				enforce(toJSONString(mergedTorrentInfo)
+					== toJSONString(obj.torrentInfo), "Mismatching TorrentInfo");
+		}
+		if (obj.archivePassword.length > 0)
+		{
+			if (mergedArchivePassword.length == 0)
+				mergedArchivePassword = obj.archivePassword;
+			else
+				enforce(mergedArchivePassword == obj.archivePassword,
+					"Mismatching archive password");
+		}
+		if (obj.archiveSpecs !is null)
+		{
+			if (mergedArchiveSpecs is null)
+				mergedArchiveSpecs = obj.archiveSpecs;
+			else
+				enforce(toJSONString(mergedArchiveSpecs)
+					== toJSONString(obj.archiveSpecs), "Mismatching ArchiveSpecs");
+		}
+		mergedArchiveIndexKnown = mergedArchiveIndexKnown
+			|| obj.archiveIndexKnown;
+		mergedArchiveIndexDeep = mergedArchiveIndexDeep
+			|| obj.archiveIndexDeep;
 	}
 
 	auto newobj = (objs[0]).dup;
-	newobj.mediaInfoSig = mis;
+	newobj.fileType = mergedFileType;
+	newobj.mediaInfoSig = mergedMediaInfo is null ? null : mergedMediaInfo.dup();
+	newobj.torrentInfo = mergedTorrentInfo is null
+		? null : mergedTorrentInfo.dup();
+	newobj.archivePassword = mergedArchivePassword;
+	newobj.archiveSpecs = null;
+	if (mergedArchiveSpecs !is null)
+		foreach (entry; mergedArchiveSpecs)
+			newobj.archiveSpecs ~= entry is null ? null : entry.dup();
+	newobj.archiveIndexKnown = mergedArchiveIndexKnown;
+	newobj.archiveIndexDeep = mergedArchiveIndexDeep;
+
 	foreach (o; objs[1 .. $])
 		newobj.fileSpecs ~= o.fileSpecs;
 	/* Remove all duplicate references, not only adjacent ones. The inputs are
@@ -2530,6 +2584,56 @@ unittest
 	withoutMedia.mediaInfoSig = null;
 	auto mergedWithLaterMedia = mergeDataClassObjects([withoutMedia, dco2]);
 	assert(mergedWithLaterMedia.mediaInfoSig !is null);
+
+	auto firstWithoutMetadata = dco1.dup;
+	firstWithoutMetadata.fileType = null;
+	firstWithoutMetadata.mediaInfoSig = null;
+	firstWithoutMetadata.torrentInfo = null;
+	firstWithoutMetadata.archivePassword = "";
+	firstWithoutMetadata.archiveSpecs = null;
+	firstWithoutMetadata.archiveIndexKnown = false;
+	firstWithoutMetadata.archiveIndexDeep = false;
+	auto laterWithMetadata = dco2.dup;
+	laterWithMetadata.fileType = "later/file-type";
+	laterWithMetadata.torrentInfo = new TorrentInfo();
+	laterWithMetadata.torrentInfo.name = "later torrent";
+	laterWithMetadata.archivePassword = "later password";
+	laterWithMetadata.archiveSpecs = [
+		new ArchiveSpec("member.txt", 1, "", CheckSums())
+	];
+	laterWithMetadata.archiveIndexKnown = true;
+	laterWithMetadata.archiveIndexDeep = true;
+	auto mergedMetadata = mergeDataClassObjects(
+		[firstWithoutMetadata, laterWithMetadata]);
+	assert(mergedMetadata.fileType == "later/file-type");
+	assert(mergedMetadata.mediaInfoSig !is null);
+	assert(mergedMetadata.torrentInfo !is null);
+	assert(mergedMetadata.torrentInfo.name == "later torrent");
+	assert(mergedMetadata.archivePassword == "later password");
+	assert(mergedMetadata.archiveSpecs.length == 1);
+	assert(mergedMetadata.archiveSpecs[0].fileName == "member.txt");
+	assert(mergedMetadata.archiveIndexKnown);
+	assert(mergedMetadata.archiveIndexDeep);
+
+	auto conflictingFileType = laterWithMetadata.dup;
+	conflictingFileType.fileType = "conflicting/file-type";
+	assertThrown!Exception(mergeDataClassObjects(
+		[laterWithMetadata, conflictingFileType]));
+	auto conflictingPassword = laterWithMetadata.dup;
+	conflictingPassword.archivePassword = "conflicting password";
+	assertThrown!Exception(mergeDataClassObjects(
+		[laterWithMetadata, conflictingPassword]));
+	auto conflictingTorrent = laterWithMetadata.dup;
+	conflictingTorrent.torrentInfo = new TorrentInfo();
+	conflictingTorrent.torrentInfo.name = "conflicting torrent";
+	assertThrown!Exception(mergeDataClassObjects(
+		[laterWithMetadata, conflictingTorrent]));
+	auto conflictingArchive = laterWithMetadata.dup;
+	conflictingArchive.archiveSpecs = [
+		new ArchiveSpec("other-member.txt", 1, "", CheckSums())
+	];
+	assertThrown!Exception(mergeDataClassObjects(
+		[laterWithMetadata, conflictingArchive]));
 
 	// Test fixups for (de)serialisation
 	auto dcobjs2 = fixupDataClassArrayOut(dcobjs1);

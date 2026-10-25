@@ -2184,6 +2184,15 @@ version (unittest)
         const auto refreshed = sqliteBackend.runOperation(refreshMissingState,
             new OperationControl());
         assert(refreshed.state == OperationState.completed, refreshed.error);
+
+        CatalogDirectoryQuery staleCursorQuery;
+        CatalogPageRequest staleCursorPage;
+        staleCursorPage.limit = 1;
+        const auto staleCursorSource = sqliteBackend.listDirectories(
+            staleCursorQuery, staleCursorPage);
+        assert(staleCursorSource.hasMore);
+        const auto staleCursor = staleCursorSource.nextCursor;
+
         AnalysisOperationRequest analysis;
         analysis.operationId = 4;
         analysis.target = jsonBackend.target();
@@ -2197,6 +2206,15 @@ version (unittest)
         assert(sqliteAnalysis.state == OperationState.completed, sqliteAnalysis.error);
         assert(sqliteAnalysis.analysisSummary.missingFiles
             == jsonAnalysis.analysisSummary.missingFiles);
+        bool staleCursorRejected;
+        CatalogPageRequest staleFollowUp = staleCursorPage;
+        staleFollowUp.cursor = staleCursor;
+        try
+            sqliteBackend.listDirectories(staleCursorQuery, staleFollowUp);
+        catch (CatalogBackendException failure)
+            staleCursorRejected = failure.code == CatalogBackendErrorCode.invalidCursor;
+        assert(staleCursorRejected,
+            "Analysis must invalidate cursors issued before the change.");
         CatalogFilter availableOnly;
         availableOnly.availableOnly = true;
         assert(sqliteBackend.rootSummary(availableOnly).fileReferenceCount == 11);
@@ -2210,4 +2228,61 @@ version (unittest)
             rejectedJsonTarget = failure.code == CatalogBackendErrorCode.invalidTarget;
         assert(rejectedJsonTarget);
     }
+}
+
+@("SQLite duplicate analysis invalidates cursors issued before the merge")
+unittest
+{
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const auto root = buildPath(tempDir(), "sqlite-analysis-cursor-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    write(buildPath(root, "first.txt"), "identical payload");
+    write(buildPath(root, "second.txt"), "identical payload");
+    write(buildPath(root, "third.txt"), "different payload");
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+
+    auto repository = Repository.initialize(root);
+    repository.close();
+
+    auto factory = new DefaultCatalogBackendFactory();
+    auto backend = factory.open(OperationTarget.repositoryTarget(root));
+    scope (exit)
+        backend.close();
+
+    ScanOperationRequest scan;
+    scan.operationId = 1;
+    scan.target = backend.target();
+    scan.scanOptions.recursive = true;
+    scan.metadataOptions.calculateChecksums = true;
+    const auto scanResult = backend.runOperation(scan, new OperationControl());
+    assert(scanResult.state == OperationState.completed, scanResult.error);
+
+    CatalogFileQuery fileQuery;
+    CatalogPageRequest page;
+    page.limit = 1;
+    const auto firstPage = backend.listFiles(fileQuery, page);
+    assert(firstPage.hasMore);
+    const auto staleCursor = firstPage.nextCursor;
+
+    AnalysisOperationRequest analysis;
+    analysis.operationId = 2;
+    analysis.target = backend.target();
+    const auto analysisResult = backend.runOperation(analysis,
+        new OperationControl());
+    assert(analysisResult.state == OperationState.completed,
+        analysisResult.error);
+    assert(analysisResult.analysisSummary.mergedBlobs == 1);
+
+    bool rejected;
+    try
+        backend.nextFilesPage(fileQuery, staleCursor);
+    catch (CatalogBackendException failure)
+        rejected = failure.code == CatalogBackendErrorCode.invalidCursor;
+    assert(rejected, "The merged duplicate set must invalidate the old cursor.");
 }

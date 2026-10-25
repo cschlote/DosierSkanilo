@@ -1199,6 +1199,58 @@ unittest
     repository.close();
 }
 
+version (Windows) {} else
+@("repository POSIX backslashes survive scan, metadata, and JSON roundtrip")
+unittest
+{
+    import std.file : exists, mkdirRecurse, remove, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const auto root = buildPath(tempDir(), "repository-backslash-"
+        ~ randomUUID().toString());
+    const auto importedRoot = buildPath(tempDir(), "repository-backslash-import-"
+        ~ randomUUID().toString());
+    const auto relativePath = "a\\b.txt";
+    const auto filePath = buildPath(root, relativePath);
+    const auto exported = buildPath(tempDir(), "repository-backslash-"
+        ~ randomUUID().toString() ~ ".json");
+    mkdirRecurse(root);
+    mkdirRecurse(importedRoot);
+    write(filePath, "backslash payload");
+    scope (exit)
+    {
+        if (exists(root))
+            rmdirRecurse(root);
+        if (exists(importedRoot))
+            rmdirRecurse(importedRoot);
+        if (exists(exported))
+            remove(exported);
+    }
+
+    auto repository = Repository.initialize(root);
+    repository.scan();
+    MetadataScanOptions metadataOptions;
+    metadataOptions.calculateChecksums = true;
+    const auto summary = repository.updateMetadata(metadataOptions);
+    assert(summary.failed == 0);
+    assert(summary.checksumsUpdated == 1);
+    RepositoryFileQuery query;
+    query.limit = 10;
+    const auto files = repository.listFiles(query);
+    assert(files.length == 1);
+    assert(files[0].relativePath == relativePath);
+    repository.exportJson(exported);
+    repository.close();
+
+    auto imported = Repository.initialize(importedRoot);
+    imported.importJson(exported);
+    const auto importedFiles = imported.listFiles(query);
+    assert(importedFiles.length == 1);
+    assert(importedFiles[0].relativePath == relativePath);
+    imported.close();
+}
+
 @("repository metadata update for checksums and file type")
 unittest
 {

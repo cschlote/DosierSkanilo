@@ -330,6 +330,52 @@ unittest
     assert(!blob.archiveIndexDeep);
 }
 
+version (Windows) {} else
+@("JSON scan, metadata, and serialization preserve POSIX backslashes")
+unittest
+{
+    import dosierskanilo.model.namedbinaryblob : deserializeDataClassJsonFile,
+        serializeDataClassArrayFile;
+    import std.algorithm.searching : endsWith;
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const auto root = buildPath(tempDir(), "json-backslash-"
+        ~ randomUUID().toString());
+    const auto fileName = "a\\b.txt";
+    const auto filePath = buildPath(root, fileName);
+    const auto jsonPath = buildPath(root, "catalog.json");
+    mkdirRecurse(root);
+    write(filePath, "backslash payload");
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+
+    NamedBinaryBlob[] blobs;
+    RepositoryScanOptions scanOptions;
+    ScanSummary scanSummary;
+    assert(scanJsonDirectory(root, scanOptions, true, blobs, null, 1,
+        scanSummary));
+    assert(blobs.length == 1);
+    assert(blobs[0].fileSpecs.length == 1);
+    assert(blobs[0].fileSpecs[0].fileName.endsWith(fileName));
+
+    MetadataScanOptions metadataOptions;
+    metadataOptions.calculateChecksums = true;
+    const auto metadata = updateJsonMetadata(blobs, metadataOptions,
+        OperationKind.scan, null, 1);
+    assert(!metadata.cancelled);
+    assert(metadata.summary.failed == 0);
+    assert(blobs[0].checkSums.hasDigests);
+
+    serializeDataClassArrayFile(jsonPath, blobs);
+    const auto loaded = deserializeDataClassJsonFile(jsonPath);
+    assert(loaded.length == 1);
+    assert(loaded[0].fileSpecs.length == 1);
+    assert(loaded[0].fileSpecs[0].fileName.endsWith(fileName));
+}
+
 private struct JsonMetadataWork
 {
     NamedBinaryBlob blob;
