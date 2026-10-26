@@ -1064,7 +1064,7 @@ public:
             () {
                 reportProgress(exportTotal, exportTotal);
                 return cancelled;
-            });
+            }, options.prettyJson);
         if (!committed)
         {
             if (cancelled)

@@ -40,6 +40,14 @@ json_rescan_output=$("${BIN}" scan "${fixture_root}" \
 [[ "$(grep -c "Read serialized data from JSON file" <<<"${json_rescan_output}" || true)" -eq 1 ]]
 json_analysis_output=$("${BIN}" analyze --json "${synthetic_catalog}")
 [[ "${json_analysis_output}" == *"Catalog analysis: 0 missing, 0 dropped, 1 duplicate groups, 1 merged blobs, 0 orphaned blobs."* ]]
+[[ "$(wc -l < "${synthetic_catalog}")" -eq 0 ]]
+
+pretty_catalog="${TMP_DIR}/pretty-catalog.json"
+"${BIN}" scan "${fixture_root}" --json "${pretty_catalog}" \
+    --recursive --checksums --pretty >/dev/null
+[[ "$(wc -l < "${pretty_catalog}")" -gt 1 ]]
+"${BIN}" analyze --json "${pretty_catalog}" --pretty >/dev/null
+[[ "$(wc -l < "${pretty_catalog}")" -gt 1 ]]
 json_list_output=$("${BIN}" list --json "${synthetic_catalog}" \
     --base-dir "${fixture_root}" --format=json \
     | sed -n '/^{/p' | sed -E 's/"id":[0-9]+,//g')
@@ -121,7 +129,13 @@ archive_sqlite_duplicates=$("${BIN}" duplicates "${archive_sqlite_root}" \
 
 archive_export="${TMP_DIR}/archive-export.json"
 "${BIN}" export "${archive_sqlite_root}" --output "${archive_export}" >/dev/null
+[[ "$(wc -l < "${archive_export}")" -eq 0 ]]
 grep -qF 'archives\/sample.zip!\/payload\/copy.txt' "${archive_export}"
+
+archive_pretty_export="${TMP_DIR}/archive-pretty-export.json"
+"${BIN}" export "${archive_sqlite_root}" --output "${archive_pretty_export}" \
+    --pretty >/dev/null
+[[ "$(wc -l < "${archive_pretty_export}")" -gt 1 ]]
 
 archive_member_export="${TMP_DIR}/archive-member-export.json"
 "${BIN}" export "${archive_sqlite_root}" --output "${archive_member_export}" \

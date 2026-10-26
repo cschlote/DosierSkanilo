@@ -1458,8 +1458,10 @@ void upgradeDataClassCatalogToV5(ref NamedBinaryBlobCatalog wrapper)
  * Params:
  *   fileName = The filename for the JSON
  *   wrapper = Wrapper object to serialize
+ *   pretty = Indent the serialized JSON for human reading
  */
-void serializeDataClassWrapperFile(string fileName, ref NamedBinaryBlobCatalog wrapper)
+void serializeDataClassWrapperFile(string fileName, ref NamedBinaryBlobCatalog wrapper,
+	bool pretty = false)
 {
 	logFLineVerbose("Generate JSON data and write it to file %s", fileName);
 	if (wrapper.dataVersion == 0)
@@ -1471,11 +1473,48 @@ void serializeDataClassWrapperFile(string fileName, ref NamedBinaryBlobCatalog w
 	auto sortedDeserializedData_rng = sortDataClassArrayByFileName(wrapper.dataArray);
 	auto uniqSortedDeserializedData = uniqDataClassArrayByFileName(sortedDeserializedData_rng);
 	wrapper.dataArray = fixupDataClassArrayOutV5(uniqSortedDeserializedData);
-	writeJSON!(NamedBinaryBlobCatalog)(fileName, wrapper);
+	if (pretty)
+		writeJSON!(NamedBinaryBlobCatalog)(fileName, wrapper);
+	else
+	{
+		import jsonizer.tojson : PrettyJson, toJSONString;
+		import std.file : write;
+		write(fileName, toJSONString(wrapper, PrettyJson.no));
+	}
 	wrapper.dataArray = fixupDataClassArrayIn(wrapper.dataArray);
 	foreach (blob; wrapper.dataArray)
 		if (blob !is null)
 			blob.fileSpecsUseArchiveVirtualGrammar = true;
+}
+
+@("serializeDataClassWrapperFile writes compact JSON unless pretty is requested")
+unittest
+{
+	import std.file : exists, readText, remove, tempDir;
+	import std.path : buildPath;
+	import std.uuid : randomUUID;
+
+	const token = randomUUID().toString();
+	const compactPath = buildPath(tempDir(), "compact-" ~ token ~ ".json");
+	const prettyPath = buildPath(tempDir(), "pretty-" ~ token ~ ".json");
+	scope (exit)
+	{
+		if (exists(compactPath))
+			remove(compactPath);
+		if (exists(prettyPath))
+			remove(prettyPath);
+	}
+	auto compactCatalog = NamedBinaryBlobCatalog(DATA_CLASS_VERSION5,
+		[new NamedBinaryBlob("sample.txt", 3, Clock.currTime)]);
+	serializeDataClassWrapperFile(compactPath, compactCatalog);
+	auto prettyCatalog = NamedBinaryBlobCatalog(DATA_CLASS_VERSION5,
+		[new NamedBinaryBlob("sample.txt", 3, Clock.currTime)]);
+	serializeDataClassWrapperFile(prettyPath, prettyCatalog, true);
+	const compact = readText(compactPath);
+	const pretty = readText(prettyPath);
+	assert(!compact.canFind('\n'));
+	assert(pretty.canFind('\n'));
+	assert(pretty.canFind("    \""));
 }
 
 @("JSON v5 promotes nested and duplicate archive members to virtual references")

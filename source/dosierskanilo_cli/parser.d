@@ -75,6 +75,10 @@ Archive member cache options (scan and metadata):
     --archive-cache-dir DIR   Root directory for extraction sessions
     --archive-cache-size MiB  Maximum cached member bytes (default 1024)
 
+JSON output:
+
+    --pretty                  Indent saved JSON catalogs for human reading
+
 Option scope keys use the fixed columns `S A M I L D R G J` (`-` means not
 available for that scope):
 
@@ -224,6 +228,7 @@ ParsedCommandLine parseCommandLine(string[] args)
             "pick-hidden", "S-------- Pick hidden files and directories too", &argsarray.argPickHidden,
             "dry-run", "--------J Compute JSON results without writing the catalog", &argsarray.argDryRun,
             "merge-duplicates", "--------J Analyze and merge duplicates after scan", &argsarray.argMergeDuplicates,
+            "pretty", "-------G- Indent saved JSON catalogs for human reading", &argsarray.argPrettyJSON,
             "verbose", "-------G- Be verbose", &argsarray.argVerboseOutputs,
             "text", "----L---- Filter listed catalog paths or SHA1 values", &argsarray.argQueryText,
             "limit", "----L---- Maximum number of listed catalog blobs", &argsarray.argQueryLimit,
@@ -427,6 +432,10 @@ unittest
     assert(cachedArchive.status == ParseStatus.run);
     assert(cachedArchive.options.argArchiveCacheDir == "./cache");
     assert(cachedArchive.options.argArchiveCacheMiB == 64);
+    auto prettyExport = parseCommandLine(["program", "export", "./test",
+        "--output=./test/export.json", "--pretty"]);
+    assert(prettyExport.status == ParseStatus.run);
+    assert(prettyExport.options.argPrettyJSON);
     assert(allMetadataOptions.options.argVerboseOutputs);
     assert(helpText.canFind("--checksums"));
     assert(helpText.canFind("--file-types"));
@@ -435,6 +444,7 @@ unittest
     assert(helpText.canFind("--scan-torrents"));
     assert(helpText.canFind("--archive-cache-dir"));
     assert(helpText.canFind("--archive-cache-size"));
+    assert(helpText.canFind("--pretty"));
     assert(helpText.canFind("--verbose"));
     assert(helpText.canFind("S A M I L D R G J"));
     auto outdatedMetadataFlag = parseCommandLine(["program", "metadata",

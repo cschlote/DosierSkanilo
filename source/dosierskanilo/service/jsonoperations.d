@@ -110,21 +110,22 @@ JsonAnalysisExecutionResult analyzeJsonCatalog(string catalogPath,
 }
 
 /** Persist a computed JSON catalog after the final safe cancellation checkpoint. */
-bool commitJsonCatalog(string catalogPath, ref NamedBinaryBlobCatalog catalog)
+bool commitJsonCatalog(string catalogPath, ref NamedBinaryBlobCatalog catalog,
+    bool pretty = false)
 {
-    return commitJsonCatalog(catalogPath, catalog, null);
+    return commitJsonCatalog(catalogPath, catalog, null, pretty);
 }
 
 /** Persist a JSON catalog while honoring cancellation during serialization. */
 bool commitJsonCatalog(string catalogPath, ref NamedBinaryBlobCatalog catalog,
-    bool delegate() cancelCheck)
+    bool delegate() cancelCheck, bool pretty = false)
 {
     auto replacementLease = TargetCatalogReplacementLease.acquireJsonCatalog(
         catalogPath);
     scope (exit)
         replacementLease.release();
     return writeStorageJsonFile(catalogPath, catalog, ".json",
-        Clock.currTime.toISOExtString(), "", cancelCheck);
+        Clock.currTime.toISOExtString(), "", cancelCheck, pretty);
 }
 
 private NamedBinaryBlobCatalog loadJsonCatalog(string catalogPath,

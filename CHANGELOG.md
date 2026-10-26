@@ -29,6 +29,8 @@ They represent the functional evolution and are intentionally summarized.
 - Interrupting a JSON scan with Ctrl-C now saves the records collected so far
   unless `--dry-run` is active. The CLI waits for the save to finish and a
   second Ctrl-C terminates immediately.
+- Saved JSON catalogs are now compact by default. CLI `--pretty` writes
+  indented JSON for scans, analyses, exports, and other catalog writes.
 - Normal CLI commands now announce the application name and version on stderr
   at startup, keeping stdout clean for command output and JSON formats.
 - JSON directory rescans index existing blob paths instead of searching every

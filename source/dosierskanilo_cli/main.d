@@ -321,6 +321,7 @@ private ScanOperationRequest scanRequestFromCli(ArgsArray options,
 	request.savePartialOnCancel = !options.argJSONFile.empty
 		&& !options.argDryRun;
 	request.dryRun = options.argDryRun;
+	request.prettyJson = options.argPrettyJSON;
 	request.metadataOptions = metadataOptionsFromCli(options);
 	return request;
 }
@@ -335,6 +336,7 @@ private AnalysisOperationRequest analysisRequestFromCli(ArgsArray options,
 	request.metadataOptions = metadataOptionsFromCli(options);
 	request.forceJsonOverwrite = options.argReplaceCatalog;
 	request.dryRun = options.argDryRun;
+	request.prettyJson = options.argPrettyJSON;
 	return request;
 }
 
@@ -413,6 +415,7 @@ bool executeRepositoryExport(CatalogBackend backend, string repositoryRoot,
 	CatalogExportOptions exportOptions;
 	exportOptions.outputPath = exportPath;
 	exportOptions.format = CatalogExportFormat.jsonV5;
+	exportOptions.prettyJson = options.argPrettyJSON;
 	auto control = cliOperationControl("Catalog export");
 	CatalogSubsetQuery subset;
 	subset.pathPrefix = options.argExportPath;

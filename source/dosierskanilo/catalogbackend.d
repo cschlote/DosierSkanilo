@@ -594,6 +594,7 @@ struct CatalogExportOptions
     bool includeContentDetails = true; /// Include selected content metadata.
     bool includeArchiveEntries = true; /// Include archive index details.
     bool includeTorrentEntries = true; /// Include torrent manifest details.
+    bool prettyJson = false; /// Indent the serialized JSON for human reading.
 }
 
 /** Counts and publication result of one subset export. */

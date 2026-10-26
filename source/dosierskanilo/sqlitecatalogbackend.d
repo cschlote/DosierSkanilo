@@ -726,7 +726,7 @@ public:
                     reportProgress(exportTotal, exportTotal,
                         "Writing JSON catalog.");
                     return control !is null && control.cancellationRequested;
-                });
+                }, options.prettyJson);
             if (!committed)
             {
                 if (control !is null && control.cancellationRequested)

@@ -293,7 +293,7 @@ private OperationResult runJsonScanOperation(ScanOperationRequest request,
                 if (request.savePartialOnCancel && !request.dryRun)
                 {
                     enforce(commitJsonCatalog(request.target.catalogPath,
-                        execution.catalog),
+                        execution.catalog, request.prettyJson),
                         "Failed to save collected JSON data after cancellation.");
                     result.changesCommitted = true;
                 }
@@ -301,7 +301,7 @@ private OperationResult runJsonScanOperation(ScanOperationRequest request,
             else if (!commitJsonAtSafePoint(request.target.catalogPath,
                 execution.catalog, control, request.operationId,
                 OperationKind.scan, request.dryRun,
-                request.savePartialOnCancel))
+                request.savePartialOnCancel, request.prettyJson))
                 result.state = OperationState.cancelled;
             else
             {
@@ -356,7 +356,8 @@ private OperationResult runJsonAnalysisOperation(AnalysisOperationRequest reques
                 result.state = OperationState.cancelled;
             else if (!commitJsonAtSafePoint(request.target.catalogPath,
                 execution.catalog, control, request.operationId,
-                OperationKind.analyze, request.dryRun))
+                OperationKind.analyze, request.dryRun, false,
+                request.prettyJson))
                 result.state = OperationState.cancelled;
             else
             {
@@ -385,7 +386,8 @@ private OperationResult runJsonAnalysisOperation(AnalysisOperationRequest reques
 
 private bool commitJsonAtSafePoint(string catalogPath,
     ref NamedBinaryBlobCatalog catalog, OperationControl control, ulong operationId,
-    OperationKind operation, bool dryRun, bool saveOnCancel = false)
+    OperationKind operation, bool dryRun, bool saveOnCancel = false,
+    bool prettyJson = false)
 {
     if (dryRun)
     {
@@ -414,7 +416,7 @@ private bool commitJsonAtSafePoint(string catalogPath,
     if (!saveOnCancel && control.cancellationRequested)
         return false;
     control.setPauseAvailable(false);
-    enforce(commitJsonCatalog(catalogPath, catalog),
+    enforce(commitJsonCatalog(catalogPath, catalog, prettyJson),
         "Failed to write JSON catalog without replacing the existing data.");
     return true;
 }

@@ -175,7 +175,7 @@ bool exportCatalogJsonControlled(ref Database db, string rootPath,
             reportExportProgress(control, operationId, 0, blobs.length,
                 "Writing JSON catalog.");
             return control.cancellationRequested;
-        });
+        }, options.prettyJson);
 }
 
 private void reportExportProgress(OperationControl control, ulong operationId,
