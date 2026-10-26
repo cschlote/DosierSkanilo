@@ -343,7 +343,7 @@ unittest
             rmdirRecurse(root);
 
     auto blob = new NamedBinaryBlob([firstPath, secondPath], 3,
-        timeLastModified(firstPath));
+        timeLastModified(secondPath));
     NamedBinaryBlob[] blobs = [blob];
 
     write(firstPath, "changed");

@@ -9,6 +9,10 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- CI documentation generation now runs `adrdox` with a single job and retries
+  it, falling back to another available D compiler when needed, avoiding flaky
+  pipeline failures. The source no longer uses named arguments that `adrdox`
+  cannot parse.
 - CLI JSON scans and analyses now load the catalog once, skip the query-index
   rebuild that blocked startup on large catalogs, and still archive the previous
   catalog before writing the replacement.

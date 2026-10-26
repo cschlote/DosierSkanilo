@@ -127,7 +127,8 @@ The GitLab pipeline uses Alpine and separates dependencies by stage:
 
 Dependency installation is orchestrated by `.gitlab-ci.yml`. Local helper scripts
 (`scripts/build.sh`, `scripts/test.sh`, `scripts/lint.sh`) assume required tools
-are already present.
+are already present. Documentation generation runs `adrdox` with a single job,
+retries it, and falls back to another available D compiler if needed.
 
 Note on tests in Alpine CI: the `FileArchiveRar` unittest requires the
 proprietary `rar` writer binary. If `rar` is not available, this specific test

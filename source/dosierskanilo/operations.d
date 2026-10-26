@@ -538,12 +538,13 @@ OperationRequestValidation validateOperationRequest(AnalysisOperationRequest req
 @("operation requests validate explicit targets and supported mode combinations")
 unittest
 {
-    auto missingRepository = ScanOperationRequest(operationId: 1);
+    auto missingRepository = ScanOperationRequest();
+    missingRepository.operationId = 1;
     assert(validateOperationRequest(missingRepository).error
         == OperationRequestError.missingRepositoryRoot);
 
-    auto noIdentity = ScanOperationRequest(
-        target: OperationTarget.repositoryTarget("/library"));
+    auto noIdentity = ScanOperationRequest();
+    noIdentity.target = OperationTarget.repositoryTarget("/library");
     assert(validateOperationRequest(noIdentity).error
         == OperationRequestError.invalidOperationId);
 
