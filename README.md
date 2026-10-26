@@ -175,7 +175,9 @@ Common options use kebab-case: `--recursive`, `--checksums`, `--file-types`,
 `--pick-hidden`, `--threads`, `--verbose`, and `--format=table|json` for query
 commands. Help is `--help`; version is `--version`. Normal commands print
 `DosierSkanilo <version>` to stderr at startup so stdout stays usable for
-command output and JSON formats. Interrupting a JSON scan with Ctrl-C saves the
+command output and JSON formats. Query commands include indexed archive members:
+`list` reports canonical `container!/member` paths and a separate display name
+without occurrence suffixes. Interrupting a JSON scan with Ctrl-C saves the
 records collected so far unless `--dry-run` is active; press Ctrl-C a second time
 to terminate immediately.
 

@@ -13,6 +13,10 @@ They represent the functional evolution and are intentionally summarized.
   it, falling back to another available D compiler when needed, avoiding flaky
   pipeline failures. The source no longer uses named arguments that `adrdox`
   cannot parse.
+- CLI `list` now returns archive-member references with canonical virtual
+  paths and original display names, including duplicate-name occurrences.
+  Canonical virtual paths can be filtered directly. `duplicates` groups all
+  matching references by content, including indexed archive members.
 - CLI JSON scans and analyses now load the catalog once, skip the query-index
   rebuild that blocked startup on large catalogs, and still archive the previous
   catalog before writing the replacement.
