@@ -35,6 +35,9 @@ synthetic_json_output=$("${BIN}" scan "${fixture_root}" \
     --json "${synthetic_catalog}" --recursive --checksums)
 [[ "${synthetic_json_output}" == *"Catalog scan: 12 files, 12 added"* ]]
 [[ ! -d "${fixture_root}/.dosierskanilo" ]]
+json_rescan_output=$("${BIN}" scan "${fixture_root}" \
+    --json "${synthetic_catalog}" --recursive --checksums)
+[[ "$(grep -c "Read serialized data from JSON file" <<<"${json_rescan_output}" || true)" -eq 1 ]]
 json_analysis_output=$("${BIN}" analyze --json "${synthetic_catalog}")
 [[ "${json_analysis_output}" == *"Catalog analysis: 0 missing, 0 dropped, 1 duplicate groups, 1 merged blobs, 0 orphaned blobs."* ]]
 json_list_output=$("${BIN}" list --json "${synthetic_catalog}" \
@@ -124,7 +127,7 @@ grep -q "Catalog export cancelled" "${TMP_DIR}/cancel-export-stderr"
 [[ ! -e "${cancel_export_path}" ]]
 "${BIN}" info "${crash_repo}" >/dev/null
 
-# SIGINT during a JSON scan stops the workers and never publishes a catalog.
+# SIGINT during a JSON scan stops the workers and saves collected records.
 cancel_scan_tree="${TMP_DIR}/cancel-scan-tree"
 mkdir -p "${cancel_scan_tree}"
 for index in $(seq 1 200); do
@@ -138,8 +141,22 @@ kill -INT "${scan_pid}" 2>/dev/null || true
 scan_rc=0
 wait "${scan_pid}" || scan_rc=$?
 [[ "${scan_rc}" -ne 0 ]]
-grep -q "cancelled" "${TMP_DIR}/cancel-scan-stdout"
-[[ ! -e "${TMP_DIR}/cancel-scan.json" ]]
+grep -q "Waiting for the application to finish" "${TMP_DIR}/cancel-scan-stdout"
+grep -q "collected data was saved" "${TMP_DIR}/cancel-scan-stdout"
+[[ -s "${TMP_DIR}/cancel-scan.json" ]]
+"${BIN}" list --json "${TMP_DIR}/cancel-scan.json" --format=json >/dev/null
+
+# --dry-run keeps cancellation from writing the catalog.
+"${BIN}" scan "${cancel_scan_tree}" --json "${TMP_DIR}/cancel-dry.json" \
+    --recursive --checksums --dry-run >"${TMP_DIR}/cancel-dry-stdout" 2>&1 &
+scan_pid=$!
+sleep 0.2
+kill -INT "${scan_pid}" 2>/dev/null || true
+scan_rc=0
+wait "${scan_pid}" || scan_rc=$?
+[[ "${scan_rc}" -ne 0 ]]
+grep -q "no changes were written" "${TMP_DIR}/cancel-dry-stdout"
+[[ ! -e "${TMP_DIR}/cancel-dry.json" ]]
 
 # The same corpus through SQLite: cancellation during metadata leaves the
 # repository readable, whether or not discovery was already committed.
@@ -253,9 +270,11 @@ fi
 [[ ! -s "${TMP_DIR}/export-stdout" ]]
 [[ "$(<"${TMP_DIR}/export-stderr")" == *"Export requires an output JSON filename."* ]]
 
-# Help/version are successful.
+# Help/version are successful. Normal commands announce the app on stderr.
 "${BIN}" --help >/dev/null
 "${BIN}" --version >/dev/null
+startup_banner=$("${BIN}" info "${sqlite_root}" 2>&1 >/dev/null)
+[[ "${startup_banner}" == *"DosierSkanilo v"* ]]
 if "${BIN}" info "${TMP_DIR}" > "${TMP_DIR}/stdout" 2> "${TMP_DIR}/stderr"; then
     printf '%s\n' "Expected info without a repository to fail." >&2
     exit 1

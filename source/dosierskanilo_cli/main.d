@@ -44,7 +44,8 @@ import dosierskanilo;
 import dosierarkivo;
 
 import dosierskanilo_cli.parser;
-import dosierskanilo_cli.logging : errorLine;
+import dosierskanilo_cli.logging : errorLine, noticeFLine;
+import dosierskanilo.operationrunner : runOperation;
 
 version (ldc)
 {
@@ -92,6 +93,7 @@ int main(string[] args)
 			return 2;
 		case ParseStatus.run:
 			auto options = parsed.options;
+			noticeFLine("%s %s", appName, appVersion);
 			if (options.argDoMediaSig)
 			{
 				auto miv = getMediaInfoVersion();
@@ -239,52 +241,94 @@ bool executeCatalogOperation(ArgsArray options)
 		target = OperationTarget.repositoryTarget(repositoryPath);
 	}
 	else
-		target = OperationTarget.jsonTarget(options.argJSONFile, options.argBaseDir);
+	{
+		target = OperationTarget.jsonTarget(options.argJSONFile,
+			options.argBaseDir);
+		return executeJsonCatalogOperation(options, target);
+	}
 
 	auto backendFactory = new DefaultCatalogBackendFactory;
 	auto backend = backendFactory.open(target);
 	scope (exit)
 		backend.close();
 	auto backendTarget = backend.target();
-	auto backendName = "Catalog";
 	auto control = cliOperationControl(options.argScanFiles
 		? "Catalog scan" : "Catalog analysis");
 	OperationResult result;
 	if (options.argScanFiles)
-	{
-		ScanOperationRequest request;
-		request.operationId = 4;
-		request.target = backendTarget;
-		request.scanOptions.recursive = options.argRecursive;
-		request.scanOptions.pickHidden = options.argPickHidden;
-		request.forceJsonOverwrite = options.argReplaceCatalog;
-		request.mergeDuplicates = options.argMergeDuplicates;
-		request.dryRun = options.argDryRun;
-		request.metadataOptions = metadataOptionsFromCli(options);
-		result = backend.runOperation(request, control);
-		clearOperationProgress();
-	}
+		result = backend.runOperation(scanRequestFromCli(options, backendTarget),
+			control);
 	else
-	{
-		AnalysisOperationRequest request;
-		request.operationId = 5;
-		request.target = backendTarget;
-		request.options.dropMissing = options.argDropMissing;
-		request.metadataOptions = metadataOptionsFromCli(options);
-		request.forceJsonOverwrite = options.argReplaceCatalog;
-		request.dryRun = options.argDryRun;
-		result = backend.runOperation(request, control);
-		clearOperationProgress();
-	}
+		result = backend.runOperation(analysisRequestFromCli(options, backendTarget),
+			control);
+	clearOperationProgress();
+	return reportCatalogOperationResult("Catalog", options, result);
+}
 
-	if (result.state != OperationState.completed)
+/** Run a one-shot JSON operation without the query backend.
+ *
+ * The operation runner owns the single catalog load and committed replacement.
+ * Avoiding the query backend here also avoids rebuilding its read index for a
+ * process that exits immediately after the operation.
+ */
+private bool executeJsonCatalogOperation(ArgsArray options, OperationTarget target)
+{
+	auto control = cliOperationControl(options.argScanFiles
+		? "Catalog scan" : "Catalog analysis");
+	OperationResult result;
+	if (options.argScanFiles)
+		result = runOperation(scanRequestFromCli(options, target), control);
+	else
+		result = runOperation(analysisRequestFromCli(options, target), control);
+	clearOperationProgress();
+	return reportCatalogOperationResult("Catalog", options, result);
+}
+
+private ScanOperationRequest scanRequestFromCli(ArgsArray options,
+	OperationTarget target)
+{
+	ScanOperationRequest request;
+	request.operationId = 4;
+	request.target = target;
+	request.scanOptions.recursive = options.argRecursive;
+	request.scanOptions.pickHidden = options.argPickHidden;
+	request.forceJsonOverwrite = options.argReplaceCatalog;
+	request.mergeDuplicates = options.argMergeDuplicates;
+	request.savePartialOnCancel = !options.argJSONFile.empty
+		&& !options.argDryRun;
+	request.dryRun = options.argDryRun;
+	request.metadataOptions = metadataOptionsFromCli(options);
+	return request;
+}
+
+private AnalysisOperationRequest analysisRequestFromCli(ArgsArray options,
+	OperationTarget target)
+{
+	AnalysisOperationRequest request;
+	request.operationId = 5;
+	request.target = target;
+	request.options.dropMissing = options.argDropMissing;
+	request.metadataOptions = metadataOptionsFromCli(options);
+	request.forceJsonOverwrite = options.argReplaceCatalog;
+	request.dryRun = options.argDryRun;
+	return request;
+}
+
+private bool reportCatalogOperationResult(string backendName, ArgsArray options,
+	OperationResult result)
+{
+	const bool cancelledWithSavedData = result.state == OperationState.cancelled
+		&& result.changesCommitted;
+	if (result.state != OperationState.completed && !cancelledWithSavedData)
 	{
 		if (result.state == OperationState.cancelled)
-			errorLine(backendName ~ " operation cancelled; the original catalog was not replaced.");
+			errorLine(backendName ~ " operation cancelled; no changes were written.");
 		else
 			errorLine(backendName ~ " operation failed: ", result.error);
 		return false;
 	}
+	if (cancelledWithSavedData)
+		errorLine(backendName ~ " operation cancelled; collected data was saved.");
 	if (result.operation == OperationKind.scan)
 	{
 		logFLine("%s scan: %d files, %d added, %d changed.", backendName,
@@ -316,8 +360,9 @@ bool executeCatalogOperation(ArgsArray options)
 	}
 	if (options.argDryRun)
 		logLine("Dry run: " ~ backendName ~ " catalog was not written.");
-	logLine(backendName ~ " operation complete.");
-	return true;
+	else if (result.state == OperationState.completed)
+		logLine(backendName ~ " operation complete.");
+	return result.state == OperationState.completed;
 }
 
 /** Export the repository catalog when requested. */
@@ -548,7 +593,8 @@ bool executeRepositoryMetadata(CatalogBackend backend, string repositoryRoot,
 OperationControl cliOperationControl(string label)
 {
 	OperationControl control;
-	OperationPhase lastPhase = OperationPhase.none;
+	SysTime lastVerboseProgress;
+	bool haveVerboseProgress;
 	size_t lastReported;
 	ulong lastSubtaskReported;
 	string lastReportedPath;
@@ -559,13 +605,8 @@ OperationControl cliOperationControl(string label)
 		if (isVerboseOutputs())
 		{
 			if (event.state == OperationState.running)
-			{
-				if (event.phase != lastPhase)
-				{
-					lastPhase = event.phase;
-					logFLineVerbose("%s phase: %s.", label, event.phase);
-				}
-			}
+				printVerboseOperationProgress(label, event,
+					lastVerboseProgress, haveVerboseProgress);
 		}
 		else if (event.state == OperationState.running)
 			printOperationProgress(label, event);
@@ -598,9 +639,17 @@ extern (C) nothrow @nogc @system void signalHandler(int sig)
 	{
 	case SIGINT:
 		if (atomicLoad(gotCtrlC))
+		{
+			enum hardStop = "Second Ctrl-C received. Terminating immediately.\n";
+			write(STDERR_FILENO, hardStop.ptr, hardStop.length);
 			_exit(1);
+		}
 		else
+		{
+			enum waitMessage = "Ctrl-C received. Waiting for the application to finish before exiting. Press Ctrl-C again to terminate immediately.\n";
+			write(STDERR_FILENO, waitMessage.ptr, waitMessage.length);
 			atomicStore(gotCtrlC, true);
+		}
 		break;
 	case SIGTERM:
 		do_abort = true;

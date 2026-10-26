@@ -139,13 +139,15 @@ The commit-unit policy is operation-specific and is fixed as follows:
 - **SQLite analysis:** analysis is atomic as it is today. Cancellation before
   commit rolls back missing-file changes, duplicate merges, and orphan cleanup
   together; a result never reports a half-merged catalog.
-- **JSON scan/analyze:** mutate an in-memory catalog and do not replace the JSON
-  file if cancellation is observed before the write phase. Once serialization and
-  the established backup/replacement sequence starts, cancellation is deferred
-  until that commit sequence finishes; return completed or failed, not cancelled,
-  after the final safe checkpoint. JSON analysis retains unavailable source paths
-  by default; it removes missing records only when `dropMissing` is explicitly
-  selected.
+- **JSON scan/analyze:** mutate an in-memory catalog. By default, do not replace
+  the JSON file if cancellation is observed before the write phase. A JSON scan
+  request with `savePartialOnCancel` commits the collected catalog after
+  cancellation; the terminal state stays `cancelled` and `changesCommitted` is
+  true. The CLI enables this for non-`--dry-run` JSON scans. JSON analysis keeps
+  the default cancel-before-write behavior. Once serialization and the established
+  backup/replacement sequence starts, cancellation is deferred until that commit
+  sequence finishes. JSON analysis retains unavailable source paths by default;
+  it removes missing records only when `dropMissing` is explicitly selected.
 
 If cancellation arrives after the operation's last safe checkpoint, completion
 wins and the terminal result is `completed`. If cancellation is observed before
@@ -210,8 +212,9 @@ cancelled results, `targetBusy` for an exclusive-target conflict,
 operational error. `error` is an actionable diagnostic and may be empty for a
 normal cancellation. `changesCommitted` is true when the operation committed any
 source mutation before its terminal outcome; it lets a frontend refresh after a
-cancelled/failed metadata run that committed completed blob units while avoiding
-refreshes for rolled-back scans/analysis or JSON work cancelled before replacement.
+cancelled/failed metadata run that committed completed blob units or a JSON scan
+that saved collected records. It remains false for rolled-back scans/analysis and
+JSON work cancelled before replacement.
 Request-shape errors are returned by validation before an operation starts.
 
 ## Mutation serialization decision

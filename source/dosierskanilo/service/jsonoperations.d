@@ -157,6 +157,18 @@ private NamedBinaryBlobCatalog loadJsonCatalog(string catalogPath,
     }
 }
 
+/// Add all primary file paths of one blob to the scan lookup index.
+private void indexBlobPaths(ref NamedBinaryBlob[string] byPath,
+    NamedBinaryBlob blob)
+{
+    if (blob is null)
+        return;
+    foreach (spec; blob.fileSpecs)
+        if (spec !is null && spec.fileName.length > 0
+            && spec.fileName !in byPath)
+            byPath[spec.fileName] = blob;
+}
+
 private bool scanJsonDirectory(string root, RepositoryScanOptions options,
     bool pathsUseV5Grammar, ref NamedBinaryBlob[] blobs,
     OperationControl control, ulong operationId, ref ScanSummary summary)
@@ -164,6 +176,10 @@ private bool scanJsonDirectory(string root, RepositoryScanOptions options,
     if (!reportJsonProgress(control, operationId, OperationKind.scan,
         OperationPhase.discovering, 0, 0, false, "Scanning filesystem.", ""))
         return false;
+
+    NamedBinaryBlob[string] existingByPath;
+    foreach (blob; blobs)
+        indexBlobPaths(existingByPath, blob);
 
     foreach (DirEntry entry; dirEntries(root,
         options.recursive ? SpanMode.depth : SpanMode.shallow))
@@ -177,12 +193,17 @@ private bool scanJsonDirectory(string root, RepositoryScanOptions options,
                 ? escapeArchiveVirtualPath(nativePathToStoragePath(entry.name))
                 : entry.name;
             NamedBinaryBlob existing;
-            foreach (blob; blobs)
+            if (auto indexed = storedFileName in existingByPath)
+                existing = *indexed;
+            else
             {
-                if (blob !is null && blob.hasFileName(storedFileName))
+                foreach (blob; blobs)
                 {
-                    existing = blob;
-                    break;
+                    if (blob !is null && blob.hasFileName(storedFileName))
+                    {
+                        existing = blob;
+                        break;
+                    }
                 }
             }
 
@@ -192,6 +213,8 @@ private bool scanJsonDirectory(string root, RepositoryScanOptions options,
                     entry.timeLastModified);
                 added.fileSpecsUseArchiveVirtualGrammar = pathsUseV5Grammar;
                 blobs ~= added;
+                indexBlobPaths(existingByPath, added);
+                existingByPath[storedFileName] = added;
                 summary.filesAdded++;
             }
             else
@@ -209,6 +232,8 @@ private bool scanJsonDirectory(string root, RepositoryScanOptions options,
                         replacement.fileSpecsUseArchiveVirtualGrammar =
                             pathsUseV5Grammar;
                         blobs ~= replacement;
+                        indexBlobPaths(existingByPath, replacement);
+                        existingByPath[storedFileName] = replacement;
                     }
                     else
                     {
@@ -294,6 +319,43 @@ unittest
         blobs, null, 1, summary));
     assert(summary.filesFound == 1);
     assert(blobs.length == 1);
+}
+
+@("JSON rescan splits changed paths from merged blobs")
+unittest
+{
+    import std.algorithm.searching : any;
+    import std.datetime.systime : SysTime;
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir,
+        timeLastModified, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const auto root = buildPath(tempDir(), "json-rescan-split-"
+        ~ randomUUID().toString());
+    const auto firstPath = buildPath(root, "first.bin");
+    const auto secondPath = buildPath(root, "second.bin");
+    mkdirRecurse(root);
+    write(firstPath, "aaa");
+    write(secondPath, "bbb");
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+
+    auto blob = new NamedBinaryBlob([firstPath, secondPath], 3,
+        timeLastModified(secondPath));
+    NamedBinaryBlob[] blobs = [blob];
+
+    write(firstPath, "changed");
+
+    RepositoryScanOptions options;
+    ScanSummary summary;
+    assert(scanJsonDirectory(root, options, false, blobs, null, 1, summary));
+    assert(summary.filesFound == 2);
+    assert(summary.filesChanged == 1);
+    assert(blobs.length == 2);
+    assert(blob.hasFileName(secondPath));
+    assert(blobs.any!(candidate => candidate.hasFileName(firstPath)));
 }
 
 @("JSON rescan clears derived metadata for changed files")

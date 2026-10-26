@@ -288,15 +288,27 @@ private OperationResult runJsonScanOperation(ScanOperationRequest request,
             result.metadataSummary = execution.metadataSummary;
             result.analysisSummary = execution.analysisSummary;
             if (execution.cancelled)
+            {
                 result.state = OperationState.cancelled;
+                if (request.savePartialOnCancel && !request.dryRun)
+                {
+                    enforce(commitJsonCatalog(request.target.catalogPath,
+                        execution.catalog),
+                        "Failed to save collected JSON data after cancellation.");
+                    result.changesCommitted = true;
+                }
+            }
             else if (!commitJsonAtSafePoint(request.target.catalogPath,
                 execution.catalog, control, request.operationId,
-                OperationKind.scan, request.dryRun))
+                OperationKind.scan, request.dryRun,
+                request.savePartialOnCancel))
                 result.state = OperationState.cancelled;
             else
             {
                 result.changesCommitted = !request.dryRun;
-                result.state = OperationState.completed;
+                result.state = request.savePartialOnCancel
+                    && control.cancellationRequested
+                    ? OperationState.cancelled : OperationState.completed;
             }
         }
     }
@@ -373,7 +385,7 @@ private OperationResult runJsonAnalysisOperation(AnalysisOperationRequest reques
 
 private bool commitJsonAtSafePoint(string catalogPath,
     ref NamedBinaryBlobCatalog catalog, OperationControl control, ulong operationId,
-    OperationKind operation, bool dryRun)
+    OperationKind operation, bool dryRun, bool saveOnCancel = false)
 {
     if (dryRun)
     {
@@ -381,15 +393,25 @@ private bool commitJsonAtSafePoint(string catalogPath,
         return !control.cancellationRequested;
     }
 
-    control.setPauseAvailable(true);
+    if (!control.cancellationRequested)
+        control.setPauseAvailable(true);
     OperationProgress progress;
     progress.operationId = operationId;
     progress.operation = operation;
     progress.state = OperationState.running;
     progress.phase = OperationPhase.jsonWrite;
-    progress.message = "Ready to replace JSON catalog.";
+    progress.message = saveOnCancel && control.cancellationRequested
+        ? "Saving collected JSON data before exiting."
+        : "Ready to replace JSON catalog.";
     control.report(progress);
-    if (!control.pauseAtCheckpoint(progress) || control.cancellationRequested)
+    if (!control.cancellationRequested)
+    {
+        if (!control.pauseAtCheckpoint(progress) && !saveOnCancel)
+            return false;
+    }
+    else if (!saveOnCancel)
+        return false;
+    if (!saveOnCancel && control.cancellationRequested)
         return false;
     control.setPauseAvailable(false);
     enforce(commitJsonCatalog(catalogPath, catalog),
@@ -860,6 +882,101 @@ unittest
     assert(atomicLoad(cancellationSent));
     assert(!result.changesCommitted);
     assert(!exists(catalogPath));
+}
+
+@("cancelled JSON scan can save collected records")
+unittest
+{
+    import core.atomic : atomicLoad, atomicStore;
+    import std.file : exists, mkdirRecurse, remove, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+    import dosierskanilo.model.namedbinaryblob : deserializeDataClassJsonWrapperFile;
+
+    auto root = buildPath(tempDir(), "operation-json-save-cancel-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    auto catalogPath = buildPath(tempDir(), "operation-json-save-cancel-"
+        ~ randomUUID().toString() ~ ".json");
+    scope (exit)
+    {
+        if (exists(catalogPath))
+            remove(catalogPath);
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+    write(buildPath(root, "first.txt"), "first");
+    write(buildPath(root, "second.txt"), "second");
+
+    shared bool cancellationSent;
+    OperationControl control;
+    control = new OperationControl((OperationProgress event) {
+        if (event.phase == OperationPhase.scanning
+            && event.state == OperationState.running && event.completed > 0
+            && !atomicLoad(cancellationSent))
+        {
+            control.requestCancellation();
+            atomicStore(cancellationSent, true);
+        }
+    });
+    ScanOperationRequest request;
+    request.operationId = 503;
+    request.target = OperationTarget.jsonTarget(catalogPath, root);
+    request.savePartialOnCancel = true;
+    auto result = runOperation(request, control);
+
+    assert(result.state == OperationState.cancelled);
+    assert(atomicLoad(cancellationSent));
+    assert(result.changesCommitted);
+    assert(exists(catalogPath));
+    assert(deserializeDataClassJsonWrapperFile(catalogPath).dataArray.length > 0,
+        "collected JSON scan records must survive cancellation");
+}
+
+@("cancelling a JSON scan at the write checkpoint still saves")
+unittest
+{
+    import core.atomic : atomicLoad, atomicStore;
+    import std.file : exists, mkdirRecurse, remove, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+    import dosierskanilo.model.namedbinaryblob : deserializeDataClassJsonWrapperFile;
+
+    auto root = buildPath(tempDir(), "operation-json-write-cancel-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    auto catalogPath = buildPath(tempDir(), "operation-json-write-cancel-"
+        ~ randomUUID().toString() ~ ".json");
+    scope (exit)
+    {
+        if (exists(catalogPath))
+            remove(catalogPath);
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+    write(buildPath(root, "first.txt"), "first");
+
+    shared bool cancellationSent;
+    OperationControl control;
+    control = new OperationControl((OperationProgress event) {
+        if (event.phase == OperationPhase.jsonWrite
+            && event.state == OperationState.running
+            && !atomicLoad(cancellationSent))
+        {
+            control.requestCancellation();
+            atomicStore(cancellationSent, true);
+        }
+    });
+    ScanOperationRequest request;
+    request.operationId = 504;
+    request.target = OperationTarget.jsonTarget(catalogPath, root);
+    request.savePartialOnCancel = true;
+    auto result = runOperation(request, control);
+
+    assert(result.state == OperationState.cancelled);
+    assert(atomicLoad(cancellationSent));
+    assert(result.changesCommitted);
+    assert(deserializeDataClassJsonWrapperFile(catalogPath).dataArray.length == 1);
 }
 
 @("JSON scan and analyze use shared operation requests and preserve JSON targets")

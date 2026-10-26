@@ -127,6 +127,8 @@ struct ScanOperationRequest
     bool forceJsonOverwrite;
     /// Analyze and merge duplicate records after scanning.
     bool mergeDuplicates;
+    /// Save collected JSON records when cancellation stops the scan.
+    bool savePartialOnCancel;
     /// Do not replace the input JSON catalog after computing results.
     bool dryRun;
 }
@@ -487,6 +489,10 @@ OperationRequestValidation validateOperationRequest(ScanOperationRequest request
         && request.dryRun)
         return validationError(OperationRequestError.unsupportedOptionCombination,
             "Dry-run is supported only for JSON scans.");
+    if (request.target.mode == OperationStorageMode.repository
+        && request.savePartialOnCancel)
+        return validationError(OperationRequestError.unsupportedOptionCombination,
+            "Saving partial scans is supported only for JSON scans.");
     return OperationRequestValidation.init;
 }
 
@@ -532,12 +538,13 @@ OperationRequestValidation validateOperationRequest(AnalysisOperationRequest req
 @("operation requests validate explicit targets and supported mode combinations")
 unittest
 {
-    auto missingRepository = ScanOperationRequest(operationId: 1);
+    auto missingRepository = ScanOperationRequest();
+    missingRepository.operationId = 1;
     assert(validateOperationRequest(missingRepository).error
         == OperationRequestError.missingRepositoryRoot);
 
-    auto noIdentity = ScanOperationRequest(
-        target: OperationTarget.repositoryTarget("/library"));
+    auto noIdentity = ScanOperationRequest();
+    noIdentity.target = OperationTarget.repositoryTarget("/library");
     assert(validateOperationRequest(noIdentity).error
         == OperationRequestError.invalidOperationId);
 
@@ -547,6 +554,10 @@ unittest
     repositoryScan.mergeDuplicates = true;
     assert(validateOperationRequest(repositoryScan).valid);
     repositoryScan.dryRun = true;
+    assert(validateOperationRequest(repositoryScan).error
+        == OperationRequestError.unsupportedOptionCombination);
+    repositoryScan.dryRun = false;
+    repositoryScan.savePartialOnCancel = true;
     assert(validateOperationRequest(repositoryScan).error
         == OperationRequestError.unsupportedOptionCombination);
 

@@ -848,6 +848,20 @@ void printOperationProgress(string label, OperationProgress event)
     lastOperationProgress = now;
 }
 
+/** Print verbose operation progress as throttled newline records. */
+void printVerboseOperationProgress(string label, OperationProgress event,
+    ref SysTime lastProgress, ref bool haveProgress)
+{
+    import dosierskanilo.logging : logLine;
+
+    const auto now = Clock.currTime;
+    if (haveProgress && now - lastProgress <= dur!"seconds"(1))
+        return;
+    logLine(formatOperationProgressLine(label, event, terminalColumns()));
+    lastProgress = now;
+    haveProgress = true;
+}
+
 /** Clear the compact progress line before printing an operation summary. */
 void clearOperationProgress()
 {
@@ -888,6 +902,20 @@ unittest
 
     auto veryNarrow = formatOperationProgressLine("Metadata", event, 35);
     assert(veryNarrow.length <= 35, veryNarrow);
+}
+
+@("formatOperationProgressLine shows unknown-total progress and paths")
+unittest
+{
+    OperationProgress event;
+    event.phase = OperationPhase.scanning;
+    event.completed = 123;
+    event.path = "/library/films/A very long film filename.mkv";
+
+    auto line = formatOperationProgressLine("Catalog scan", event, 100);
+    assert(line.canFind("123 items"));
+    assert(line.canFind("filename.mkv"));
+    assert(line.length <= 100);
 }
 
 /** Print scan progress on a single console line.

@@ -127,7 +127,8 @@ The GitLab pipeline uses Alpine and separates dependencies by stage:
 
 Dependency installation is orchestrated by `.gitlab-ci.yml`. Local helper scripts
 (`scripts/build.sh`, `scripts/test.sh`, `scripts/lint.sh`) assume required tools
-are already present.
+are already present. Documentation generation runs `adrdox` with a single job,
+retries it, and falls back to another available D compiler if needed.
 
 Note on tests in Alpine CI: the `FileArchiveRar` unittest requires the
 proprietary `rar` writer binary. If `rar` is not available, this specific test
@@ -172,7 +173,11 @@ dosierskanilo analyze [ROOT] --json CATALOG.json [--base-dir DIR] [OPTIONS]
 Common options use kebab-case: `--recursive`, `--checksums`, `--file-types`,
 `--media-info`, `--scan-archives`, `--scan-torrents`, `--drop-missing`,
 `--pick-hidden`, `--threads`, `--verbose`, and `--format=table|json` for query
-commands. Help is `--help`; version is `--version`.
+commands. Help is `--help`; version is `--version`. Normal commands print
+`DosierSkanilo <version>` to stderr at startup so stdout stays usable for
+command output and JSON formats. Interrupting a JSON scan with Ctrl-C saves the
+records collected so far unless `--dry-run` is active; press Ctrl-C a second time
+to terminate immediately.
 
 SQLite commands may discover `ROOT` from the current directory and its parent
 directories. JSON commands require an explicit catalog path and never create a
