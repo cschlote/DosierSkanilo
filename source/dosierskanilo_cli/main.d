@@ -376,12 +376,17 @@ bool executeRepositoryExport(CatalogBackend backend, string repositoryRoot,
 		return true;
 	logLine("Catalog phase: export JSON.");
 	logLineVerbose("Exporting catalog root: ", repositoryRoot);
+	if (!options.argExportPath.empty)
+		logLineVerbose("Export path prefix: ", options.argExportPath);
 	CatalogExportOptions exportOptions;
 	exportOptions.outputPath = exportPath;
 	exportOptions.format = CatalogExportFormat.jsonV5;
 	auto control = cliOperationControl("Catalog export");
+	CatalogSubsetQuery subset;
+	subset.pathPrefix = options.argExportPath;
+	subset.filter.includeArchiveMembers = true;
 	auto result = backend.exportSubsetControlled(
-		CatalogSubsetQuery("", CatalogFilter.init), exportOptions, control, 7);
+		subset, exportOptions, control, 7);
 	clearOperationProgress();
 	if (!result.committed)
 	{

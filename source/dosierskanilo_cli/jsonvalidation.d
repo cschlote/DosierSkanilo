@@ -45,7 +45,8 @@ bool validateJsonOptions(string command, ref ArgsArray options)
             || options.argQueryAudio || options.argQueryImage
             || options.argQueryTextStream || options.argQueryFileType
             || options.argQueryArchive || options.argQueryTorrent
-            || options.argDuplicateLimit != 100)
+            || options.argDuplicateLimit != 100
+            || !options.argExportPath.empty)
         {
             errorLine("Repository query/transfer options are not valid in JSON scan or analysis.");
             return false;
@@ -86,7 +87,8 @@ bool validateJsonOptions(string command, ref ArgsArray options)
             || options.argDoChecksums || options.argDoFileTypes
             || options.argDoMediaSig || options.argScanArchives
             || options.argScanTorrents || options.argRescanMediaSig
-            || options.argDuplicateLimit != 100)
+            || options.argDuplicateLimit != 100
+            || !options.argExportPath.empty)
         {
             errorLine("JSON list supports only query filters and --format.");
             return false;
@@ -106,7 +108,8 @@ bool validateJsonOptions(string command, ref ArgsArray options)
             || options.argQueryOffset != 0 || options.argQueryVideo
             || options.argQueryAudio || options.argQueryImage
             || options.argQueryTextStream || options.argQueryFileType
-            || options.argQueryArchive || options.argQueryTorrent)
+            || options.argQueryArchive || options.argQueryTorrent
+            || !options.argExportPath.empty)
         {
             errorLine("JSON duplicate queries support only --format and --duplicate-limit.");
             return false;
@@ -142,4 +145,9 @@ unittest
     invalidAnalyze.argJSONFile = analyzeOptions.argJSONFile;
     invalidAnalyze.argRecursive = true;
     assert(!validateJsonOptions("analyze", invalidAnalyze));
+
+    auto invalidJsonPath = ArgsArray();
+    invalidJsonPath.argJSONFile = analyzeOptions.argJSONFile;
+    invalidJsonPath.argExportPath = "archives";
+    assert(!validateJsonOptions("list", invalidJsonPath));
 }

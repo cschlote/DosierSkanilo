@@ -108,6 +108,19 @@ archive_sqlite_duplicates=$("${BIN}" duplicates "${archive_sqlite_root}" \
 archive_export="${TMP_DIR}/archive-export.json"
 "${BIN}" export "${archive_sqlite_root}" --output "${archive_export}" >/dev/null
 grep -qF 'archives\/sample.zip!\/payload\/copy.txt' "${archive_export}"
+
+archive_member_export="${TMP_DIR}/archive-member-export.json"
+"${BIN}" export "${archive_sqlite_root}" --output "${archive_member_export}" \
+    --path "archives/sample.zip!/payload/copy.txt" >/dev/null
+grep -qF 'archives\/sample.zip!\/payload\/copy.txt' "${archive_member_export}"
+if grep -qF 'alpha\/original.txt' "${archive_member_export}"; then
+    printf '%s\n' "Selected export included an unrelated reference." >&2
+    exit 1
+fi
+if grep -qF 'copies\/copy.txt' "${archive_member_export}"; then
+    printf '%s\n' "Selected export included an unrelated reference." >&2
+    exit 1
+fi
 popd >/dev/null
 
 # A killed JSON export never leaves a truncated or missing catalog at the

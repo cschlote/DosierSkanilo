@@ -20,6 +20,7 @@ struct ArgsArray
 	string argRepositoryPath; ///< Repository root or path below a repository.
 	string argImportJSON; ///< JSON file to import into a repository.
 	string argExportJSON; ///< JSON file to export from a repository.
+	string argExportPath; ///< Optional path prefix for a selected export.
 	bool argInitRepository; ///< Initialize a `.dosierskanilo` repository.
 	bool argDoFileTypes; ///< Query file types via the `file` utility.
 	bool argDoChecksums; ///< Calculate checksums for files.

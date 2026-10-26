@@ -21,6 +21,11 @@ bool validateRepositoryOptions(string command, ref ArgsArray options)
         errorLine("--base-dir is available only with JSON scan or analysis.");
         return false;
     }
+    if (!options.argExportPath.empty && command != "export")
+    {
+        errorLine("--path is available only with export.");
+        return false;
+    }
     if (options.argDryRun)
     {
         errorLine("--dry-run is supported only in JSON mode.");
@@ -105,6 +110,15 @@ unittest
     auto invalidExport = ArgsArray();
     invalidExport.argExportJSON = buildPath(baseDir, "catalog.txt");
     assert(!validateRepositoryOptions("export", invalidExport));
+
+    auto selectedExport = ArgsArray();
+    selectedExport.argExportJSON = buildPath(baseDir, "catalog.json");
+    selectedExport.argExportPath = "archives/sample.zip!/payload/copy.txt";
+    assert(validateRepositoryOptions("export", selectedExport));
+
+    auto invalidSelectedList = ArgsArray();
+    invalidSelectedList.argExportPath = "archives";
+    assert(!validateRepositoryOptions("list", invalidSelectedList));
 }
 
 private bool hasRepositoryListFilters(ArgsArray options)

@@ -164,7 +164,7 @@ dosierskanilo info [ROOT]
 dosierskanilo list [ROOT] [FILTERS]
 dosierskanilo duplicates [ROOT]
 dosierskanilo import [ROOT] INPUT.json --replace
-dosierskanilo export [ROOT] --output OUTPUT.json
+dosierskanilo export [ROOT] --output OUTPUT.json [--path VIRTUAL_PATH]
 
 dosierskanilo scan [ROOT] --json CATALOG.json [--base-dir DIR] [OPTIONS]
 dosierskanilo analyze [ROOT] --json CATALOG.json [--base-dir DIR] [OPTIONS]

@@ -201,6 +201,7 @@ ParsedCommandLine parseCommandLine(string[] args)
         helpInformation = getopt(args, /* std.getopt.config.required, */
 
             "output", "------R-- Output JSON file for export", &argsarray.argExportJSON,
+            "path", "------R-- Export only the selected path prefix", &argsarray.argExportPath,
             "json", "S-------J JSON catalog to read/write", &argsarray.argJSONFile,
             "base-dir", "S-------J Base directory for JSON paths", &argsarray.argBaseDir,
             "recursive", "S-------- Recursively scan directories", &argsarray.argRecursive,
@@ -457,10 +458,13 @@ unittest
     assert(imported.options.argReplaceCatalog);
 
     auto exported = parseCommandLine(["program", "export", "./test",
-        "--output=./test/export.json"]);
+        "--output=./test/export.json",
+        "--path=archives/sample.zip!/payload/copy.txt"]);
     assert(exported.status == ParseStatus.run
         && exported.command == CliCommand.exportJson);
     assert(exported.options.argExportJSON == "./test/export.json");
+    assert(exported.options.argExportPath
+        == "archives/sample.zip!/payload/copy.txt");
 
     auto jsonScan = parseCommandLine(["program", "scan", "./test",
         "--json", "./test/out.json", "--recursive", "--checksums"]);
