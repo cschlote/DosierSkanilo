@@ -58,10 +58,17 @@ sqlite_duplicates_output=$("${BIN}" duplicates \
 # paths are searchable and the display name omits any occurrence suffix.
 archive_catalog="${TMP_DIR}/archive-catalog.json"
 archive_sqlite_root="${TMP_DIR}/archive-sqlite-catalog"
+archive_cache="${TMP_DIR}/archive-cache"
 cp -a "${fixture_root}" "${archive_sqlite_root}"
 "${BIN}" init "${archive_sqlite_root}" >/dev/null
 "${BIN}" scan "${archive_sqlite_root}" --recursive --checksums \
-    --scan-archives --scan-archives >/dev/null
+    --scan-archives --scan-archives --archive-cache-dir "${archive_cache}" \
+    --archive-cache-size 64 >/dev/null
+[[ -d "${archive_cache}" ]]
+if compgen -G "${archive_cache}/session-*" >/dev/null; then
+    printf '%s\n' "Archive cache session was not cleaned up." >&2
+    exit 1
+fi
 "${BIN}" scan "${fixture_root}" --json "${archive_catalog}" \
     --recursive --checksums --scan-archives --scan-archives >/dev/null
 "${BIN}" analyze "${archive_sqlite_root}" >/dev/null

@@ -18,7 +18,9 @@ They represent the functional evolution and are intentionally summarized.
   Canonical virtual paths can be filtered directly. `duplicates` groups all
   matching references by content, including indexed archive members. `export`
   accepts `--path` to write a selected path or virtual archive member with its
-  relationship-closed container data.
+  relationship-closed container data. Archive scans and metadata extraction
+  accept `--archive-cache-dir` and `--archive-cache-size` to configure the
+  owned temporary member cache; sessions are removed on exit.
 - CLI JSON scans and analyses now load the catalog once, skip the query-index
   rebuild that blocked startup on large catalogs, and still archive the previous
   catalog before writing the replacement.

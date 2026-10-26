@@ -29,6 +29,8 @@ struct ArgsArray
 	uint argScanArchives; ///< Scan archive contents.
 	bool argScanArchivesOption; ///< Canonical single archive-scan option.
 	bool argScanTorrents; ///< Scan torrent contents.
+	string argArchiveCacheDir; ///< Root directory for archive member extraction.
+	uint argArchiveCacheMiB; ///< Archive member cache size in MiB (0 = default).
 	bool argRunAnalysis; ///< Run duplicate and cleanup analysis.
 	bool argRunMetadata; ///< Run repository metadata extraction.
 	bool argShowInfo; ///< Show repository metadata and catalog counts.

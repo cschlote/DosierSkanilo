@@ -70,6 +70,11 @@ Metadata options (at least one is required for `metadata`):
     --checksums --file-types --media-info --scan-archives --scan-torrents
     --rescan-media-info forces media metadata extraction again
 
+Archive member cache options (scan and metadata):
+
+    --archive-cache-dir DIR   Root directory for extraction sessions
+    --archive-cache-size MiB  Maximum cached member bytes (default 1024)
+
 Option scope keys use the fixed columns `S A M I L D R G J` (`-` means not
 available for that scope):
 
@@ -211,6 +216,8 @@ ParsedCommandLine parseCommandLine(string[] args)
             "rescan-media-info", "SAM------ Rescan all files for media signature", &argsarray.argRescanMediaSig,
             "scan-archives+", "SAM------ Get the contents of archives (repeat for deep scanning)", &argsarray.argScanArchives,
             "scan-torrents", "SAM------ Get the contents of torrent files", &argsarray.argScanTorrents,
+            "archive-cache-dir", "S-M------ Root directory for archive member extraction", &argsarray.argArchiveCacheDir,
+            "archive-cache-size", "S-M------ Archive member cache size in MiB", &argsarray.argArchiveCacheMiB,
             "drop-missing", "SA------- Drop missing files from database", &argsarray.argDropMissing,
             "threads", "SAM------ Number of worker threads", &argsarray.argNumberOfThreads,
             "replace", "S-----R-- Replace existing data (JSON scan or import)", &argsarray.argReplaceCatalog,
@@ -414,12 +421,20 @@ unittest
     assert(deepArchive.status == ParseStatus.run);
     assert(deepArchive.options.argScanArchives == 2);
     assert(deepArchive.options.argScanArchivesOption);
+    auto cachedArchive = parseCommandLine(["program", "scan", "./test",
+        "--scan-archives", "--archive-cache-dir", "./cache",
+        "--archive-cache-size", "64"]);
+    assert(cachedArchive.status == ParseStatus.run);
+    assert(cachedArchive.options.argArchiveCacheDir == "./cache");
+    assert(cachedArchive.options.argArchiveCacheMiB == 64);
     assert(allMetadataOptions.options.argVerboseOutputs);
     assert(helpText.canFind("--checksums"));
     assert(helpText.canFind("--file-types"));
     assert(helpText.canFind("--media-info"));
     assert(helpText.canFind("--scan-archives"));
     assert(helpText.canFind("--scan-torrents"));
+    assert(helpText.canFind("--archive-cache-dir"));
+    assert(helpText.canFind("--archive-cache-size"));
     assert(helpText.canFind("--verbose"));
     assert(helpText.canFind("S A M I L D R G J"));
     auto outdatedMetadataFlag = parseCommandLine(["program", "metadata",

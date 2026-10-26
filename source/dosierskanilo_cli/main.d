@@ -44,7 +44,7 @@ import dosierskanilo;
 import dosierarkivo;
 
 import dosierskanilo_cli.parser;
-import dosierskanilo_cli.logging : errorLine, noticeFLine;
+import dosierskanilo_cli.logging : errorFLine, errorLine, noticeFLine;
 import dosierskanilo.operationrunner : runOperation;
 
 version (ldc)
@@ -93,6 +93,8 @@ int main(string[] args)
 			return 2;
 		case ParseStatus.run:
 			auto options = parsed.options;
+			if (!configureArchiveCache(options))
+				return 1;
 			noticeFLine("%s %s", appName, appVersion);
 			if (options.argDoMediaSig)
 			{
@@ -113,6 +115,28 @@ int main(string[] args)
 				rc = executeRepositoryOperation(options);
 			return rc ? 0 : 1;
 		}
+	}
+}
+
+private bool configureArchiveCache(ArgsArray options)
+{
+	import dosierskanilo.membercontentcache :
+		configureSharedMemberContentCache, defaultMemberCacheByteLimit;
+
+	if (options.argArchiveCacheDir.empty && options.argArchiveCacheMiB == 0)
+		return true;
+	ulong byteLimit = defaultMemberCacheByteLimit;
+	if (options.argArchiveCacheMiB > 0)
+		byteLimit = cast(ulong) options.argArchiveCacheMiB * 1_048_576UL;
+	try
+	{
+		configureSharedMemberContentCache(options.argArchiveCacheDir, byteLimit);
+		return true;
+	}
+	catch (Exception ex)
+	{
+		errorFLine("Cannot configure archive cache: %s", ex.msg);
+		return false;
 	}
 }
 

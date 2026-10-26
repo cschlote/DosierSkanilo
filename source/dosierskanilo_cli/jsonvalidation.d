@@ -25,6 +25,13 @@ bool validateJsonOptions(string command, ref ArgsArray options)
         return false;
     }
 
+    if (command != "scan"
+        && (!options.argArchiveCacheDir.empty || options.argArchiveCacheMiB != 0))
+    {
+        errorLine("--archive-cache options are available only for JSON scan.");
+        return false;
+    }
+
     if ((command == "analyze" || command == "list" || command == "duplicates")
         && (!exists(options.argJSONFile) || !isFile(options.argJSONFile)))
     {
@@ -150,4 +157,16 @@ unittest
     invalidJsonPath.argJSONFile = analyzeOptions.argJSONFile;
     invalidJsonPath.argExportPath = "archives";
     assert(!validateJsonOptions("list", invalidJsonPath));
+
+    auto cachedScan = ArgsArray();
+    cachedScan.argJSONFile = buildPath(baseDir, "cached.json");
+    cachedScan.argBaseDir = baseDir;
+    cachedScan.argArchiveCacheDir = buildPath(baseDir, "cache");
+    cachedScan.argArchiveCacheMiB = 64;
+    assert(validateJsonOptions("scan", cachedScan));
+
+    auto invalidCachedAnalyze = ArgsArray();
+    invalidCachedAnalyze.argJSONFile = analyzeOptions.argJSONFile;
+    invalidCachedAnalyze.argArchiveCacheMiB = 64;
+    assert(!validateJsonOptions("analyze", invalidCachedAnalyze));
 }
