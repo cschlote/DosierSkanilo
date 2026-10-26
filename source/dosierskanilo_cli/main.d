@@ -401,7 +401,15 @@ bool executeRepositoryExport(CatalogBackend backend, string repositoryRoot,
 	logLine("Catalog phase: export JSON.");
 	logLineVerbose("Exporting catalog root: ", repositoryRoot);
 	if (!options.argExportPath.empty)
+	{
 		logLineVerbose("Export path prefix: ", options.argExportPath);
+		if (!catalogHasPath(backend, options.argExportPath))
+		{
+			errorFLine("No catalog references match path '%s'.",
+				options.argExportPath);
+			return false;
+		}
+	}
 	CatalogExportOptions exportOptions;
 	exportOptions.outputPath = exportPath;
 	exportOptions.format = CatalogExportFormat.jsonV5;
@@ -429,15 +437,19 @@ void executeRepositoryInfo(CatalogBackend backend, string repositoryRoot,
 	RepositoryQueryOptions query;
 	query.limit = 1;
 	auto page = backend.queryBlobs(query);
+	CatalogFilter filter;
+	filter.includeArchiveMembers = true;
+	const references = backend.rootSummary(filter).fileReferenceCount;
 	if (options.argOutputFormat == "json")
 	{
 		logFLine("{\"root\":%s,\"database\":%s,\"schemaVersion\":%d,"
-			~ "\"createdAt\":%s,\"updatedAt\":%s,\"blobs\":%d}",
+			~ "\"createdAt\":%s,\"updatedAt\":%s,\"blobs\":%d,"
+			~ "\"references\":%d}",
 			jsonQuote(info.rootPath),
 			jsonQuote(buildPath(repositoryRoot, repositoryDirectoryName,
 				repositoryDatabaseFileName)),
 			info.schemaVersion, jsonQuote(info.createdAt), jsonQuote(info.updatedAt),
-			page.total);
+			page.total, references);
 		return;
 	}
 	logFLine("Catalog root: %s", info.rootPath);
@@ -447,6 +459,7 @@ void executeRepositoryInfo(CatalogBackend backend, string repositoryRoot,
 	logFLine("Created: %s", info.createdAt);
 	logFLine("Updated: %s", info.updatedAt);
 	logFLine("Blobs: %d", page.total);
+	logFLine("References: %d", references);
 }
 
 /** Build the shared catalog filter from query command-line options. */
@@ -507,6 +520,23 @@ private CatalogFile[] collectCatalogFiles(CatalogBackend backend,
 	collectDirectory(DirectoryId.init);
 	files.sort!((left, right) => left.relativePath < right.relativePath);
 	return files;
+}
+
+/** Report whether one canonical path or descendant prefix has references. */
+private bool catalogHasPath(CatalogBackend backend, string prefix)
+{
+	CatalogFilter filter;
+	filter.pathText = prefix;
+	filter.caseSensitive = true;
+	filter.includeArchiveMembers = true;
+	foreach (file; collectCatalogFiles(backend, filter))
+	{
+		const path = file.relativePath;
+		if (path == prefix || path.startsWith(prefix ~ "/")
+			|| path.startsWith(prefix ~ "!/"))
+			return true;
+	}
+	return false;
 }
 
 /** Original member name without the canonical occurrence suffix. */

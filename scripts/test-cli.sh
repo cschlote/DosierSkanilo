@@ -82,6 +82,13 @@ archive_sqlite_list=$("${BIN}" list "${archive_sqlite_root}" \
 [[ "${archive_json_list}" == "${archive_sqlite_list}" ]]
 [[ "${archive_json_list}" == *'"path":"archives/sample.zip!/payload/copy.txt"'* ]]
 [[ "${archive_json_list}" == *'"name":"copy.txt"'* ]]
+archive_list_total=$(grep -o '"total":[0-9]*' <<<"${archive_sqlite_list}" \
+    | cut -d: -f2)
+archive_info=$("${BIN}" info "${archive_sqlite_root}" --format=json)
+archive_info_references=$(grep -o '"references":[0-9]*' <<<"${archive_info}" \
+    | cut -d: -f2)
+[[ -n "${archive_info_references}" ]]
+[[ "${archive_info_references}" == "${archive_list_total}" ]]
 
 # Duplicate member names keep canonical occurrence suffixes in paths but not
 # in the user-facing display name.
@@ -128,6 +135,18 @@ if grep -qF 'copies\/copy.txt' "${archive_member_export}"; then
     printf '%s\n' "Selected export included an unrelated reference." >&2
     exit 1
 fi
+
+archive_missing_export="${TMP_DIR}/archive-missing-export.json"
+if "${BIN}" export "${archive_sqlite_root}" \
+    --output "${archive_missing_export}" \
+    --path "archives/sample.zip!/missing.txt" \
+    2>"${TMP_DIR}/archive-missing-export.err"; then
+    printf '%s\n' "Selected export accepted a missing virtual path." >&2
+    exit 1
+fi
+grep -qF 'archives/sample.zip!/missing.txt' \
+    "${TMP_DIR}/archive-missing-export.err"
+[[ ! -e "${archive_missing_export}" ]]
 popd >/dev/null
 
 # A killed JSON export never leaves a truncated or missing catalog at the
