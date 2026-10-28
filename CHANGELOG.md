@@ -9,16 +9,33 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- JSON scans and metadata runs no longer fail with `Cannot open file ... in
+  mode 'rb'` for archive members that lack digests: the checksum, file-type,
+  and media-info jobs now skip purely virtual members (their container archive
+  is checked for existence instead, and member digests are filled in by the
+  archive scan).
 - CI documentation generation now runs `adrdox` with a single job and retries
   it, falling back to another available D compiler when needed, avoiding flaky
   pipeline failures. The source no longer uses named arguments that `adrdox`
   cannot parse.
+- CLI `list` now returns archive-member references with canonical virtual
+  paths and original display names, including duplicate-name occurrences.
+  Canonical virtual paths can be filtered directly. `duplicates` groups all
+  matching references by content, including indexed archive members. `export`
+  accepts `--path` to write a selected path or virtual archive member with its
+  relationship-closed container data and fails without writing a file when the
+  selected path has no references. `info` reports reference counts including
+  archive members. Archive scans and metadata extraction accept
+  `--archive-cache-dir` and `--archive-cache-size` to configure the owned
+  temporary member cache; sessions are removed on exit.
 - CLI JSON scans and analyses now load the catalog once, skip the query-index
   rebuild that blocked startup on large catalogs, and still archive the previous
   catalog before writing the replacement.
 - Interrupting a JSON scan with Ctrl-C now saves the records collected so far
   unless `--dry-run` is active. The CLI waits for the save to finish and a
   second Ctrl-C terminates immediately.
+- Saved JSON catalogs are now compact by default. CLI `--pretty` writes
+  indented JSON for scans, analyses, exports, and other catalog writes.
 - Normal CLI commands now announce the application name and version on stderr
   at startup, keeping stdout clean for command output and JSON formats.
 - JSON directory rescans index existing blob paths instead of searching every

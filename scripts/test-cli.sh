@@ -40,6 +40,14 @@ json_rescan_output=$("${BIN}" scan "${fixture_root}" \
 [[ "$(grep -c "Read serialized data from JSON file" <<<"${json_rescan_output}" || true)" -eq 1 ]]
 json_analysis_output=$("${BIN}" analyze --json "${synthetic_catalog}")
 [[ "${json_analysis_output}" == *"Catalog analysis: 0 missing, 0 dropped, 1 duplicate groups, 1 merged blobs, 0 orphaned blobs."* ]]
+[[ "$(wc -l < "${synthetic_catalog}")" -eq 0 ]]
+
+pretty_catalog="${TMP_DIR}/pretty-catalog.json"
+"${BIN}" scan "${fixture_root}" --json "${pretty_catalog}" \
+    --recursive --checksums --pretty >/dev/null
+[[ "$(wc -l < "${pretty_catalog}")" -gt 1 ]]
+"${BIN}" analyze --json "${pretty_catalog}" --pretty >/dev/null
+[[ "$(wc -l < "${pretty_catalog}")" -gt 1 ]]
 json_list_output=$("${BIN}" list --json "${synthetic_catalog}" \
     --base-dir "${fixture_root}" --format=json \
     | sed -n '/^{/p' | sed -E 's/"id":[0-9]+,//g')
@@ -53,6 +61,106 @@ sqlite_duplicates_output=$("${BIN}" duplicates \
     "${TMP_DIR}/synthetic-sqlite-catalog" --format=json \
     | sed -E 's/"id":[0-9]+,//g')
 [[ "${json_duplicates_output}" == "${sqlite_duplicates_output}" ]]
+
+# Indexed archive members are ordinary list references: canonical virtual
+# paths are searchable and the display name omits any occurrence suffix.
+archive_catalog="${TMP_DIR}/archive-catalog.json"
+archive_sqlite_root="${TMP_DIR}/archive-sqlite-catalog"
+archive_cache="${TMP_DIR}/archive-cache"
+cp -a "${fixture_root}" "${archive_sqlite_root}"
+"${BIN}" init "${archive_sqlite_root}" >/dev/null
+"${BIN}" scan "${archive_sqlite_root}" --recursive --checksums \
+    --scan-archives --scan-archives --archive-cache-dir "${archive_cache}" \
+    --archive-cache-size 64 >/dev/null
+[[ -d "${archive_cache}" ]]
+if compgen -G "${archive_cache}/session-*" >/dev/null; then
+    printf '%s\n' "Archive cache session was not cleaned up." >&2
+    exit 1
+fi
+"${BIN}" scan "${fixture_root}" --json "${archive_catalog}" \
+    --recursive --checksums --scan-archives --scan-archives >/dev/null
+"${BIN}" analyze "${archive_sqlite_root}" >/dev/null
+"${BIN}" analyze --json "${archive_catalog}" >/dev/null
+
+archive_json_list=$("${BIN}" list --json "${archive_catalog}" \
+    --base-dir "${fixture_root}" --limit 200 --format=json \
+    | sed -n '/^{/p' | sed -E 's/"id":[0-9]+,//g')
+archive_sqlite_list=$("${BIN}" list "${archive_sqlite_root}" \
+    --limit 200 --format=json | sed -E 's/"id":[0-9]+,//g')
+[[ "${archive_json_list}" == "${archive_sqlite_list}" ]]
+[[ "${archive_json_list}" == *'"path":"archives/sample.zip!/payload/copy.txt"'* ]]
+[[ "${archive_json_list}" == *'"name":"copy.txt"'* ]]
+archive_list_total=$(grep -o '"total":[0-9]*' <<<"${archive_sqlite_list}" \
+    | cut -d: -f2)
+archive_info=$("${BIN}" info "${archive_sqlite_root}" --format=json)
+archive_info_references=$(grep -o '"references":[0-9]*' <<<"${archive_info}" \
+    | cut -d: -f2)
+[[ -n "${archive_info_references}" ]]
+[[ "${archive_info_references}" == "${archive_list_total}" ]]
+
+# Duplicate member names keep canonical occurrence suffixes in paths but not
+# in the user-facing display name.
+archive_occurrence_catalog="${TMP_DIR}/archive-occurrence.json"
+cat >"${archive_occurrence_catalog}" <<'EOF'
+{"dataVersion":5,"dataArray":[{"fileSize":1070,"fileSpecs":[{"fileName":"archives/sample.zip"}]},{"fileSize":28,"fileSpecs":[{"fileName":"archives/sample.zip!/payload/copy.txt"}]},{"fileSize":28,"fileSpecs":[{"fileName":"archives/sample.zip!/payload/copy.txt!~1"}]}]}
+EOF
+archive_occurrences=$("${BIN}" list --json "${archive_occurrence_catalog}" \
+    --base-dir "${fixture_root}" --format=json)
+[[ "${archive_occurrences}" == *'"path":"archives/sample.zip!/payload/copy.txt!~0"'* ]]
+[[ "${archive_occurrences}" == *'"path":"archives/sample.zip!/payload/copy.txt!~1"'* ]]
+[[ "${archive_occurrences}" != *'"name":"copy.txt!~'* ]]
+
+archive_filtered=$("${BIN}" list --json "${archive_catalog}" \
+    --base-dir "${fixture_root}" \
+    --text "archives/sample.zip!/payload/copy.txt" --format=json \
+    | sed -n '/^{/p' | sed -E 's/"id":[0-9]+,//g')
+[[ "${archive_filtered}" == *'"total":1'* ]]
+[[ "${archive_filtered}" == *'"path":"archives/sample.zip!/payload/copy.txt"'* ]]
+[[ "${archive_filtered}" == *'"name":"copy.txt"'* ]]
+
+archive_json_duplicates=$("${BIN}" duplicates --json "${archive_catalog}" \
+    --base-dir "${fixture_root}" --format=json \
+    | sed -n '/^{/p' | sed -E 's/"id":[0-9]+,//g')
+archive_sqlite_duplicates=$("${BIN}" duplicates "${archive_sqlite_root}" \
+    --format=json | sed -E 's/"id":[0-9]+,//g')
+[[ "${archive_json_duplicates}" == "${archive_sqlite_duplicates}" ]]
+[[ "${archive_json_duplicates}" == *'"path":"archives/sample.zip!/payload/copy.txt"'* ]]
+[[ "${archive_json_duplicates}" == *'"name":"copy.txt"'* ]]
+
+archive_export="${TMP_DIR}/archive-export.json"
+"${BIN}" export "${archive_sqlite_root}" --output "${archive_export}" >/dev/null
+[[ "$(wc -l < "${archive_export}")" -eq 0 ]]
+grep -qF 'archives\/sample.zip!\/payload\/copy.txt' "${archive_export}"
+
+archive_pretty_export="${TMP_DIR}/archive-pretty-export.json"
+"${BIN}" export "${archive_sqlite_root}" --output "${archive_pretty_export}" \
+    --pretty >/dev/null
+[[ "$(wc -l < "${archive_pretty_export}")" -gt 1 ]]
+
+archive_member_export="${TMP_DIR}/archive-member-export.json"
+"${BIN}" export "${archive_sqlite_root}" --output "${archive_member_export}" \
+    --path "archives/sample.zip!/payload/copy.txt" >/dev/null
+grep -qF 'archives\/sample.zip!\/payload\/copy.txt' "${archive_member_export}"
+if grep -qF 'alpha\/original.txt' "${archive_member_export}"; then
+    printf '%s\n' "Selected export included an unrelated reference." >&2
+    exit 1
+fi
+if grep -qF 'copies\/copy.txt' "${archive_member_export}"; then
+    printf '%s\n' "Selected export included an unrelated reference." >&2
+    exit 1
+fi
+
+archive_missing_export="${TMP_DIR}/archive-missing-export.json"
+if "${BIN}" export "${archive_sqlite_root}" \
+    --output "${archive_missing_export}" \
+    --path "archives/sample.zip!/missing.txt" \
+    2>"${TMP_DIR}/archive-missing-export.err"; then
+    printf '%s\n' "Selected export accepted a missing virtual path." >&2
+    exit 1
+fi
+grep -qF 'archives/sample.zip!/missing.txt' \
+    "${TMP_DIR}/archive-missing-export.err"
+[[ ! -e "${archive_missing_export}" ]]
 popd >/dev/null
 
 # A killed JSON export never leaves a truncated or missing catalog at the

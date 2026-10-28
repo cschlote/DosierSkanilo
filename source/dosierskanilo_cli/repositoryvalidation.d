@@ -21,6 +21,17 @@ bool validateRepositoryOptions(string command, ref ArgsArray options)
         errorLine("--base-dir is available only with JSON scan or analysis.");
         return false;
     }
+    if (!options.argExportPath.empty && command != "export")
+    {
+        errorLine("--path is available only with export.");
+        return false;
+    }
+    if ((!options.argArchiveCacheDir.empty || options.argArchiveCacheMiB != 0)
+        && command != "scan" && command != "metadata")
+    {
+        errorLine("--archive-cache options are available only with scan or metadata.");
+        return false;
+    }
     if (options.argDryRun)
     {
         errorLine("--dry-run is supported only in JSON mode.");
@@ -105,6 +116,24 @@ unittest
     auto invalidExport = ArgsArray();
     invalidExport.argExportJSON = buildPath(baseDir, "catalog.txt");
     assert(!validateRepositoryOptions("export", invalidExport));
+
+    auto selectedExport = ArgsArray();
+    selectedExport.argExportJSON = buildPath(baseDir, "catalog.json");
+    selectedExport.argExportPath = "archives/sample.zip!/payload/copy.txt";
+    assert(validateRepositoryOptions("export", selectedExport));
+
+    auto invalidSelectedList = ArgsArray();
+    invalidSelectedList.argExportPath = "archives";
+    assert(!validateRepositoryOptions("list", invalidSelectedList));
+
+    auto cachedScan = ArgsArray();
+    cachedScan.argArchiveCacheDir = buildPath(baseDir, "cache");
+    cachedScan.argArchiveCacheMiB = 64;
+    assert(validateRepositoryOptions("scan", cachedScan));
+
+    auto invalidCachedList = ArgsArray();
+    invalidCachedList.argArchiveCacheMiB = 64;
+    assert(!validateRepositoryOptions("list", invalidCachedList));
 }
 
 private bool hasRepositoryListFilters(ArgsArray options)

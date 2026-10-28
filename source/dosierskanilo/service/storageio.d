@@ -355,6 +355,7 @@ unittest
  *   cancelCheck = optional callback invoked before work starts and after
  *     serialization. A `true` result discards the staging file and leaves the
  *     original catalog unchanged.
+ *   pretty = Indent the serialized JSON for human reading.
  * Returns:
  *   `true` on success, `false` on failure or cancellation. On failure, the original file is left unchanged if possible.
  */
@@ -362,7 +363,8 @@ bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlobCatalog dynObjectW
     string jsonFileExtension = ".json",
     string nowString = Clock.currTime.toISOExtString(),
     string backupDirectory = "",
-    bool delegate() cancelCheck = null)
+    bool delegate() cancelCheck = null,
+    bool pretty = false)
 {
     if (cancelCheck !is null && cancelCheck())
         return false;
@@ -386,7 +388,7 @@ bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlobCatalog dynObjectW
     auto stagingFile = jsonFile ~ ".tmp-" ~ randomUUID().toString();
     try
     {
-        serializeDataClassWrapperFile(stagingFile, dynObjectWrapper);
+        serializeDataClassWrapperFile(stagingFile, dynObjectWrapper, pretty);
         if (cancelCheck !is null && cancelCheck())
         {
             if (exists(stagingFile))
@@ -427,11 +429,12 @@ bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlobCatalog dynObjectW
 bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlob[] dynObjectArray,
     string jsonFileExtension = ".json",
     string nowString = Clock.currTime.toISOExtString(),
-    string backupDirectory = "")
+    string backupDirectory = "",
+    bool pretty = false)
 {
     NamedBinaryBlobCatalog wrapper = NamedBinaryBlobCatalog(DATA_CLASS_VERSION3, dynObjectArray);
     return writeStorageJsonFile(jsonFile, wrapper, jsonFileExtension, nowString,
-        backupDirectory);
+        backupDirectory, null, pretty);
 }
 
 @("writeStorageJsonFile")

@@ -20,6 +20,7 @@ struct ArgsArray
 	string argRepositoryPath; ///< Repository root or path below a repository.
 	string argImportJSON; ///< JSON file to import into a repository.
 	string argExportJSON; ///< JSON file to export from a repository.
+	string argExportPath; ///< Optional path prefix for a selected export.
 	bool argInitRepository; ///< Initialize a `.dosierskanilo` repository.
 	bool argDoFileTypes; ///< Query file types via the `file` utility.
 	bool argDoChecksums; ///< Calculate checksums for files.
@@ -28,6 +29,8 @@ struct ArgsArray
 	uint argScanArchives; ///< Scan archive contents.
 	bool argScanArchivesOption; ///< Canonical single archive-scan option.
 	bool argScanTorrents; ///< Scan torrent contents.
+	string argArchiveCacheDir; ///< Root directory for archive member extraction.
+	uint argArchiveCacheMiB; ///< Archive member cache size in MiB (0 = default).
 	bool argRunAnalysis; ///< Run duplicate and cleanup analysis.
 	bool argRunMetadata; ///< Run repository metadata extraction.
 	bool argShowInfo; ///< Show repository metadata and catalog counts.
@@ -50,6 +53,7 @@ struct ArgsArray
 	int argNumberOfThreads = 1; ///< Number of worker threads.
 	bool argReplaceCatalog; ///< Replace an existing repository catalog on import.
 	bool argDryRun; ///< Run JSON work without writing the catalog back.
+	bool argPrettyJSON; ///< Indent saved JSON catalogs for human reading.
 	bool argMergeDuplicates; ///< Merge duplicate records after a scan.
 	bool argPickHidden; ///< Include hidden files and directories.
 	bool argVerboseOutputs; ///< Enable verbose logging.

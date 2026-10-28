@@ -44,7 +44,7 @@ import dosierskanilo;
 import dosierarkivo;
 
 import dosierskanilo_cli.parser;
-import dosierskanilo_cli.logging : errorLine, noticeFLine;
+import dosierskanilo_cli.logging : errorFLine, errorLine, noticeFLine;
 import dosierskanilo.operationrunner : runOperation;
 
 version (ldc)
@@ -93,6 +93,8 @@ int main(string[] args)
 			return 2;
 		case ParseStatus.run:
 			auto options = parsed.options;
+			if (!configureArchiveCache(options))
+				return 1;
 			noticeFLine("%s %s", appName, appVersion);
 			if (options.argDoMediaSig)
 			{
@@ -113,6 +115,28 @@ int main(string[] args)
 				rc = executeRepositoryOperation(options);
 			return rc ? 0 : 1;
 		}
+	}
+}
+
+private bool configureArchiveCache(ArgsArray options)
+{
+	import dosierskanilo.membercontentcache :
+		configureSharedMemberContentCache, defaultMemberCacheByteLimit;
+
+	if (options.argArchiveCacheDir.empty && options.argArchiveCacheMiB == 0)
+		return true;
+	ulong byteLimit = defaultMemberCacheByteLimit;
+	if (options.argArchiveCacheMiB > 0)
+		byteLimit = cast(ulong) options.argArchiveCacheMiB * 1_048_576UL;
+	try
+	{
+		configureSharedMemberContentCache(options.argArchiveCacheDir, byteLimit);
+		return true;
+	}
+	catch (Exception ex)
+	{
+		errorFLine("Cannot configure archive cache: %s", ex.msg);
+		return false;
 	}
 }
 
@@ -297,6 +321,7 @@ private ScanOperationRequest scanRequestFromCli(ArgsArray options,
 	request.savePartialOnCancel = !options.argJSONFile.empty
 		&& !options.argDryRun;
 	request.dryRun = options.argDryRun;
+	request.prettyJson = options.argPrettyJSON;
 	request.metadataOptions = metadataOptionsFromCli(options);
 	return request;
 }
@@ -311,6 +336,7 @@ private AnalysisOperationRequest analysisRequestFromCli(ArgsArray options,
 	request.metadataOptions = metadataOptionsFromCli(options);
 	request.forceJsonOverwrite = options.argReplaceCatalog;
 	request.dryRun = options.argDryRun;
+	request.prettyJson = options.argPrettyJSON;
 	return request;
 }
 
@@ -376,12 +402,26 @@ bool executeRepositoryExport(CatalogBackend backend, string repositoryRoot,
 		return true;
 	logLine("Catalog phase: export JSON.");
 	logLineVerbose("Exporting catalog root: ", repositoryRoot);
+	if (!options.argExportPath.empty)
+	{
+		logLineVerbose("Export path prefix: ", options.argExportPath);
+		if (!catalogHasPath(backend, options.argExportPath))
+		{
+			errorFLine("No catalog references match path '%s'.",
+				options.argExportPath);
+			return false;
+		}
+	}
 	CatalogExportOptions exportOptions;
 	exportOptions.outputPath = exportPath;
 	exportOptions.format = CatalogExportFormat.jsonV5;
+	exportOptions.prettyJson = options.argPrettyJSON;
 	auto control = cliOperationControl("Catalog export");
+	CatalogSubsetQuery subset;
+	subset.pathPrefix = options.argExportPath;
+	subset.filter.includeArchiveMembers = true;
 	auto result = backend.exportSubsetControlled(
-		CatalogSubsetQuery("", CatalogFilter.init), exportOptions, control, 7);
+		subset, exportOptions, control, 7);
 	clearOperationProgress();
 	if (!result.committed)
 	{
@@ -400,15 +440,19 @@ void executeRepositoryInfo(CatalogBackend backend, string repositoryRoot,
 	RepositoryQueryOptions query;
 	query.limit = 1;
 	auto page = backend.queryBlobs(query);
+	CatalogFilter filter;
+	filter.includeArchiveMembers = true;
+	const references = backend.rootSummary(filter).fileReferenceCount;
 	if (options.argOutputFormat == "json")
 	{
 		logFLine("{\"root\":%s,\"database\":%s,\"schemaVersion\":%d,"
-			~ "\"createdAt\":%s,\"updatedAt\":%s,\"blobs\":%d}",
+			~ "\"createdAt\":%s,\"updatedAt\":%s,\"blobs\":%d,"
+			~ "\"references\":%d}",
 			jsonQuote(info.rootPath),
 			jsonQuote(buildPath(repositoryRoot, repositoryDirectoryName,
 				repositoryDatabaseFileName)),
 			info.schemaVersion, jsonQuote(info.createdAt), jsonQuote(info.updatedAt),
-			page.total);
+			page.total, references);
 		return;
 	}
 	logFLine("Catalog root: %s", info.rootPath);
@@ -418,13 +462,104 @@ void executeRepositoryInfo(CatalogBackend backend, string repositoryRoot,
 	logFLine("Created: %s", info.createdAt);
 	logFLine("Updated: %s", info.updatedAt);
 	logFLine("Blobs: %d", page.total);
+	logFLine("References: %d", references);
 }
 
-/** Print one bounded, catalog-side filtered page of blobs. */
-void executeRepositoryList(CatalogBackend backend, string repositoryRoot,
+/** Build the shared catalog filter from query command-line options. */
+private CatalogFilter catalogFilterFromCli(ArgsArray options)
+{
+	CatalogFilter filter;
+	filter.pathText = options.argQueryText;
+	filter.video = options.argQueryVideo;
+	filter.audio = options.argQueryAudio;
+	filter.image = options.argQueryImage;
+	filter.text = options.argQueryTextStream;
+	filter.fileType = options.argQueryFileType;
+	filter.archive = options.argQueryArchive;
+	filter.torrent = options.argQueryTorrent;
+	filter.includeArchiveMembers = true;
+	return filter;
+}
+
+/** Collect all matching file references, including indexed archive members. */
+private CatalogFile[] collectCatalogFiles(CatalogBackend backend,
+	CatalogFilter filter)
+{
+	import std.algorithm.sorting : sort;
+
+	CatalogFile[] files;
+
+	void collectDirectory(DirectoryId parentId)
+	{
+		CatalogDirectoryQuery directoryQuery;
+		directoryQuery.parentId = parentId;
+		directoryQuery.filter = filter;
+		CatalogPageRequest directoryPageRequest;
+		while (true)
+		{
+			auto page = backend.listDirectories(directoryQuery, directoryPageRequest);
+			foreach (directory; page.directories)
+				collectDirectory(directory.id);
+			if (!page.hasMore)
+				break;
+			directoryPageRequest.cursor = page.nextCursor;
+		}
+
+		CatalogFileQuery fileQuery;
+		fileQuery.directoryId = parentId;
+		fileQuery.filter = filter;
+		fileQuery.sortOrder = CatalogSortOrder.pathAscending;
+		CatalogPageRequest filePageRequest;
+		while (true)
+		{
+			auto page = backend.listFiles(fileQuery, filePageRequest);
+			files ~= page.files;
+			if (!page.hasMore)
+				break;
+			filePageRequest.cursor = page.nextCursor;
+		}
+	}
+
+	collectDirectory(DirectoryId.init);
+	files.sort!((left, right) => left.relativePath < right.relativePath);
+	return files;
+}
+
+/** Report whether one canonical path or descendant prefix has references. */
+private bool catalogHasPath(CatalogBackend backend, string prefix)
+{
+	CatalogFilter filter;
+	filter.pathText = prefix;
+	filter.caseSensitive = true;
+	filter.includeArchiveMembers = true;
+	foreach (file; collectCatalogFiles(backend, filter))
+	{
+		const path = file.relativePath;
+		if (path == prefix || path.startsWith(prefix ~ "/")
+			|| path.startsWith(prefix ~ "!/"))
+			return true;
+	}
+	return false;
+}
+
+/** Original member name without the canonical occurrence suffix. */
+private string displayNameForPath(string path)
+{
+	try
+	{
+		const auto parsed = parseArchiveVirtualPath(path);
+		if (parsed.entries.length > 0)
+			return baseName(parsed.entries[$ - 1].relativePath);
+		return baseName(parsed.physicalPath);
+	}
+	catch (Exception)
+		return baseName(path);
+}
+
+/** Print a blob page for JSON catalogs without a bound filesystem root. */
+private void executeRepositoryListLegacy(CatalogBackend backend,
 	ArgsArray options)
 {
-	logLineVerbose("Listing catalog root: ", repositoryRoot);
 	RepositoryQueryOptions query;
 	query.offset = options.argQueryOffset;
 	query.limit = options.argQueryLimit;
@@ -446,26 +581,72 @@ void executeRepositoryList(CatalogBackend backend, string repositoryRoot,
 		{
 			if (index > 0)
 				output ~= ",";
-			output ~= format("{\"id\":%d,\"size\":%d,\"path\":%s}",
+			const path = blob.getFirstFileName();
+			output ~= format("{\"id\":%d,\"size\":%d,\"name\":%s,\"path\":%s}",
 				page.blobIds[index], blob.fileSize,
-				jsonQuote(blob.getFirstFileName()));
+				jsonQuote(displayNameForPath(path)), jsonQuote(path));
 		}
 		logLine(output ~ "]}");
 		return;
 	}
 	logFLine("Showing %d of %d matching blobs (offset %d).", page.blobs.length,
 		page.total, query.offset);
-	logLine("ID\tSize\tPath");
+	logLine("ID\tSize\tName\tPath");
 	foreach (index, blob; page.blobs)
-		logFLine("%d\t%d\t%s", page.blobIds[index], blob.fileSize,
-			blob.getFirstFileName());
+	{
+		const path = blob.getFirstFileName();
+		logFLine("%d\t%d\t%s\t%s", page.blobIds[index], blob.fileSize,
+			displayNameForPath(path), path);
+	}
 }
 
-/** Print duplicate groups without modifying catalog contents. */
-void executeRepositoryDuplicates(CatalogBackend backend, string repositoryRoot,
+/** Print one bounded, catalog-side filtered page of file references. */
+void executeRepositoryList(CatalogBackend backend, string repositoryRoot,
 	ArgsArray options)
 {
-	logLineVerbose("Querying duplicate groups in catalog root: ", repositoryRoot);
+	logLineVerbose("Listing catalog root: ", repositoryRoot);
+	if (!backend.capabilities().supportsTreeQueries)
+	{
+		executeRepositoryListLegacy(backend, options);
+		return;
+	}
+	const auto filter = catalogFilterFromCli(options);
+	const auto files = collectCatalogFiles(backend, filter);
+	const auto total = files.length;
+	const auto start = options.argQueryOffset < total
+		? options.argQueryOffset : total;
+	const auto remaining = total - start;
+	const auto count = options.argQueryLimit < remaining
+		? options.argQueryLimit : remaining;
+	const auto visible = files[start .. start + count];
+
+	if (options.argOutputFormat == "json")
+	{
+		string output = format("{\"total\":%d,\"offset\":%d,\"items\":[",
+			total, options.argQueryOffset);
+		foreach (index, file; visible)
+		{
+			if (index > 0)
+				output ~= ",";
+			output ~= format("{\"id\":%d,\"size\":%d,\"name\":%s,\"path\":%s}",
+				file.referenceId.toHash, file.size,
+				jsonQuote(file.name), jsonQuote(file.relativePath));
+		}
+		logLine(output ~ "]}");
+		return;
+	}
+	logFLine("Showing %d of %d matching references (offset %d).", visible.length,
+		total, options.argQueryOffset);
+	logLine("ID\tSize\tName\tPath");
+	foreach (file; visible)
+		logFLine("%d\t%d\t%s\t%s", file.referenceId.toHash, file.size,
+			file.name, file.relativePath);
+}
+
+/** Print duplicate groups for JSON catalogs without a bound root. */
+private void executeRepositoryDuplicatesLegacy(CatalogBackend backend,
+	ArgsArray options)
+{
 	auto groups = backend.queryDuplicateGroups(options.argDuplicateLimit);
 	long[] neededIds;
 	bool[long] seenId;
@@ -495,8 +676,10 @@ void executeRepositoryDuplicates(CatalogBackend backend, string repositoryRoot,
 			{
 				if (blobIndex > 0)
 					output ~= ",";
-				output ~= format("{\"id\":%d,\"path\":%s}", blobId,
-					jsonQuote(pathByBlobId.get(blobId, "")));
+				const path = pathByBlobId.get(blobId, "");
+				output ~= format("{\"id\":%d,\"name\":%s,\"path\":%s}",
+					blobId, jsonQuote(displayNameForPath(path)),
+					jsonQuote(path));
 			}
 			output ~= "]}";
 		}
@@ -510,8 +693,84 @@ void executeRepositoryDuplicates(CatalogBackend backend, string repositoryRoot,
 			group.fileSize, group.blobIds.length);
 		foreach (blobId; group.blobIds)
 		{
-			logFLine("  %d\t%s", blobId, pathByBlobId.get(blobId, ""));
+			const path = pathByBlobId.get(blobId, "");
+			logFLine("  %d\t%s\t%s", blobId, displayNameForPath(path), path);
 		}
+	}
+}
+
+/** Print duplicate groups without modifying catalog contents. */
+void executeRepositoryDuplicates(CatalogBackend backend, string repositoryRoot,
+	ArgsArray options)
+{
+	import std.algorithm.sorting : sort;
+	import std.array : appender;
+
+	logLineVerbose("Querying duplicate groups in catalog root: ", repositoryRoot);
+	if (options.argDuplicateLimit == 0)
+		throw new CatalogBackendException(
+			CatalogBackendErrorCode.invalidIdentifier,
+			"Duplicate query limit must be greater than zero.");
+	if (!backend.capabilities().supportsTreeQueries)
+	{
+		executeRepositoryDuplicatesLegacy(backend, options);
+		return;
+	}
+	CatalogFilter filter;
+	filter.includeArchiveMembers = true;
+	const auto files = collectCatalogFiles(backend, filter);
+
+	struct Group
+	{
+		ulong size;
+		CatalogFile[] references;
+	}
+
+	CatalogFile[][ContentId] byContent;
+	foreach (file; files)
+		byContent[file.contentId] ~= file;
+
+	auto groups = appender!(Group[])();
+	foreach (contentId, references; byContent)
+		if (references.length > 1)
+			groups.put(Group(references[0].size, references));
+	auto result = groups.data;
+	result.sort!((left, right) => left.size != right.size
+		? left.size < right.size
+		: left.references[0].relativePath < right.references[0].relativePath);
+	const auto groupCount = options.argDuplicateLimit < result.length
+		? options.argDuplicateLimit : result.length;
+	const auto visible = result[0 .. groupCount];
+
+	if (options.argOutputFormat == "json")
+	{
+		string output = "{\"groups\":[";
+		foreach (groupIndex, group; visible)
+		{
+			if (groupIndex > 0)
+				output ~= ",";
+			output ~= format("{\"size\":%d,\"blobs\":[", group.size);
+			foreach (referenceIndex, file; group.references)
+			{
+				if (referenceIndex > 0)
+					output ~= ",";
+				output ~= format("{\"id\":%d,\"name\":%s,\"path\":%s}",
+					file.referenceId.toHash, jsonQuote(file.name),
+					jsonQuote(file.relativePath));
+			}
+			output ~= "]}";
+		}
+		logLine(output ~ "]}");
+		return;
+	}
+	logFLine("Found %d duplicate groups.", visible.length);
+	foreach (groupIndex, group; visible)
+	{
+		logFLine("Group %d: %d bytes, %d references", groupIndex + 1,
+			group.size, group.references.length);
+		foreach (file; group.references)
+			logFLine("  %d\t%s\t%s", file.referenceId.toHash, file.name,
+				file.relativePath);
 	}
 }
 

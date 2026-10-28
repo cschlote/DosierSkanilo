@@ -131,6 +131,8 @@ struct ScanOperationRequest
     bool savePartialOnCancel;
     /// Do not replace the input JSON catalog after computing results.
     bool dryRun;
+    /// Write the replaced JSON catalog with human-readable indentation.
+    bool prettyJson;
 }
 
 /** Request for standalone repository metadata extraction. */
@@ -154,6 +156,8 @@ struct AnalysisOperationRequest
     bool forceJsonOverwrite;
     /// Do not replace the input JSON catalog after computing analysis results.
     bool dryRun;
+    /// Write the replaced JSON catalog with human-readable indentation.
+    bool prettyJson;
 }
 
 /** Validation errors detectable without opening a repository or catalog. */

@@ -70,6 +70,15 @@ Metadata options (at least one is required for `metadata`):
     --checksums --file-types --media-info --scan-archives --scan-torrents
     --rescan-media-info forces media metadata extraction again
 
+Archive member cache options (scan and metadata):
+
+    --archive-cache-dir DIR   Root directory for extraction sessions
+    --archive-cache-size MiB  Maximum cached member bytes (default 1024)
+
+JSON output:
+
+    --pretty                  Indent saved JSON catalogs for human reading
+
 Option scope keys use the fixed columns `S A M I L D R G J` (`-` means not
 available for that scope):
 
@@ -201,6 +210,7 @@ ParsedCommandLine parseCommandLine(string[] args)
         helpInformation = getopt(args, /* std.getopt.config.required, */
 
             "output", "------R-- Output JSON file for export", &argsarray.argExportJSON,
+            "path", "------R-- Export only the selected path prefix", &argsarray.argExportPath,
             "json", "S-------J JSON catalog to read/write", &argsarray.argJSONFile,
             "base-dir", "S-------J Base directory for JSON paths", &argsarray.argBaseDir,
             "recursive", "S-------- Recursively scan directories", &argsarray.argRecursive,
@@ -210,12 +220,15 @@ ParsedCommandLine parseCommandLine(string[] args)
             "rescan-media-info", "SAM------ Rescan all files for media signature", &argsarray.argRescanMediaSig,
             "scan-archives+", "SAM------ Get the contents of archives (repeat for deep scanning)", &argsarray.argScanArchives,
             "scan-torrents", "SAM------ Get the contents of torrent files", &argsarray.argScanTorrents,
+            "archive-cache-dir", "S-M------ Root directory for archive member extraction", &argsarray.argArchiveCacheDir,
+            "archive-cache-size", "S-M------ Archive member cache size in MiB", &argsarray.argArchiveCacheMiB,
             "drop-missing", "SA------- Drop missing files from database", &argsarray.argDropMissing,
             "threads", "SAM------ Number of worker threads", &argsarray.argNumberOfThreads,
             "replace", "S-----R-- Replace existing data (JSON scan or import)", &argsarray.argReplaceCatalog,
             "pick-hidden", "S-------- Pick hidden files and directories too", &argsarray.argPickHidden,
             "dry-run", "--------J Compute JSON results without writing the catalog", &argsarray.argDryRun,
             "merge-duplicates", "--------J Analyze and merge duplicates after scan", &argsarray.argMergeDuplicates,
+            "pretty", "-------G- Indent saved JSON catalogs for human reading", &argsarray.argPrettyJSON,
             "verbose", "-------G- Be verbose", &argsarray.argVerboseOutputs,
             "text", "----L---- Filter listed catalog paths or SHA1 values", &argsarray.argQueryText,
             "limit", "----L---- Maximum number of listed catalog blobs", &argsarray.argQueryLimit,
@@ -413,12 +426,25 @@ unittest
     assert(deepArchive.status == ParseStatus.run);
     assert(deepArchive.options.argScanArchives == 2);
     assert(deepArchive.options.argScanArchivesOption);
+    auto cachedArchive = parseCommandLine(["program", "scan", "./test",
+        "--scan-archives", "--archive-cache-dir", "./cache",
+        "--archive-cache-size", "64"]);
+    assert(cachedArchive.status == ParseStatus.run);
+    assert(cachedArchive.options.argArchiveCacheDir == "./cache");
+    assert(cachedArchive.options.argArchiveCacheMiB == 64);
+    auto prettyExport = parseCommandLine(["program", "export", "./test",
+        "--output=./test/export.json", "--pretty"]);
+    assert(prettyExport.status == ParseStatus.run);
+    assert(prettyExport.options.argPrettyJSON);
     assert(allMetadataOptions.options.argVerboseOutputs);
     assert(helpText.canFind("--checksums"));
     assert(helpText.canFind("--file-types"));
     assert(helpText.canFind("--media-info"));
     assert(helpText.canFind("--scan-archives"));
     assert(helpText.canFind("--scan-torrents"));
+    assert(helpText.canFind("--archive-cache-dir"));
+    assert(helpText.canFind("--archive-cache-size"));
+    assert(helpText.canFind("--pretty"));
     assert(helpText.canFind("--verbose"));
     assert(helpText.canFind("S A M I L D R G J"));
     auto outdatedMetadataFlag = parseCommandLine(["program", "metadata",
@@ -457,10 +483,13 @@ unittest
     assert(imported.options.argReplaceCatalog);
 
     auto exported = parseCommandLine(["program", "export", "./test",
-        "--output=./test/export.json"]);
+        "--output=./test/export.json",
+        "--path=archives/sample.zip!/payload/copy.txt"]);
     assert(exported.status == ParseStatus.run
         && exported.command == CliCommand.exportJson);
     assert(exported.options.argExportJSON == "./test/export.json");
+    assert(exported.options.argExportPath
+        == "archives/sample.zip!/payload/copy.txt");
 
     auto jsonScan = parseCommandLine(["program", "scan", "./test",
         "--json", "./test/out.json", "--recursive", "--checksums"]);

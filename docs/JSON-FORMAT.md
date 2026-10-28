@@ -4,6 +4,9 @@ This document describes the JSON formats used by DosierSkanilo for import and
 export. The current writer emits version 5. Readers continue to accept JSON
 versions 0-4 and legacy root arrays.
 
+The CLI writes compact JSON by default. Pass `--pretty` to indent saved
+catalogs for human reading; compact and pretty output carry the same data.
+
 JSON is a compatibility and exchange format. It is not intended to be the
 primary query store for large repositories. The `.dosierskanilo` SQLite
 repository is the normal working store and is described in [DATABASE.md](DATABASE.md).

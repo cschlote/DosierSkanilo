@@ -1694,7 +1694,7 @@ session cache paths in the catalog.
 
 #### WP-13.6.1: CLI virtual archive references
 
-- [ ] Make CLI list/info/duplicate/export output operate on ordinary member blobs
+- [x] Make CLI list/info/duplicate/export output operate on ordinary member blobs
   and display canonical virtual paths without exposing `!~N` as the user-facing
   member name.
 - [ ] Accept virtual paths in path filters and selected-member operations; route

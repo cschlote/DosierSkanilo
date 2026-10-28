@@ -102,6 +102,8 @@ struct JsonExportOptions
     bool includeTorrentFiles = true;
     /// Allow loading an archive-member content row without physical file refs.
     bool allowUnreferencedContent;
+    /// Indent the exported JSON for human reading.
+    bool prettyJson;
 }
 
 /** Options controlling a repository filesystem scan. */

@@ -24,6 +24,9 @@ import dosierskanilo.operationlease : OperationTargetBusyException,
 /// Materialize one safely normalized member into the provided directory.
 alias MemberContentMaterializer = bool delegate(string destinationDirectory);
 
+/// Default byte limit for one member cache session.
+enum ulong defaultMemberCacheByteLimit = 1_073_741_824;
+
 /** Base class for member cache failures. */
 class MemberContentCacheException : Exception
 {
@@ -147,7 +150,7 @@ private:
 
 public:
     /** Create a cache session below `root`, or in a unique temporary session. */
-    this(string root = "", ulong byteLimit = 1_073_741_824,
+    this(string root = "", ulong byteLimit = defaultMemberCacheByteLimit,
         size_t concurrentExtractions = 4)
     {
         enforce(byteLimit > 0, "Member cache byte limit must be positive.");
@@ -449,6 +452,20 @@ MemberContentCache sharedMemberContentCache()
         if (processMemberContentCache is null)
             processMemberContentCache = new MemberContentCache();
         return processMemberContentCache;
+    }
+}
+
+/** Replace the process-wide cache with an explicitly configured session. */
+void configureSharedMemberContentCache(string root, ulong byteLimit)
+{
+    synchronized (sharedCacheGuard)
+    {
+        if (processMemberContentCache !is null)
+        {
+            processMemberContentCache.close();
+            processMemberContentCache = null;
+        }
+        processMemberContentCache = new MemberContentCache(root, byteLimit);
     }
 }
 
