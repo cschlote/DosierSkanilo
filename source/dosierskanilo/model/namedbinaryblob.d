@@ -557,6 +557,34 @@ class NamedBinaryBlob
 		return rs;
 	}
 
+	/** Get the first openable file name from sorted file entries.
+	 *
+	 * Archive members behind the virtual `archive!/member` grammar are not
+	 * openable as regular files; their digests and signatures are filled in
+	 * by the archive scan of the container. Only physical paths count here.
+	 *
+	 * Returns: first existing physical filename, or "" for an empty set.
+	 */
+	string getFirstOpenableFileName() @safe
+	{
+		import std.algorithm.sorting : sort;
+		import std.file : exists;
+
+		if (fileSpecs.length == 0)
+			return "";
+		string[] names;
+		foreach (spec; fileSpecs)
+		{
+			auto path = physicalPathForSpec(spec);
+			if (path.length > 0 && exists(path))
+				names ~= path;
+		}
+		if (names.length == 0)
+			return "";
+		names.sort;
+		return names[0];
+	}
+
 	/** Find a filename in a set of fileSpecs
 	*/
 	bool hasFileName(string filename) @safe
@@ -779,6 +807,51 @@ unittest
 	assert(!mixedBlob.isBlobOrphaned);
 	debug { import std.stdio : writeln; try { writeln(mixedBlob.getFirstExistingFileName); } catch (Exception) {} }
 	assert(mixedBlob.getFirstExistingFileName == "test/dummy-text-file.txt");
+}
+
+@("virtual archive members are not openable and skip direct metadata")
+unittest
+{
+	import std.file : exists;
+
+	auto containerPath = escapeArchiveVirtualPath(
+		nativePathToStoragePath("test/dummy-text-file.txt"));
+
+	/* Purely virtual member next to an existing container: not openable, so
+	 * digests, file type and media info must be skipped instead of opening
+	 * the virtual path. */
+	auto memberBlob = new NamedBinaryBlob();
+	memberBlob.fileSpecsUseArchiveVirtualGrammar = true;
+	memberBlob.fileSpecs = [new FileSpec(appendArchiveVirtualPath(
+		containerPath, "member.bin", size_t.max), "")];
+	memberBlob.fileSize = 42;
+	assert(memberBlob.getFirstExistingFileName == containerPath ~ "!/member.bin");
+	assert(memberBlob.getFirstOpenableFileName == "");
+	updateDigests(memberBlob);
+	assert(!memberBlob.checkSums.hasDigests);
+	updateFileType(memberBlob);
+	assert(memberBlob.fileType.empty);
+	updateMediaInfo(memberBlob);
+	assert(memberBlob.mediaInfoSig is null);
+
+	/* Missing container makes the member unreachable. */
+	auto lostBlob = new NamedBinaryBlob();
+	lostBlob.fileSpecsUseArchiveVirtualGrammar = true;
+	lostBlob.fileSpecs = [new FileSpec(appendArchiveVirtualPath(
+		escapeArchiveVirtualPath(nativePathToStoragePath(
+		"test/does-not-exist.7z")), "member.bin", size_t.max), "")];
+	assert(lostBlob.getFirstExistingFileName == "");
+	assert(lostBlob.getFirstOpenableFileName == "");
+
+	/* A physical spec wins even when a virtual spec sorts first. */
+	auto mixedBlob = new NamedBinaryBlob();
+	mixedBlob.fileSpecsUseArchiveVirtualGrammar = true;
+	mixedBlob.fileSpecs = [
+		new FileSpec(containerPath ~ "!/member.bin", ""),
+		new FileSpec(escapeArchiveVirtualPath(
+		nativePathToStoragePath("test/dummy-text-file.txt")), ""),
+	];
+	assert(mixedBlob.getFirstOpenableFileName == "test/dummy-text-file.txt");
 }
 
 @("fixupDataClassArrayIn legacy fields")
@@ -1779,9 +1852,14 @@ void updateDigests(NamedBinaryBlob obj,
 	auto hasdigests = obj.checkSums.hasDigests;
 	if (!hasdigests)
 	{
+		/* Virtual archive members cannot be hashed directly; their digests
+		 * are provided by the archive scan of the container. */
+		auto fileName = obj.getFirstOpenableFileName();
+		if (fileName.empty)
+			return;
 
 		ubyte[] md, sha, xxh;
-		calculatesDigests(gotCtrlC, obj.getFirstExistingFileName, &md, &sha, &xxh, progressCallBack);
+		calculatesDigests(gotCtrlC, fileName, &md, &sha, &xxh, progressCallBack);
 		obj.checkSums.set_md5sum = md;
 		obj.checkSums.set_sha1sum = sha;
 		obj.checkSums.set_xxh64 = xxh;
@@ -1816,19 +1894,14 @@ void updateFileType(NamedBinaryBlob obj, bool rescan = false)
 {
 	if (obj.fileType.empty || rescan)
 	{
-		import std.algorithm.sorting : sort;
-		import std.file : exists;
-
 		if (obj.fileSize) // Empty files surely have no info at all....
 		{
-			// Find first existing file.
-			auto filespecs = obj.getExistingFiles;
-			foreach (spec; filespecs)
+			auto fileName = obj.getFirstOpenableFileName();
+			if (!fileName.empty)
 			{
 				import dosierskanilo.metadata.fileutilsig : getFileType;
 
-				obj.fileType = getFileType(spec.fileName);
-				break;
+				obj.fileType = getFileType(fileName);
 			}
 		}
 	}
@@ -1864,11 +1937,9 @@ void updateMediaInfo(NamedBinaryBlob obj, bool rescan = false)
 	{
 		if (obj.fileSize) // Empty files surely have no info at all....
 		{
-			foreach (spec; obj.getExistingFiles)
-			{
-				obj.mediaInfoSig = getMediaTypeSignature(spec.fileName);
-				break;
-			}
+			auto fileName = obj.getFirstOpenableFileName();
+			if (!fileName.empty)
+				obj.mediaInfoSig = getMediaTypeSignature(fileName);
 		}
 	}
 }

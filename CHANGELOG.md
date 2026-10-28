@@ -9,6 +9,11 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- JSON scans and metadata runs no longer fail with `Cannot open file ... in
+  mode 'rb'` for archive members that lack digests: the checksum, file-type,
+  and media-info jobs now skip purely virtual members (their container archive
+  is checked for existence instead, and member digests are filled in by the
+  archive scan).
 - CI documentation generation now runs `adrdox` with a single job and retries
   it, falling back to another available D compiler when needed, avoiding flaky
   pipeline failures. The source no longer uses named arguments that `adrdox`
