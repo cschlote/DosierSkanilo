@@ -19,7 +19,7 @@ Detailed findings are in `docs/reviews/2026-10-28-code-review.md`. Work
 bottom-up in the order below; every subpackage lands its listed regression
 tests before or with the code change.
 
-### WP-14.1: JSON metadata error isolation (review M1, M3)
+### WP-14.1: JSON metadata error isolation (review M1, M3) — DONE
 
 Currently one bad file aborts an entire JSON scan/analyze.
 
@@ -34,6 +34,16 @@ Currently one bad file aborts an entire JSON scan/analyze.
   item and a completed run, including the duplicate-merge equality path.
   Regression tests: one corrupt archive among good files; a null-stream
   signature through `toString`/`opEquals`/`mergeDataClassObjects`.
+
+- [x] Per-blob exception isolation with per-job failure messages and
+  `summary.failed` counting, covering the threaded batch (structural
+  pointer fix; the worker previously mutated a struct copy, so failures
+  were silently discardable).
+- [x] Parser-side null-skip plus defensive null filtering in
+  `MediaInfoSig.toString` for catalogs written before the fix.
+- [x] Regression tests "JSON metadata batch isolates per-item failures",
+  "JSON metadata run survives corrupt archive alongside good files",
+  "MediaInfoSig tolerates null stream references from old catalogs".
 
 ### WP-14.2: Member-content-cache lifecycle (review M2)
 

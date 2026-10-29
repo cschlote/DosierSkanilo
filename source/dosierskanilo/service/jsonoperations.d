@@ -7,6 +7,7 @@ import std.file : DirEntry, SpanMode, dirEntries, isFile;
 import std.parallelism : Task, TaskPool, task;
 import std.path : absolutePath, baseName, buildNormalizedPath, dirSeparator;
 import std.string : empty, endsWith, replace, split;
+import std.conv : to;
 
 import dosierarkivo.archive : escapeArchiveVirtualPath,
     nativePathToStoragePath, parseArchiveVirtualPath;
@@ -18,8 +19,8 @@ import dosierskanilo.model.namedbinaryblob : NamedBinaryBlob,
     cleanupInvalidatedDataClassObjs, invalidateDataClassObjs, mergeDataClassObjects,
     updateArchives, updateDigests,
     updateFileType, updateMediaInfo, updateTorrentInfo;
-import dosierskanilo.operations : OperationControl, OperationKind,
-    OperationPhase, OperationProgress, OperationState;
+import dosierskanilo.operations : OperationCallbackException, OperationControl,
+    OperationKind, OperationPhase, OperationProgress, OperationState;
 import dosierskanilo.operationlease : TargetCatalogReplacementLease;
 import dosierskanilo.progress : ProgressCallBack;
 import dosierskanilo.repository.types : AnalysisSummary, MetadataScanOptions,
@@ -393,6 +394,99 @@ unittest
     assert(!blob.archiveIndexDeep);
 }
 
+@("JSON metadata batch isolates per-item failures")
+unittest
+{
+    import dosierskanilo.model.filespec : FileSpec;
+    import std.datetime.systime : SysTime;
+    import std.file : exists, mkdir, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.stdio : writeln;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "json-metadata-failure-"
+        ~ randomUUID().toString());
+    auto goodPath = buildPath(root, "good.txt");
+    auto directoryPath = buildPath(root, "broken.dir");
+    mkdirRecurse(root);
+    write(goodPath, "good");
+    mkdir(directoryPath);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+
+    auto goodBlob = new NamedBinaryBlob(goodPath, 4, SysTime(1_000_000));
+    auto brokenBlob = new NamedBinaryBlob();
+    brokenBlob.fileSpecs = [new FileSpec(directoryPath, "")];
+    NamedBinaryBlob[] blobs = [goodBlob, brokenBlob];
+
+    MetadataScanOptions options;
+    options.calculateChecksums = true;
+
+    const auto result = updateJsonMetadata(blobs, options,
+        OperationKind.scan, null, 1);
+    assert(!result.cancelled);
+    const visited = result.summary.blobsVisited;
+    const failures = result.summary.failed;
+    assert(visited == 2 && failures == 1, visited.to!string ~ "/"
+        ~ failures.to!string);
+    assert(goodBlob.checkSums.hasDigests);
+
+    /* The threaded batch must isolate the failing item as well. */
+    auto threadedGood = new NamedBinaryBlob(goodPath, 4, SysTime(1_000_000));
+    auto threadedBroken = new NamedBinaryBlob();
+    threadedBroken.fileSpecs = [new FileSpec(directoryPath, "")];
+    JsonMetadataWork[] items;
+    foreach (blob; [threadedGood, threadedBroken])
+    {
+        auto item = prepareJsonMetadataWork(blob, options, null);
+        item.control = null;
+        item.operation = OperationKind.scan;
+        item.operationId = 1;
+        item.progressCompleted = 1;
+        item.progressTotal = 2;
+        items ~= item;
+    }
+    runJsonMetadataBatch(items, 3);
+    assert(items[0].errors.empty);
+    assert("checksums" in items[1].errors);
+    assert(items[1].errors["checksums"].length > 0);
+    assert(threadedGood.checkSums.hasDigests);
+}
+
+@("JSON metadata run survives corrupt archive alongside good files")
+unittest
+{
+    import std.datetime.systime : SysTime;
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "json-metadata-corrupt-"
+        ~ randomUUID().toString());
+    auto goodPath = buildPath(root, "good.txt");
+    mkdirRecurse(root);
+    write(goodPath, "good");
+    write(buildPath(root, "broken.zip"), "not-a-real-zip");
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+
+    auto goodBlob = new NamedBinaryBlob(goodPath, 4, SysTime(1_000_000));
+    auto corruptBlob = new NamedBinaryBlob(buildPath(root, "broken.zip"), 13,
+        SysTime(1_000_000));
+    NamedBinaryBlob[] scanBlobs = [goodBlob, corruptBlob];
+
+    MetadataScanOptions options;
+    options.calculateChecksums = true;
+    options.scanArchives = true;
+    const auto result = updateJsonMetadata(scanBlobs, options,
+        OperationKind.scan, null, 1);
+    assert(!result.cancelled);
+    assert(result.summary.blobsVisited == 2);
+    assert(goodBlob.checkSums.hasDigests);
+}
+
 version (Windows) {} else
 @("JSON scan, metadata, and serialization preserve POSIX backslashes")
 unittest
@@ -454,6 +548,8 @@ private struct JsonMetadataWork
     bool doMediaInfo;
     bool doArchives;
     bool doTorrents;
+    /** First per-job failure message; keyed by the job kind that failed. */
+    string[string] errors;
 }
 
 private void reportJsonMetadataWorkProgress(JsonMetadataWork item,
@@ -480,53 +576,72 @@ private void reportJsonMetadataWorkProgress(JsonMetadataWork item,
     item.control.report(progress);
 }
 
-private void runJsonMetadataWork(JsonMetadataWork item)
+private void attemptJsonMetadataWork(JsonMetadataWork* item, string kind,
+    void delegate() action)
+{
+    try
+        action();
+    catch (OperationCallbackException ex)
+        throw ex;
+    catch (Exception ex)
+        item.errors[kind] = ex.msg;
+}
+
+private void runJsonMetadataWork(JsonMetadataWork* item)
 {
     if (item.doChecksums)
     {
-        reportJsonMetadataWorkProgress(item, OperationPhase.checksums);
+        reportJsonMetadataWorkProgress(*item, OperationPhase.checksums);
         ProgressCallBack progress;
         if (item.control !is null)
         {
             progress.contextual = (size_t completed, size_t total) {
-                reportJsonMetadataWorkProgress(item, OperationPhase.checksums,
+                reportJsonMetadataWorkProgress(*item, OperationPhase.checksums,
                     completed, total, true, "bytes");
             };
         }
-        updateDigests(item.blob, item.cancellationFlag,
-            item.control is null ? null : &progress);
+        attemptJsonMetadataWork(item, "checksums", {
+            updateDigests(item.blob, item.cancellationFlag,
+                item.control is null ? null : &progress);
+        });
     }
     if (item.doFileType)
     {
-        reportJsonMetadataWorkProgress(item, OperationPhase.fileTypes);
-        updateFileType(item.blob);
+        reportJsonMetadataWorkProgress(*item, OperationPhase.fileTypes);
+        attemptJsonMetadataWork(item, "file_type",
+            { updateFileType(item.blob); });
     }
     if (item.doMediaInfo)
     {
-        reportJsonMetadataWorkProgress(item, OperationPhase.mediaInfo);
-        updateMediaInfo(item.blob, item.options.rescan);
+        reportJsonMetadataWorkProgress(*item, OperationPhase.mediaInfo);
+        attemptJsonMetadataWork(item, "media_info",
+            { updateMediaInfo(item.blob, item.options.rescan); });
     }
     if (item.doArchives)
     {
-        reportJsonMetadataWorkProgress(item, OperationPhase.archives);
+        reportJsonMetadataWorkProgress(*item, OperationPhase.archives);
         ProgressCallBack progress;
         if (item.control !is null)
         {
             progress.contextual = (size_t completed, size_t total) {
-                reportJsonMetadataWorkProgress(item, OperationPhase.archives,
+                reportJsonMetadataWorkProgress(*item, OperationPhase.archives,
                     completed, total, true, "entries");
             };
         }
-        updateArchives(item.blob, item.options.rescan, item.options.deepArchiveScan,
-            item.cancellationFlag, item.control is null ? null : &progress,
-            item.options.archivePasswordCallback,
-            0, 8, "", null, item.options.detectFileTypes,
-            item.options.extractMediaInfo);
+        attemptJsonMetadataWork(item, "archives", {
+            updateArchives(item.blob, item.options.rescan,
+                item.options.deepArchiveScan, item.cancellationFlag,
+                item.control is null ? null : &progress,
+                item.options.archivePasswordCallback,
+                0, 8, "", null, item.options.detectFileTypes,
+                item.options.extractMediaInfo);
+        });
     }
     if (item.doTorrents)
     {
-        reportJsonMetadataWorkProgress(item, OperationPhase.torrents);
-        updateTorrentInfo(item.blob);
+        reportJsonMetadataWorkProgress(*item, OperationPhase.torrents);
+        attemptJsonMetadataWork(item, "torrents",
+            { updateTorrentInfo(item.blob); });
     }
 }
 
@@ -559,18 +674,18 @@ private void runJsonMetadataBatch(JsonMetadataWork[] items, size_t threads)
 {
     if (threads <= 1)
     {
-        foreach (item; items)
-            runJsonMetadataWork(item);
+        foreach (ref item; items)
+            runJsonMetadataWork(&item);
         return;
     }
 
     TaskPool pool = new TaskPool(threads);
-    Task!(runJsonMetadataWork, JsonMetadataWork)*[] tasks;
+    Task!(runJsonMetadataWork, JsonMetadataWork*)*[] tasks;
     try
     {
-        foreach (item; items)
+        foreach (ref item; items)
         {
-            auto worker = task!runJsonMetadataWork(item);
+            auto worker = task!runJsonMetadataWork(&item);
             tasks ~= worker;
             pool.put(worker);
         }
@@ -652,6 +767,11 @@ private JsonMetadataExecutionResult updateJsonMetadata(ref NamedBinaryBlob[] blo
         foreach (item; batch)
         {
             execution.summary.blobsVisited++;
+            if (item.errors.length > 0)
+            {
+                execution.summary.failed++;
+                continue;
+            }
             if (item.doChecksums && item.blob.checkSums.hasDigests)
                 execution.summary.checksumsUpdated++;
             if (item.doFileType && item.blob.fileType.length > 0)

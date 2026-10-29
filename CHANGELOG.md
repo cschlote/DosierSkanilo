@@ -9,6 +9,13 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- JSON scans and analysis runs no longer abort on the first unreadable file
+  or corrupt archive: metadata extraction now isolates failures per blob and
+  per extractor job, counts them in the operation summary, and continues
+  with the remaining files. Extracted media signatures no longer store
+  unparsable stream references, which could crash later duplicate-merge
+  equality checks; existing catalogs containing such entries are tolerated.
+
 - JSON scans and metadata runs no longer fail with `Cannot open file ... in
   mode 'rb'` for archive members that lack digests: the checksum, file-type,
   and media-info jobs now skip purely virtual members (their container archive
