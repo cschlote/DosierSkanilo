@@ -10,7 +10,9 @@ if ! command -v dub >/dev/null 2>&1; then
 	echo "ERROR: dub is not installed." >&2
 	exit 1
 fi
-dub lint dosierskanilo --report
+# Lint the CLI configuration that the test suite also builds, not the
+# default configuration.
+dub lint dosierskanilo --config=cli --report
 
 echo "Running hadolint"
 if ! command -v hadolint >/dev/null 2>&1; then
@@ -36,7 +38,7 @@ done
 echo "Running markdown lint"
 # Keep the maintained documentation list in one place. Glob patterns expand
 # when the linters run.
-markdown_files="README.md docs/ARCHITECTURE.md docs/BENCHMARKS.md docs/JSON-FORMAT.md docs/DATABASE.md docs/OPERATION-API.md docs/CATALOG-DOMAIN.md docs/SQLITE-IMPLEMENTATION-PLAN.md docs/reviews/*.md CHANGELOG.md TODO.md"
+markdown_files="README.md docs/ARCHITECTURE.md docs/BENCHMARKS.md docs/JSON-FORMAT.md docs/DATABASE.md docs/OPERATION-API.md docs/CATALOG-DOMAIN.md docs/SQLITE-IMPLEMENTATION-PLAN.md $(find docs/reviews -name '*.md' | sort | tr '\n' ' ') CHANGELOG.md TODO.md"
 if command -v markdownlint-cli2 >/dev/null 2>&1; then
 	# shellcheck disable=SC2086 # the glob and word splitting are intentional
 	markdownlint-cli2 $markdown_files

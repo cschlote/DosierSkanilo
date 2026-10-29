@@ -208,10 +208,18 @@ public:
 
     private void backupDatabase()
     {
+        import core.atomic : atomicFetchAdd;
+        import std.process : thisProcessID;
         import std.string : replace;
+
+        /* Second-resolution stamps collide on repeated imports within one
+         * second; disambiguate with the process id and a per-process serial. */
+        __gshared size_t backupSerial;
+        auto serial = atomicFetchAdd(backupSerial, 1) + 1;
         auto stamp = currentTimestamp().replace(":", "-");
         auto backupPath = buildPath(repositoryPaths.backupsPath,
-            "catalog-" ~ stamp ~ ".sqlite3");
+            "catalog-" ~ stamp ~ "-" ~ thisProcessID.to!string ~ "-"
+                ~ serial.to!string ~ ".sqlite3");
         /* VACUUM INTO produces a consistent snapshot, including rows that
          * still live in the WAL, instead of copying a live database file. */
         database.execute("VACUUM INTO ?", backupPath);

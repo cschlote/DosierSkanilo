@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(pwd)"
+# Resolve the repository root from this script's location, not from the
+# caller's working directory.
+ROOT_DIR="$(CDPATH="" cd -- "$(dirname -- "$0")/.." && pwd)"
 DC="${DC:-ldc2}"
 export DC
 BIN="${ROOT_DIR}/build/bin/dosierskanilo"
@@ -12,12 +14,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
-dub build --config=cli --compiler="${DC}" >/dev/null
+(cd "${ROOT_DIR}" && dub build --config=cli --compiler="${DC}" >/dev/null)
 
 # Generate one D-owned corpus and exercise both explicit storage modes against it.
 fixture_bundle="${TMP_DIR}/synthetic-catalog"
-dub run --config=synthetic-testdata --compiler="${DC}" -- \
-    --output "${fixture_bundle}"
+(cd "${ROOT_DIR}" && dub run --config=synthetic-testdata --compiler="${DC}" -- \
+    --output "${fixture_bundle}")
 fixture_root="${fixture_bundle}/catalog"
 synthetic_catalog="${TMP_DIR}/synthetic-catalog.json"
 

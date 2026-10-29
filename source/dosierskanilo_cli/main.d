@@ -67,10 +67,13 @@ immutable string appVersion = import("build/bin/build-version.txt").strip;
  * Decode command-line parameters and run the scanner workflow.
  * When unit testing, do nothing.
  *
+ * Exit codes: 0 success, 1 operation failure, 2 usage error (parse
+ * failure or invalid option combination).
+ *
  * Params:
  *   args = command-line arguments
  * Returns:
- *   shell return code
+ *   shell code: 0 success, 1 operation failure, 2 usage error
  */
 int main(string[] args)
 {

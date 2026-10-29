@@ -78,6 +78,7 @@ Archive member cache options (scan and metadata):
 JSON output:
 
     --pretty                  Indent saved JSON catalogs for human reading
+                              (scan, analyze, and export only)
 
 Option scope keys use the fixed columns `S A M I L D R G J` (`-` means not
 available for that scope):
@@ -228,7 +229,7 @@ ParsedCommandLine parseCommandLine(string[] args)
             "pick-hidden", "S-------- Pick hidden files and directories too", &argsarray.argPickHidden,
             "dry-run", "--------J Compute JSON results without writing the catalog", &argsarray.argDryRun,
             "merge-duplicates", "--------J Analyze and merge duplicates after scan", &argsarray.argMergeDuplicates,
-            "pretty", "-------G- Indent saved JSON catalogs for human reading", &argsarray.argPrettyJSON,
+            "pretty", "-------G- Indent saved JSON catalogs for human reading (scan, analyze, and export only)", &argsarray.argPrettyJSON,
             "verbose", "-------G- Be verbose", &argsarray.argVerboseOutputs,
             "text", "----L---- Filter listed catalog paths or SHA1 values", &argsarray.argQueryText,
             "limit", "----L---- Maximum number of listed catalog blobs", &argsarray.argQueryLimit,

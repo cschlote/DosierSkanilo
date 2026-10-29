@@ -122,6 +122,23 @@ Split churn from correctness; each item is independently landable.
   `scripts/lint.sh`; verify Flatpak sha256 pins against the published
   `v26.12.2` artifacts before the next release.
 
+- [x] Backup names disambiguated with process id and per-process serial in
+  `getBackupFileName()` and `backupDatabase()`; collision tests updated to
+  glob by prefix.
+- [x] `makeProgressString` NaN guard for a zero total (statics are already
+  thread-local in D, so the suspected race was a non-issue).
+- [x] CLI: bad `--format` rejected for JSON `list`/`duplicates`,
+  `--duplicate-limit 0` is a usage error (exit 2) before backend open in
+  both validation paths, `--pretty` documented as scan/analyze/export only,
+  exit-code contract documented on `main()`.
+- [x] `scripts/test-cli.sh` resolves `ROOT_DIR` from its own location and
+  runs `dub` from the repository root; `scripts/lint.sh` lints
+  `--config=cli` and discovers `docs/reviews/*.md` dynamically.
+- [ ] Deferred: metadata cleanup transaction shape
+  (`repository/metadata.d`), JSON metadata batch cancellation checkpoints,
+  early-exit path-existence query, inverse content-token map, Flatpak
+  sha256 verification against published artifacts.
+
 ## P1 — WP-09 closeout: shared CLI/GTK operations
 
 The backend plan in `docs/SQLITE-IMPLEMENTATION-PLAN.md`, section WP-09, is

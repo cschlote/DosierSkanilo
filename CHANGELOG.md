@@ -9,6 +9,14 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- CLI usage errors surface earlier and consistently: `--format` must be
+  `table` or `json` for JSON `list`/`duplicates`, `--duplicate-limit` must
+  be positive, and the exit-code contract (0 success, 1 operation failure,
+  2 usage error) is documented. Backup and database snapshot names no
+  longer collide within one second, progress output no longer renders
+  `NaN` for empty totals, and the integration/lint scripts work from any
+  working directory.
+
 - Catalog queries reject a zero page size with a typed repository error
   instead of crashing on cursor arithmetic, repository page wrappers raise
   typed errors consistently, and JSON catalog directory listings now report
