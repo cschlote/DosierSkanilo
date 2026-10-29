@@ -508,6 +508,67 @@ void configureSharedMemberContentCache(string root, ulong byteLimit)
     }
 }
 
+/**
+ * Close and remove the process-wide cache session.
+ *
+ * Frontends call this after stopping preview and worker threads so the session
+ * directory disappears before the process exits.
+ *
+ * Returns: `true` when the session was closed or none existed; `false` when
+ *     leased paths or an in-flight extraction still block the close. A refused
+ *     close keeps the session for the process-exit destructor.
+ */
+bool closeSharedMemberContentCache()
+{
+    synchronized (sharedCacheGuard)
+    {
+        if (processMemberContentCache is null)
+            return true;
+        try
+            processMemberContentCache.close();
+        catch (Exception)
+            return false;
+        processMemberContentCache = null;
+        return true;
+    }
+}
+
+@("shared member cache closes explicitly and refuses while a member is leased")
+unittest
+{
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath, dirName;
+    import std.uuid : randomUUID;
+
+    const auto root = buildPath(tempDir(), "member-cache-shared-close-"
+        ~ randomUUID().toString());
+    scope (exit)
+    {
+        closeSharedMemberContentCache();
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+    configureSharedMemberContentCache(root, 1024);
+    auto cache = sharedMemberContentCache();
+    const auto locator = ContentLocator.entry(ReferenceId("shared-close-root"),
+        ArchiveEntryId("shared-close-entry"));
+    auto lease = cache.acquire(locator, ContentId.init, "shared-close",
+        "member.bin", 4, (string destinationDirectory) {
+            const auto outputPath = buildPath(destinationDirectory,
+                "member.bin");
+            mkdirRecurse(dirName(outputPath));
+            write(outputPath, "data");
+            return true;
+        });
+    assert(!closeSharedMemberContentCache(),
+        "A leased member must refuse an explicit cache close.");
+    lease.release();
+    assert(closeSharedMemberContentCache(),
+        "The cache closes once its leases are released.");
+    assert(closeSharedMemberContentCache(),
+        "Closing an already closed shared cache is harmless.");
+}
+
 @("member cache coalesces extraction and keeps leased files")
 unittest
 {

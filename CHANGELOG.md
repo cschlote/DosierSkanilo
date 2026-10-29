@@ -9,6 +9,11 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- The process-wide archive-member cache can be closed explicitly with
+  `closeSharedMemberContentCache()`. It reports `false` while leased members
+  are still active, so frontends can stop previews first and otherwise defer
+  cleanup to the process-exit destructor.
+
 - CLI usage errors surface earlier and consistently: `--format` must be
   `table` or `json` for JSON `list`/`duplicates`, `--duplicate-limit` must
   be positive, and the exit-code contract (0 success, 1 operation failure,

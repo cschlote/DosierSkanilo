@@ -171,6 +171,16 @@ steps in dependency order:
 - [ ] WP-13.6.2: GTK backend and cache integration (`DosierSkanilo-Gui`),
       including the WP-11.2 deferred display work (`loadDocumentPage`,
       `loadAllRows`, blob virtual table).
+      Started: the GUI now configures the shared member cache from persisted
+      preferences, closes it on normal exit, and the backend exposes
+      `closeSharedMemberContentCache()`. Remaining blocker: the `CatalogBackend`
+      contract exposes only redacted IDs (`ContentId`, `ReferenceId`,
+      `DirectoryId`) with no public token round-trip, and has no member-content
+      acquisition entry point; `ContentLocator.archiveEntry` also lacks the
+      virtual path. `RepositoryDirectorySource` therefore still needs the
+      concrete `Repository`. Decide between typed-ID storage in the GUI plus
+      `loadContent(ContentId)`, or public token accessors (which contradicts the
+      current "IDs private to adapter" CATALOG-DOMAIN rule).
 - [ ] WP-13.6.3: cross-frontend parity checks for the new reference,
       duplicate, and export surfaces.
 - [x] Document in the WP-13 contract that blob-level digests for
