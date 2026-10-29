@@ -14,6 +14,50 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Render captured progress output (carriage-return frames with ANSI clears)
+# as one line per update and require the phases to appear in this order.
+assert_progress_order() {
+    local label=$1
+    local output
+    output=$(printf '%s' "$2" | sed -E 's/\x1b\[[0-9;]*[A-Za-z]//g' \
+        | tr '\r' '\n')
+    local previous=0 phase position
+    shift 2
+    for phase in "$@"; do
+        position=$(awk -v needle="${label} ${phase} " \
+            '{ if (index($0, needle) > 0) { print NR; exit } }' \
+            <<<"${output}")
+        if [[ -z "${position}" ]]; then
+            printf '%s\n' "Missing progress phase '${label} ${phase}'." >&2
+            exit 1
+        fi
+        if (( position <= previous )); then
+            printf '%s\n' \
+                "Progress phase '${label} ${phase}' is out of order." >&2
+            exit 1
+        fi
+        previous=${position}
+    done
+}
+
+# Work counts within one phase must never move backwards.
+assert_monotonic_progress() {
+    local label=$1 phase=$2 output=$3
+    local previous=-1 current
+    while read -r current; do
+        [[ -z "${current}" ]] && continue
+        if (( current < previous )); then
+            printf '%s\n' \
+                "Progress count regressed in '${label} ${phase}'." >&2
+            exit 1
+        fi
+        previous=${current}
+    done < <(printf '%s' "${output}" \
+        | sed -E 's/\x1b\[[0-9;]*[A-Za-z]//g' | tr '\r' '\n' \
+        | grep -F "${label} ${phase} " \
+        | grep -oE '[0-9]+/[0-9]+' | cut -d/ -f1)
+}
+
 (cd "${ROOT_DIR}" && dub build --config=cli --compiler="${DC}" >/dev/null)
 
 # Generate one D-owned corpus and exercise both explicit storage modes against it.
@@ -29,19 +73,30 @@ cp -a "${fixture_root}" "${synthetic_sqlite_root}"
 sqlite_scan_output=$("${BIN}" scan "${synthetic_sqlite_root}" \
     --recursive --checksums)
 [[ "${sqlite_scan_output}" == *"Catalog scan: 12 files, 12 added"* ]]
+assert_progress_order "Catalog scan" "${sqlite_scan_output}" \
+    validating discovering checksums
+assert_monotonic_progress "Catalog scan" checksums "${sqlite_scan_output}"
 sqlite_analysis_output=$("${BIN}" analyze "${synthetic_sqlite_root}")
 [[ "${sqlite_analysis_output}" == *"Catalog analysis: 0 missing, 0 dropped, 1 duplicate groups, 1 merged blobs, 0 orphaned blobs."* ]]
+assert_progress_order "Catalog analysis" "${sqlite_analysis_output}" \
+    validating "missing files" duplicates "analysis cleanup"
 
 pushd "${TMP_DIR}" >/dev/null
 synthetic_json_output=$("${BIN}" scan "${fixture_root}" \
     --json "${synthetic_catalog}" --recursive --checksums)
 [[ "${synthetic_json_output}" == *"Catalog scan: 12 files, 12 added"* ]]
+assert_progress_order "Catalog scan" "${synthetic_json_output}" \
+    "reading JSON" discovering checksums "writing JSON"
+assert_monotonic_progress "Catalog scan" checksums "${synthetic_json_output}"
 [[ ! -d "${fixture_root}/.dosierskanilo" ]]
 json_rescan_output=$("${BIN}" scan "${fixture_root}" \
     --json "${synthetic_catalog}" --recursive --checksums)
 [[ "$(grep -c "Read serialized data from JSON file" <<<"${json_rescan_output}" || true)" -eq 1 ]]
 json_analysis_output=$("${BIN}" analyze --json "${synthetic_catalog}")
 [[ "${json_analysis_output}" == *"Catalog analysis: 0 missing, 0 dropped, 1 duplicate groups, 1 merged blobs, 0 orphaned blobs."* ]]
+assert_progress_order "Catalog analysis" "${json_analysis_output}" \
+    "reading JSON" "missing files" duplicates "analysis cleanup" \
+    "writing JSON"
 [[ "$(wc -l < "${synthetic_catalog}")" -eq 0 ]]
 
 pretty_catalog="${TMP_DIR}/pretty-catalog.json"
@@ -177,7 +232,7 @@ awk 'BEGIN {
     for (i = 0; i < 100000; i++) {
         if (i)
             print ","
-        printf "{\"checkSums\":{\"md5sum_b64\":\"AAAAAAAAAAAAAAAAAAAAAA==\",\"sha1sum_b64\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAA=\",\"xxh64sum_b64\":\"AAAAAAAAAAA=\"},\"fileSize\":1,\"fileSpecs\":[{\"fileName\":\"f%06d\",\"timeLastModified\":\"2020-01-02T04:04:06\"}]}", i
+        printf "{\"checkSums\":{\"md5sum_b64\":\"AAAAAAAAAAAAAAAAAAAAAA==\",\"sha1sum_b64\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAA=\",\"xxh64sum_b64\":\"AAAAAAAAAAA=\"},\"fileSize\":1,\"fileSpecs\":[{\"fileName\":\"bulk/f%06d\",\"timeLastModified\":\"2020-01-02T04:04:06\"}]}", i
     }
     print "]}"
 }' > "${crash_source}"
@@ -237,6 +292,24 @@ grep -q "Catalog export cancelled" "${TMP_DIR}/cancel-export-stderr"
 [[ ! -e "${cancel_export_path}" ]]
 "${BIN}" info "${crash_repo}" >/dev/null
 
+# A selected (--path) export cancels the same way and publishes nothing.
+cancel_subset_path="${TMP_DIR}/cancel-subset-export.json"
+"${BIN}" export "${crash_repo}" --output "${cancel_subset_path}" \
+    --path "bulk" \
+    >"${TMP_DIR}/cancel-subset-stdout" 2>"${TMP_DIR}/cancel-subset-stderr" &
+cancel_subset_pid=$!
+for _ in $(seq 1 500); do
+    [[ -s "${TMP_DIR}/cancel-subset-stdout" ]] && break
+    sleep 0.01
+done
+kill -INT "${cancel_subset_pid}" 2>/dev/null || true
+cancel_subset_rc=0
+wait "${cancel_subset_pid}" || cancel_subset_rc=$?
+[[ "${cancel_subset_rc}" -eq 1 ]]
+grep -q "Catalog export cancelled" "${TMP_DIR}/cancel-subset-stderr"
+[[ ! -e "${cancel_subset_path}" ]]
+rm -f "${cancel_subset_path}".tmp-*
+
 # SIGINT during a JSON scan stops the workers and saves collected records.
 cancel_scan_tree="${TMP_DIR}/cancel-scan-tree"
 mkdir -p "${cancel_scan_tree}"
@@ -250,7 +323,8 @@ sleep 0.2
 kill -INT "${scan_pid}" 2>/dev/null || true
 scan_rc=0
 wait "${scan_pid}" || scan_rc=$?
-[[ "${scan_rc}" -ne 0 ]]
+[[ "${scan_rc}" -eq 1 ]]
+# Cancellation is an operation failure: exit code 1, never 0 or a usage error.
 grep -q "Waiting for the application to finish" "${TMP_DIR}/cancel-scan-stdout"
 grep -q "collected data was saved" "${TMP_DIR}/cancel-scan-stdout"
 [[ -s "${TMP_DIR}/cancel-scan.json" ]]
@@ -264,7 +338,7 @@ sleep 0.2
 kill -INT "${scan_pid}" 2>/dev/null || true
 scan_rc=0
 wait "${scan_pid}" || scan_rc=$?
-[[ "${scan_rc}" -ne 0 ]]
+[[ "${scan_rc}" -eq 1 ]]
 grep -q "no changes were written" "${TMP_DIR}/cancel-dry-stdout"
 [[ ! -e "${TMP_DIR}/cancel-dry.json" ]]
 
@@ -278,7 +352,7 @@ sleep 0.2
 kill -INT "${sqlite_scan_pid}" 2>/dev/null || true
 sqlite_scan_rc=0
 wait "${sqlite_scan_pid}" || sqlite_scan_rc=$?
-[[ "${sqlite_scan_rc}" -ne 0 ]]
+[[ "${sqlite_scan_rc}" -eq 1 ]]
 grep -q "cancelled" "${TMP_DIR}/cancel-sqlite-scan-stdout"
 "${BIN}" info "${cancel_scan_tree}" >/dev/null
 "${BIN}" list "${cancel_scan_tree}" --format=json >/dev/null
@@ -291,7 +365,7 @@ sleep 0.5
 kill -INT "${metadata_pid}" 2>/dev/null || true
 metadata_rc=0
 wait "${metadata_pid}" || metadata_rc=$?
-[[ "${metadata_rc}" -ne 0 ]]
+[[ "${metadata_rc}" -eq 1 ]]
 grep -q "cancelled" "${TMP_DIR}/metadata-cancel-stdout"
 "${BIN}" info "${crash_repo}" >/dev/null
 
@@ -302,10 +376,34 @@ sleep 0.5
 kill -INT "${analyze_pid}" 2>/dev/null || true
 analyze_rc=0
 wait "${analyze_pid}" || analyze_rc=$?
-[[ "${analyze_rc}" -ne 0 ]]
+[[ "${analyze_rc}" -eq 1 ]]
 grep -q "cancelled" "${TMP_DIR}/analyze-cancel-stdout"
 "${BIN}" info "${crash_repo}" >/dev/null
 [[ "$("${BIN}" list "${crash_repo}" --format=json)" == *'"total":100000'* ]]
+
+# While one process owns the target write lease, a second mutating command
+# fails fast instead of racing the first one.
+"${BIN}" metadata "${crash_repo}" --checksums \
+    >"${TMP_DIR}/lease-first-stdout" 2>"${TMP_DIR}/lease-first-stderr" &
+lease_first_pid=$!
+for _ in $(seq 1 500); do
+    if [[ -s "${TMP_DIR}/lease-first-stdout" \
+        || -s "${TMP_DIR}/lease-first-stderr" ]]; then
+        break
+    fi
+    sleep 0.01
+done
+lease_second_rc=0
+"${BIN}" analyze "${crash_repo}" \
+    >"${TMP_DIR}/lease-second-stdout" 2>"${TMP_DIR}/lease-second-stderr" \
+    || lease_second_rc=$?
+[[ "${lease_second_rc}" -eq 1 ]]
+grep -q "Another mutating operation already owns target" \
+    "${TMP_DIR}/lease-second-stderr"
+[[ ! -s "${TMP_DIR}/lease-second-stdout" ]]
+kill -INT "${lease_first_pid}" 2>/dev/null || true
+wait "${lease_first_pid}" 2>/dev/null || true
+"${BIN}" info "${crash_repo}" >/dev/null
 
 # SIGINT during a JSON analysis cancels cooperatively: the process fails, the
 # original catalog is left in place, and no staging file is published.
@@ -319,7 +417,7 @@ sleep 0.5
 kill -INT "${analyze_pid}" 2>/dev/null || true
 cancel_rc=0
 wait "${analyze_pid}" || cancel_rc=$?
-[[ "${cancel_rc}" -ne 0 ]]
+[[ "${cancel_rc}" -eq 1 ]]
 cmp "${cancel_pristine}" "${cancel_catalog}"
 grep -q "cancelled" "${TMP_DIR}/cancel-stdout"
 

@@ -59,6 +59,13 @@ representations; they do not define the new public API.
   rename intent: it reports the old path unavailable and discovers the new path
   as a reference. Duplicate analysis may subsequently associate it with the same
   `ContentId`.
+- Pure-virtual content has no payload fingerprint of its own. Digests, file
+  types, and media info are computed only for content reachable as a physical
+  file; a member's digest is supplied by the container's `ArchiveSpec.checkSums`
+  and is not promoted to the member content record. Duplicate analysis therefore
+  excludes member-only content by design unless the archive index supplies a
+  member fingerprint. Adapters must not treat a missing member digest as
+  corruption or invent one from the archive file.
 
 IDs are stable only within the catalog-source contract above. JSON v3 has no
 serialized content/reference IDs, so its adapter may assign source-scoped IDs;

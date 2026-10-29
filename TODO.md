@@ -146,14 +146,21 @@ the source of truth. Implementation is complete (WP-09.1/09.1b contracts,
 controlled SQLite and JSON operations, writer leases, CLI and GTK adapters
 on the same typed requests); only verification remains:
 
-- Process-level Ctrl-C checks for the remaining operation families.
-- Lease races while a second process is active.
-- Display-backed GTK operation start/progress/pause/cancel/refresh tests.
+- [x] Process-level Ctrl-C checks for every mutating family (JSON and SQLite
+  scan, SQLite metadata, JSON and SQLite analysis, import, full and selected
+  export), with the documented exit code 1.
+- [x] Lease race while a second process is active: one CLI process holds the
+  repository write lease while a second mutating command fails fast with
+  `targetBusy`.
+- [x] Progress phase order and monotonic work counts for both scan modes and
+  analysis; the parity matrix is checked in at
+  `docs/OPERATION-PARITY.md`.
+- [ ] Display-backed GTK operation start/progress/pause/cancel/refresh tests
+  (`DosierSkanilo-Gui`).
 
-`test-cli.sh` already covers SIGINT for JSON analysis/scan, SQLite metadata/
-scan, large duplicate merge, catalog import/export, and a forked-process
-lease-exclusion test. Do not reintroduce an HMI-owned scan or analysis
-implementation.
+`test-cli.sh` covers the CLI side of the matrix; keep the parity table and its
+evidence in `docs/OPERATION-PARITY.md` in sync. Do not reintroduce an
+HMI-owned scan or analysis implementation.
 
 ## P1 — WP-13.6.x: complete the storage-neutral catalog rollout
 
@@ -166,10 +173,11 @@ steps in dependency order:
       `loadAllRows`, blob virtual table).
 - [ ] WP-13.6.3: cross-frontend parity checks for the new reference,
       duplicate, and export surfaces.
-- [ ] Document in the WP-13 contract that blob-level digests for
+- [x] Document in the WP-13 contract that blob-level digests for
       pure-virtual members are supplied only by the container's
       `ArchiveSpec.checkSums`, so JSON duplicate analysis excludes them by
-      design (found correct-but-undocumented in the 2026-10-28 review).
+      design (found correct-but-undocumented in the 2026-10-28 review). Added
+      as WP-13 invariant 6 and an identity rule in `docs/CATALOG-DOMAIN.md`.
 
 ## P2 — WP-14 follow-on: archiveindex virtual classification
 
