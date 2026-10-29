@@ -9,6 +9,14 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- The archive-member content cache no longer loses lease accounting when a
+  cached member file disappears externally while it is still leased: leases
+  track their entry directly and `close()` refuses while any lease is
+  outstanding, so leased paths can no longer be deleted under an extractor
+  or preview. Cache sessions are protected by their flock before they become
+  visible to stale-session cleanup, and the process-wide cache swap is
+  documented as usable only before worker start.
+
 - JSON scans and analysis runs no longer abort on the first unreadable file
   or corrupt archive: metadata extraction now isolates failures per blob and
   per extractor job, counts them in the operation summary, and continues

@@ -57,6 +57,17 @@ Currently one bad file aborts an entire JSON scan/analyze.
   member file either waits or keeps the file readable; no lease read reaches
   a deleted tree. Regression test at `close()` with a lease outstanding.
 
+- [x] Outstanding-lease counter alongside per-entry counts; leases now
+  identify their entry so release/update survive entry replacement.
+  Closed paths stay intact while a lease on a vanished file remains, and
+  `close()` refuses while any lease is outstanding.
+- [x] Session lease acquired before the session directory becomes visible,
+  closing the `cleanupStaleSessions` race window.
+- [x] `configureSharedMemberContentCache()` documented as
+  pre-usage-only swap.
+- [x] Regression test "member cache keeps lease accounting for stale
+  entries and close honours it".
+
 ### WP-14.3: Catalog API correctness (review M4, M5, M6)
 
 - Typed `limit > 0` enforcement in the public
