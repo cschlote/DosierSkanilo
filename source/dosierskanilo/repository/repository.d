@@ -338,7 +338,7 @@ public:
         JsonExportOptions exportOptions = JsonExportOptions())
     {
         requireOpen();
-        enforce(options.limit > 0,
+        enforce!RepositoryException(options.limit > 0,
             "Repository query page size must be greater than zero.");
         auto page = loadCatalogQueryPageWithIdsFromDatabase(database,
             repositoryPaths.rootPath, options, exportOptions);
@@ -351,7 +351,8 @@ public:
         JsonExportOptions exportOptions = JsonExportOptions())
     {
         requireOpen();
-        enforce(options.limit > 0, "Repository cursor chunk size must be greater than zero.");
+        enforce!RepositoryException(options.limit > 0,
+            "Repository cursor chunk size must be greater than zero.");
         options.useCursor = true;
         auto page = loadCatalogQueryPageWithIdsFromDatabase(database,
             repositoryPaths.rootPath, options, exportOptions);
@@ -1068,6 +1069,41 @@ unittest
     auto checksumMatch = repository.loadCatalogQueryPageWithIds(query);
     assert(checksumMatch.total == 1,
         "path case sensitivity must not alter exact binary SHA1 matching");
+}
+
+@("catalog page helpers reject a zero limit with a typed error")
+unittest
+{
+    import std.exception : assertThrown;
+    import std.file : mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "repository-limit-zero-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    write(buildPath(root, "plain.txt"), "content");
+
+    auto repository = Repository.initialize(root);
+    scope (exit)
+        repository.close();
+    repository.scan();
+
+    RepositoryQueryOptions query;
+    query.limit = 0;
+    assertThrown!RepositoryException(repository.loadCatalogQueryPageWithIds(query));
+
+    query.useCursor = true;
+    assertThrown!RepositoryException(repository.loadCatalogQueryPageWithIds(query));
+    assertThrown!RepositoryException(repository.loadCatalogQueryCursorPage(query));
+
+    import dosierskanilo.repository.transfer : loadCatalogQueryPageWithIdsFromDatabase;
+    assertThrown!RepositoryException(loadCatalogQueryPageWithIdsFromDatabase(
+        repository.database, repository.repositoryPaths.rootPath, query,
+        JsonExportOptions()));
 }
 
 @("repository incremental filesystem scan")

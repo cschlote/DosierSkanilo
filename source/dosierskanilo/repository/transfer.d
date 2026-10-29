@@ -758,6 +758,11 @@ RepositoryTorrentFile[] listTorrentFilesFromDatabase(ref Database db,
 RepositoryBlobPage loadCatalogQueryPageWithIdsFromDatabase(ref Database db,
     string rootPath, RepositoryQueryOptions options, JsonExportOptions exportOptions)
 {
+    /* The wrapper Repository methods validate the page size before calling
+     * here; this record remains directly callable from library code, so the
+     * cursor arithmetic below must not crash on a zero limit. */
+    enforce!RepositoryException(options.limit > 0,
+        "Repository query page size must be greater than zero.");
     auto statement = prepareCatalogQuery(db, "SELECT b.id FROM blobs b", options,
         true);
 

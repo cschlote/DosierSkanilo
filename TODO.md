@@ -85,6 +85,22 @@ Currently one bad file aborts an entire JSON scan/analyze.
   `repository/archiveindex.d` with a stored `is_virtual` column when the
   WP-13 schema is next touched (latent, no today-reachable defect).
 
+- [x] Typed `RepositoryException` for zero limits in
+  `loadCatalogQueryPageWithIdsFromDatabase()` (cursor crash site) and the
+  `loadCatalogQueryPageWithIds`/`loadCatalogQueryCursorPage` wrappers;
+  limit-0 test covering both wrappers and the free function.
+- [x] `getExistingFiles()` deliberately keeps returning the openable
+  (unescaped) physical name — callers open files with it. The corruption
+  entered through the legacy write-back, which now re-escapes canonical
+  `!!` names (`canonicalizeFileSpecs` in `service/scanning.d`, with a
+  round-trip test); the `scanning.d` deletion question stays open for the
+  GUI repo.
+- [x] `matchingDirectories()` recomputes filtered counts and aggregate
+  sizes (archive members included when requested), restoring JSON/SQLite
+  parity; extended the non-BMP directory test with unfiltered/filtered
+  count assertions.
+- [ ] archiveindex `is_virtual` column follow-up (deferred to WP-13 schema).
+
 ### WP-14.4: Review-minor hardening and UX
 
 Split churn from correctness; each item is independently landable.

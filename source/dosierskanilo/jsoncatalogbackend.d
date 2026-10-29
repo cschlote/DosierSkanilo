@@ -2141,10 +2141,49 @@ private:
                 continue;
             if (activeFilter && !directoryHasMatch(directory.relativePath, query.filter))
                 continue;
-            result ~= directory;
+            auto row = directory;
+            if (activeFilter)
+            {
+                /* Precomputed index counts are unfiltered; recompute them for
+                 * the active filter so counts match the listed content, like
+                 * the SQLite backend does. */
+                applyDirectoryFilterCounts(row, query.filter);
+            }
+            result ~= row;
         }
         result.sort!((left, right) => left.relativePath < right.relativePath);
         return result;
+    }
+
+    private void applyDirectoryFilterCounts(ref CatalogDirectory directory,
+        CatalogFilter filter)
+    {
+        const prefix = directory.relativePath ~ "/";
+        const start = lowerBoundPath(prefix);
+        const end = lowerBoundPath(directory.relativePath ~ "0");
+        size_t count;
+        ulong total;
+        foreach (const index; start .. end)
+        {
+            auto file = fileRows[index];
+            if (matches(file, filter))
+            {
+                ++count;
+                total += file.size;
+            }
+        }
+        if (filter.includeArchiveMembers)
+            foreach (const index; start .. end)
+            {
+                auto container = fileRows[index];
+                if (!container.hasArchive)
+                    continue;
+                foreach (member; archiveMemberFiles(container))
+                    if (matches(member, filter))
+                        total += member.size;
+            }
+        directory.fileCount = count;
+        directory.aggregateSize = total;
     }
 
     bool directoryHasMatch(string directoryPath, CatalogFilter filter)
@@ -2406,6 +2445,7 @@ version (unittest)
     @("JSON directory filters include non-BMP descendants")
     unittest
     {
+        import std.conv : to;
         import std.datetime.systime : SysTime;
         import dosierskanilo.model.namedbinaryblob :
             serializeDataClassWrapperFile;
@@ -2419,6 +2459,7 @@ version (unittest)
         catalog.dataVersion = DATA_CLASS_VERSION5;
         catalog.dataArray = [
             new NamedBinaryBlob("media/\U0001F600.txt", 5, SysTime(0)),
+            new NamedBinaryBlob("media/out.txt", 7, SysTime(0)),
             new NamedBinaryBlob("other/plain.txt", 5, SysTime(0))
         ];
         serializeDataClassWrapperFile(catalogPath, catalog);
@@ -2435,6 +2476,25 @@ version (unittest)
         const page = backend.listDirectories(query, request);
         assert(page.directories.length == 1);
         assert(page.directories[0].name == "media");
+
+        /* Filtered counts must describe matching content only, like SQLite. */
+        CatalogDirectoryQuery unfiltered;
+        const plainPage = backend.listDirectories(unfiltered, request);
+        assert(plainPage.directories.length == 2);
+        foreach (directory; plainPage.directories)
+        {
+            const mediaDirectory = directory.name == "media";
+            assert(directory.fileCount == (mediaDirectory ? 2 : 1),
+                directory.fileCount.to!string);
+            assert(directory.aggregateSize == (mediaDirectory ? 12UL : 5UL),
+                directory.aggregateSize.to!string);
+        }
+
+        /* pathText filter: one matching directory with matching counts only. */
+        assert(page.directories[0].fileCount == 1,
+            page.directories[0].fileCount.to!string);
+        assert(page.directories[0].aggregateSize == 5,
+            page.directories[0].aggregateSize.to!string);
     }
 
     @("JSON backend indexes and operates on the generated catalog without SQLite")

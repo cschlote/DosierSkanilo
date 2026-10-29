@@ -9,6 +9,14 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- Catalog queries reject a zero page size with a typed repository error
+  instead of crashing on cursor arithmetic, repository page wrappers raise
+  typed errors consistently, and JSON catalog directory listings now report
+  file counts and aggregate sizes that match the active filter like the
+  SQLite backend. The legacy scanner re-escapes canonical `!!` filenames
+  when writing back scanned file references, so `!`-named files keep a
+  single catalog record across rescans.
+
 - The archive-member content cache no longer loses lease accounting when a
   cached member file disappears externally while it is still leased: leases
   track their entry directly and `close()` refuses while any lease is

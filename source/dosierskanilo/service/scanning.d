@@ -18,7 +18,8 @@ import std.stdio;
 import std.uuid;
 
 import dosierskanilo.logging;
-import dosierarkivo.archive : ArchivePasswordCallback;
+import dosierarkivo.archive : ArchivePasswordCallback,
+    escapeArchiveVirtualPath;
 import dosierskanilo.model.namedbinaryblob;
 import dosierskanilo.membercontentcache : MemberContentCache;
 import dosierskanilo.options;
@@ -192,6 +193,39 @@ bool scanDirTree(string scanPath, bool pickHidden = false, ref NamedBinaryBlob[]
     return rc;
 }
 
+/** Re-escape write-back specs so canonical `!!` names survive the round-trip
+ * through getExistingFiles, which returns the openable (unescaped) disk name.
+ *
+ * Params:
+ *   usesArchiveVirtualGrammar = whether the blob stores canonical escaped paths.
+ *   specs = existing, openable file specs.
+ * Returns:
+ *   specs in canonical form for the configured grammar.
+ */
+FileSpec[] canonicalizeFileSpecs(bool usesArchiveVirtualGrammar, FileSpec[] specs)
+{
+    import std.algorithm.searching : canFind;
+
+    if (!usesArchiveVirtualGrammar)
+        return specs;
+    FileSpec[] result;
+    foreach (spec; specs)
+    {
+        /* Virtual member references already use the full grammar and must
+         * not be re-escaped. */
+        if (spec.fileName.canFind("!/"))
+        {
+            result ~= spec;
+            continue;
+        }
+        auto canonical = escapeArchiveVirtualPath(spec.fileName);
+        result ~= spec.fileName == canonical
+            ? spec
+            : new FileSpec(canonical, spec.timeLastModified);
+    }
+    return result;
+}
+
 /** Execute scanner jobs on collected files.
  *
  * This runs the optional signature extraction passes for checksums, file
@@ -308,8 +342,10 @@ bool runScannerJobs(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCt
                     }
 
                     /* All jobs for this blob have been joined, so replacing the
-                     * specs can no longer race with a worker. */
-                    obj.fileSpecs = existingFiles;
+                     * specs can no longer race with a worker. Re-escape so
+                     * canonical `!!` names survive the round-trip. */
+                    obj.fileSpecs = canonicalizeFileSpecs(
+                        obj.fileSpecsUseArchiveVirtualGrammar, existingFiles);
 
                     if (atomicLoad(gotCtrlC))
                     {
@@ -332,7 +368,8 @@ bool runScannerJobs(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCt
                 auto existingFiles = obj.getExistingFiles;
                 if (existingFiles.length == 0)
                     continue;
-                obj.fileSpecs = existingFiles;
+                obj.fileSpecs = canonicalizeFileSpecs(
+                    obj.fileSpecsUseArchiveVirtualGrammar, existingFiles);
 
                 printProgress(i, dynObjectArray.length, obj.getFirstFileName);
 
@@ -510,4 +547,34 @@ unittest
     assert(objs[0].checkSums.hasDigests);
     assert(!objs[0].fileType.empty);
     assert(objs[0].mediaInfoSig !is null);
+}
+
+@("legacy write-back keeps canonical !! escaping for v5 grammar")
+unittest
+{
+    import dosierarkivo.archive : parseArchiveVirtualPath;
+
+    auto physical = "sample!.zip";
+    auto canonical = escapeArchiveVirtualPath(physical);
+    FileSpec[] input = [
+        new FileSpec("plain.bin", SysTime(1_000_000)),
+        new FileSpec(physical, SysTime(2_000_000)),
+        new FileSpec(canonical ~ "!/member.bin", ""),
+    ];
+
+    /* The v3 grammar stores raw names. */
+    auto legacy = canonicalizeFileSpecs(false, input);
+    assert(legacy is input);
+
+    /* The v5 grammar re-escapes the openable physical name. */
+    auto canonicalized = canonicalizeFileSpecs(true, input);
+    assert(canonicalized[0].fileName == "plain.bin");
+    assert(canonicalized[1].fileName == canonical,
+        canonicalized[1].fileName);
+    assert(canonicalized[2].fileName == input[2].fileName);
+
+    /* The canonical form must round-trip and stay openable. */
+    auto reparsed = parseArchiveVirtualPath(canonicalized[1].fileName);
+    assert(reparsed.physicalPath == physical);
+    assert(!reparsed.isVirtual);
 }
