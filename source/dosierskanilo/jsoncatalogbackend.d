@@ -244,48 +244,84 @@ public:
         CatalogPageRequest page = CatalogPageRequest.init)
     {
         requireTreeQueries();
-        if (!query.filter.includeArchiveMembers)
-        {
-            size_t total;
-            foreach (offset; 0 .. fileRows.length)
-                if (fileRowMatches(fileOrderIndex(query.sortOrder, offset), query))
-                    ++total;
-            const auto slice = pageSlice(page, fileQueryToken(query), total);
+        size_t total;
+        forEachMatchingFile(query, (ref CatalogFile, size_t) { ++total; });
+        const auto slice = pageSlice(page, fileQueryToken(query), total);
+        CatalogFilePage result;
+        result.files = matchingWindow(query, slice.start, slice.end);
+        result.nextCursor = slice.nextCursor;
+        result.previousCursor = slice.previousCursor;
+        result.hasMore = slice.hasMore;
+        result.hasPrevious = slice.hasPrevious;
+        return result;
+    }
 
-            CatalogFilePage result;
-            result.files.reserve(slice.end - slice.start);
-            size_t matched;
-            foreach (offset; 0 .. fileRows.length)
-            {
-                if (!fileRowMatches(fileOrderIndex(query.sortOrder, offset), query))
-                    continue;
-                if (matched >= slice.start && matched < slice.end)
-                {
-                    auto file = fileRows[fileOrderIndex(query.sortOrder, offset)];
-                    refreshAvailability(file);
-                    result.files ~= file;
-                }
-                ++matched;
-                if (matched >= slice.end)
-                    break;
-            }
-            result.nextCursor = slice.nextCursor;
-            result.previousCursor = slice.previousCursor;
-            result.hasMore = slice.hasMore;
-            result.hasPrevious = slice.hasPrevious;
-            return result;
+    override CatalogFilePage listFilesFrom(CatalogFileQuery query,
+        string anchorRelativePath, bool forward, size_t limit = 250)
+    {
+        requireTreeQueries();
+        if (limit == 0)
+            throw new CatalogBackendException(CatalogBackendErrorCode.invalidCursor,
+                "Catalog page limit must be greater than zero.");
+        if (anchorRelativePath.length == 0)
+        {
+            if (!forward)
+                return CatalogFilePage.init;
+            return listFiles(query, CatalogPageRequest(limit));
         }
 
-        const auto queryToken = fileQueryToken(query);
+        size_t anchor = size_t.max;
         size_t total;
-        forEachFileCandidate(query, (ref CatalogFile, size_t) { ++total; });
-        const auto slice = pageSlice(page, queryToken, total);
+        forEachMatchingFile(query, (ref CatalogFile file, size_t) {
+            if (file.relativePath == anchorRelativePath)
+                anchor = total;
+            ++total;
+        });
+        if (anchor == size_t.max)
+            return CatalogFilePage.init;
 
-        CatalogFile[] matching;
-        matching.reserve(slice.end - slice.start);
+        const size_t start = forward ? anchor + 1
+            : (anchor > limit ? anchor - limit : 0);
+        const size_t end = forward
+            ? (start + limit < total ? start + limit : total) : anchor;
+        CatalogFilePage result;
+        result.files = matchingWindow(query, start, end);
+        result.hasPrevious = start > 0;
+        if (result.hasPrevious)
+            result.previousCursor = CatalogPageCursor(start > limit ? start - limit : 0,
+                limit, fileQueryToken(query));
+        result.hasMore = forward ? end < total : anchor < total;
+        if (result.hasMore)
+            result.nextCursor = CatalogPageCursor(end, limit, fileQueryToken(query));
+        return result;
+    }
+
+    private void forEachMatchingFile(CatalogFileQuery query,
+        scope void delegate(ref CatalogFile file, size_t containerRow) handler)
+    {
+        if (query.filter.includeArchiveMembers)
+        {
+            forEachFileCandidate(query, handler);
+            return;
+        }
+        foreach (offset; 0 .. fileRows.length)
+        {
+            const rowIndex = fileOrderIndex(query.sortOrder, offset);
+            if (!fileRowMatches(rowIndex, query))
+                continue;
+            auto file = fileRows[rowIndex];
+            handler(file, size_t.max);
+        }
+    }
+
+    private CatalogFile[] matchingWindow(CatalogFileQuery query, size_t start,
+        size_t end)
+    {
+        CatalogFile[] result;
+        result.reserve(end - start);
         size_t matched;
-        forEachFileCandidate(query, (ref CatalogFile file, size_t containerRow) {
-            if (matched >= slice.start && matched < slice.end)
+        forEachMatchingFile(query, (ref CatalogFile file, size_t containerRow) {
+            if (matched >= start && matched < end)
             {
                 if (containerRow == size_t.max)
                     refreshAvailability(file);
@@ -295,16 +331,10 @@ public:
                     refreshAvailability(container);
                     file.availability = container.availability;
                 }
-                matching ~= file;
+                result ~= file;
             }
             ++matched;
         });
-        CatalogFilePage result;
-        result.files = matching;
-        result.nextCursor = slice.nextCursor;
-        result.previousCursor = slice.previousCursor;
-        result.hasMore = slice.hasMore;
-        result.hasPrevious = slice.hasPrevious;
         return result;
     }
 
@@ -2753,6 +2783,27 @@ version (unittest)
         auto sizeSecond = backend.nextFilesPage(sizeQuery, sizeFirst.nextCursor);
         assert(sizeFirst.files[0].relativePath == sizePage.files[0].relativePath);
         assert(sizeSecond.files[0].relativePath == sizePage.files[1].relativePath);
+
+        auto afterFirstSize = backend.listFilesFrom(sizeQuery,
+            sizePage.files[0].relativePath, true, 1);
+        assert(afterFirstSize.files.length == 1);
+        assert(afterFirstSize.files[0].relativePath
+            == sizePage.files[1].relativePath);
+        auto beforeSecondSize = backend.listFilesFrom(sizeQuery,
+            sizePage.files[1].relativePath, false, 1);
+        assert(beforeSecondSize.files.length == 1);
+        assert(beforeSecondSize.files[0].relativePath
+            == sizePage.files[0].relativePath);
+        assert(backend.listFilesFrom(sizeQuery,
+            sizePage.files[0].relativePath, false, 1).files.length == 0);
+        assert(backend.listFilesFrom(sizeQuery,
+            sizePage.files[$ - 1].relativePath, true, 1).files.length == 0);
+        assert(backend.listFilesFrom(sizeQuery, "missing.bin", true, 1)
+            .files.length == 0);
+        const auto sizeFromEmpty = backend.listFilesFrom(sizeQuery, "", true, 2);
+        assert(sizeFromEmpty.files.length == 2 && sizeFromEmpty.hasMore);
+        assert(sizeFromEmpty.files[0].relativePath
+            == sizePage.files[0].relativePath);
 
         archivePage = backend.listFiles(archiveQuery);
         assert(archivePage.files.length == 3);

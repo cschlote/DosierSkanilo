@@ -13,8 +13,9 @@ They represent the functional evolution and are intentionally summarized.
   (`resolveDirectory`, `resolveReference`, `loadReference`), opaque per-instance
   `uiHandle` keys for UI models, and backend-owned archive-member extraction
   (`acquireMemberContent`) that resolves nested container chains and stored
-  passwords into the shared leased cache. JSON and SQLite adapters implement the
-  surface and are cross-checked against each other.
+  passwords into the shared leased cache, plus `listFilesFrom` for stateless
+  previous/next navigation around a named reference. JSON and SQLite adapters
+  implement the surface and are cross-checked against each other.
 
 - The process-wide archive-member cache can be closed explicitly with
   `closeSharedMemberContentCache()`. It reports `false` while leased members

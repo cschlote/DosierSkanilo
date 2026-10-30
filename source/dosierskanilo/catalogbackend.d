@@ -701,6 +701,19 @@ interface CatalogBackend
     /** Continue backward and return rows in the query's display order. */
     CatalogFilePage previousFilesPage(CatalogFileQuery query, CatalogPageCursor cursor);
 
+    /**
+     * Return a bounded page adjacent to a reference for stateless navigation.
+     *
+     * `anchorRelativePath` names a reference in the same directory and filter.
+     * A forward page starts strictly after it; a backward page ends strictly
+     * before it and returns the nearest matches in display order. An empty
+     * anchor starts at the first file for forward requests and yields an empty
+     * page otherwise. Unknown anchors yield an empty page so callers can drop
+     * stale UI state instead of guessing a position.
+     */
+    CatalogFilePage listFilesFrom(CatalogFileQuery query, string anchorRelativePath,
+        bool forward, size_t limit = 250);
+
     /** Load one detached content snapshot, including only requested details. */
     CatalogContentSnapshot loadContent(ContentId contentId,
         CatalogDetailMask details = CatalogDetailMask.init);
@@ -1242,6 +1255,55 @@ version (unittest)
             CatalogPageCursor cursor)
         {
             return filePage(query, CatalogPageRequest(cursor.pageSize, cursor));
+        }
+
+        override CatalogFilePage listFilesFrom(CatalogFileQuery query,
+            string anchorRelativePath, bool forward, size_t limit = 250)
+        {
+            requireTreeQueries();
+            if (limit == 0)
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.invalidCursor,
+                    "Catalog page limit must be greater than zero.");
+            auto all = filteredFiles(query);
+            if (anchorRelativePath.length == 0)
+            {
+                if (!forward || all.length == 0)
+                    return CatalogFilePage.init;
+                CatalogFilePage result;
+                const auto end = limit < all.length ? limit : all.length;
+                result.files = all[0 .. end];
+                result.hasMore = end < all.length;
+                if (result.hasMore)
+                    result.nextCursor = CatalogPageCursor(end, limit,
+                        fileQueryToken(query));
+                return result;
+            }
+            size_t anchor = size_t.max;
+            foreach (index, file; all)
+                if (file.relativePath == anchorRelativePath)
+                {
+                    anchor = index;
+                    break;
+                }
+            if (anchor == size_t.max)
+                return CatalogFilePage.init;
+            const size_t start = forward ? anchor + 1
+                : (anchor > limit ? anchor - limit : 0);
+            const size_t end = forward
+                ? (start + limit < all.length ? start + limit : all.length)
+                : anchor;
+            CatalogFilePage result;
+            result.files = all[start .. end];
+            result.hasPrevious = start > 0;
+            if (result.hasPrevious)
+                result.previousCursor = CatalogPageCursor(start > limit
+                    ? start - limit : 0, limit, fileQueryToken(query));
+            result.hasMore = forward ? end < all.length : anchor < all.length;
+            if (result.hasMore)
+                result.nextCursor = CatalogPageCursor(end, limit,
+                    fileQueryToken(query));
+            return result;
         }
 
         override CatalogContentSnapshot loadContent(ContentId contentId,

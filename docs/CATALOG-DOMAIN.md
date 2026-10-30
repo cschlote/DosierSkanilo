@@ -176,6 +176,9 @@ CLI parser/output types.
   resolves a member's container chain and stored passwords and returns a shared
   cache lease that the caller releases; frontends never open archives or compute
   member identities themselves.
+- `listFilesFrom` returns the files adjacent to a named reference so clients can
+  implement previous/next navigation without holding a cursor. An unknown anchor
+  yields an empty page, and an empty anchor starts at the first file forward.
 - A page cursor is opaque and bound to the opened source, full query/filter,
   sort order, and page size. Reusing it with another source/query is a typed
   `invalidCursor` error. A committed mutation may invalidate the cursor.

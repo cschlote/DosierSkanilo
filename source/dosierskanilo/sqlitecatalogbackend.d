@@ -237,6 +237,47 @@ public:
         });
     }
 
+    override CatalogFilePage listFilesFrom(CatalogFileQuery query,
+        string anchorRelativePath, bool forward, size_t limit = 250)
+    {
+        return withRepository((Repository repository) {
+            if (limit == 0)
+                throw invalidCursor("Catalog page limit must be greater than zero.");
+            const auto queryToken = fileQueryToken(repository, query);
+            if (anchorRelativePath.length == 0)
+                return forward
+                    ? loadForwardFilePage(repository, query, limit,
+                        RepositoryFileCursor.init, false, queryToken)
+                    : CatalogFilePage.init;
+
+            const auto anchor = repository.fileReferenceByRelativePath(
+                anchorRelativePath);
+            if (anchor.id == 0)
+                return CatalogFilePage.init;
+            auto pivot = RepositoryFileCursor(anchor.relativePath, anchor.id,
+                anchor.size);
+            if (forward)
+                return loadForwardFilePage(repository, query, limit, pivot, true,
+                    queryToken);
+
+            auto request = repositoryFileQuery(query);
+            request.limit = limit;
+            const auto sourcePage = repository.previousFilesPage(request, pivot);
+            CatalogFilePage result;
+            foreach (file; sourcePage.files)
+                result.files ~= catalogFile(file);
+            result.hasPrevious = sourcePage.hasMore;
+            result.hasMore = result.files.length > 0;
+            if (result.hasMore)
+                result.nextCursor = filePageCursor(queryToken,
+                    result.files[$ - 1], limit);
+            if (result.hasPrevious)
+                result.previousCursor = filePageCursor(queryToken,
+                    result.files[0], limit);
+            return result;
+        });
+    }
+
     override CatalogContentSnapshot loadContent(ContentId contentId,
         CatalogDetailMask details = CatalogDetailMask.init)
     {
@@ -1944,6 +1985,28 @@ version (unittest)
             secondSizePage.previousCursor);
         assert(priorSizePage.files[0].referenceId
             == firstSizePage.files[0].referenceId);
+
+        auto afterFirstSize = sqliteBackend.listFilesFrom(sizeQuery,
+            sizePage.files[0].relativePath, true, 1);
+        assert(afterFirstSize.files.length == 1);
+        assert(afterFirstSize.files[0].referenceId
+            == sizePage.files[1].referenceId);
+        auto beforeSecondSize = sqliteBackend.listFilesFrom(sizeQuery,
+            sizePage.files[1].relativePath, false, 1);
+        assert(beforeSecondSize.files.length == 1);
+        assert(beforeSecondSize.files[0].referenceId
+            == sizePage.files[0].referenceId);
+        assert(sqliteBackend.listFilesFrom(sizeQuery,
+            sizePage.files[0].relativePath, false, 1).files.length == 0);
+        assert(sqliteBackend.listFilesFrom(sizeQuery,
+            sizePage.files[$ - 1].relativePath, true, 1).files.length == 0);
+        assert(sqliteBackend.listFilesFrom(sizeQuery, "missing.bin", true, 1)
+            .files.length == 0);
+        const auto sizeFromEmpty = sqliteBackend.listFilesFrom(sizeQuery, "",
+            true, 2);
+        assert(sizeFromEmpty.files.length == 2 && sizeFromEmpty.hasMore);
+        assert(sizeFromEmpty.files[0].referenceId
+            == sizePage.files[0].referenceId);
 
         auto wildcardTextQuery = archiveQuery;
         wildcardTextQuery.filter.pathText = "%";
