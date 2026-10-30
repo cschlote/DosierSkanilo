@@ -31,6 +31,10 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          # Tags provide the vX.Y.Z build version used by --version and the
+          # CLI integration banner checks.
+          fetch-depth: 0
 
       - name: Fix git safe.directory for container builds
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -64,6 +68,10 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          # Tags provide the vX.Y.Z build version used by --version and the
+          # CLI integration banner checks.
+          fetch-depth: 0
 
       - name: Fix git safe.directory for container builds
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -102,6 +110,10 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          # Tags provide the vX.Y.Z build version used by --version and the
+          # CLI integration banner checks.
+          fetch-depth: 0
 
       - name: Fix git safe.directory for container builds
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
@@ -142,6 +154,10 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          # Tags provide the vX.Y.Z build version used by --version and the
+          # CLI integration banner checks.
+          fetch-depth: 0
 
       - name: Deploy to staging
         run: ./scripts/deploy.sh
@@ -163,6 +179,10 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          # Tags provide the vX.Y.Z build version used by --version and the
+          # CLI integration banner checks.
+          fetch-depth: 0
 
       - name: Deploy to production placeholder
         run: echo "Deploy to production server"
@@ -184,6 +204,10 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          # Tags provide the vX.Y.Z build version used by --version and the
+          # CLI integration banner checks.
+          fetch-depth: 0
 
       - name: Fix git safe.directory for container builds
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
