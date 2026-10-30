@@ -95,7 +95,9 @@ bool validateJsonOptions(string command, ref ArgsArray options)
             || options.argDoMediaSig || options.argScanArchives
             || options.argScanTorrents || options.argRescanMediaSig
             || options.argDuplicateLimit != 100
-            || !options.argExportPath.empty)
+            || !options.argExportPath.empty
+            || (options.argOutputFormat != "table"
+                && options.argOutputFormat != "json"))
         {
             errorLine("JSON list supports only query filters and --format.");
             return false;
@@ -116,9 +118,16 @@ bool validateJsonOptions(string command, ref ArgsArray options)
             || options.argQueryAudio || options.argQueryImage
             || options.argQueryTextStream || options.argQueryFileType
             || options.argQueryArchive || options.argQueryTorrent
-            || !options.argExportPath.empty)
+            || !options.argExportPath.empty
+            || (options.argOutputFormat != "table"
+                && options.argOutputFormat != "json"))
         {
             errorLine("JSON duplicate queries support only --format and --duplicate-limit.");
+            return false;
+        }
+        if (options.argDuplicateLimit == 0)
+        {
+            errorLine("--duplicate-limit must be greater than zero.");
             return false;
         }
         return true;

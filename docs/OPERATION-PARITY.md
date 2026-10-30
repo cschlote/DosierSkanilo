@@ -26,13 +26,22 @@ repository; repository operations do not write a JSON catalog implicitly.
   ownership. A forked process
   holds the lease lock while a second acquisition is rejected, proving the
   exclusion works across processes.
-- `scripts/test-cli.sh` exercises JSON-target scan/analyze, SQLite scan with metadata,
-  standalone metadata, analysis, import/export, mode isolation, and command output.
-  It also sends SIGINT during a JSON analysis, a JSON scan, SQLite metadata, a
-  SQLite scan, a large SQLite duplicate merge, a catalog import, and a catalog
-  export, checking the cooperative cancellation message, worker shutdown, a saved
-  partial JSON catalog, a dry-run that writes nothing, a rolled-back merge, an
-  unchanged repository, and a still-usable repository.
+- `scripts/test-cli.sh` exercises JSON-target scan/analyze, SQLite scan with
+  metadata, standalone metadata, analysis, import/export, mode isolation, and
+  command output. It checks that successful scans and analyses report their
+  progress phases in lifecycle order (JSON adds its read/write phases), that
+  per-phase work counts never move backwards, and that cancellation always
+  exits with code 1 instead of 0 or the usage-error code.
+- The same script sends SIGINT during a JSON analysis, a JSON scan, SQLite
+  metadata, a SQLite scan, a large SQLite duplicate merge, a catalog import, a
+  full catalog export, and a selected (`--path`) export. It checks the
+  cooperative cancellation message, worker shutdown, a saved partial JSON
+  catalog, a dry-run that writes nothing, a rolled-back merge, an unchanged
+  repository, a still-usable repository, and that no export publishing path is
+  left behind.
+- Lease contention is checked at the process boundary: while one CLI process
+  holds the repository write lease, a second mutating command fails fast with
+  `Another mutating operation already owns target` and leaves stdout empty.
 - GUI `operationrequests.d` executes GUI-built requests against both modes and
   compares their scan, metadata, and analysis summaries. `operationtaskstate.d`
   tests acknowledged pause transitions, stale progress rejection, and refresh
@@ -40,14 +49,35 @@ repository; repository operations do not write a JSON catalog implicitly.
 - The GTK startup self-test loads the Tools menu under
   `G_DEBUG=fatal-warnings`.
 
+## Catalog read/identity parity (WP-13.6.3)
+
+The cross-adapter suites in `sqlitecatalogbackend.d` open the same fixture as a
+JSON catalog and a SQLite repository and compare:
+
+- Directory/reference resolution (`resolveDirectory`, `resolveReference`,
+  `loadReference`) and opaque `uiHandle` values, including virtual members.
+- Archive entry and member pages, nested archives, duplicate occurrences, and
+  `acquireMemberContent` extraction leases.
+- Deduplicated content rows (`listContents`), digest filters, and cursors.
+- Filtered file/directory reads and root summaries.
+- Archive-password storage and clearing by reference path.
+- Subset exports for physical and virtual paths plus import round-trip checks.
+- Duplicate groups and filtered reads on a controlled scan
+  ("JSON and SQLite backends agree on duplicate groups and filtered reads").
+
+Operation requests, cancellation, leases, and committed-state refresh stay
+covered by the WP-09 evidence above; the GUI now consumes the same catalog
+methods for trees, content rows, details, entries, and previews.
+
 ## Remaining verification
 
 - Add display-backed GTK interaction tests that start an operation from Tools,
   exercise Cancel/Pause/Resume, and verify progress and refresh in the owning tab.
 - Basic cross-process contention and lease release after a backend failure are
-  covered. Cancellation/pause while another process is active cannot occur as a
-  wait state: the write lease is non-blocking, so a second writer fails with
-  `targetBusy` immediately. Pause/cancel is verified while the first writer
+  covered, and the CLI process-boundary check above confirms the non-blocking
+  `targetBusy` behaviour. Cancellation/pause while another process is active
+  cannot occur as a wait state: the write lease is non-blocking, so a second
+  writer fails at once. Pause/cancel is verified while the first writer
   holds the lease in-process, and forked-process tests verify the operating
   system lock excludes another process. CIFS/SMB placement is documented as
   unsupported in `docs/DATABASE.md`; there is no operation-level verification to

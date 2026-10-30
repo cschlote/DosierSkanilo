@@ -633,8 +633,8 @@ RepositoryArchiveEntry[] listArchiveEntriesFromDatabase(ref Database db,
             parsed = parseArchiveVirtualPath(containerPath);
         catch (Exception)
             continue;
-        const prefix = (parsed.entries.length == 0
-            ? escapeArchiveVirtualPath(containerPath) : containerPath) ~ "!/";
+        /* Stored reference paths are already in canonical display grammar. */
+        const prefix = containerPath ~ "!/";
         const startName = ":member_start_" ~ index.to!string;
         const endName = ":member_end_" ~ index.to!string;
         rangeConditions ~= "(f.relative_path >= " ~ startName
@@ -758,6 +758,11 @@ RepositoryTorrentFile[] listTorrentFilesFromDatabase(ref Database db,
 RepositoryBlobPage loadCatalogQueryPageWithIdsFromDatabase(ref Database db,
     string rootPath, RepositoryQueryOptions options, JsonExportOptions exportOptions)
 {
+    /* The wrapper Repository methods validate the page size before calling
+     * here; this record remains directly callable from library code, so the
+     * cursor arithmetic below must not crash on a zero limit. */
+    enforce!RepositoryException(options.limit > 0,
+        "Repository query page size must be greater than zero.");
     auto statement = prepareCatalogQuery(db, "SELECT b.id FROM blobs b", options,
         true);
 
@@ -791,7 +796,8 @@ long countCatalogQueryFromDatabase(ref Database db, RepositoryQueryOptions optio
 {
     if (options.text.empty && !options.video && !options.audio && !options.image
         && !options.textStream && !options.fileType && !options.archive
-        && !options.torrent && options.blobIds.length == 0)
+        && !options.torrent && options.blobIds.length == 0
+        && !options.referencedOnly)
         return db.execute("SELECT count(*) FROM blobs").oneValue!long;
     auto statement = prepareCatalogQuery(db, "SELECT count(*) FROM blobs b",
         options, false);
@@ -802,6 +808,8 @@ private Statement prepareCatalogQuery(ref Database db, string selectSql,
     RepositoryQueryOptions options, bool paged)
 {
     string sql = selectSql ~ " WHERE 1 = 1";
+    if (options.referencedOnly)
+        sql ~= " AND EXISTS (SELECT 1 FROM file_refs f WHERE f.blob_id = b.id)";
     string[] blobIdParameters;
     if (options.blobIds.length > 0)
     {

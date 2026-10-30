@@ -6,6 +6,7 @@
  */
 module dosierskanilo.progress;
 
+import std.algorithm.searching : canFind, endsWith;
 import std.array : array;
 import std.conv : text, to;
 import std.datetime : Clock, Duration, SysTime, dur;
@@ -141,10 +142,13 @@ unittest
  */
 string makeProgressString(size_t i, size_t m)
 {
+	/* Per-thread spinner state: metadata workers render progress lines from
+	 * concurrent threads, and a shared static index would race. */
 	static int q = 0;
 	char[] p = ['-', '\\', '|', '/', '-', '|', '/', '-'];
-	auto result = format("%c %.6f", p[q++], (i.to!float / m.to!float));
-	q &= 0x7;
+	const auto ratio = m == 0 ? 0.0f : (i.to!float / m.to!float);
+	auto result = format("%c %.6f", p[q], ratio);
+	q = (q + 1) & 0x7;
 	return result;
 }
 
@@ -157,6 +161,9 @@ unittest
 	assert(s2.startsWith("\\ 0.500000"), s2);
 	auto s3 = makeProgressString(100, 100);
 	assert(s3.startsWith("| 1.000000"), s3);
+	assert(!makeProgressString(0, 0).canFind("nan"));
+	auto s4 = makeProgressString(0, 0);
+	assert(s4.endsWith("0.000000"), s4);
 }
 
 private SysTime lastProgress;

@@ -512,7 +512,9 @@ class NamedBinaryBlob
 				{
 					/* A virtual member exists as long as its container exists;
 					 * its own path is not a file on disk. Keep the original spec
-					 * so the escaped grammar is not lost. */
+					 * so the escaped grammar is not lost. For non-virtual paths
+					 * the parsed physical name is the openable disk name; the
+					 * legacy scanner re-escapes it when writing specs back. */
 					ParsedArchiveVirtualPath parsed;
 					try
 						parsed = parseArchiveVirtualPath(spec.fileName);

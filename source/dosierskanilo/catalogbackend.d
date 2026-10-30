@@ -5,6 +5,7 @@ import std.algorithm.searching : canFind;
 import std.exception : enforce;
 import std.string : split, startsWith;
 
+import dosierskanilo.membercontentcache : MemberContentLease;
 import dosierskanilo.model.filespec : FileSpec;
 import dosierskanilo.model.namedbinaryblob : NamedBinaryBlob;
 import dosierskanilo.operations : AnalysisOperationRequest, MetadataOperationRequest,
@@ -500,6 +501,47 @@ struct CatalogFilePage
     bool hasPrevious; /// A prior page exists.
 }
 
+/** Query deduplicated content rows for table-oriented projections. */
+struct CatalogContentQuery
+{
+    /**
+     * Reference filters. `pathText` matches a root-relative path substring and
+     * also accepts an exact base64 SHA-1 digest of the content.
+     */
+    CatalogFilter filter;
+}
+
+/** One deduplicated content row with representative reference details. */
+struct CatalogContentRow
+{
+    ContentId id; /// Content identity shared by all references.
+    string displayPath; /// Representative source-relative reference path.
+    string displayName; /// Final component of `displayPath`.
+    ulong size; /// Content size in bytes.
+    size_t referenceCount; /// References sharing this content.
+    CatalogContentFingerprint fingerprint; /// Known digests.
+    CatalogReferenceAvailability availability; /// Representative availability.
+    bool hasFileType; /// File-type metadata exists.
+    bool hasMedia; /// One or more media streams exist.
+    bool hasVideo; /// At least one video stream exists.
+    bool hasAudio; /// At least one audio stream exists.
+    bool hasImage; /// At least one image stream exists.
+    bool hasText; /// At least one text/subtitle stream exists.
+    bool hasArchive; /// Archive metadata exists.
+    bool hasTorrent; /// Torrent metadata exists.
+}
+
+/** One bounded page of deduplicated content rows. */
+struct CatalogContentPage
+{
+    CatalogContentRow[] rows; /// Detached rows in stable source content order.
+    CatalogPageCursor nextCursor; /// Forward continuation.
+    CatalogPageCursor previousCursor; /// Backward continuation.
+    bool hasMore; /// Additional rows follow this page.
+    bool hasPrevious; /// A prior page exists.
+    size_t total; /// Total matching rows for the query.
+}
+
 /** Select optional detail families loaded with a content snapshot. */
 struct CatalogDetailMask
 {
@@ -700,6 +742,33 @@ interface CatalogBackend
     /** Continue backward and return rows in the query's display order. */
     CatalogFilePage previousFilesPage(CatalogFileQuery query, CatalogPageCursor cursor);
 
+    /**
+     * Return a bounded page adjacent to a reference for stateless navigation.
+     *
+     * `anchorRelativePath` names a reference in the same directory and filter.
+     * A forward page starts strictly after it; a backward page ends strictly
+     * before it and returns the nearest matches in display order. An empty
+     * anchor starts at the first file for forward requests and yields an empty
+     * page otherwise. Unknown anchors yield an empty page so callers can drop
+     * stale UI state instead of guessing a position.
+     */
+    CatalogFilePage listFilesFrom(CatalogFileQuery query, string anchorRelativePath,
+        bool forward, size_t limit = 250);
+
+    /** List deduplicated content rows for table-oriented projections. */
+    CatalogContentPage listContents(CatalogContentQuery query,
+        CatalogPageRequest page = CatalogPageRequest.init);
+
+    /**
+     * Store or clear the archive password for one reference path.
+     *
+     * The path is resolved like `resolveReference`; a unique basename is also
+     * accepted. An empty password clears the stored value. Unknown or ambiguous
+     * paths raise `invalidIdentifier`, unsupported stores raise
+     * `unsupportedFeature`.
+     */
+    void setArchivePassword(string relativePath, string password);
+
     /** Load one detached content snapshot, including only requested details. */
     CatalogContentSnapshot loadContent(ContentId contentId,
         CatalogDetailMask details = CatalogDetailMask.init);
@@ -715,6 +784,78 @@ interface CatalogBackend
     /** Page through torrent manifest descriptors for one content record. */
     CatalogTorrentEntryPage listTorrentEntries(ContentId contentId,
         CatalogPageRequest page = CatalogPageRequest.init);
+
+    /**
+     * Resolve a root-relative directory path to its typed identity.
+     *
+     * An empty path (or ".") denotes the source root and returns an invalid ID.
+     * An unknown path also returns an invalid ID; callers must not treat
+     * unresolved paths as errors during state restoration.
+     */
+    DirectoryId resolveDirectory(string relativePath);
+
+    /**
+     * Resolve a root-relative reference path to its typed identity.
+     *
+     * Canonical virtual member paths (`container!/member`) are accepted. An
+     * unknown path returns an invalid ID.
+     */
+    ReferenceId resolveReference(string relativePath);
+
+    /**
+     * Load one reference row by typed identity.
+     *
+     * Throws: `CatalogBackendException` with `invalidIdentifier` when the
+     *     reference is unknown or belongs to another source.
+     */
+    CatalogFile loadReference(ReferenceId referenceId);
+
+    /**
+     * Extract one archive member through the process-wide leased cache.
+     *
+     * The backend resolves the container chain, looks up stored container
+     * passwords, and returns a lease the caller must release. Extraction
+     * failures surface as typed backend errors; cache capacity and close
+     * failures are reported by the cache.
+     */
+    MemberContentLease acquireMemberContent(ReferenceId memberReferenceId,
+        shared(bool)* cancellation = null);
+
+    /**
+     * Opaque key for UI tree/list models.
+     *
+     * The value is stable while this backend instance is open, differs between
+     * identifier kinds, and must never be parsed or persisted. Use
+     * `resolveDirectory`/`resolveReference` to restore UI state by path.
+     */
+    final string uiHandle(DirectoryId id)
+    {
+        if (!id.isValid)
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.invalidIdentifier,
+                "Cannot build a UI handle for an invalid directory identity.");
+        return "dir:" ~ id.adapterToken;
+    }
+
+    /// Opaque reference key for UI models; see the directory overload.
+    final string uiHandle(ReferenceId id)
+    {
+        if (!id.isValid)
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.invalidIdentifier,
+                "Cannot build a UI handle for an invalid reference identity.");
+        return "ref:" ~ id.adapterToken;
+    }
+
+    /// Opaque content key for UI models; see the directory overload.
+    final string uiHandle(ContentId id)
+    {
+        if (!id.isValid)
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.invalidIdentifier,
+                "Cannot build a UI handle for an invalid content identity.");
+        return "content:" ~ id.adapterToken;
+    }
 
     /** Page through repository-style blob query results. */
     RepositoryBlobPage queryBlobs(RepositoryQueryOptions options);
@@ -1043,6 +1184,133 @@ version (unittest)
             return result;
         }
 
+        override CatalogContentPage listContents(CatalogContentQuery query,
+            CatalogPageRequest page = CatalogPageRequest.init)
+        {
+            requireTreeQueries();
+            if (page.limit == 0)
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.invalidCursor,
+                    "Catalog page limit must be greater than zero.");
+            const auto queryToken = "contents\0" ~ filterToken(query.filter);
+            if (page.cursor.isValid)
+            {
+                if (page.cursor.adapterQueryToken != queryToken
+                    || page.limit != page.cursor.adapterPageSize)
+                    throw new CatalogBackendException(
+                        CatalogBackendErrorCode.invalidCursor,
+                        "Catalog cursor belongs to a different query or page size.");
+            }
+
+            CatalogContentRow[] all;
+            size_t[string] indexByContent;
+            foreach (file; files)
+            {
+                const token = file.contentId.adapterToken;
+                auto index = token in indexByContent;
+                if (index is null)
+                {
+                    CatalogContentRow row;
+                    row.id = file.contentId;
+                    row.displayPath = file.relativePath;
+                    row.displayName = file.name;
+                    row.size = file.size;
+                    row.referenceCount = 1;
+                    row.availability = file.availability;
+                    row.hasFileType = file.hasFileType;
+                    row.hasMedia = file.hasMedia;
+                    row.hasVideo = file.hasVideo;
+                    row.hasAudio = file.hasAudio;
+                    row.hasImage = file.hasImage;
+                    row.hasText = file.hasText;
+                    row.hasArchive = file.hasArchive;
+                    row.hasTorrent = file.hasTorrent;
+                    indexByContent[token] = all.length;
+                    all ~= row;
+                    continue;
+                }
+                auto row = &all[*index];
+                ++row.referenceCount;
+                if (file.relativePath < row.displayPath)
+                {
+                    row.displayPath = file.relativePath;
+                    row.displayName = file.name;
+                }
+                row.hasFileType = row.hasFileType || file.hasFileType;
+                row.hasMedia = row.hasMedia || file.hasMedia;
+                row.hasVideo = row.hasVideo || file.hasVideo;
+                row.hasAudio = row.hasAudio || file.hasAudio;
+                row.hasImage = row.hasImage || file.hasImage;
+                row.hasText = row.hasText || file.hasText;
+                row.hasArchive = row.hasArchive || file.hasArchive;
+                row.hasTorrent = row.hasTorrent || file.hasTorrent;
+            }
+
+            CatalogContentRow[] matching;
+            foreach (row; all)
+            {
+                bool pathMatch;
+                foreach (file; files)
+                {
+                    if (file.contentId != row.id)
+                        continue;
+                    if (matches(file, query.filter))
+                    {
+                        pathMatch = true;
+                        break;
+                    }
+                }
+                if (pathMatch)
+                    matching ~= row;
+            }
+            const auto start = page.cursor.isValid ? page.cursor.adapterIndex : 0;
+            if (start > matching.length)
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.invalidCursor,
+                    "Catalog cursor is outside this query result.");
+            const auto end = start + page.limit < matching.length
+                ? start + page.limit : matching.length;
+            CatalogContentPage result;
+            result.rows = matching[start .. end];
+            result.total = matching.length;
+            result.hasPrevious = start > 0;
+            if (result.hasPrevious)
+                result.previousCursor = CatalogPageCursor(start > page.limit
+                    ? start - page.limit : 0, page.limit, queryToken);
+            result.hasMore = end < matching.length;
+            if (result.hasMore)
+                result.nextCursor = CatalogPageCursor(end, page.limit, queryToken);
+            return result;
+        }
+
+        private string[string] archivePasswords;
+
+        override void setArchivePassword(string relativePath, string password)
+        {
+            requireOpen();
+            size_t[] exact;
+            size_t[] byName;
+            foreach (index, file; files)
+                if (file.relativePath == relativePath)
+                    exact ~= index;
+                else if (baseName(file.relativePath) == relativePath
+                    && baseName(relativePath) == relativePath)
+                    byName ~= index;
+            const auto matches = exact.length > 0 ? exact : byName;
+            if (matches.length == 0)
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.invalidIdentifier,
+                    "No catalog reference matches the requested path.");
+            if (matches.length > 1)
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.invalidIdentifier,
+                    "The requested filename is ambiguous in this catalog.");
+            if (password.length == 0)
+                archivePasswords.remove(files[matches[0]].relativePath);
+            else
+                archivePasswords[files[matches[0]].relativePath] = password;
+        }
+
         override OperationTarget target()
         {
             requireOpen();
@@ -1171,6 +1439,55 @@ version (unittest)
             return filePage(query, CatalogPageRequest(cursor.pageSize, cursor));
         }
 
+        override CatalogFilePage listFilesFrom(CatalogFileQuery query,
+            string anchorRelativePath, bool forward, size_t limit = 250)
+        {
+            requireTreeQueries();
+            if (limit == 0)
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.invalidCursor,
+                    "Catalog page limit must be greater than zero.");
+            auto all = filteredFiles(query);
+            if (anchorRelativePath.length == 0)
+            {
+                if (!forward || all.length == 0)
+                    return CatalogFilePage.init;
+                CatalogFilePage result;
+                const auto end = limit < all.length ? limit : all.length;
+                result.files = all[0 .. end];
+                result.hasMore = end < all.length;
+                if (result.hasMore)
+                    result.nextCursor = CatalogPageCursor(end, limit,
+                        fileQueryToken(query));
+                return result;
+            }
+            size_t anchor = size_t.max;
+            foreach (index, file; all)
+                if (file.relativePath == anchorRelativePath)
+                {
+                    anchor = index;
+                    break;
+                }
+            if (anchor == size_t.max)
+                return CatalogFilePage.init;
+            const size_t start = forward ? anchor + 1
+                : (anchor > limit ? anchor - limit : 0);
+            const size_t end = forward
+                ? (start + limit < all.length ? start + limit : all.length)
+                : anchor;
+            CatalogFilePage result;
+            result.files = all[start .. end];
+            result.hasPrevious = start > 0;
+            if (result.hasPrevious)
+                result.previousCursor = CatalogPageCursor(start > limit
+                    ? start - limit : 0, limit, fileQueryToken(query));
+            result.hasMore = forward ? end < all.length : anchor < all.length;
+            if (result.hasMore)
+                result.nextCursor = CatalogPageCursor(end, limit,
+                    fileQueryToken(query));
+            return result;
+        }
+
         override CatalogContentSnapshot loadContent(ContentId contentId,
             CatalogDetailMask details = CatalogDetailMask.init)
         {
@@ -1282,6 +1599,56 @@ version (unittest)
             if (!page.cursor.isValid || page.cursor.index == 0)
                 result.entries = [CatalogTorrentManifestEntry(["payload.bin"], 10)];
             return result;
+        }
+
+        override DirectoryId resolveDirectory(string relativePath)
+        {
+            requireTreeQueries();
+            if (relativePath.length == 0 || relativePath == ".")
+                return DirectoryId.init;
+            foreach (directory; directories)
+                if (directory.relativePath == relativePath)
+                    return directory.id;
+            return DirectoryId.init;
+        }
+
+        override ReferenceId resolveReference(string relativePath)
+        {
+            requireTreeQueries();
+            foreach (file; files)
+                if (file.relativePath == relativePath)
+                    return file.referenceId;
+            foreach (container; files)
+                if (container.hasArchive)
+                    foreach (member; archiveMembersFor(container))
+                        if (member.relativePath == relativePath)
+                            return member.referenceId;
+            return ReferenceId.init;
+        }
+
+        override CatalogFile loadReference(ReferenceId referenceId)
+        {
+            requireTreeQueries();
+            foreach (file; files)
+                if (file.referenceId == referenceId)
+                    return file;
+            foreach (container; files)
+                if (container.hasArchive)
+                    foreach (member; archiveMembersFor(container))
+                        if (member.referenceId == referenceId)
+                            return member;
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.invalidIdentifier,
+                "Unknown reference identity.");
+        }
+
+        override MemberContentLease acquireMemberContent(
+            ReferenceId memberReferenceId, shared(bool)* cancellation = null)
+        {
+            requireTreeQueries();
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.unsupportedFeature,
+                "The in-memory contract test backend cannot extract members.");
         }
 
         override RepositoryBlobPage queryBlobs(RepositoryQueryOptions options)
@@ -1570,6 +1937,75 @@ version (unittest)
                 == CatalogBackendErrorCode.invalidCursor;
         assert(rejectedCrossSourceCursor);
         otherBackend.close();
+
+        /* UI handles are opaque kind-scoped keys; paths resolve back to IDs. */
+        assert(backend.uiHandle(firstPage.files[0].referenceId)
+            .startsWith("ref:"));
+        assert(backend.uiHandle(firstPage.files[0].contentId)
+            .startsWith("content:"));
+        assert(backend.uiHandle(firstDirectories.directories[0].id)
+            .startsWith("dir:"));
+        assert(backend.uiHandle(firstPage.files[0].referenceId)
+            != backend.uiHandle(firstPage.files[0].contentId));
+        bool rejectedInvalidHandle;
+        try
+            backend.uiHandle(ReferenceId.init);
+        catch (CatalogBackendException failure)
+            rejectedInvalidHandle = failure.code
+                == CatalogBackendErrorCode.invalidIdentifier;
+        assert(rejectedInvalidHandle);
+
+        /* Content rows collapse duplicate references into one display row. */
+        auto contentPage = backend.listContents(CatalogContentQuery.init);
+        assert(contentPage.total == 2);
+        assert(contentPage.rows.length == 2);
+        assert(contentPage.rows[0].displayPath == "a/one.txt");
+        assert(contentPage.rows[0].referenceCount == 3);
+        assert(contentPage.rows[1].displayPath == "b/photo.bmp");
+        assert(contentPage.rows[1].referenceCount == 1);
+        assert(contentPage.rows[1].hasImage);
+        CatalogContentQuery contentTextQuery;
+        contentTextQuery.filter.pathText = "photo";
+        const auto filteredContents = backend.listContents(contentTextQuery);
+        assert(filteredContents.rows.length == 1);
+        assert(filteredContents.rows[0].displayPath == "b/photo.bmp");
+        CatalogPageRequest contentRequest;
+        contentRequest.limit = 1;
+        const auto firstContents = backend.listContents(CatalogContentQuery.init,
+            contentRequest);
+        assert(firstContents.rows.length == 1 && firstContents.hasMore);
+        const auto secondContents = backend.listContents(
+            CatalogContentQuery.init,
+            CatalogPageRequest(1, firstContents.nextCursor));
+        assert(secondContents.rows.length == 1 && !secondContents.hasMore);
+
+        /* Archive passwords are stored by reference path. */
+        backend.setArchivePassword("a/one.txt", "secret");
+        backend.setArchivePassword("a/one.txt", "");
+        bool rejectedUnknownPasswordPath;
+        try
+            backend.setArchivePassword("missing.txt", "secret");
+        catch (CatalogBackendException failure)
+            rejectedUnknownPasswordPath = failure.code
+                == CatalogBackendErrorCode.invalidIdentifier;
+        assert(rejectedUnknownPasswordPath);
+
+        assert(backend.resolveDirectory("a")
+            == firstDirectories.directories[0].id);
+        assert(!backend.resolveDirectory("").isValid);
+        assert(!backend.resolveDirectory("a/missing").isValid);
+        assert(backend.resolveReference("a/one.txt")
+            == firstPage.files[0].referenceId);
+        assert(!backend.resolveReference("a/missing.txt").isValid);
+        assert(backend.loadReference(firstPage.files[0].referenceId).relativePath
+            == "a/one.txt");
+        bool rejectedMissingReference;
+        try
+            backend.loadReference(ReferenceId.init);
+        catch (CatalogBackendException failure)
+            rejectedMissingReference = failure.code
+                == CatalogBackendErrorCode.invalidIdentifier;
+        assert(rejectedMissingReference);
 
         const auto details = backend.loadContent(firstPage.files[0].contentId,
             CatalogDetailMask(true, false, false, false, false));

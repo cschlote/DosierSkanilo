@@ -7,9 +7,12 @@
 module dosierskanilo.service.storageio;
 
 import std.exception;
+import core.atomic : atomicFetchAdd;
+import std.conv : to;
 import std.datetime.systime;
 import std.file;
 import std.path;
+import std.process : thisProcessID;
 import std.string : replace;
 import std.uuid;
 
@@ -112,19 +115,25 @@ unittest
 @("writeStorageJsonFile roundtrip and backup")
 unittest
 {
+    import std.algorithm.searching : startsWith;
+    import std.array : array;
     import std.file : exists, readText, remove, getcwd;
-    import std.path : buildPath;
+    import std.path : baseName, buildPath, dirName;
 
     auto stamp = "2000-01-01T00:00:00";
     auto safeStamp = stamp.replace(":", "-");
     auto jsonFile = buildPath(tempDir(), "storageio-write-" ~ safeStamp ~ ".json");
-    auto backupFile = buildPath(tempDir(), "storageio-write-" ~ safeStamp ~ "-" ~ safeStamp ~ ".json");
+    const backupPrefix = "storageio-write-" ~ safeStamp ~ "-" ~ safeStamp;
+    const backupDirectory = jsonFile.dirName;
     scope (exit)
     {
         if (exists(jsonFile))
             remove(jsonFile);
-        if (exists(backupFile))
-            remove(backupFile);
+        foreach (DirEntry candidate; dirEntries(backupDirectory,
+            SpanMode.shallow))
+            if (candidate.name.baseName.startsWith(backupPrefix)
+                && candidate.name != jsonFile)
+                remove(candidate.name);
     }
 
     NamedBinaryBlob[] objs;
@@ -135,7 +144,12 @@ unittest
     assert(readText(jsonFile).length > 0);
 
     assert(writeStorageJsonFile(jsonFile, objs, ".json", stamp));
-    assert(exists(backupFile));
+    bool foundBackup;
+    foreach (DirEntry candidate; dirEntries(backupDirectory, SpanMode.shallow))
+        if (candidate.name.baseName.startsWith(backupPrefix)
+            && candidate.name != jsonFile)
+            foundBackup = true;
+    assert(foundBackup);
     assert(exists(jsonFile));
 }
 
@@ -154,8 +168,14 @@ unittest
 private string getBackupFileName(string originalFile, string extension,
     string nowString = Clock.currTime.toISOExtString(), string backupDirectory = "")
 {
+    /* Second-resolution timestamps alone collide when two catalog writes
+     * happen within the same second (or import); disambiguate with the
+     * process id and a per-process serial. */
+    __gshared size_t backupSerial;
+    auto serial = atomicFetchAdd(backupSerial, 1) + 1;
     auto basename = originalFile.baseName(extension);
-    auto backupName = basename ~ "-" ~ nowString.replace(":", "-") ~ extension;
+    auto backupName = basename ~ "-" ~ nowString.replace(":", "-")
+        ~ "-" ~ thisProcessID.to!string ~ "-" ~ serial.to!string ~ extension;
     /* Keep backups next to the catalog they belong to, so catalogs with the
      * same base name in different directories cannot collide. */
     return buildPath(backupDirectory.length > 0 ? backupDirectory
@@ -440,6 +460,7 @@ bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlob[] dynObjectArray,
 @("writeStorageJsonFile")
 unittest
 {
+    import std.algorithm.searching : startsWith;
     import std.process;
     import std.conv : text;
 
@@ -469,15 +490,24 @@ unittest
     assert(readObjs[0].fileSpecs.length == 1, "Object size should match.");
     assert(readObjs[0].getFirstFileModDate == currtimestr, "Object lastModified should match.");
 
-    // Save some data again, which should trigger backup of the existing file
-    auto backupFile = getBackupFileName(tempFile, ".json", currtimestr);
+    // Save some data again, which should trigger backup of the existing file.
+    // The writer derives its own unique backup name; find it by prefix.
+    const backupPrefix = tempFile.baseName(".json") ~ "-"
+        ~ currtimestr.replace(":", "-");
+    const backupDirectory = tempFile.dirName;
     scope (exit)
-    {
-        if (exists(backupFile))
-            remove(backupFile);
-    }
+        foreach (DirEntry candidate; dirEntries(backupDirectory,
+            SpanMode.shallow))
+            if (candidate.name.baseName.startsWith(backupPrefix)
+                && candidate.name != tempFile)
+                remove(candidate.name);
     assert(writeStorageJsonFile(tempFile, objs, ".json", currtimestr), "Should write storage file and create backup.");
     assert(exists(tempFile), "Storage file should exist after writing.");
-    assert(exists(backupFile), "Backup file should exist after writing existing file.");
+    bool foundBackup;
+    foreach (DirEntry candidate; dirEntries(backupDirectory, SpanMode.shallow))
+        if (candidate.name.baseName.startsWith(backupPrefix)
+            && candidate.name != tempFile)
+            foundBackup = true;
+    assert(foundBackup, "Backup file should exist after writing existing file.");
 
 }

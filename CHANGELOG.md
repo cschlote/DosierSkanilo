@@ -7,7 +7,60 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
-## Unreleased
+## Release 26.13.0 - 2026-10-30
+
+- The catalog contract now supports path-based UI state restoration
+  (`resolveDirectory`, `resolveReference`, `loadReference`), opaque per-instance
+  `uiHandle` keys for UI models, and backend-owned archive-member extraction
+  (`acquireMemberContent`) that resolves nested container chains and stored
+  passwords into the shared leased cache, plus `listFilesFrom` for stateless
+  previous/next navigation around a named reference, and `listContents` for
+  deduplicated table projections with an optional base64 SHA-1 filter. Adapters
+  also persist archive passwords by reference path, so frontends no longer need
+  storage-specific writers. JSON and SQLite adapters implement the surface and
+  are cross-checked against each other. JSON content-row queries use an inverse
+  content-token index instead of scanning all tokens per blob. CLI export path
+  validation walks only the relevant directory branches. Destructive metadata
+  cleanup now runs only after a completed run and inside one transaction, and
+  JSON metadata jobs stop between work phases when cancellation is requested.
+  Archive entries of containers whose filename contains `!` are listed and
+  exported again instead of being treated as nested archive paths.
+
+- The process-wide archive-member cache can be closed explicitly with
+  `closeSharedMemberContentCache()`. It reports `false` while leased members
+  are still active, so frontends can stop previews first and otherwise defer
+  cleanup to the process-exit destructor.
+
+- CLI usage errors surface earlier and consistently: `--format` must be
+  `table` or `json` for JSON `list`/`duplicates`, `--duplicate-limit` must
+  be positive, and the exit-code contract (0 success, 1 operation failure,
+  2 usage error) is documented. Backup and database snapshot names no
+  longer collide within one second, progress output no longer renders
+  `NaN` for empty totals, and the integration/lint scripts work from any
+  working directory.
+
+- Catalog queries reject a zero page size with a typed repository error
+  instead of crashing on cursor arithmetic, repository page wrappers raise
+  typed errors consistently, and JSON catalog directory listings now report
+  file counts and aggregate sizes that match the active filter like the
+  SQLite backend. The legacy scanner re-escapes canonical `!!` filenames
+  when writing back scanned file references, so `!`-named files keep a
+  single catalog record across rescans.
+
+- The archive-member content cache no longer loses lease accounting when a
+  cached member file disappears externally while it is still leased: leases
+  track their entry directly and `close()` refuses while any lease is
+  outstanding, so leased paths can no longer be deleted under an extractor
+  or preview. Cache sessions are protected by their flock before they become
+  visible to stale-session cleanup, and the process-wide cache swap is
+  documented as usable only before worker start.
+
+- JSON scans and analysis runs no longer abort on the first unreadable file
+  or corrupt archive: metadata extraction now isolates failures per blob and
+  per extractor job, counts them in the operation summary, and continues
+  with the remaining files. Extracted media signatures no longer store
+  unparsable stream references, which could crash later duplicate-merge
+  equality checks; existing catalogs containing such entries are tolerated.
 
 - JSON scans and metadata runs no longer fail with `Cannot open file ... in
   mode 'rb'` for archive members that lack digests: the checksum, file-type,

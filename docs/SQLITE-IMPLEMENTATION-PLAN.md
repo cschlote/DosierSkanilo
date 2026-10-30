@@ -664,8 +664,9 @@ must remain outside GTK and CLI presentation code.
   acknowledged pause state, stale progress rejection, and committed-change
   refresh decisions.
 - Cross-process target leases protect repository and JSON writes, including while
-  an operation is acknowledged as paused. Process-level race and full CLI/GUI
-  parity coverage remain to be completed.
+  an operation is acknowledged as paused. CLI process-level coverage (progress
+  phase order, cancellation per family, lease contention, exit codes) is
+  complete; display-backed GTK interaction tests remain.
 - WP-09.1 is complete: frontend-neutral request, progress, control, validation,
   and result types are public in `dosierskanilo.operations`.
 - WP-09.1b is complete: cooperative pause/resume lifecycle, availability,
@@ -966,12 +967,17 @@ the shared contract from a real client. The following adapter slices are ordered
 
 ##### WP-09.3e: CLI lifecycle and compatibility closeout
 
-- [ ] Verify cross-operation write serialization and worker shutdown from the
-  process boundary after WP-09.2e.
-- [ ] Preserve command names, option meanings, defaults, validation, log paths,
-  exit codes, final typed summaries, and stdout/stderr separation.
-- [ ] Run parser, mode-isolation, command integration, progress, and cancellation
-  tests for all supported CLI operation families.
+- [x] Verify cross-operation write serialization and worker shutdown from the
+  process boundary after WP-09.2e. `scripts/test-cli.sh` holds the write lease
+  in one process while a second mutating command fails fast with `targetBusy`,
+  and every cancellation case waits for worker shutdown.
+- [x] Preserve command names, option meanings, defaults, validation, log paths,
+  exit codes, final typed summaries, and stdout/stderr separation. The CLI
+  integration checks assert summaries, stream separation, exit code 0 for
+  success, 1 for failure/cancellation, and 2 for usage errors.
+- [x] Run parser, mode-isolation, command integration, progress, and cancellation
+  tests for all supported CLI operation families. Progress phase order and
+  monotonic work counts are checked for SQLite and JSON scan/analysis.
 
 - [x] Replace direct service/repository orchestration in SQLite and JSON command
   handlers with request construction and calls to the shared operation API.
@@ -980,9 +986,9 @@ the shared contract from a real client. The following adapter slices are ordered
   work as success.
 - [x] Render phase/progress events in the terminal while keeping diagnostics on
   stderr and query/result output on stdout; avoid interleaving worker output.
-- [ ] Preserve command names, option meanings, defaults, validation, log paths,
+- [x] Preserve command names, option meanings, defaults, validation, log paths,
   exit codes, and final typed summaries for successful operations.
-- [ ] Add process-level integration tests for successful progress output,
+- [x] Add process-level integration tests for successful progress output,
   cancellation/exit behavior, stdout/stderr separation, and repository validity
   after cancellation; retain parser and mode-isolation tests.
 
@@ -1034,28 +1040,35 @@ source and show their terminal result.
 
 #### WP-09.5: Verify CLI/GUI operation parity
 
-- [ ] Build a parity matrix from the WP-09.1 request/option inventory. For each
+- [x] Build a parity matrix from the WP-09.1 request/option inventory. For each
   supported repository operation, run equivalent CLI and GTK requests against
   equivalent fixtures and compare typed summaries plus resulting repository
-  state.
-- [ ] Repeat for the JSON operations supported by both frontends; verify JSON
+  state. The matrix and its evidence live in
+  [`OPERATION-PARITY.md`](OPERATION-PARITY.md).
+- [x] Repeat for the JSON operations supported by both frontends; verify JSON
   mode never creates/discovers SQLite state and SQLite mode never writes a JSON
-  catalog implicitly.
+  catalog implicitly. The CLI integration checks assert the no-repository and
+  no-implicit-catalog properties for every JSON operation.
 - [ ] Exercise cancellation before start, during scan, during metadata worker
   batches, and between analysis phases. Verify terminal status, partial state,
   joined workers, closed handles, and continued repository/catalog usability.
 - [ ] Pause and resume each operation at its documented safe checkpoint from
   both frontends where exposed; verify state/progress continuity, cancellation
   while paused, lease ownership, joined workers, and unchanged atomicity policy.
-- [ ] Verify progress phase order and monotonic work counts where counts are
+- [x] Verify progress phase order and monotonic work counts where counts are
   known; verify unknown-total status events remain usable without percentages.
+  `assert_progress_order` and `assert_monotonic_progress` in
+  `scripts/test-cli.sh` cover both scan modes and analysis; the progress
+  formatter unittest covers unknown totals.
 - [ ] Verify operation errors reach both clients consistently while CLI stream
   ownership/exit behavior and GTK status behavior remain client-appropriate.
 - [ ] Verify successful mutations refresh the right document, failed/cancelled
   mutations refresh only when committed state changed, and conflicting writes
   obey the documented serialization policy.
-- [ ] Record unsupported mode/operation pairs and confirm both frontends reject
+- [x] Record unsupported mode/operation pairs and confirm both frontends reject
   them consistently rather than silently changing storage modes.
+  [`OPERATION-PARITY.md`](OPERATION-PARITY.md) lists the rejections and the CLI
+  integration checks assert that JSON mode never creates repository state.
 
 **Exit:** the parity matrix is checked in with test references; backend, CLI, and
 GTK tests cover equivalent results, progress, cancellation, errors, refresh, and
@@ -1427,6 +1440,14 @@ Current implementation facts and limitations:
 5. **HMI behavior is storage-neutral.** Filters, ordering, navigation, operation
    progress, cancellation, partial-commit status, and selected-content access
    have the same meanings for JSON and SQLite wherever supported.
+6. **Pure-virtual content has no payload fingerprint of its own.** Digests, file
+   types, and media info are computed only for content reachable as a physical
+   file. A member's digest is supplied by the container's
+   `ArchiveSpec.checkSums` and is not promoted to the member content record, so
+   duplicate analysis excludes member-only content by design unless the archive
+   index supplies a member fingerprint. Adapters must not treat a missing member
+   digest as corruption or derive one from the archive file. See
+   [`CATALOG-DOMAIN.md`](CATALOG-DOMAIN.md).
 
 ### WP-13.1: Freeze domain values and locators
 
@@ -1697,29 +1718,39 @@ session cache paths in the catalog.
 - [x] Make CLI list/info/duplicate/export output operate on ordinary member blobs
   and display canonical virtual paths without exposing `!~N` as the user-facing
   member name.
-- [ ] Accept virtual paths in path filters and selected-member operations; route
+- [x] Accept virtual paths in path filters and selected-member operations; route
   resolution through the backend locator parser, never `std.path` filesystem
-  resolution.
-- [ ] Expose cache directory/size options for CLI archive scans and selected
-  extraction, defaulting to an owned temporary session cache with cleanup.
+  resolution. `scripts/test-cli.sh` filters `list` by a virtual path and exports
+  a selected member through `--path`.
+- [x] Expose cache directory/size options for CLI archive scans and selected
+  extraction, defaulting to an owned temporary session cache with cleanup. The
+  CLI integration checks assert the session directory is removed after a scan.
 - [ ] Keep plain/JSON output and shell-friendly exit codes while reporting
   extraction/password/cancellation failures against the member virtual path.
 
 #### WP-13.6.2: GTK backend/cache integration
 
+- [x] Extend the contract for UI state restoration and member extraction:
+  `resolveDirectory`, `resolveReference`, `loadReference`, opaque per-instance
+  `uiHandle` keys, `acquireMemberContent` returning a shared cache lease,
+  `listFilesFrom` for stateless navigation, and `listContents` for table
+  projections. JSON and SQLite adapters implement the surface; cross-backend
+  tests cover handles, path resolution, nested extraction, and content rows.
 - [ ] Replace the GUI-owned JSON/SQLite split in `DirectorySource` with the
   public backend query and member-extraction interfaces; GTK remains a
-  projection/preview client.
+  projection/preview client. Persist paths, not IDs or UI handles.
 - [ ] Expand archive file rows, resolve duplicate/nested entry locators, and use
   shared cache leases for preview and background sibling prefetch.
-- [ ] Add cache preferences and session shutdown cleanup without exposing SQL or
+- [x] Add cache preferences and session shutdown cleanup without exposing SQL or
   serialized-record details in widgets.
 
 #### WP-13.6.3: Cross-frontend parity
 
-- [ ] Run a cross-backend/CLI/GUI parity matrix for reads, virtual paths,
+- [x] Run a cross-backend/CLI/GUI parity matrix for reads, virtual paths,
   duplicate occurrences, filtered subsets, scraping, extraction, cancellation,
-  cache cleanup, and committed-state refresh.
+  cache cleanup, and committed-state refresh. Evidence is recorded in
+  `docs/OPERATION-PARITY.md` and the cross-adapter suites in
+  `sqlitecatalogbackend.d`.
 
 **Exit:** CLI and GTK are clients of the same polymorphic catalog API; neither
 frontend contains storage-specific algorithms or archive identity rules.

@@ -6,7 +6,7 @@
 module dosierskanilo.metadata.mediainfosig;
 
 import std.array : array;
-import std.algorithm : map;
+import std.algorithm : filter, map;
 import std.conv;
 import std.exception;
 import std.file : exists, isDir, isFile, DirEntry, dirEntries, SpanMode;
@@ -336,10 +336,16 @@ class MediaInfoSig
 	override string toString() const
 	{
 		string met = "MediaInfoSig(";
-		auto mii = imageStreams.map!(a => a.toString).array();
-		auto miv = videoStreams.map!(a => a.toString).array();
-		auto mia = audioStreams.map!(a => a.toString).array();
-		auto mit = textStreams.map!(a => a.toString).array();
+		/* Catalogs written before the null-skip fix may contain null stream
+		 * references; tolerate them here instead of dereferencing them. */
+		auto mii = imageStreams.filter!(a => a !is null)
+			.map!(a => a.toString).array();
+		auto miv = videoStreams.filter!(a => a !is null)
+			.map!(a => a.toString).array();
+		auto mia = audioStreams.filter!(a => a !is null)
+			.map!(a => a.toString).array();
+		auto mit = textStreams.filter!(a => a !is null)
+			.map!(a => a.toString).array();
 		auto mi = chain(mii, miv, mia, mit).array();
 		met ~= mi.join(", ");
 		met ~= ")";
@@ -426,6 +432,25 @@ unittest
 	auto mis9 = mis2.dup;
 	assert(&mis9 != &mis2, "No different object");
 	assert(&(mis9.videoStreams) != &(mis2.videoStreams), "No different object");
+}
+
+@("MediaInfoSig tolerates null stream references from old catalogs")
+unittest
+{
+	/* Catalogs written before the null-skip fix may contain null stream
+	 * references; toString and equality must not dereference them. */
+	auto mis1 = new MediaInfoSig();
+	mis1.imageStreams ~= null;
+	mis1.videoStreams ~= null;
+	mis1.audioStreams ~= null;
+	mis1.textStreams ~= null;
+	assert(mis1.toString == "MediaInfoSig()", mis1.toString);
+	assert(mis1 == new MediaInfoSig());
+
+	/* The parser side skips null stream results instead of storing them. */
+	auto mis2 = new MediaInfoSig([new MediaInfoImage(0, "JPG", 1, 1)], [], [], []);
+	assert(!mis2.empty);
+	assert(mis2.imageStreams.length == 1);
 }
 
 /** Get MediaInfo library version
@@ -705,25 +730,28 @@ MediaInfoSig getMediaTypeSignature(const string filename)
 				return mediasigs;
 			}
 
+			/* parse*Stream helpers return null when a single stream cannot
+			 * be parsed; skip them instead of storing dangling references
+			 * that crash later toString/opEquals/dup call sites. */
 			for (uint i = 0; i < nImage; i++)
 			{
-				auto ms = parseImageStream(info, i);
-				mediasigs.imageStreams ~= ms;
+				if (auto ms = parseImageStream(info, i))
+					mediasigs.imageStreams ~= ms;
 			}
 			for (uint i = 0; i < nVideo; i++)
 			{
-				auto ms = parseVideoStream(info, i);
-				mediasigs.videoStreams ~= ms;
+				if (auto ms = parseVideoStream(info, i))
+					mediasigs.videoStreams ~= ms;
 			}
 			for (uint i = 0; i < nAudio; i++)
 			{
-				auto ms = parseAudioStream(info, i);
-				mediasigs.audioStreams ~= ms;
+				if (auto ms = parseAudioStream(info, i))
+					mediasigs.audioStreams ~= ms;
 			}
 			for (uint i = 0; i < nText; i++)
 			{
-				auto ms = parseTextStream(info, i);
-				mediasigs.textStreams ~= ms;
+				if (auto ms = parseTextStream(info, i))
+					mediasigs.textStreams ~= ms;
 			}
 		}
 		catch (MediaInfoException ex)

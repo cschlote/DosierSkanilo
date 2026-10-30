@@ -67,10 +67,13 @@ immutable string appVersion = import("build/bin/build-version.txt").strip;
  * Decode command-line parameters and run the scanner workflow.
  * When unit testing, do nothing.
  *
+ * Exit codes: 0 success, 1 operation failure, 2 usage error (parse
+ * failure or invalid option combination).
+ *
  * Params:
  *   args = command-line arguments
  * Returns:
- *   shell return code
+ *   shell code: 0 success, 1 operation failure, 2 usage error
  */
 int main(string[] args)
 {
@@ -532,14 +535,55 @@ private bool catalogHasPath(CatalogBackend backend, string prefix)
 	filter.pathText = prefix;
 	filter.caseSensitive = true;
 	filter.includeArchiveMembers = true;
-	foreach (file; collectCatalogFiles(backend, filter))
+
+	static bool isMatch(string path, string prefix)
 	{
-		const path = file.relativePath;
-		if (path == prefix || path.startsWith(prefix ~ "/")
-			|| path.startsWith(prefix ~ "!/"))
-			return true;
+		return path == prefix || path.startsWith(prefix ~ "/")
+			|| path.startsWith(prefix ~ "!/");
 	}
-	return false;
+
+	/* Walk only directories that are ancestors of the prefix or below it and
+	 * stop at the first matching file instead of materializing the catalog. */
+	bool walk(DirectoryId parentId)
+	{
+		CatalogFileQuery fileQuery;
+		fileQuery.directoryId = parentId;
+		fileQuery.filter = filter;
+		CatalogPageRequest fileRequest;
+		while (true)
+		{
+			auto page = backend.listFiles(fileQuery, fileRequest);
+			foreach (file; page.files)
+				if (isMatch(file.relativePath, prefix))
+					return true;
+			if (!page.hasMore)
+				break;
+			fileRequest.cursor = page.nextCursor;
+		}
+
+		CatalogDirectoryQuery directoryQuery;
+		directoryQuery.parentId = parentId;
+		CatalogPageRequest directoryRequest;
+		while (true)
+		{
+			auto page = backend.listDirectories(directoryQuery, directoryRequest);
+			foreach (directory; page.directories)
+			{
+				const path = directory.relativePath;
+				const bool ancestor = prefix == path
+					|| prefix.startsWith(path ~ "/");
+				const bool descendant = path.startsWith(prefix ~ "/");
+				if ((ancestor || descendant) && walk(directory.id))
+					return true;
+			}
+			if (!page.hasMore)
+				break;
+			directoryRequest.cursor = page.nextCursor;
+		}
+		return false;
+	}
+
+	return walk(DirectoryId.init);
 }
 
 /** Original member name without the canonical occurrence suffix. */

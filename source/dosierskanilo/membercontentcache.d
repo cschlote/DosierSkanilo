@@ -92,13 +92,16 @@ final class MemberContentLease
 private:
     MemberContentCache owner;
     string key;
+    CachedMember cachedEntry;
     string cachedPath;
     bool released;
 
-    this(MemberContentCache cache, string cacheKey, string path)
+    this(MemberContentCache cache, string cacheKey, CachedMember entry,
+        string path)
     {
         owner = cache;
         key = cacheKey;
+        cachedEntry = entry;
         cachedPath = path;
     }
 
@@ -117,7 +120,8 @@ public:
                 return;
             released = true;
         }
-        owner.release(key);
+        owner.release(key, cachedEntry);
+        cachedEntry = null;
     }
 
     ~this()
@@ -146,6 +150,13 @@ private:
     size_t serial;
     size_t accessClock;
     CachedMember[string] membersByKey;
+    /** Leases handed out whose holds were not yet released.
+     *
+     * Tracked separately from per-entry lease counts because a cached file
+     * that vanished externally drops its entry (and with it the entry lease
+     * count) while its lease is still outstanding; close() must still honor
+     * those paths. */
+    size_t outstandingLeases;
     bool closed;
 
 public:
@@ -169,8 +180,12 @@ public:
         sessionRoot = buildPath(root, "session-" ~ thisProcessID.to!string
             ~ "-" ~ randomUUID().toString());
         maximumBytes = byteLimit;
-        mkdirRecurse(sessionRoot);
+        /* Lease this session before it becomes visible to cleanupStaleSessions
+         * of other processes: the flock makes concurrent cleaners skip it, and
+         * racing stale-session cleanup cannot see an unleased directory. */
         sessionLease = TargetWriteLease.acquireRepositoryRoot(sessionRoot);
+        cleanupStaleSessions(root);
+        mkdirRecurse(sessionRoot);
     }
 
     /** Acquire or materialize bytes for one archive-entry locator. */
@@ -213,13 +228,23 @@ public:
                     if (exists(entry.filePath) && isFile(entry.filePath))
                     {
                         ++entry.leaseCount;
+                        ++outstandingLeases;
                         entry.lastUse = ++accessClock;
-                        return new MemberContentLease(this, key, entry.filePath);
+                        return new MemberContentLease(this, key, entry,
+                            entry.filePath);
                     }
+                    /* The file vanished externally. Its entry cannot serve
+                     * requests, so it is disposed; a lease still holding the
+                     * lost path is honored through the separate
+                     * outstandingLeases counter, and the directory is kept
+                     * while that lease lives. */
                     cachedBytes -= entry.size;
-                    membersByKey.remove(key);
+                    entry.filePath = "";
+                    entry.size = 0;
                     if (entry.leaseCount == 0)
                         removeDirectory(entry.directory);
+                    else
+                        entry.directory = "";
                 }
 
                 entry = new CachedMember();
@@ -277,7 +302,8 @@ public:
                 cachedBytes += actualSize;
                 changed.notifyAll();
             }
-            return new MemberContentLease(this, key, entry.filePath);
+            ++outstandingLeases;
+            return new MemberContentLease(this, key, entry, entry.filePath);
         }
         catch (Throwable failure)
         {
@@ -321,6 +347,8 @@ public:
             foreach (entry; membersByKey.values)
                 enforce(!entry.materializing && entry.leaseCount == 0,
                     "Cannot close a member cache while paths are leased.");
+            enforce(outstandingLeases == 0,
+                "Cannot close a member cache while paths are leased.");
             closed = true;
             membersByKey = null;
             cachedBytes = 0;
@@ -332,17 +360,21 @@ public:
     }
 
 private:
-    void release(string key)
+    void release(string key, CachedMember entry)
     {
         synchronized (mutex)
         {
-            if (auto entry = key in membersByKey)
-            {
-                if ((*entry).leaseCount > 0)
-                    --(*entry).leaseCount;
-                (*entry).lastUse = ++accessClock;
-                changed.notifyAll();
-            }
+            if (outstandingLeases > 0)
+                --outstandingLeases;
+            if (entry !is null)
+                foreach (cached; membersByKey.values)
+                    if (cached is entry)
+                    {
+                        if (cached.leaseCount > 0)
+                            --cached.leaseCount;
+                        cached.lastUse = ++accessClock;
+                        changed.notifyAll();
+                    }
         }
     }
 
@@ -455,7 +487,14 @@ MemberContentCache sharedMemberContentCache()
     }
 }
 
-/** Replace the process-wide cache with an explicitly configured session. */
+/**
+ * Replace the process-wide cache with an explicitly configured session.
+ *
+ * Must be called before any worker thread uses sharedMemberContentCache():
+ * the swap only serializes configuration changes, and closing the old cache
+ * while another thread still holds leases would fail (or, once a close is
+ * refused, leave the configured root unused).
+ */
 void configureSharedMemberContentCache(string root, ulong byteLimit)
 {
     synchronized (sharedCacheGuard)
@@ -467,6 +506,67 @@ void configureSharedMemberContentCache(string root, ulong byteLimit)
         }
         processMemberContentCache = new MemberContentCache(root, byteLimit);
     }
+}
+
+/**
+ * Close and remove the process-wide cache session.
+ *
+ * Frontends call this after stopping preview and worker threads so the session
+ * directory disappears before the process exits.
+ *
+ * Returns: `true` when the session was closed or none existed; `false` when
+ *     leased paths or an in-flight extraction still block the close. A refused
+ *     close keeps the session for the process-exit destructor.
+ */
+bool closeSharedMemberContentCache()
+{
+    synchronized (sharedCacheGuard)
+    {
+        if (processMemberContentCache is null)
+            return true;
+        try
+            processMemberContentCache.close();
+        catch (Exception)
+            return false;
+        processMemberContentCache = null;
+        return true;
+    }
+}
+
+@("shared member cache closes explicitly and refuses while a member is leased")
+unittest
+{
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath, dirName;
+    import std.uuid : randomUUID;
+
+    const auto root = buildPath(tempDir(), "member-cache-shared-close-"
+        ~ randomUUID().toString());
+    scope (exit)
+    {
+        closeSharedMemberContentCache();
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+    configureSharedMemberContentCache(root, 1024);
+    auto cache = sharedMemberContentCache();
+    const auto locator = ContentLocator.entry(ReferenceId("shared-close-root"),
+        ArchiveEntryId("shared-close-entry"));
+    auto lease = cache.acquire(locator, ContentId.init, "shared-close",
+        "member.bin", 4, (string destinationDirectory) {
+            const auto outputPath = buildPath(destinationDirectory,
+                "member.bin");
+            mkdirRecurse(dirName(outputPath));
+            write(outputPath, "data");
+            return true;
+        });
+    assert(!closeSharedMemberContentCache(),
+        "A leased member must refuse an explicit cache close.");
+    lease.release();
+    assert(closeSharedMemberContentCache(),
+        "The cache closes once its leases are released.");
+    assert(closeSharedMemberContentCache(),
+        "Closing an already closed shared cache is harmless.");
 }
 
 @("member cache coalesces extraction and keeps leased files")
@@ -603,4 +703,57 @@ unittest
     second.close();
     first.close();
     assert(!exists(firstSession));
+}
+
+@("member cache keeps lease accounting for stale entries and close honours it")
+unittest
+{
+    import std.exception : assertThrown;
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath, dirName;
+    import std.uuid : randomUUID;
+
+    const auto parent = buildPath(tempDir(), "member-cache-stale-lease-"
+        ~ randomUUID().toString());
+    auto cache = new MemberContentCache(parent, 1024, 1);
+    scope (exit)
+    {
+        if (exists(parent))
+            rmdirRecurse(parent);
+    }
+
+    const auto locator = ContentLocator.entry(ReferenceId("cache-root"),
+        ArchiveEntryId("entry-0"));
+    bool delegate(string) materialize = (string destinationDirectory) {
+        const auto outputPath = buildPath(destinationDirectory, "stale.bin");
+        mkdirRecurse(dirName(outputPath));
+        write(outputPath, "payload");
+        return true;
+    };
+
+    auto first = cache.acquire(locator, ContentId.init,
+        "container!/stale.bin!~0", "stale.bin", 7, materialize);
+    const auto firstPath = first.path;
+
+    /* Externally delete the cached file while the lease is outstanding. */
+    rmdirRecurse(dirName(firstPath));
+    assert(!exists(firstPath));
+
+    /* A new acquire materializes a fresh entry while the stale lease lives. */
+    auto second = cache.acquire(locator, ContentId.init,
+        "container!/stale.bin!~0", "stale.bin", 7, materialize);
+    assert(second.path != firstPath);
+    assert(exists(second.path));
+
+    /* close() must refuse while the stale lease is outstanding, and must not
+     * destroy the session tree the outstanding lease paths live in. */
+    assertThrown!Exception(cache.close());
+    assert(exists(second.path));
+
+    first.release();
+    assertThrown!Exception(cache.close());
+    assert(exists(second.path));
+    second.release();
+    cache.close();
+    assert(!exists(cache.rootPath));
 }

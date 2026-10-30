@@ -8,110 +8,205 @@ Completed small maintenance items retained for context:
   `toString`).
 - [x] Add Markdown linting for the README, architecture, changelog, and TODO.
 
-## P1 — Close WP-08 verification gaps
+Prior review remediation is complete: every Critical and Major item of
+`docs/reviews/2026-10-21-code-review.md` and
+`docs/reviews/2026-10-24-code-review.md` is fixed with regression tests
+(verified in `docs/reviews/2026-10-28-code-review.md`).
 
-Detailed scope and acceptance criteria are in
-`docs/SQLITE-IMPLEMENTATION-PLAN.md`, section WP-08.
+## P1 — WP-14: Remediate the 2026-10-28 review findings
 
-- [x] WP-08.1: Test valid and invalid SQLite/JSON parser inputs, option
-  boundaries, help/version behavior, and parser state isolation.
-- [x] WP-08.2: Add a genuine `dataVersion: 2` fixture and verify import,
-  migration, and version-3 export; correct the broad existing test name that
-  currently implies version-2 coverage.
-- [x] WP-08.3: Verify filtered export is relationship-closed, preserves selected
-  shared-blob references, and excludes references outside the requested scope.
+Detailed findings are in `docs/reviews/2026-10-28-code-review.md`. Work
+bottom-up in the order below; every subpackage lands its listed regression
+tests before or with the code change.
 
-These are independent test-closeout tasks. They do not block WP-09.1 contract
-design, but should be complete before WP-09 parity closeout.
+### WP-14.1: JSON metadata error isolation (review M1, M3) — DONE
 
-## P1 — Review-discovered correctness work (WP-10)
+Currently one bad file aborts an entire JSON scan/analyze.
 
-Detailed regression requirements are in `docs/SQLITE-IMPLEMENTATION-PLAN.md`,
-section WP-10. Confirm each suspected issue with a test before changing code.
+- Per-blob `try`/`catch` in `runJsonMetadataWork` /
+  `runJsonMetadataBatch` (`service/jsonoperations.d`), counted into a
+  metadata summary like the SQLite path; only cancellation exceptions pass
+  through.
+- Null-safe `MediaInfoSig`: stop appending null stream objects in
+  `metadata/mediainfosig.d` parsing loops; keep `opEquals`/`dup`/`toString`
+  null-safe on both sides.
+- Acceptance: a corrupt archive or pathological media file yields a failed
+  item and a completed run, including the duplicate-merge equality path.
+  Regression tests: one corrupt archive among good files; a null-stream
+  signature through `toString`/`opEquals`/`mergeDataClassObjects`.
 
-- [x] WP-10.1: Restore case-sensitive path matching parity in blob/catalog
-  queries and the GUI Blob table; keep exact SHA1 matching independent of path
-  case and document the accepted digest representation.
-- [x] WP-10.2: Verify `markMissing` reconciles 40 simultaneous missing rows
-  with present/hidden controls; the configured SQLite/D2-SQLite test showed no
-  skipped rows, so no iteration rewrite was needed.
-- [x] WP-10.3: Define changed-file orphan cleanup and per-run
-  `filesMissing`/`filesDropped` summary semantics; test shared blobs and repeated
-  file changes.
+- [x] Per-blob exception isolation with per-job failure messages and
+  `summary.failed` counting, covering the threaded batch (structural
+  pointer fix; the worker previously mutated a struct copy, so failures
+  were silently discardable).
+- [x] Parser-side null-skip plus defensive null filtering in
+  `MediaInfoSig.toString` for catalogs written before the fix.
+- [x] Regression tests "JSON metadata batch isolates per-item failures",
+  "JSON metadata run survives corrupt archive alongside good files",
+  "MediaInfoSig tolerates null stream references from old catalogs".
 
-WP-10.1 depends on the GUI source/query integration (WP-07); WP-10.2 and WP-10.3
-depend on the repository scanner (WP-04). These correctness fixes should land
-before the affected operation slices, especially WP-09.2a.
+### WP-14.2: Member-content-cache lifecycle (review M2)
 
-The multi-row `markMissing` regression passed for 40 vanished references on the
-configured SQLite/D2-SQLite target; no skipped-row defect was reproduced, so no
-scanner iteration rewrite was made. Changed-file scans now remove an old blob
-only after its final reference moves away.
+- Preserve lease accounting for disposed (`stale`) entries so `release()`
+  and the `close()` guard observe them; track an outstanding-lease counter.
+- Fix the `cleanupStaleSessions` visibility race on a freshly created
+  session root (`membercontentcache.d:213-223`, `:318-332`).
+- Document or serialize the `configureSharedMemberContentCache()` swap with
+  active users.
+- Acceptance: closing the cache under an outstanding lease on a removed
+  member file either waits or keeps the file readable; no lease read reaches
+  a deleted tree. Regression test at `close()` with a lease outstanding.
 
-## P1 — Shared CLI/GTK operations (WP-09)
+- [x] Outstanding-lease counter alongside per-entry counts; leases now
+  identify their entry so release/update survive entry replacement.
+  Closed paths stay intact while a lease on a vanished file remains, and
+  `close()` refuses while any lease is outstanding.
+- [x] Session lease acquired before the session directory becomes visible,
+  closing the `cleanupStaleSessions` race window.
+- [x] `configureSharedMemberContentCache()` documented as
+  pre-usage-only swap.
+- [x] Regression test "member cache keeps lease accounting for stale
+  entries and close honours it".
 
-The backend plan in `docs/SQLITE-IMPLEMENTATION-PLAN.md`, section WP-09, is the
-source of truth for the request contract, safe cancellation semantics, and
-acceptance criteria.
+### WP-14.3: Catalog API correctness (review M4, M5, M6)
 
-Implemented: WP-09.1/09.1b contracts, controlled SQLite and JSON operations,
-repository/catalog writer leases, initial SQLite/JSON CLI adapters, and GTK Tools
-actions using the same typed requests. Backend and GUI tests compare source modes,
-request construction, task-state reduction, and refresh decisions.
+- Typed `limit > 0` enforcement in the public
+  `loadCatalogQueryPageWithIdsFromDatabase()` and every
+  `repository/transfer.d` function touching `options.limit - 1`; limit-0
+  unit tests (currently `RangeError` process abort).
+- Keep the original spec for non-virtual paths in
+  `getExistingFiles()` (`model/namedbinaryblob.d`) so canonical `!!` names
+  round-trip; add the legacy-scanner `!!` round-trip test or delete the dead
+  legacy `service/scanning.d` module (decide with the GUI repo first).
+- Recompute JSON directory `fileCount`/`aggregateSize` per active filter in
+  `matchingDirectories()` or relax the `catalogbackend.d` contract doc;
+  restore JSON/SQLite parity with a `listDirectories` filter-count test.
+- Follow-up: replace the textual `'!!' -> ''` classification in
+  `repository/archiveindex.d` with a stored `is_virtual` column when the
+  WP-13 schema is next touched (latent, no today-reachable defect).
 
-Remaining verification is enumerated in WP-09 and
-`docs/OPERATION-PARITY.md`: process-level Ctrl-C checks for the remaining
-operation families, lease races while a second process is active, and
-display-backed GTK operation start/progress/pause/cancel/refresh tests.
-`test-cli.sh` covers SIGINT during JSON analysis, JSON scan, SQLite metadata,
-SQLite scan, a large duplicate merge, catalog import, and catalog export; a
-forked-process test covers basic cross-process lease exclusion. Do not
-reintroduce an HMI-owned scan or analysis implementation.
+- [x] Typed `RepositoryException` for zero limits in
+  `loadCatalogQueryPageWithIdsFromDatabase()` (cursor crash site) and the
+  `loadCatalogQueryPageWithIds`/`loadCatalogQueryCursorPage` wrappers;
+  limit-0 test covering both wrappers and the free function.
+- [x] `getExistingFiles()` deliberately keeps returning the openable
+  (unescaped) physical name — callers open files with it. The corruption
+  entered through the legacy write-back, which now re-escapes canonical
+  `!!` names (`canonicalizeFileSpecs` in `service/scanning.d`, with a
+  round-trip test); the `scanning.d` deletion question stays open for the
+  GUI repo.
+- [x] `matchingDirectories()` recomputes filtered counts and aggregate
+  sizes (archive members included when requested), restoring JSON/SQLite
+  parity; extended the non-BMP directory test with unfiltered/filtered
+  count assertions.
+- [ ] archiveindex `is_virtual` column follow-up (deferred to WP-13 schema).
 
-## P1 — Storage-neutral catalog and archive-content model (WP-13)
+### WP-14.4: Review-minor hardening and UX
 
-The domain/API redesign is recorded in
-`docs/SQLITE-IMPLEMENTATION-PLAN.md`, section WP-13. Work bottom-up: freeze
-content/reference identities and virtual archive locators, then define the
-polymorphic JSON/SQL catalog interface, port the existing adapters, and finally
-make archive members first-class content references. Keep SQLite as the only
-implemented SQL engine until adapter portability requirements are tested.
+Split churn from correctness; each item is independently landable.
 
-## P2 — Read-path and API-boundary audit (WP-11)
+- Operational robustness: backup name collisions within one second
+  (`service/storageio.d`, `repository/repository.d` — append counter/UUID);
+  metadata cleanup transaction outside `scope (exit)` at
+  `repository/metadata.d:196-208`; progress/`makeProgressString` thread
+  safety and `total == 0` NaN guard; JSON metadata batch cancellation
+  checkpoints.
+- CLI validation: reject bad `--format` for JSON `list`/`duplicates`;
+  honor or reject `--pretty` for `info`/`list`/`duplicates`;
+  `--duplicate-limit 0` becomes a usage error (exit 2) before backend open;
+  document the exit-code contract (0/1/2) in help text.
+- Performance: early-exit path-existence query instead of full-catalog
+  `catalogHasPath`; inverse map for `contentTokenForBlobIndex()`.
+- Documentation/scripts: derive `ROOT_DIR` from script location in
+  `scripts/test-cli.sh`; dynamic markdown list and `--config=cli` in
+  `scripts/lint.sh`; verify Flatpak sha256 pins against the published
+  `v26.12.2` artifacts before the next release.
 
-Investigation first: the review raised possible performance costs and an
-intentional transitional type coupling, not all confirmed defects.
+- [x] Backup names disambiguated with process id and per-process serial in
+  `getBackupFileName()` and `backupDatabase()`; collision tests updated to
+  glob by prefix.
+- [x] `makeProgressString` NaN guard for a zero total (statics are already
+  thread-local in D, so the suspected race was a non-issue).
+- [x] CLI: bad `--format` rejected for JSON `list`/`duplicates`,
+  `--duplicate-limit 0` is a usage error (exit 2) before backend open in
+  both validation paths, `--pretty` documented as scan/analyze/export only,
+  exit-code contract documented on `main()`.
+- [x] `scripts/test-cli.sh` resolves `ROOT_DIR` from its own location and
+  runs `dub` from the repository root; `scripts/lint.sh` lints
+  `--config=cli` and discovers `docs/reviews/*.md` dynamically.
+- [x] Inverse content-token map: `listContents` and content lookups are linear
+  instead of scanning the token table per blob.
+- [x] Early-exit path-existence query: `catalogHasPath` walks only relevant
+  directory branches and stops at the first match.
+- [x] Metadata cleanup is transactional and runs only after a fully completed
+  run; failed or cancelled runs still bump the source version for cursor
+  invalidation.
+- [x] JSON metadata jobs check the cancellation mirror between checksum,
+  file-type, media, archive, and torrent phases, including sequential batches.
+- [ ] Deferred: Flatpak sha256 verification against published artifacts
+  (release-time check).
 
-- [x] WP-11.1: `Repository.open()` no longer rewrites `PRAGMA user_version` on
-  every open, so steady-state opens leave the database file untouched (covered
-  by a timestamp test). A 100,000-row repository serves 250-row pages in under
-  10 ms and 1,000-row pages in about 40 ms wall time including process startup.
-  No read-only open path was added: WAL still needs write access for `-shm` and
-  `-wal`, so read-only mounts remain unsupported. Independent read connections
-  are retained for concurrent queries.
-- [x] WP-11.2: JSON archive-member pages now cache one per-directory member
-  order and merge it with physical rows. The first page still materializes the
-  member order. Backend/CLI work is complete; `loadDocumentPage`, `loadAllRows`,
-  and the Blob virtual table are in the separate GTK frontend repository and are
-  deferred until the GUI work starts.
-- [x] WP-11.3: Keep the transitional Blob table coupled to the canonical JSON
-  `NamedBinaryBlob` model for now. Source-neutral summary/detail DTOs are a
-  WP-13 redesign prerequisite, not a local WP-11 API change.
-- [x] WP-11.4: Reconcile the backend dependency diagram and close WP-00 baseline
-  status; remaining large-path measurement is tracked under WP-11.2/WP-11.5.
+## P1 — WP-09 closeout: shared CLI/GTK operations
 
-WP-11 does not block WP-09 unless measurement or inspection reveals a correctness
-issue.
+The backend plan in `docs/SQLITE-IMPLEMENTATION-PLAN.md`, section WP-09, is
+the source of truth. Implementation is complete (WP-09.1/09.1b contracts,
+controlled SQLite and JSON operations, writer leases, CLI and GTK adapters
+on the same typed requests); only verification remains:
+
+- [x] Process-level Ctrl-C checks for every mutating family (JSON and SQLite
+  scan, SQLite metadata, JSON and SQLite analysis, import, full and selected
+  export), with the documented exit code 1.
+- [x] Lease race while a second process is active: one CLI process holds the
+  repository write lease while a second mutating command fails fast with
+  `targetBusy`.
+- [x] Progress phase order and monotonic work counts for both scan modes and
+  analysis; the parity matrix is checked in at
+  `docs/OPERATION-PARITY.md`.
+- [ ] Display-backed GTK operation start/progress/pause/cancel/refresh tests
+  (`DosierSkanilo-Gui`).
+
+`test-cli.sh` covers the CLI side of the matrix; keep the parity table and its
+evidence in `docs/OPERATION-PARITY.md` in sync. Do not reintroduce an
+HMI-owned scan or analysis implementation.
+
+## P1 — WP-13.6.x: complete the storage-neutral catalog rollout
+
+`docs/SQLITE-IMPLEMENTATION-PLAN.md`, sections WP-13 and WP-13.6, remain the
+plan of record. WP-13.6.1 (CLI virtual archive references) is merged; next
+steps in dependency order:
+
+- [x] WP-13.6.2: GTK backend and cache integration (`DosierSkanilo-Gui`).
+      Trees, content rows, details, archive/torrent pages, and member previews
+      now use the contract; UI state uses source-relative paths; archive rescans
+      and password writes use the shared operation/backend surface.
+- [x] Archive scans and member lookups handle containers whose physical
+      filename contains `!` (e.g. `weird!/name.zip`); `listArchiveEntries`
+      no longer double-escapes already-canonical reference paths. Regression
+      test covers indexing and enumeration of such containers.
+- [x] WP-13.6.3: cross-frontend parity checks for the new reference,
+      duplicate, and export surfaces. The cross-adapter suite in
+      `sqlitecatalogbackend.d` covers resolve/load, virtual and nested members,
+      content rows, duplicate groups, filtered reads, member extraction, and
+      subset exports; operation parity remains covered by WP-09 tests.
+- [x] Document in the WP-13 contract that blob-level digests for
+      pure-virtual members are supplied only by the container's
+      `ArchiveSpec.checkSums`, so JSON duplicate analysis excludes them by
+      design (found correct-but-undocumented in the 2026-10-28 review). Added
+      as WP-13 invariant 6 and an identity rule in `docs/CATALOG-DOMAIN.md`.
+
+## P2 — WP-14 follow-on: archiveindex virtual classification
+
+Folded into WP-14.3; listed here only for priority ordering. It becomes its
+own slice if the WP-13 schema work does not land first.
 
 ## P2 — Network-filesystem compatibility decision
 
-- [x] Evaluate SQLite repository placement on CIFS/SMB and record the decision:
-  network mounts are unsupported until they provide cross-host locks, WAL shared
-  memory, atomic rename, durable sync, and working hard links (or the copy
-  fallback). `docs/DATABASE.md` lists the requirements, observed failures, and
-  supported deployment alternatives. No representative CIFS/SMB environment is
-  available for testing in this repository, so the restriction is documented
-  rather than guessed at.
+- [x] Evaluate SQLite repository placement on CIFS/SMB and record the
+  decision: network mounts are unsupported until they provide cross-host
+  locks, WAL shared memory, atomic rename, durable sync, and working hard
+  links (or the copy fallback). `docs/DATABASE.md` lists the requirements,
+  observed failures, and supported deployment alternatives.
 
-**Exit:** reviewed decision with evidence, constraints, and follow-up tasks; this
-is a decision package, not an assumption that CIFS/SMB support must be implemented.
+**Exit:** decision reviewed with evidence, constraints, and follow-up tasks;
+this is a decision package, not an assumption that CIFS/SMB support must be
+implemented.

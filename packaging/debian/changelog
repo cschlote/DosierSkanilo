@@ -1,3 +1,10 @@
+dosierskanilo (26.13.0-1) unstable; urgency=medium
+
+  * Package DosierSkanilo 26.13.0 with the storage-neutral catalog contract,
+    deduplicated content queries, and metadata/archive parity fixes.
+
+ -- Carsten Schlote <schlote@vahanus.net>  Fri, 30 Oct 2026 00:00:00 +0000
+
 dosierskanilo (26.12.2-1) unstable; urgency=medium
 
   * Package DosierSkanilo 26.12.2 with the working Flatpak build.

@@ -208,10 +208,18 @@ public:
 
     private void backupDatabase()
     {
+        import core.atomic : atomicFetchAdd;
+        import std.process : thisProcessID;
         import std.string : replace;
+
+        /* Second-resolution stamps collide on repeated imports within one
+         * second; disambiguate with the process id and a per-process serial. */
+        __gshared size_t backupSerial;
+        auto serial = atomicFetchAdd(backupSerial, 1) + 1;
         auto stamp = currentTimestamp().replace(":", "-");
         auto backupPath = buildPath(repositoryPaths.backupsPath,
-            "catalog-" ~ stamp ~ ".sqlite3");
+            "catalog-" ~ stamp ~ "-" ~ thisProcessID.to!string ~ "-"
+                ~ serial.to!string ~ ".sqlite3");
         /* VACUUM INTO produces a consistent snapshot, including rows that
          * still live in the WAL, instead of copying a live database file. */
         database.execute("VACUUM INTO ?", backupPath);
@@ -338,7 +346,7 @@ public:
         JsonExportOptions exportOptions = JsonExportOptions())
     {
         requireOpen();
-        enforce(options.limit > 0,
+        enforce!RepositoryException(options.limit > 0,
             "Repository query page size must be greater than zero.");
         auto page = loadCatalogQueryPageWithIdsFromDatabase(database,
             repositoryPaths.rootPath, options, exportOptions);
@@ -351,7 +359,8 @@ public:
         JsonExportOptions exportOptions = JsonExportOptions())
     {
         requireOpen();
-        enforce(options.limit > 0, "Repository cursor chunk size must be greater than zero.");
+        enforce!RepositoryException(options.limit > 0,
+            "Repository cursor chunk size must be greater than zero.");
         options.useCursor = true;
         auto page = loadCatalogQueryPageWithIdsFromDatabase(database,
             repositoryPaths.rootPath, options, exportOptions);
@@ -484,6 +493,26 @@ public:
     {
         requireOpen();
         return loadFileReferenceFromDatabase(database, fileReferenceId);
+    }
+
+    /** Load one file reference by its exact repository-relative path. */
+    RepositoryFile fileReferenceByRelativePath(string relativePath)
+    {
+        requireOpen();
+        auto rows = database.execute("SELECT id FROM file_refs "
+            ~ "WHERE relative_path = ?", relativePath);
+        if (rows.empty)
+            return RepositoryFile.init;
+        return loadFileReferenceFromDatabase(database, rows.front.peek!long(0));
+    }
+
+    /** Return the directory ID at an exact repository-relative path, or zero. */
+    long directoryIdByRelativePath(string relativePath)
+    {
+        requireOpen();
+        auto rows = database.execute("SELECT id FROM directories "
+            ~ "WHERE relative_path = ?", relativePath);
+        return rows.empty ? 0 : rows.front.peek!long(0);
     }
 
     /** Continue forward from a stable file cursor in the query's sorted result. */
@@ -1068,6 +1097,41 @@ unittest
     auto checksumMatch = repository.loadCatalogQueryPageWithIds(query);
     assert(checksumMatch.total == 1,
         "path case sensitivity must not alter exact binary SHA1 matching");
+}
+
+@("catalog page helpers reject a zero limit with a typed error")
+unittest
+{
+    import std.exception : assertThrown;
+    import std.file : mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "repository-limit-zero-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    write(buildPath(root, "plain.txt"), "content");
+
+    auto repository = Repository.initialize(root);
+    scope (exit)
+        repository.close();
+    repository.scan();
+
+    RepositoryQueryOptions query;
+    query.limit = 0;
+    assertThrown!RepositoryException(repository.loadCatalogQueryPageWithIds(query));
+
+    query.useCursor = true;
+    assertThrown!RepositoryException(repository.loadCatalogQueryPageWithIds(query));
+    assertThrown!RepositoryException(repository.loadCatalogQueryCursorPage(query));
+
+    import dosierskanilo.repository.transfer : loadCatalogQueryPageWithIdsFromDatabase;
+    assertThrown!RepositoryException(loadCatalogQueryPageWithIdsFromDatabase(
+        repository.database, repository.repositoryPaths.rootPath, query,
+        JsonExportOptions()));
 }
 
 @("repository incremental filesystem scan")
@@ -1865,4 +1929,49 @@ unittest
                 || spec.fileName.endsWith("!/first.txt");
     }
     assert(foundFirst && foundSecond && foundFirstMember);
+}
+
+@("archive indexing handles container names with exclamation marks")
+unittest
+{
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.process : execute;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "repo-bang-archive-"
+        ~ randomUUID().toString());
+    mkdirRecurse(buildPath(root, "weird!"));
+    scope (exit)
+    {
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+    write(buildPath(root, "weird!", "payload.txt"), "payload\n");
+    const createArchive = "import sys, zipfile; "
+        ~ "z = zipfile.ZipFile(sys.argv[1], 'w'); "
+        ~ "z.writestr('inside.txt', 'inside'); z.close()";
+    assert(execute(["python3", "-c", createArchive,
+        buildPath(root, "weird!", "name.zip")]).status == 0);
+
+    auto repository = Repository.initialize(root);
+    scope (exit)
+        repository.close();
+    repository.scan();
+    MetadataScanOptions options;
+    options.scanArchives = true;
+    options.deepArchiveScan = true;
+    const summary = repository.updateMetadata(options);
+
+    const containerReference = repository.fileReferenceByRelativePath(
+        escapeArchiveVirtualPath("weird!/name.zip"));
+    assert(containerReference.id > 0);
+    RepositoryArchiveQuery query;
+    query.blobId = containerReference.blobId;
+    query.limit = 10;
+    const entries = repository.listArchiveEntries(query);
+    assert(entries.length == 1, "entries=" ~ entries.length.to!string
+        ~ " updated=" ~ summary.archivesUpdated.to!string
+        ~ " failed=" ~ summary.failed.to!string);
+    assert(entries[0].name == "inside.txt");
 }

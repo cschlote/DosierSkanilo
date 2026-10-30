@@ -7,6 +7,7 @@ import std.conv : to;
 import std.exception : enforce;
 import std.file : exists;
 import std.path : absolutePath, baseName, buildNormalizedPath, buildPath,
+    isAbsolute,
     dirName, isAbsolute;
 import std.string : replace, split, toLower;
 import std.uuid : randomUUID;
@@ -17,12 +18,16 @@ import dosierarkivo.archive : appendArchiveVirtualPath,
     parseArchiveVirtualPath,
     ParsedArchiveVirtualPath;
 import dosierskanilo.catalogbackend;
+import dosierskanilo.membercontentcache : MemberContentLease;
+import dosierskanilo.memberextraction : ArchiveExtractionStep,
+    extractArchiveMember;
 import dosierskanilo.model.archivespec : ArchiveSpec;
 import dosierskanilo.model.checksums : CheckSums;
 import dosierskanilo.model.filespec : FileSpec;
 import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION3,
     DATA_CLASS_VERSION4, DATA_CLASS_VERSION5, NamedBinaryBlob, NamedBinaryBlobCatalog,
-    deserializeDataClassJsonWrapperFile;
+    deserializeDataClassJsonWrapperFile, serializeDataClassWrapperFile;
+import dosierskanilo.operationlease : TargetWriteLease;
 import dosierskanilo.repository.types : JsonImportOptions, RepositoryBlobPage,
     RepositoryBlobFlags, RepositoryDuplicateGroup, RepositoryInfo,
     RepositoryQueryOptions;
@@ -115,6 +120,7 @@ private:
     CatalogTorrentManifestEntry[][string] torrentEntriesByToken;
     size_t[string] blobIndexByRelativePath;
     size_t[string] blobIndexByContentToken;
+    string[] contentTokenByBlobIndex;
     FileSpec[string] fileSpecByRelativePath;
     size_t[string] directoryIndexByPath;
 
@@ -241,48 +247,233 @@ public:
         CatalogPageRequest page = CatalogPageRequest.init)
     {
         requireTreeQueries();
-        if (!query.filter.includeArchiveMembers)
-        {
-            size_t total;
-            foreach (offset; 0 .. fileRows.length)
-                if (fileRowMatches(fileOrderIndex(query.sortOrder, offset), query))
-                    ++total;
-            const auto slice = pageSlice(page, fileQueryToken(query), total);
+        size_t total;
+        forEachMatchingFile(query, (ref CatalogFile, size_t) { ++total; });
+        const auto slice = pageSlice(page, fileQueryToken(query), total);
+        CatalogFilePage result;
+        result.files = matchingWindow(query, slice.start, slice.end);
+        result.nextCursor = slice.nextCursor;
+        result.previousCursor = slice.previousCursor;
+        result.hasMore = slice.hasMore;
+        result.hasPrevious = slice.hasPrevious;
+        return result;
+    }
 
-            CatalogFilePage result;
-            result.files.reserve(slice.end - slice.start);
-            size_t matched;
-            foreach (offset; 0 .. fileRows.length)
-            {
-                if (!fileRowMatches(fileOrderIndex(query.sortOrder, offset), query))
-                    continue;
-                if (matched >= slice.start && matched < slice.end)
-                {
-                    auto file = fileRows[fileOrderIndex(query.sortOrder, offset)];
-                    refreshAvailability(file);
-                    result.files ~= file;
-                }
-                ++matched;
-                if (matched >= slice.end)
-                    break;
-            }
-            result.nextCursor = slice.nextCursor;
-            result.previousCursor = slice.previousCursor;
-            result.hasMore = slice.hasMore;
-            result.hasPrevious = slice.hasPrevious;
-            return result;
+    override CatalogFilePage listFilesFrom(CatalogFileQuery query,
+        string anchorRelativePath, bool forward, size_t limit = 250)
+    {
+        requireTreeQueries();
+        if (limit == 0)
+            throw new CatalogBackendException(CatalogBackendErrorCode.invalidCursor,
+                "Catalog page limit must be greater than zero.");
+        if (anchorRelativePath.length == 0)
+        {
+            if (!forward)
+                return CatalogFilePage.init;
+            return listFiles(query, CatalogPageRequest(limit));
         }
 
-        const auto queryToken = fileQueryToken(query);
+        size_t anchor = size_t.max;
         size_t total;
-        forEachFileCandidate(query, (ref CatalogFile, size_t) { ++total; });
-        const auto slice = pageSlice(page, queryToken, total);
+        forEachMatchingFile(query, (ref CatalogFile file, size_t) {
+            if (file.relativePath == anchorRelativePath)
+                anchor = total;
+            ++total;
+        });
+        if (anchor == size_t.max)
+            return CatalogFilePage.init;
 
-        CatalogFile[] matching;
-        matching.reserve(slice.end - slice.start);
+        const size_t start = forward ? anchor + 1
+            : (anchor > limit ? anchor - limit : 0);
+        const size_t end = forward
+            ? (start + limit < total ? start + limit : total) : anchor;
+        CatalogFilePage result;
+        result.files = matchingWindow(query, start, end);
+        result.hasPrevious = start > 0;
+        if (result.hasPrevious)
+            result.previousCursor = CatalogPageCursor(start > limit ? start - limit : 0,
+                limit, fileQueryToken(query));
+        result.hasMore = forward ? end < total : anchor < total;
+        if (result.hasMore)
+            result.nextCursor = CatalogPageCursor(end, limit, fileQueryToken(query));
+        return result;
+    }
+
+    override CatalogContentPage listContents(CatalogContentQuery query,
+        CatalogPageRequest page = CatalogPageRequest.init)
+    {
+        requireOpen();
+        if (page.limit == 0)
+            throw new CatalogBackendException(CatalogBackendErrorCode.invalidCursor,
+                "Catalog page limit must be greater than zero.");
+        const auto queryToken = contentQueryToken(query);
+        if (page.cursor.isValid
+            && (page.cursor.adapterQueryToken != queryToken
+                || page.limit != page.cursor.adapterPageSize))
+            throw new CatalogBackendException(CatalogBackendErrorCode.invalidCursor,
+                "Catalog cursor belongs to a different query or page size.");
+        const auto start = page.cursor.isValid ? page.cursor.adapterIndex : 0;
+
+        CatalogFile[] references = fileRows.dup;
+        foreach (ref container; fileRows)
+            if (container.hasArchive)
+                references ~= archiveMemberFiles(container);
+
+        size_t[string] referenceCounts;
+        string[string] displayPaths;
+        string[string] displayNames;
+        bool[string] pathMatches;
+        foreach (ref candidate; references)
+        {
+            const token = candidate.contentId.adapterToken;
+            ++referenceCounts[token];
+            const auto displayPath = displayPaths.get(token, "");
+            if (displayPath.length == 0 || candidate.relativePath < displayPath)
+            {
+                displayPaths[token] = candidate.relativePath;
+                displayNames[token] = candidate.name;
+            }
+            if (!pathMatches.get(token, false))
+            {
+                auto path = candidate.relativePath;
+                auto text = query.filter.pathText;
+                if (!query.filter.caseSensitive)
+                {
+                    path = path.toLower;
+                    text = text.toLower;
+                }
+                pathMatches[token] = text.length == 0 || path.canFind(text);
+            }
+        }
+
+        CatalogContentRow[] matching;
+        foreach (blobIndex, ref blob; catalog.dataArray)
+        {
+            const token = contentTokenForBlobIndex(blobIndex);
+            if (token.length == 0 || !contentMatchesFilter(token, query.filter))
+                continue;
+            const bool digestMatch = query.filter.pathText.length > 0
+                && blob.checkSums.sha1sum_b64 == query.filter.pathText;
+            if (!pathMatches.get(token, false) && !digestMatch)
+                continue;
+            CatalogContentRow row;
+            row.id = ContentId(token);
+            row.size = blob.fileSize;
+            row.referenceCount = referenceCounts.get(token, 0);
+            row.displayPath = displayPaths.get(token, "");
+            row.displayName = displayNames.get(token, "");
+            row.fingerprint = fingerprintFor(blob.fileSize, blob.checkSums);
+            row.availability = CatalogReferenceAvailability.notChecked;
+            if (auto content = token in contentByToken)
+            {
+                row.hasFileType = (*content).fileType.length > 0;
+                row.hasArchive = (*content).hasArchive;
+                row.hasTorrent = (*content).hasTorrent;
+                foreach (stream; (*content).mediaStreams)
+                    final switch (stream.kind)
+                    {
+                    case CatalogMediaKind.image:
+                        row.hasImage = true;
+                        break;
+                    case CatalogMediaKind.video:
+                        row.hasVideo = true;
+                        break;
+                    case CatalogMediaKind.audio:
+                        row.hasAudio = true;
+                        break;
+                    case CatalogMediaKind.text:
+                        row.hasText = true;
+                        break;
+                    }
+                row.hasMedia = row.hasImage || row.hasVideo || row.hasAudio
+                    || row.hasText;
+            }
+            matching ~= row;
+        }
+
+        if (start > matching.length)
+            throw new CatalogBackendException(CatalogBackendErrorCode.invalidCursor,
+                "Catalog cursor is outside this query result.");
+        const auto end = start + page.limit < matching.length
+            ? start + page.limit : matching.length;
+        CatalogContentPage result;
+        result.rows = matching[start .. end];
+        result.total = matching.length;
+        result.hasPrevious = start > 0;
+        if (result.hasPrevious)
+            result.previousCursor = CatalogPageCursor(start > page.limit
+                ? start - page.limit : 0, page.limit, queryToken);
+        result.hasMore = end < matching.length;
+        if (result.hasMore)
+            result.nextCursor = CatalogPageCursor(end, page.limit, queryToken);
+        return result;
+    }
+
+    private string contentQueryToken(CatalogContentQuery query) const
+    {
+        return sourceToken ~ "\0contents\0" ~ filterToken(query.filter);
+    }
+
+    private bool contentMatchesFilter(string token, CatalogFilter filter) const
+    {
+        const content = token in contentByToken;
+        const bool selectedMedia = filter.video || filter.audio || filter.image
+            || filter.text;
+        if (content is null)
+            return !selectedMedia && !filter.fileType && !filter.archive
+                && !filter.torrent;
+        if (selectedMedia)
+        {
+            bool hasSelected;
+            foreach (stream; (*content).mediaStreams)
+            {
+                if ((filter.video && stream.kind == CatalogMediaKind.video)
+                    || (filter.audio && stream.kind == CatalogMediaKind.audio)
+                    || (filter.image && stream.kind == CatalogMediaKind.image)
+                    || (filter.text && stream.kind == CatalogMediaKind.text))
+                {
+                    hasSelected = true;
+                    break;
+                }
+            }
+            if (filter.mediaNegated ? hasSelected : !hasSelected)
+                return false;
+        }
+        if (filter.fileType && (*content).fileType.length == 0)
+            return false;
+        if (filter.archive && !(*content).hasArchive)
+            return false;
+        if (filter.torrent && !(*content).hasTorrent)
+            return false;
+        return true;
+    }
+
+    private void forEachMatchingFile(CatalogFileQuery query,
+        scope void delegate(ref CatalogFile file, size_t containerRow) handler)
+    {
+        if (query.filter.includeArchiveMembers)
+        {
+            forEachFileCandidate(query, handler);
+            return;
+        }
+        foreach (offset; 0 .. fileRows.length)
+        {
+            const rowIndex = fileOrderIndex(query.sortOrder, offset);
+            if (!fileRowMatches(rowIndex, query))
+                continue;
+            auto file = fileRows[rowIndex];
+            handler(file, size_t.max);
+        }
+    }
+
+    private CatalogFile[] matchingWindow(CatalogFileQuery query, size_t start,
+        size_t end)
+    {
+        CatalogFile[] result;
+        result.reserve(end - start);
         size_t matched;
-        forEachFileCandidate(query, (ref CatalogFile file, size_t containerRow) {
-            if (matched >= slice.start && matched < slice.end)
+        forEachMatchingFile(query, (ref CatalogFile file, size_t containerRow) {
+            if (matched >= start && matched < end)
             {
                 if (containerRow == size_t.max)
                     refreshAvailability(file);
@@ -292,16 +483,10 @@ public:
                     refreshAvailability(container);
                     file.availability = container.availability;
                 }
-                matching ~= file;
+                result ~= file;
             }
             ++matched;
         });
-        CatalogFilePage result;
-        result.files = matching;
-        result.nextCursor = slice.nextCursor;
-        result.previousCursor = slice.previousCursor;
-        result.hasMore = slice.hasMore;
-        result.hasPrevious = slice.hasPrevious;
         return result;
     }
 
@@ -366,6 +551,70 @@ public:
         return listFiles(query, CatalogPageRequest(cursor.adapterPageSize,
             CatalogPageCursor(start, cursor.adapterPageSize,
                 cursor.adapterQueryToken)));
+    }
+
+    private string storageRelativePath(string fileName) const
+    {
+        if (!isAbsolute(fileName))
+            return buildNormalizedPath(fileName);
+        const auto root = backendTarget.filesystemRoot;
+        if (root.length == 0)
+            return buildNormalizedPath(fileName);
+        const auto normalizedRoot = buildNormalizedPath(absolutePath(root));
+        const auto normalizedPath = buildNormalizedPath(absolutePath(fileName));
+        if (normalizedPath.startsWith(normalizedRoot ~ "/"))
+            return normalizedPath[normalizedRoot.length + 1 .. $];
+        return normalizedPath;
+    }
+
+    override void setArchivePassword(string relativePath, string password)
+    {
+        requireOpen();
+        auto targetLease = TargetWriteLease.acquire(
+            OperationTarget.jsonTarget(backendTarget.catalogPath));
+        scope (exit)
+            targetLease.release();
+        auto fresh = deserializeDataClassJsonWrapperFile(
+            backendTarget.catalogPath);
+        const auto requestedPath = buildNormalizedPath(relativePath);
+        size_t[] exact;
+        size_t[] byName;
+        foreach (index, blob; fresh.dataArray)
+        {
+            foreach (spec; blob.fileSpecs)
+            {
+                if (spec is null || spec.fileName.length == 0)
+                    continue;
+                const auto specPath = storageRelativePath(spec.fileName);
+                if (specPath == requestedPath)
+                {
+                    exact ~= index;
+                    break;
+                }
+                if (baseName(requestedPath) == requestedPath
+                    && baseName(specPath) == requestedPath)
+                {
+                    byName ~= index;
+                    break;
+                }
+            }
+        }
+        const auto matches = exact.length > 0 ? exact : byName;
+        if (matches.length == 0)
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.invalidIdentifier,
+                "No catalog file matches: " ~ relativePath);
+        if (matches.length > 1)
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.invalidIdentifier,
+                "Filename is ambiguous in this catalog: " ~ relativePath);
+        fresh.dataArray[matches[0]].archivePassword = password;
+        try
+            serializeDataClassWrapperFile(backendTarget.catalogPath, fresh);
+        catch (Exception failure)
+            throw new CatalogBackendException(CatalogBackendErrorCode.backendFailure,
+                "Cannot write the archive password: " ~ failure.msg);
+        reloadCatalog();
     }
 
     override CatalogContentSnapshot loadContent(ContentId contentId,
@@ -585,6 +834,118 @@ public:
         return result;
     }
 
+    override DirectoryId resolveDirectory(string relativePath)
+    {
+        requireTreeQueries();
+        if (relativePath.length == 0 || relativePath == ".")
+            return DirectoryId.init;
+        if (auto index = relativePath in directoryIndexByPath)
+            return directoryRows[*index].id;
+        return DirectoryId.init;
+    }
+
+    override ReferenceId resolveReference(string relativePath)
+    {
+        requireTreeQueries();
+        if (auto token = relativePath in referenceTokenByPath)
+            return ReferenceId(*token);
+        foreach (row; fileRows)
+            if (row.relativePath == relativePath)
+                return row.referenceId;
+        foreach (container; fileRows)
+            if (container.hasArchive)
+                foreach (member; archiveMemberFiles(container))
+                    if (member.relativePath == relativePath)
+                        return member.referenceId;
+        return ReferenceId.init;
+    }
+
+    override CatalogFile loadReference(ReferenceId referenceId)
+    {
+        requireTreeQueries();
+        CatalogFile result;
+        if (!findFileRow(referenceId, result))
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.invalidIdentifier,
+                "Unknown JSON reference identity.");
+        refreshAvailability(result);
+        return result;
+    }
+
+    override MemberContentLease acquireMemberContent(
+        ReferenceId memberReferenceId, shared(bool)* cancellation = null)
+    {
+        requireTreeQueries();
+        if (sourceRoot.length == 0)
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.unsupportedFeature,
+                "JSON member extraction requires an explicit filesystem root.");
+        CatalogFile member;
+        if (!findFileRow(memberReferenceId, member)
+            || member.locator.kind != ContentLocator.Kind.archiveEntry)
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.invalidIdentifier,
+                "Reference is not an indexed JSON archive member.");
+        refreshAvailability(member);
+        if (member.availability != CatalogReferenceAvailability.available)
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.invalidIdentifier,
+                "The archive container is not available on disk.");
+        ArchiveExtractionStep[] steps;
+        auto current = member;
+        string physicalContainer;
+        while (true)
+        {
+            if (current.locator.kind != ContentLocator.Kind.archiveEntry)
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.invalidIdentifier,
+                    "Archive member chain does not end at a filesystem container.");
+            const auto containerReferenceId =
+                current.locator.archiveEntry.containerReferenceId;
+            const auto entryId = current.locator.archiveEntry.entryId;
+            CatalogFile container;
+            if (!findFileRow(containerReferenceId, container))
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.invalidIdentifier,
+                    "Unknown archive container reference.");
+            refreshAvailability(container);
+            if (container.availability != CatalogReferenceAvailability.available)
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.invalidIdentifier,
+                    "The archive container is not available on disk.");
+            CatalogArchiveEntry entry;
+            bool foundEntry;
+            if (auto entries = container.contentId.adapterToken
+                in archiveEntriesByToken)
+                foreach (candidate; *entries)
+                    if (candidate.id == entryId)
+                    {
+                        entry = candidate;
+                        foundEntry = true;
+                        break;
+                    }
+            if (!foundEntry)
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.invalidIdentifier,
+                    "The archive entry identity is no longer indexed.");
+            ArchiveExtractionStep step;
+            step.memberPath = entry.relativePath;
+            step.occurrence = entry.occurrence;
+            step.locator = current.locator;
+            step.password = archivePasswordForContent(container.contentId);
+            step.knownSize = current.size;
+            steps = step ~ steps;
+            if (container.locator.kind == ContentLocator.Kind.filesystem)
+            {
+                physicalContainer = container.locator.filesystem.relativePath;
+                break;
+            }
+            current = container;
+        }
+        return extractArchiveMember(sourceRoot, physicalContainer, steps,
+            cancellation);
+    }
+
     override RepositoryBlobPage queryBlobs(RepositoryQueryOptions options)
     {
         requireOpen();
@@ -746,10 +1107,8 @@ public:
 
     private string contentTokenForBlobIndex(size_t blobIndex) const
     {
-        foreach (token, index; blobIndexByContentToken)
-            if (index == blobIndex)
-                return token;
-        return "";
+        return blobIndex < contentTokenByBlobIndex.length
+            ? contentTokenByBlobIndex[blobIndex] : "";
     }
 
     override CatalogExportResult exportSubset(CatalogSubsetQuery query,
@@ -1488,6 +1847,7 @@ private:
         torrentEntriesByToken = null;
         blobIndexByRelativePath = null;
         blobIndexByContentToken = null;
+        contentTokenByBlobIndex = null;
         fileSpecByRelativePath = null;
         directoryIndexByPath = null;
         treeQueriesAvailable = false;
@@ -1543,7 +1903,12 @@ private:
             auto strongKey = strongFingerprintKey(blob, fingerprint);
             auto contentToken = contentTokenFor(blob, pathKeys, strongKey, blobIndex);
             if (contentToken !in blobIndexByContentToken)
+            {
+                if (contentTokenByBlobIndex.length <= blobIndex)
+                    contentTokenByBlobIndex.length = blobIndex + 1;
+                contentTokenByBlobIndex[blobIndex] = contentToken;
                 blobIndexByContentToken[contentToken] = blobIndex;
+            }
             auto contentId = contentIdFromToken(contentToken);
             if (auto existing = contentToken in contentByToken)
                 mergeContentSnapshot(*existing, snapshotFor(blob, contentId));
@@ -2141,10 +2506,49 @@ private:
                 continue;
             if (activeFilter && !directoryHasMatch(directory.relativePath, query.filter))
                 continue;
-            result ~= directory;
+            auto row = directory;
+            if (activeFilter)
+            {
+                /* Precomputed index counts are unfiltered; recompute them for
+                 * the active filter so counts match the listed content, like
+                 * the SQLite backend does. */
+                applyDirectoryFilterCounts(row, query.filter);
+            }
+            result ~= row;
         }
         result.sort!((left, right) => left.relativePath < right.relativePath);
         return result;
+    }
+
+    private void applyDirectoryFilterCounts(ref CatalogDirectory directory,
+        CatalogFilter filter)
+    {
+        const prefix = directory.relativePath ~ "/";
+        const start = lowerBoundPath(prefix);
+        const end = lowerBoundPath(directory.relativePath ~ "0");
+        size_t count;
+        ulong total;
+        foreach (const index; start .. end)
+        {
+            auto file = fileRows[index];
+            if (matches(file, filter))
+            {
+                ++count;
+                total += file.size;
+            }
+        }
+        if (filter.includeArchiveMembers)
+            foreach (const index; start .. end)
+            {
+                auto container = fileRows[index];
+                if (!container.hasArchive)
+                    continue;
+                foreach (member; archiveMemberFiles(container))
+                    if (matches(member, filter))
+                        total += member.size;
+            }
+        directory.fileCount = count;
+        directory.aggregateSize = total;
     }
 
     bool directoryHasMatch(string directoryPath, CatalogFilter filter)
@@ -2185,6 +2589,33 @@ private:
                 high = middle;
         }
         return low;
+    }
+
+    bool findFileRow(ReferenceId referenceId, out CatalogFile result)
+    {
+        foreach (row; fileRows)
+            if (row.referenceId == referenceId)
+            {
+                result = row;
+                return true;
+            }
+        foreach (container; fileRows)
+            if (container.hasArchive)
+                foreach (member; archiveMemberFiles(container))
+                    if (member.referenceId == referenceId)
+                    {
+                        result = member;
+                        return true;
+                    }
+        return false;
+    }
+
+    string archivePasswordForContent(ContentId contentId) const
+    {
+        if (auto index = contentId.adapterToken in blobIndexByContentToken)
+            if (*index < catalog.dataArray.length)
+                return catalog.dataArray[*index].archivePassword;
+        return "";
     }
 
     CatalogFile[] archiveMemberFiles(CatalogFile container)
@@ -2394,8 +2825,8 @@ final class JsonCatalogBackendFactory : CatalogBackendFactory
 version (unittest)
 {
     import std.algorithm.searching : canFind;
-    import std.file : DirEntry, SpanMode, dirEntries, exists, getcwd, read,
-        remove, rmdirRecurse, tempDir, write;
+    import std.file : DirEntry, SpanMode, dirEntries, exists, getcwd, getSize,
+        read, remove, rmdirRecurse, tempDir, write;
     import std.path : baseName;
     import std.uuid : randomUUID;
     import dosierskanilo.model.namedbinaryblob :
@@ -2406,6 +2837,7 @@ version (unittest)
     @("JSON directory filters include non-BMP descendants")
     unittest
     {
+        import std.conv : to;
         import std.datetime.systime : SysTime;
         import dosierskanilo.model.namedbinaryblob :
             serializeDataClassWrapperFile;
@@ -2419,6 +2851,7 @@ version (unittest)
         catalog.dataVersion = DATA_CLASS_VERSION5;
         catalog.dataArray = [
             new NamedBinaryBlob("media/\U0001F600.txt", 5, SysTime(0)),
+            new NamedBinaryBlob("media/out.txt", 7, SysTime(0)),
             new NamedBinaryBlob("other/plain.txt", 5, SysTime(0))
         ];
         serializeDataClassWrapperFile(catalogPath, catalog);
@@ -2435,6 +2868,25 @@ version (unittest)
         const page = backend.listDirectories(query, request);
         assert(page.directories.length == 1);
         assert(page.directories[0].name == "media");
+
+        /* Filtered counts must describe matching content only, like SQLite. */
+        CatalogDirectoryQuery unfiltered;
+        const plainPage = backend.listDirectories(unfiltered, request);
+        assert(plainPage.directories.length == 2);
+        foreach (directory; plainPage.directories)
+        {
+            const mediaDirectory = directory.name == "media";
+            assert(directory.fileCount == (mediaDirectory ? 2 : 1),
+                directory.fileCount.to!string);
+            assert(directory.aggregateSize == (mediaDirectory ? 12UL : 5UL),
+                directory.aggregateSize.to!string);
+        }
+
+        /* pathText filter: one matching directory with matching counts only. */
+        assert(page.directories[0].fileCount == 1,
+            page.directories[0].fileCount.to!string);
+        assert(page.directories[0].aggregateSize == 5,
+            page.directories[0].aggregateSize.to!string);
     }
 
     @("JSON backend indexes and operates on the generated catalog without SQLite")
@@ -2552,6 +3004,80 @@ version (unittest)
         assert(sizeFirst.files[0].relativePath == sizePage.files[0].relativePath);
         assert(sizeSecond.files[0].relativePath == sizePage.files[1].relativePath);
 
+        auto afterFirstSize = backend.listFilesFrom(sizeQuery,
+            sizePage.files[0].relativePath, true, 1);
+        assert(afterFirstSize.files.length == 1);
+        assert(afterFirstSize.files[0].relativePath
+            == sizePage.files[1].relativePath);
+        auto beforeSecondSize = backend.listFilesFrom(sizeQuery,
+            sizePage.files[1].relativePath, false, 1);
+        assert(beforeSecondSize.files.length == 1);
+        assert(beforeSecondSize.files[0].relativePath
+            == sizePage.files[0].relativePath);
+        assert(backend.listFilesFrom(sizeQuery,
+            sizePage.files[0].relativePath, false, 1).files.length == 0);
+        assert(backend.listFilesFrom(sizeQuery,
+            sizePage.files[$ - 1].relativePath, true, 1).files.length == 0);
+        assert(backend.listFilesFrom(sizeQuery, "missing.bin", true, 1)
+            .files.length == 0);
+        const auto sizeFromEmpty = backend.listFilesFrom(sizeQuery, "", true, 2);
+        assert(sizeFromEmpty.files.length == 2 && sizeFromEmpty.hasMore);
+        assert(sizeFromEmpty.files[0].relativePath
+            == sizePage.files[0].relativePath);
+
+        const auto allContents = backend.listContents(CatalogContentQuery.init);
+        assert(allContents.total > 0);
+        assert(allContents.rows.length == allContents.total);
+        foreach (row; allContents.rows)
+        {
+            assert(row.id.isValid);
+            assert(row.referenceCount > 0);
+            assert(row.displayPath.length > 0);
+        }
+        CatalogPageRequest contentRequest;
+        contentRequest.limit = 2;
+        const auto firstContents = backend.listContents(
+            CatalogContentQuery.init, contentRequest);
+        assert(firstContents.rows.length == 2 && firstContents.hasMore);
+        const auto nextContents = backend.listContents(
+            CatalogContentQuery.init,
+            CatalogPageRequest(2, firstContents.nextCursor));
+        assert(nextContents.rows.length == 2);
+        assert(nextContents.rows[0].displayPath
+            != firstContents.rows[1].displayPath);
+        CatalogContentQuery archiveContents;
+        archiveContents.filter.pathText = "sample.zip";
+        assert(backend.listContents(archiveContents).rows.length >= 1);
+
+        auto passwordTarget = archivePage.files[0];
+        const auto passwordName = baseName(passwordTarget.relativePath);
+        backend.setArchivePassword(passwordTarget.relativePath, "catalog-secret");
+        {
+            const auto stored = deserializeDataClassJsonWrapperFile(catalogPath);
+            bool found;
+            foreach (blob; stored.dataArray)
+                foreach (spec; blob.fileSpecs)
+                    if (spec !is null && baseName(spec.fileName) == passwordName
+                        && blob.archivePassword == "catalog-secret")
+                        found = true;
+            assert(found);
+        }
+        backend.setArchivePassword(passwordTarget.relativePath, "");
+        {
+            const auto stored = deserializeDataClassJsonWrapperFile(catalogPath);
+            foreach (blob; stored.dataArray)
+                foreach (spec; blob.fileSpecs)
+                    if (spec !is null && baseName(spec.fileName) == passwordName)
+                        assert(blob.archivePassword.length == 0);
+        }
+        bool rejectedUnknownPasswordPath;
+        try
+            backend.setArchivePassword("missing.bin", "secret");
+        catch (CatalogBackendException failure)
+            rejectedUnknownPasswordPath = failure.code
+                == CatalogBackendErrorCode.invalidIdentifier;
+        assert(rejectedUnknownPasswordPath);
+
         archivePage = backend.listFiles(archiveQuery);
         assert(archivePage.files.length == 3);
         CatalogFile sampleArchive;
@@ -2597,6 +3123,48 @@ version (unittest)
             sampleArchive.referenceId, archiveMemberRequest);
         assert(availableMembers.members[0].availability
             == CatalogReferenceAvailability.available);
+
+        /* Typed handles and path-based restoration stay storage-neutral. */
+        assert(backend.uiHandle(sampleArchive.referenceId).startsWith("ref:"));
+        assert(backend.uiHandle(archiveDirectory).startsWith("dir:"));
+        assert(backend.uiHandle(sampleArchive.contentId).startsWith("content:"));
+        assert(backend.uiHandle(sampleArchive.referenceId)
+            != backend.uiHandle(sampleArchive.contentId));
+        assert(backend.resolveDirectory("archives") == archiveDirectory);
+        assert(!backend.resolveDirectory("").isValid);
+        assert(!backend.resolveDirectory("archives/missing").isValid);
+        assert(backend.resolveReference(sampleArchive.relativePath)
+            == sampleArchive.referenceId);
+        assert(!backend.resolveReference("archives/missing.zip").isValid);
+        assert(backend.loadReference(sampleArchive.referenceId).relativePath
+            == sampleArchive.relativePath);
+        bool unknownReferenceRejected;
+        try
+            backend.loadReference(ReferenceId.init);
+        catch (CatalogBackendException failure)
+            unknownReferenceRejected = failure.code
+                == CatalogBackendErrorCode.invalidIdentifier;
+        assert(unknownReferenceRejected);
+
+        /* Nested members extract through the shared leased cache. */
+        CatalogPageRequest allMemberRequest;
+        allMemberRequest.limit = 64;
+        CatalogArchiveMember nestedArchiveMember;
+        foreach (member; backend.listArchiveMembers(sampleArchive.referenceId,
+            allMemberRequest).members)
+            if (member.name == "nested.zip")
+                nestedArchiveMember = member;
+        assert(nestedArchiveMember.referenceId.isValid);
+        const auto nestedMemberPage = backend.listArchiveMembers(
+            nestedArchiveMember.referenceId, allMemberRequest);
+        assert(nestedMemberPage.members.length == 1);
+        assert(backend.resolveReference(
+            "archives/sample.zip!/nested.zip!/deep/readme.txt").isValid);
+        auto nestedLease = backend.acquireMemberContent(
+            nestedMemberPage.members[0].referenceId);
+        assert(exists(nestedLease.path));
+        assert(getSize(nestedLease.path) == nestedMemberPage.members[0].size);
+        nestedLease.release();
 
         CatalogFileQuery mediaQuery;
         mediaQuery.directoryId = mediaDirectory;

@@ -78,6 +78,11 @@ bool validateRepositoryOptions(string command, ref ArgsArray options)
         errorLine("Repository query format must be 'table' or 'json'.");
         return false;
     }
+    if (command == "duplicates" && options.argDuplicateLimit == 0)
+    {
+        errorLine("--duplicate-limit must be greater than zero.");
+        return false;
+    }
     if (!validateRepositoryCommand(command, options))
         return false;
     if (!options.argImportJSON.empty && !options.argImportJSON.endsWith(jsonFileExtension))
