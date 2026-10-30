@@ -1746,9 +1746,11 @@ session cache paths in the catalog.
 
 #### WP-13.6.3: Cross-frontend parity
 
-- [ ] Run a cross-backend/CLI/GUI parity matrix for reads, virtual paths,
+- [x] Run a cross-backend/CLI/GUI parity matrix for reads, virtual paths,
   duplicate occurrences, filtered subsets, scraping, extraction, cancellation,
-  cache cleanup, and committed-state refresh.
+  cache cleanup, and committed-state refresh. Evidence is recorded in
+  `docs/OPERATION-PARITY.md` and the cross-adapter suites in
+  `sqlitecatalogbackend.d`.
 
 **Exit:** CLI and GTK are clients of the same polymorphic catalog API; neither
 frontend contains storage-specific algorithms or archive identity rules.

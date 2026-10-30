@@ -2682,3 +2682,70 @@ unittest
         rejected = failure.code == CatalogBackendErrorCode.invalidCursor;
     assert(rejected, "The merged duplicate set must invalidate the old cursor.");
 }
+
+@("JSON and SQLite backends agree on duplicate groups and filtered reads")
+unittest
+{
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const token = randomUUID().toString();
+    const root = buildPath(tempDir(), "backend-parity-reads-" ~ token);
+    const catalogPath = buildPath(tempDir(), "backend-parity-reads-"
+        ~ token ~ ".json");
+    mkdirRecurse(root);
+    scope (exit)
+    {
+        if (exists(root))
+            rmdirRecurse(root);
+        if (exists(catalogPath))
+            remove(catalogPath);
+    }
+    write(buildPath(root, "first.txt"), "identical payload");
+    write(buildPath(root, "second.txt"), "identical payload");
+    write(buildPath(root, "third.txt"), "different payload");
+
+    auto repository = Repository.initialize(root);
+    repository.close();
+
+    auto factory = new DefaultCatalogBackendFactory();
+    auto sqliteBackend = factory.open(OperationTarget.repositoryTarget(root));
+    auto jsonBackend = factory.open(OperationTarget.jsonTarget(catalogPath, root));
+    scope (exit)
+    {
+        if (sqliteBackend !is null)
+            sqliteBackend.close();
+        if (jsonBackend !is null)
+            jsonBackend.close();
+    }
+
+    foreach (index, backend; [sqliteBackend, jsonBackend])
+    {
+        ScanOperationRequest scan;
+        scan.operationId = cast(ulong) index + 1;
+        scan.target = backend.target();
+        scan.scanOptions.recursive = true;
+        scan.metadataOptions.calculateChecksums = true;
+        const result = backend.runOperation(scan, new OperationControl());
+        assert(result.state == OperationState.completed, result.error);
+    }
+
+    const sqliteGroups = sqliteBackend.queryDuplicateGroups();
+    const jsonGroups = jsonBackend.queryDuplicateGroups();
+    assert(sqliteGroups.length == 1);
+    assert(jsonGroups.length == sqliteGroups.length);
+    assert(sqliteGroups[0].fileSize == jsonGroups[0].fileSize);
+    assert(sqliteGroups[0].blobIds.length == 2);
+    assert(jsonGroups[0].blobIds.length == sqliteGroups[0].blobIds.length);
+
+    CatalogFileQuery filteredQuery;
+    filteredQuery.filter.pathText = "first";
+    const sqliteFiles = sqliteBackend.listFiles(filteredQuery).files;
+    const jsonFiles = jsonBackend.listFiles(filteredQuery).files;
+    assert(sqliteFiles.length == 1);
+    assert(jsonFiles.length == sqliteFiles.length);
+    assert(sqliteFiles[0].relativePath == "first.txt");
+    assert(jsonFiles[0].relativePath == sqliteFiles[0].relativePath);
+    assert(sqliteFiles[0].size == jsonFiles[0].size);
+}

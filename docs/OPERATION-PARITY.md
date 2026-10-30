@@ -49,6 +49,26 @@ repository; repository operations do not write a JSON catalog implicitly.
 - The GTK startup self-test loads the Tools menu under
   `G_DEBUG=fatal-warnings`.
 
+## Catalog read/identity parity (WP-13.6.3)
+
+The cross-adapter suites in `sqlitecatalogbackend.d` open the same fixture as a
+JSON catalog and a SQLite repository and compare:
+
+- Directory/reference resolution (`resolveDirectory`, `resolveReference`,
+  `loadReference`) and opaque `uiHandle` values, including virtual members.
+- Archive entry and member pages, nested archives, duplicate occurrences, and
+  `acquireMemberContent` extraction leases.
+- Deduplicated content rows (`listContents`), digest filters, and cursors.
+- Filtered file/directory reads and root summaries.
+- Archive-password storage and clearing by reference path.
+- Subset exports for physical and virtual paths plus import round-trip checks.
+- Duplicate groups and filtered reads on a controlled scan
+  ("JSON and SQLite backends agree on duplicate groups and filtered reads").
+
+Operation requests, cancellation, leases, and committed-state refresh stay
+covered by the WP-09 evidence above; the GUI now consumes the same catalog
+methods for trees, content rows, details, entries, and previews.
+
 ## Remaining verification
 
 - Add display-backed GTK interaction tests that start an operation from Tools,

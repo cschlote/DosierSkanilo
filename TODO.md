@@ -183,8 +183,11 @@ steps in dependency order:
       filename contains `!` (e.g. `weird!/name.zip`); `listArchiveEntries`
       no longer double-escapes already-canonical reference paths. Regression
       test covers indexing and enumeration of such containers.
-- [ ] WP-13.6.3: cross-frontend parity checks for the new reference,
-      duplicate, and export surfaces.
+- [x] WP-13.6.3: cross-frontend parity checks for the new reference,
+      duplicate, and export surfaces. The cross-adapter suite in
+      `sqlitecatalogbackend.d` covers resolve/load, virtual and nested members,
+      content rows, duplicate groups, filtered reads, member extraction, and
+      subset exports; operation parity remains covered by WP-09 tests.
 - [x] Document in the WP-13 contract that blob-level digests for
       pure-virtual members are supplied only by the container's
       `ArchiveSpec.checkSums`, so JSON duplicate analysis excludes them by
