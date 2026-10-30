@@ -138,9 +138,11 @@ Split churn from correctness; each item is independently landable.
   instead of scanning the token table per blob.
 - [x] Early-exit path-existence query: `catalogHasPath` walks only relevant
   directory branches and stops at the first match.
-- [ ] Deferred: metadata cleanup transaction shape
-  (`repository/metadata.d`), JSON metadata batch cancellation checkpoints,
-  Flatpak sha256 verification against published artifacts.
+- [x] Metadata cleanup is transactional and runs only after a fully completed
+  run; failed or cancelled runs still bump the source version for cursor
+  invalidation.
+- [ ] Deferred: JSON metadata batch cancellation checkpoints, Flatpak sha256
+  verification against published artifacts.
 
 ## P1 — WP-09 closeout: shared CLI/GTK operations
 

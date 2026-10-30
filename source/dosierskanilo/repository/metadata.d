@@ -189,25 +189,59 @@ private void commitMetadataWork(ref Database db, scope void delegate() work)
     }
 }
 
+/**
+ * Finish one metadata run.
+ *
+ * Archive-member link cleanup and unreachable-blob removal are destructive, so
+ * they run only after a fully completed scan and inside one transaction. The
+ * version bump always runs because per-blob commits may already have changed
+ * the source even when a later item failed.
+ */
+private void finalizeMetadataRun(ref Database db, MetadataScanOptions options,
+    bool completed)
+{
+    if (completed && options.scanArchives)
+    {
+        db.execute("BEGIN IMMEDIATE");
+        try
+        {
+            resolveArchiveMemberBlobLinks(db);
+            deleteUnreachableBlobs(db);
+            db.execute("UPDATE repository SET updated_at = ? WHERE id = 1",
+                currentTimestamp());
+            db.execute("COMMIT");
+        }
+        catch (Exception failure)
+        {
+            try
+                db.execute("ROLLBACK");
+            catch (Exception)
+            {
+            }
+            throw failure;
+        }
+        return;
+    }
+    /* Metadata rewrites file_refs for archive members, so cursors issued
+     * before this run must become invalid even though sourceVersion only
+     * reads repository.updated_at. */
+    db.execute("UPDATE repository SET updated_at = ? WHERE id = 1",
+        currentTimestamp());
+}
+
 /** Run the selected metadata jobs one blob at a time. */
 MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
     MetadataScanOptions options)
 {
+    bool completed;
     scope (exit)
-    {
-        if (options.scanArchives)
-        {
-            resolveArchiveMemberBlobLinks(db);
-            deleteUnreachableBlobs(db);
-        }
-        /* Metadata rewrites file_refs for archive members, so cursors issued
-         * before this run must become invalid even though sourceVersion only
-         * reads repository.updated_at. */
-        db.execute("UPDATE repository SET updated_at = ? WHERE id = 1",
-            currentTimestamp());
-    }
+        finalizeMetadataRun(db, options, completed);
     if (options.threads > 1)
-        return updateRepositoryMetadataParallel(db, rootPath, options);
+    {
+        auto summary = updateRepositoryMetadataParallel(db, rootPath, options);
+        completed = true;
+        return summary;
+    }
 
     MetadataSummary summary;
     foreach (blobId; metadataBlobIds(db, options.filePath))
@@ -334,6 +368,7 @@ MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
             }
         }
     }
+    completed = true;
     return summary;
 }
 
@@ -346,19 +381,9 @@ MetadataExecutionResult updateRepositoryMetadataControlled(ref Database db,
     string rootPath, MetadataScanOptions options, OperationControl control,
     ulong operationId)
 {
+    bool completed;
     scope (exit)
-    {
-        if (options.scanArchives)
-        {
-            resolveArchiveMemberBlobLinks(db);
-            deleteUnreachableBlobs(db);
-        }
-        /* Metadata rewrites file_refs for archive members, so cursors issued
-         * before this run must become invalid even though sourceVersion only
-         * reads repository.updated_at. */
-        db.execute("UPDATE repository SET updated_at = ? WHERE id = 1",
-            currentTimestamp());
-    }
+        finalizeMetadataRun(db, options, completed);
     MetadataExecutionResult execution;
     auto blobIds = metadataBlobIds(db, options.filePath);
     auto batchSize = options.threads > 0 ? options.threads * 4 : 1;
@@ -469,6 +494,7 @@ MetadataExecutionResult updateRepositoryMetadataControlled(ref Database db,
             return execution;
         }
     }
+    completed = true;
     return execution;
 }
 

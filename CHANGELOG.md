@@ -20,7 +20,8 @@ They represent the functional evolution and are intentionally summarized.
   storage-specific writers. JSON and SQLite adapters implement the surface and
   are cross-checked against each other. JSON content-row queries use an inverse
   content-token index instead of scanning all tokens per blob. CLI export path
-  validation walks only the relevant directory branches.
+  validation walks only the relevant directory branches. Destructive metadata
+  cleanup now runs only after a completed run and inside one transaction.
 
 - The process-wide archive-member cache can be closed explicitly with
   `closeSharedMemberContentCache()`. It reports `false` while leased members
