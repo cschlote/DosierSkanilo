@@ -7,6 +7,7 @@ import std.conv : to;
 import std.exception : enforce;
 import std.file : exists;
 import std.path : absolutePath, baseName, buildNormalizedPath, buildPath,
+    isAbsolute,
     dirName, isAbsolute;
 import std.string : replace, split, toLower;
 import std.uuid : randomUUID;
@@ -25,7 +26,8 @@ import dosierskanilo.model.checksums : CheckSums;
 import dosierskanilo.model.filespec : FileSpec;
 import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION3,
     DATA_CLASS_VERSION4, DATA_CLASS_VERSION5, NamedBinaryBlob, NamedBinaryBlobCatalog,
-    deserializeDataClassJsonWrapperFile;
+    deserializeDataClassJsonWrapperFile, serializeDataClassWrapperFile;
+import dosierskanilo.operationlease : TargetWriteLease;
 import dosierskanilo.repository.types : JsonImportOptions, RepositoryBlobPage,
     RepositoryBlobFlags, RepositoryDuplicateGroup, RepositoryInfo,
     RepositoryQueryOptions;
@@ -542,6 +544,70 @@ public:
         return listFiles(query, CatalogPageRequest(cursor.adapterPageSize,
             CatalogPageCursor(start, cursor.adapterPageSize,
                 cursor.adapterQueryToken)));
+    }
+
+    private string storageRelativePath(string fileName) const
+    {
+        if (!isAbsolute(fileName))
+            return buildNormalizedPath(fileName);
+        const auto root = backendTarget.filesystemRoot;
+        if (root.length == 0)
+            return buildNormalizedPath(fileName);
+        const auto normalizedRoot = buildNormalizedPath(absolutePath(root));
+        const auto normalizedPath = buildNormalizedPath(absolutePath(fileName));
+        if (normalizedPath.startsWith(normalizedRoot ~ "/"))
+            return normalizedPath[normalizedRoot.length + 1 .. $];
+        return normalizedPath;
+    }
+
+    override void setArchivePassword(string relativePath, string password)
+    {
+        requireOpen();
+        auto targetLease = TargetWriteLease.acquire(
+            OperationTarget.jsonTarget(backendTarget.catalogPath));
+        scope (exit)
+            targetLease.release();
+        auto fresh = deserializeDataClassJsonWrapperFile(
+            backendTarget.catalogPath);
+        const auto requestedPath = buildNormalizedPath(relativePath);
+        size_t[] exact;
+        size_t[] byName;
+        foreach (index, blob; fresh.dataArray)
+        {
+            foreach (spec; blob.fileSpecs)
+            {
+                if (spec is null || spec.fileName.length == 0)
+                    continue;
+                const auto specPath = storageRelativePath(spec.fileName);
+                if (specPath == requestedPath)
+                {
+                    exact ~= index;
+                    break;
+                }
+                if (baseName(requestedPath) == requestedPath
+                    && baseName(specPath) == requestedPath)
+                {
+                    byName ~= index;
+                    break;
+                }
+            }
+        }
+        const auto matches = exact.length > 0 ? exact : byName;
+        if (matches.length == 0)
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.invalidIdentifier,
+                "No catalog file matches: " ~ relativePath);
+        if (matches.length > 1)
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.invalidIdentifier,
+                "Filename is ambiguous in this catalog: " ~ relativePath);
+        fresh.dataArray[matches[0]].archivePassword = password;
+        try
+            serializeDataClassWrapperFile(backendTarget.catalogPath, fresh);
+        catch (Exception failure)
+            throw new CatalogBackendException(CatalogBackendErrorCode.backendFailure,
+                "Cannot write the archive password: " ~ failure.msg);
+        reloadCatalog();
     }
 
     override CatalogContentSnapshot loadContent(ContentId contentId,
@@ -2971,6 +3037,35 @@ version (unittest)
         CatalogContentQuery archiveContents;
         archiveContents.filter.pathText = "sample.zip";
         assert(backend.listContents(archiveContents).rows.length >= 1);
+
+        auto passwordTarget = archivePage.files[0];
+        const auto passwordName = baseName(passwordTarget.relativePath);
+        backend.setArchivePassword(passwordTarget.relativePath, "catalog-secret");
+        {
+            const auto stored = deserializeDataClassJsonWrapperFile(catalogPath);
+            bool found;
+            foreach (blob; stored.dataArray)
+                foreach (spec; blob.fileSpecs)
+                    if (spec !is null && baseName(spec.fileName) == passwordName
+                        && blob.archivePassword == "catalog-secret")
+                        found = true;
+            assert(found);
+        }
+        backend.setArchivePassword(passwordTarget.relativePath, "");
+        {
+            const auto stored = deserializeDataClassJsonWrapperFile(catalogPath);
+            foreach (blob; stored.dataArray)
+                foreach (spec; blob.fileSpecs)
+                    if (spec !is null && baseName(spec.fileName) == passwordName)
+                        assert(blob.archivePassword.length == 0);
+        }
+        bool rejectedUnknownPasswordPath;
+        try
+            backend.setArchivePassword("missing.bin", "secret");
+        catch (CatalogBackendException failure)
+            rejectedUnknownPasswordPath = failure.code
+                == CatalogBackendErrorCode.invalidIdentifier;
+        assert(rejectedUnknownPasswordPath);
 
         archivePage = backend.listFiles(archiveQuery);
         assert(archivePage.files.length == 3);

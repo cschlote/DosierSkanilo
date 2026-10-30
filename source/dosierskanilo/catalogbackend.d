@@ -759,6 +759,16 @@ interface CatalogBackend
     CatalogContentPage listContents(CatalogContentQuery query,
         CatalogPageRequest page = CatalogPageRequest.init);
 
+    /**
+     * Store or clear the archive password for one reference path.
+     *
+     * The path is resolved like `resolveReference`; a unique basename is also
+     * accepted. An empty password clears the stored value. Unknown or ambiguous
+     * paths raise `invalidIdentifier`, unsupported stores raise
+     * `unsupportedFeature`.
+     */
+    void setArchivePassword(string relativePath, string password);
+
     /** Load one detached content snapshot, including only requested details. */
     CatalogContentSnapshot loadContent(ContentId contentId,
         CatalogDetailMask details = CatalogDetailMask.init);
@@ -1271,6 +1281,34 @@ version (unittest)
             if (result.hasMore)
                 result.nextCursor = CatalogPageCursor(end, page.limit, queryToken);
             return result;
+        }
+
+        private string[string] archivePasswords;
+
+        override void setArchivePassword(string relativePath, string password)
+        {
+            requireOpen();
+            size_t[] exact;
+            size_t[] byName;
+            foreach (index, file; files)
+                if (file.relativePath == relativePath)
+                    exact ~= index;
+                else if (baseName(file.relativePath) == relativePath
+                    && baseName(relativePath) == relativePath)
+                    byName ~= index;
+            const auto matches = exact.length > 0 ? exact : byName;
+            if (matches.length == 0)
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.invalidIdentifier,
+                    "No catalog reference matches the requested path.");
+            if (matches.length > 1)
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.invalidIdentifier,
+                    "The requested filename is ambiguous in this catalog.");
+            if (password.length == 0)
+                archivePasswords.remove(files[matches[0]].relativePath);
+            else
+                archivePasswords[files[matches[0]].relativePath] = password;
         }
 
         override OperationTarget target()
@@ -1940,6 +1978,17 @@ version (unittest)
             CatalogContentQuery.init,
             CatalogPageRequest(1, firstContents.nextCursor));
         assert(secondContents.rows.length == 1 && !secondContents.hasMore);
+
+        /* Archive passwords are stored by reference path. */
+        backend.setArchivePassword("a/one.txt", "secret");
+        backend.setArchivePassword("a/one.txt", "");
+        bool rejectedUnknownPasswordPath;
+        try
+            backend.setArchivePassword("missing.txt", "secret");
+        catch (CatalogBackendException failure)
+            rejectedUnknownPasswordPath = failure.code
+                == CatalogBackendErrorCode.invalidIdentifier;
+        assert(rejectedUnknownPasswordPath);
 
         assert(backend.resolveDirectory("a")
             == firstDirectories.directories[0].id);

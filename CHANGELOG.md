@@ -15,8 +15,10 @@ They represent the functional evolution and are intentionally summarized.
   (`acquireMemberContent`) that resolves nested container chains and stored
   passwords into the shared leased cache, plus `listFilesFrom` for stateless
   previous/next navigation around a named reference, and `listContents` for
-  deduplicated table projections with an optional base64 SHA-1 filter. JSON and
-  SQLite adapters implement the surface and are cross-checked against each other.
+  deduplicated table projections with an optional base64 SHA-1 filter. Adapters
+  also persist archive passwords by reference path, so frontends no longer need
+  storage-specific writers. JSON and SQLite adapters implement the surface and
+  are cross-checked against each other.
 
 - The process-wide archive-member cache can be closed explicitly with
   `closeSharedMemberContentCache()`. It reports `false` while leased members

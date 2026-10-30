@@ -353,6 +353,18 @@ public:
             ~ filterToken(query.filter);
     }
 
+    override void setArchivePassword(string relativePath, string password)
+    {
+        return withRepository((Repository repository) {
+            try
+                repository.setArchivePasswordForPath(relativePath, password);
+            catch (RepositoryException failure)
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.invalidIdentifier,
+                    "Cannot store the archive password: " ~ failure.msg);
+        });
+    }
+
     override CatalogContentSnapshot loadContent(ContentId contentId,
         CatalogDetailMask details = CatalogDetailMask.init)
     {
@@ -2115,6 +2127,32 @@ version (unittest)
         assert(sqliteNextContent.rows.length == 1);
         assert(sqliteNextContent.rows[0].id
             == sqliteContents.rows[1].id);
+
+        /* Archive passwords are stored through the neutral path method. */
+        const auto passwordTarget = sqliteBackend.loadReference(
+            sqliteBackend.resolveReference("archives/sample.zip"));
+        sqliteBackend.setArchivePassword("archives/sample.zip", "catalog-secret");
+        {
+            auto storedRepository = Repository.open(sqliteRoot);
+            scope (exit)
+                storedRepository.close();
+            const auto storedReference = storedRepository.fileReferenceByRelativePath(
+                "archives/sample.zip");
+            assert(storedReference.id > 0);
+            assert(storedRepository.loadBlobDetails(storedReference.blobId)
+                .archivePassword == "catalog-secret");
+        }
+        sqliteBackend.setArchivePassword("archives/sample.zip", "");
+        {
+            auto storedRepository = Repository.open(sqliteRoot);
+            scope (exit)
+                storedRepository.close();
+            const auto storedReference = storedRepository.fileReferenceByRelativePath(
+                "archives/sample.zip");
+            assert(storedReference.id > 0);
+            assert(storedRepository.loadBlobDetails(storedReference.blobId)
+                .archivePassword.length == 0);
+        }
 
         /* A base64 SHA-1 is accepted as an exact content filter. */
         string sha1Text;

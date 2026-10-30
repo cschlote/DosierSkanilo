@@ -179,6 +179,9 @@ CLI parser/output types.
 - `listFilesFrom` returns the files adjacent to a named reference so clients can
   implement previous/next navigation without holding a cursor. An unknown anchor
   yields an empty page, and an empty anchor starts at the first file forward.
+- `setArchivePassword` stores or clears the archive password for a reference
+  path (unique basenames are accepted); it applies the same write-lease rules as
+  other mutations and is unsupported where the storage cannot persist passwords.
 - `listContents` returns one row per stored content record in source order for
   table projections. Adapters that keep unmerged duplicate records report one
   row per record, so row counts may differ between storage modes; clients must
