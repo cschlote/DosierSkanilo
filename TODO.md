@@ -134,10 +134,12 @@ Split churn from correctness; each item is independently landable.
 - [x] `scripts/test-cli.sh` resolves `ROOT_DIR` from its own location and
   runs `dub` from the repository root; `scripts/lint.sh` lints
   `--config=cli` and discovers `docs/reviews/*.md` dynamically.
+- [x] Inverse content-token map: `listContents` and content lookups are linear
+  instead of scanning the token table per blob.
 - [ ] Deferred: metadata cleanup transaction shape
   (`repository/metadata.d`), JSON metadata batch cancellation checkpoints,
-  early-exit path-existence query, inverse content-token map, Flatpak
-  sha256 verification against published artifacts.
+  early-exit path-existence query, Flatpak sha256 verification against published
+  artifacts.
 
 ## P1 — WP-09 closeout: shared CLI/GTK operations
 

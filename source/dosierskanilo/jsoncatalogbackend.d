@@ -120,6 +120,7 @@ private:
     CatalogTorrentManifestEntry[][string] torrentEntriesByToken;
     size_t[string] blobIndexByRelativePath;
     size_t[string] blobIndexByContentToken;
+    string[] contentTokenByBlobIndex;
     FileSpec[string] fileSpecByRelativePath;
     size_t[string] directoryIndexByPath;
 
@@ -318,45 +319,51 @@ public:
             if (container.hasArchive)
                 references ~= archiveMemberFiles(container);
 
+        size_t[string] referenceCounts;
+        string[string] displayPaths;
+        string[string] displayNames;
+        bool[string] pathMatches;
+        foreach (ref candidate; references)
+        {
+            const token = candidate.contentId.adapterToken;
+            ++referenceCounts[token];
+            const auto displayPath = displayPaths.get(token, "");
+            if (displayPath.length == 0 || candidate.relativePath < displayPath)
+            {
+                displayPaths[token] = candidate.relativePath;
+                displayNames[token] = candidate.name;
+            }
+            if (!pathMatches.get(token, false))
+            {
+                auto path = candidate.relativePath;
+                auto text = query.filter.pathText;
+                if (!query.filter.caseSensitive)
+                {
+                    path = path.toLower;
+                    text = text.toLower;
+                }
+                pathMatches[token] = text.length == 0 || path.canFind(text);
+            }
+        }
+
         CatalogContentRow[] matching;
         foreach (blobIndex, ref blob; catalog.dataArray)
         {
             const token = contentTokenForBlobIndex(blobIndex);
             if (token.length == 0 || !contentMatchesFilter(token, query.filter))
                 continue;
-            bool pathMatch = query.filter.pathText.length == 0;
+            const bool digestMatch = query.filter.pathText.length > 0
+                && blob.checkSums.sha1sum_b64 == query.filter.pathText;
+            if (!pathMatches.get(token, false) && !digestMatch)
+                continue;
             CatalogContentRow row;
             row.id = ContentId(token);
             row.size = blob.fileSize;
+            row.referenceCount = referenceCounts.get(token, 0);
+            row.displayPath = displayPaths.get(token, "");
+            row.displayName = displayNames.get(token, "");
             row.fingerprint = fingerprintFor(blob.fileSize, blob.checkSums);
             row.availability = CatalogReferenceAvailability.notChecked;
-            foreach (ref candidate; references)
-            {
-                if (candidate.contentId.adapterToken != token)
-                    continue;
-                ++row.referenceCount;
-                if (row.displayPath.length == 0
-                    || candidate.relativePath < row.displayPath)
-                {
-                    row.displayPath = candidate.relativePath;
-                    row.displayName = candidate.name;
-                }
-                if (!pathMatch)
-                {
-                    auto path = candidate.relativePath;
-                    auto text = query.filter.pathText;
-                    if (!query.filter.caseSensitive)
-                    {
-                        path = path.toLower;
-                        text = text.toLower;
-                    }
-                    pathMatch = path.canFind(text);
-                }
-            }
-            const bool digestMatch = query.filter.pathText.length > 0
-                && blob.checkSums.sha1sum_b64 == query.filter.pathText;
-            if (!pathMatch && !digestMatch)
-                continue;
             if (auto content = token in contentByToken)
             {
                 row.hasFileType = (*content).fileType.length > 0;
@@ -1100,10 +1107,8 @@ public:
 
     private string contentTokenForBlobIndex(size_t blobIndex) const
     {
-        foreach (token, index; blobIndexByContentToken)
-            if (index == blobIndex)
-                return token;
-        return "";
+        return blobIndex < contentTokenByBlobIndex.length
+            ? contentTokenByBlobIndex[blobIndex] : "";
     }
 
     override CatalogExportResult exportSubset(CatalogSubsetQuery query,
@@ -1842,6 +1847,7 @@ private:
         torrentEntriesByToken = null;
         blobIndexByRelativePath = null;
         blobIndexByContentToken = null;
+        contentTokenByBlobIndex = null;
         fileSpecByRelativePath = null;
         directoryIndexByPath = null;
         treeQueriesAvailable = false;
@@ -1897,7 +1903,12 @@ private:
             auto strongKey = strongFingerprintKey(blob, fingerprint);
             auto contentToken = contentTokenFor(blob, pathKeys, strongKey, blobIndex);
             if (contentToken !in blobIndexByContentToken)
+            {
+                if (contentTokenByBlobIndex.length <= blobIndex)
+                    contentTokenByBlobIndex.length = blobIndex + 1;
+                contentTokenByBlobIndex[blobIndex] = contentToken;
                 blobIndexByContentToken[contentToken] = blobIndex;
+            }
             auto contentId = contentIdFromToken(contentToken);
             if (auto existing = contentToken in contentByToken)
                 mergeContentSnapshot(*existing, snapshotFor(blob, contentId));
