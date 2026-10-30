@@ -179,10 +179,10 @@ steps in dependency order:
       Trees, content rows, details, archive/torrent pages, and member previews
       now use the contract; UI state uses source-relative paths; archive rescans
       and password writes use the shared operation/backend surface.
-- [ ] Archive scans skip containers whose physical filename contains `!`
-      (e.g. `weird!/name.zip`): the scanner passes the raw path to
-      `updateArchives`, which parses it as a virtual path. Escape physical
-      FileSpec paths before archive indexing and add a regression test.
+- [x] Archive scans and member lookups handle containers whose physical
+      filename contains `!` (e.g. `weird!/name.zip`); `listArchiveEntries`
+      no longer double-escapes already-canonical reference paths. Regression
+      test covers indexing and enumeration of such containers.
 - [ ] WP-13.6.3: cross-frontend parity checks for the new reference,
       duplicate, and export surfaces.
 - [x] Document in the WP-13 contract that blob-level digests for

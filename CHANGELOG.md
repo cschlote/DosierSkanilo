@@ -23,6 +23,8 @@ They represent the functional evolution and are intentionally summarized.
   validation walks only the relevant directory branches. Destructive metadata
   cleanup now runs only after a completed run and inside one transaction, and
   JSON metadata jobs stop between work phases when cancellation is requested.
+  Archive entries of containers whose filename contains `!` are listed and
+  exported again instead of being treated as nested archive paths.
 
 - The process-wide archive-member cache can be closed explicitly with
   `closeSharedMemberContentCache()`. It reports `false` while leased members

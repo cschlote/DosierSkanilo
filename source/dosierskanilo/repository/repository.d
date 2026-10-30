@@ -1930,3 +1930,48 @@ unittest
     }
     assert(foundFirst && foundSecond && foundFirstMember);
 }
+
+@("archive indexing handles container names with exclamation marks")
+unittest
+{
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.process : execute;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "repo-bang-archive-"
+        ~ randomUUID().toString());
+    mkdirRecurse(buildPath(root, "weird!"));
+    scope (exit)
+    {
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+    write(buildPath(root, "weird!", "payload.txt"), "payload\n");
+    const createArchive = "import sys, zipfile; "
+        ~ "z = zipfile.ZipFile(sys.argv[1], 'w'); "
+        ~ "z.writestr('inside.txt', 'inside'); z.close()";
+    assert(execute(["python3", "-c", createArchive,
+        buildPath(root, "weird!", "name.zip")]).status == 0);
+
+    auto repository = Repository.initialize(root);
+    scope (exit)
+        repository.close();
+    repository.scan();
+    MetadataScanOptions options;
+    options.scanArchives = true;
+    options.deepArchiveScan = true;
+    const summary = repository.updateMetadata(options);
+
+    const containerReference = repository.fileReferenceByRelativePath(
+        escapeArchiveVirtualPath("weird!/name.zip"));
+    assert(containerReference.id > 0);
+    RepositoryArchiveQuery query;
+    query.blobId = containerReference.blobId;
+    query.limit = 10;
+    const entries = repository.listArchiveEntries(query);
+    assert(entries.length == 1, "entries=" ~ entries.length.to!string
+        ~ " updated=" ~ summary.archivesUpdated.to!string
+        ~ " failed=" ~ summary.failed.to!string);
+    assert(entries[0].name == "inside.txt");
+}

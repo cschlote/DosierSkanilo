@@ -633,8 +633,8 @@ RepositoryArchiveEntry[] listArchiveEntriesFromDatabase(ref Database db,
             parsed = parseArchiveVirtualPath(containerPath);
         catch (Exception)
             continue;
-        const prefix = (parsed.entries.length == 0
-            ? escapeArchiveVirtualPath(containerPath) : containerPath) ~ "!/";
+        /* Stored reference paths are already in canonical display grammar. */
+        const prefix = containerPath ~ "!/";
         const startName = ":member_start_" ~ index.to!string;
         const endName = ":member_end_" ~ index.to!string;
         rangeConditions ~= "(f.relative_path >= " ~ startName
