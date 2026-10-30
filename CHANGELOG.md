@@ -19,7 +19,8 @@ They represent the functional evolution and are intentionally summarized.
   also persist archive passwords by reference path, so frontends no longer need
   storage-specific writers. JSON and SQLite adapters implement the surface and
   are cross-checked against each other. JSON content-row queries use an inverse
-  content-token index instead of scanning all tokens per blob.
+  content-token index instead of scanning all tokens per blob. CLI export path
+  validation walks only the relevant directory branches.
 
 - The process-wide archive-member cache can be closed explicitly with
   `closeSharedMemberContentCache()`. It reports `false` while leased members

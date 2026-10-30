@@ -136,10 +136,11 @@ Split churn from correctness; each item is independently landable.
   `--config=cli` and discovers `docs/reviews/*.md` dynamically.
 - [x] Inverse content-token map: `listContents` and content lookups are linear
   instead of scanning the token table per blob.
+- [x] Early-exit path-existence query: `catalogHasPath` walks only relevant
+  directory branches and stops at the first match.
 - [ ] Deferred: metadata cleanup transaction shape
   (`repository/metadata.d`), JSON metadata batch cancellation checkpoints,
-  early-exit path-existence query, Flatpak sha256 verification against published
-  artifacts.
+  Flatpak sha256 verification against published artifacts.
 
 ## P1 — WP-09 closeout: shared CLI/GTK operations
 
