@@ -168,18 +168,14 @@ HMI-owned scan or analysis implementation.
 plan of record. WP-13.6.1 (CLI virtual archive references) is merged; next
 steps in dependency order:
 
-- [ ] WP-13.6.2: GTK backend and cache integration (`DosierSkanilo-Gui`),
-      including the WP-11.2 deferred display work (`loadDocumentPage`,
-      `loadAllRows`, blob virtual table).
-      Backend groundwork done: the contract now exposes `uiHandle` keys (opaque,
-      instance-scoped, never persisted), path restoration via
-      `resolveDirectory`/`resolveReference`, single-reference loads via
-      `loadReference`, and backend-owned member extraction via
-      `acquireMemberContent` with shared cache leases. JSON and SQLite implement
-      and cross-check this surface. The GUI still needs to move
-      `RepositoryDirectorySource` onto `CatalogBackend`, persist directory/file
-      paths instead of IDs and handles, and route previews through
-      `acquireMemberContent`.
+- [x] WP-13.6.2: GTK backend and cache integration (`DosierSkanilo-Gui`).
+      Trees, content rows, details, archive/torrent pages, and member previews
+      now use the contract; UI state uses source-relative paths; archive rescans
+      and password writes use the shared operation/backend surface.
+- [ ] Archive scans skip containers whose physical filename contains `!`
+      (e.g. `weird!/name.zip`): the scanner passes the raw path to
+      `updateArchives`, which parses it as a virtual path. Escape physical
+      FileSpec paths before archive indexing and add a regression test.
 - [ ] WP-13.6.3: cross-frontend parity checks for the new reference,
       duplicate, and export surfaces.
 - [x] Document in the WP-13 contract that blob-level digests for
