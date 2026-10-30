@@ -587,8 +587,18 @@ private void attemptJsonMetadataWork(JsonMetadataWork* item, string kind,
         item.errors[kind] = ex.msg;
 }
 
+private bool jsonWorkCancelled(JsonMetadataWork* item)
+{
+    if (item.cancellationFlag is null)
+        return false;
+    import core.atomic : atomicLoad;
+    return atomicLoad(*item.cancellationFlag);
+}
+
 private void runJsonMetadataWork(JsonMetadataWork* item)
 {
+    if (jsonWorkCancelled(item))
+        return;
     if (item.doChecksums)
     {
         reportJsonMetadataWorkProgress(*item, OperationPhase.checksums);
@@ -605,18 +615,24 @@ private void runJsonMetadataWork(JsonMetadataWork* item)
                 item.control is null ? null : &progress);
         });
     }
+    if (jsonWorkCancelled(item))
+        return;
     if (item.doFileType)
     {
         reportJsonMetadataWorkProgress(*item, OperationPhase.fileTypes);
         attemptJsonMetadataWork(item, "file_type",
             { updateFileType(item.blob); });
     }
+    if (jsonWorkCancelled(item))
+        return;
     if (item.doMediaInfo)
     {
         reportJsonMetadataWorkProgress(*item, OperationPhase.mediaInfo);
         attemptJsonMetadataWork(item, "media_info",
             { updateMediaInfo(item.blob, item.options.rescan); });
     }
+    if (jsonWorkCancelled(item))
+        return;
     if (item.doArchives)
     {
         reportJsonMetadataWorkProgress(*item, OperationPhase.archives);
@@ -637,6 +653,8 @@ private void runJsonMetadataWork(JsonMetadataWork* item)
                 item.options.extractMediaInfo);
         });
     }
+    if (jsonWorkCancelled(item))
+        return;
     if (item.doTorrents)
     {
         reportJsonMetadataWorkProgress(*item, OperationPhase.torrents);
@@ -675,7 +693,11 @@ private void runJsonMetadataBatch(JsonMetadataWork[] items, size_t threads)
     if (threads <= 1)
     {
         foreach (ref item; items)
+        {
+            if (jsonWorkCancelled(&item))
+                break;
             runJsonMetadataWork(&item);
+        }
         return;
     }
 
@@ -1004,4 +1026,36 @@ private bool checkpointJsonProgress(OperationControl control, ulong operationId,
 private bool cancellationRequested(OperationControl control)
 {
     return control !is null && control.cancellationRequested;
+}
+
+@("JSON metadata work stops at cancellation checkpoints between job kinds")
+unittest
+{
+    import std.file : exists, remove, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const path = buildPath(tempDir(), "json-cancel-"
+        ~ randomUUID().toString() ~ ".txt");
+    write(path, "payload");
+    scope (exit)
+        if (exists(path))
+            remove(path);
+
+    import std.datetime.systime : SysTime;
+    auto blob = new NamedBinaryBlob(path, 7, SysTime(0));
+    MetadataScanOptions options;
+    options.detectFileTypes = true;
+    options.scanTorrents = true;
+    shared(bool) cancelled = true;
+    JsonMetadataWork item;
+    item.blob = blob;
+    item.options = options;
+    item.cancellationFlag = &cancelled;
+    item.doFileType = true;
+    item.doTorrents = true;
+    runJsonMetadataWork(&item);
+    assert(item.errors.length == 0);
+    assert(blob.fileType.length == 0);
+    assert(blob.torrentInfo is null);
 }

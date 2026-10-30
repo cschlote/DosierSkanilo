@@ -141,8 +141,10 @@ Split churn from correctness; each item is independently landable.
 - [x] Metadata cleanup is transactional and runs only after a fully completed
   run; failed or cancelled runs still bump the source version for cursor
   invalidation.
-- [ ] Deferred: JSON metadata batch cancellation checkpoints, Flatpak sha256
-  verification against published artifacts.
+- [x] JSON metadata jobs check the cancellation mirror between checksum,
+  file-type, media, archive, and torrent phases, including sequential batches.
+- [ ] Deferred: Flatpak sha256 verification against published artifacts
+  (release-time check).
 
 ## P1 — WP-09 closeout: shared CLI/GTK operations
 
