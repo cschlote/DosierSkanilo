@@ -1,5 +1,5 @@
 Name:           dosierskanilo
-Version:        26.12.2
+Version:        26.13.0
 Release:        1%{?dist}
 Summary:        Blob-centric media and archive file scanner
 License:        GPL-3.0-only
