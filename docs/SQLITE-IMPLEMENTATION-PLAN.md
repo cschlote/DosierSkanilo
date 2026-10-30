@@ -1732,9 +1732,10 @@ session cache paths in the catalog.
 
 - [x] Extend the contract for UI state restoration and member extraction:
   `resolveDirectory`, `resolveReference`, `loadReference`, opaque per-instance
-  `uiHandle` keys, and `acquireMemberContent` returning a shared cache lease.
-  JSON and SQLite adapters implement the surface; cross-backend tests cover
-  handles, path resolution, and nested extraction.
+  `uiHandle` keys, `acquireMemberContent` returning a shared cache lease,
+  `listFilesFrom` for stateless navigation, and `listContents` for table
+  projections. JSON and SQLite adapters implement the surface; cross-backend
+  tests cover handles, path resolution, nested extraction, and content rows.
 - [ ] Replace the GUI-owned JSON/SQLite split in `DirectorySource` with the
   public backend query and member-extraction interfaces; GTK remains a
   projection/preview client. Persist paths, not IDs or UI handles.

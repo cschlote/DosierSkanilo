@@ -796,7 +796,8 @@ long countCatalogQueryFromDatabase(ref Database db, RepositoryQueryOptions optio
 {
     if (options.text.empty && !options.video && !options.audio && !options.image
         && !options.textStream && !options.fileType && !options.archive
-        && !options.torrent && options.blobIds.length == 0)
+        && !options.torrent && options.blobIds.length == 0
+        && !options.referencedOnly)
         return db.execute("SELECT count(*) FROM blobs").oneValue!long;
     auto statement = prepareCatalogQuery(db, "SELECT count(*) FROM blobs b",
         options, false);
@@ -807,6 +808,8 @@ private Statement prepareCatalogQuery(ref Database db, string selectSql,
     RepositoryQueryOptions options, bool paged)
 {
     string sql = selectSql ~ " WHERE 1 = 1";
+    if (options.referencedOnly)
+        sql ~= " AND EXISTS (SELECT 1 FROM file_refs f WHERE f.blob_id = b.id)";
     string[] blobIdParameters;
     if (options.blobIds.length > 0)
     {

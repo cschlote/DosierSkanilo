@@ -296,6 +296,149 @@ public:
         return result;
     }
 
+    override CatalogContentPage listContents(CatalogContentQuery query,
+        CatalogPageRequest page = CatalogPageRequest.init)
+    {
+        requireOpen();
+        if (page.limit == 0)
+            throw new CatalogBackendException(CatalogBackendErrorCode.invalidCursor,
+                "Catalog page limit must be greater than zero.");
+        const auto queryToken = contentQueryToken(query);
+        if (page.cursor.isValid
+            && (page.cursor.adapterQueryToken != queryToken
+                || page.limit != page.cursor.adapterPageSize))
+            throw new CatalogBackendException(CatalogBackendErrorCode.invalidCursor,
+                "Catalog cursor belongs to a different query or page size.");
+        const auto start = page.cursor.isValid ? page.cursor.adapterIndex : 0;
+
+        CatalogFile[] references = fileRows.dup;
+        foreach (ref container; fileRows)
+            if (container.hasArchive)
+                references ~= archiveMemberFiles(container);
+
+        CatalogContentRow[] matching;
+        foreach (blobIndex, ref blob; catalog.dataArray)
+        {
+            const token = contentTokenForBlobIndex(blobIndex);
+            if (token.length == 0 || !contentMatchesFilter(token, query.filter))
+                continue;
+            bool pathMatch = query.filter.pathText.length == 0;
+            CatalogContentRow row;
+            row.id = ContentId(token);
+            row.size = blob.fileSize;
+            row.fingerprint = fingerprintFor(blob.fileSize, blob.checkSums);
+            row.availability = CatalogReferenceAvailability.notChecked;
+            foreach (ref candidate; references)
+            {
+                if (candidate.contentId.adapterToken != token)
+                    continue;
+                ++row.referenceCount;
+                if (row.displayPath.length == 0
+                    || candidate.relativePath < row.displayPath)
+                {
+                    row.displayPath = candidate.relativePath;
+                    row.displayName = candidate.name;
+                }
+                if (!pathMatch)
+                {
+                    auto path = candidate.relativePath;
+                    auto text = query.filter.pathText;
+                    if (!query.filter.caseSensitive)
+                    {
+                        path = path.toLower;
+                        text = text.toLower;
+                    }
+                    pathMatch = path.canFind(text);
+                }
+            }
+            const bool digestMatch = query.filter.pathText.length > 0
+                && blob.checkSums.sha1sum_b64 == query.filter.pathText;
+            if (!pathMatch && !digestMatch)
+                continue;
+            if (auto content = token in contentByToken)
+            {
+                row.hasFileType = (*content).fileType.length > 0;
+                row.hasArchive = (*content).hasArchive;
+                row.hasTorrent = (*content).hasTorrent;
+                foreach (stream; (*content).mediaStreams)
+                    final switch (stream.kind)
+                    {
+                    case CatalogMediaKind.image:
+                        row.hasImage = true;
+                        break;
+                    case CatalogMediaKind.video:
+                        row.hasVideo = true;
+                        break;
+                    case CatalogMediaKind.audio:
+                        row.hasAudio = true;
+                        break;
+                    case CatalogMediaKind.text:
+                        row.hasText = true;
+                        break;
+                    }
+                row.hasMedia = row.hasImage || row.hasVideo || row.hasAudio
+                    || row.hasText;
+            }
+            matching ~= row;
+        }
+
+        if (start > matching.length)
+            throw new CatalogBackendException(CatalogBackendErrorCode.invalidCursor,
+                "Catalog cursor is outside this query result.");
+        const auto end = start + page.limit < matching.length
+            ? start + page.limit : matching.length;
+        CatalogContentPage result;
+        result.rows = matching[start .. end];
+        result.total = matching.length;
+        result.hasPrevious = start > 0;
+        if (result.hasPrevious)
+            result.previousCursor = CatalogPageCursor(start > page.limit
+                ? start - page.limit : 0, page.limit, queryToken);
+        result.hasMore = end < matching.length;
+        if (result.hasMore)
+            result.nextCursor = CatalogPageCursor(end, page.limit, queryToken);
+        return result;
+    }
+
+    private string contentQueryToken(CatalogContentQuery query) const
+    {
+        return sourceToken ~ "\0contents\0" ~ filterToken(query.filter);
+    }
+
+    private bool contentMatchesFilter(string token, CatalogFilter filter) const
+    {
+        const content = token in contentByToken;
+        const bool selectedMedia = filter.video || filter.audio || filter.image
+            || filter.text;
+        if (content is null)
+            return !selectedMedia && !filter.fileType && !filter.archive
+                && !filter.torrent;
+        if (selectedMedia)
+        {
+            bool hasSelected;
+            foreach (stream; (*content).mediaStreams)
+            {
+                if ((filter.video && stream.kind == CatalogMediaKind.video)
+                    || (filter.audio && stream.kind == CatalogMediaKind.audio)
+                    || (filter.image && stream.kind == CatalogMediaKind.image)
+                    || (filter.text && stream.kind == CatalogMediaKind.text))
+                {
+                    hasSelected = true;
+                    break;
+                }
+            }
+            if (filter.mediaNegated ? hasSelected : !hasSelected)
+                return false;
+        }
+        if (filter.fileType && (*content).fileType.length == 0)
+            return false;
+        if (filter.archive && !(*content).hasArchive)
+            return false;
+        if (filter.torrent && !(*content).hasTorrent)
+            return false;
+        return true;
+    }
+
     private void forEachMatchingFile(CatalogFileQuery query,
         scope void delegate(ref CatalogFile file, size_t containerRow) handler)
     {
@@ -2804,6 +2947,30 @@ version (unittest)
         assert(sizeFromEmpty.files.length == 2 && sizeFromEmpty.hasMore);
         assert(sizeFromEmpty.files[0].relativePath
             == sizePage.files[0].relativePath);
+
+        const auto allContents = backend.listContents(CatalogContentQuery.init);
+        assert(allContents.total > 0);
+        assert(allContents.rows.length == allContents.total);
+        foreach (row; allContents.rows)
+        {
+            assert(row.id.isValid);
+            assert(row.referenceCount > 0);
+            assert(row.displayPath.length > 0);
+        }
+        CatalogPageRequest contentRequest;
+        contentRequest.limit = 2;
+        const auto firstContents = backend.listContents(
+            CatalogContentQuery.init, contentRequest);
+        assert(firstContents.rows.length == 2 && firstContents.hasMore);
+        const auto nextContents = backend.listContents(
+            CatalogContentQuery.init,
+            CatalogPageRequest(2, firstContents.nextCursor));
+        assert(nextContents.rows.length == 2);
+        assert(nextContents.rows[0].displayPath
+            != firstContents.rows[1].displayPath);
+        CatalogContentQuery archiveContents;
+        archiveContents.filter.pathText = "sample.zip";
+        assert(backend.listContents(archiveContents).rows.length >= 1);
 
         archivePage = backend.listFiles(archiveQuery);
         assert(archivePage.files.length == 3);

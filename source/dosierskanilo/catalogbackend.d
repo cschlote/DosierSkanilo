@@ -501,6 +501,47 @@ struct CatalogFilePage
     bool hasPrevious; /// A prior page exists.
 }
 
+/** Query deduplicated content rows for table-oriented projections. */
+struct CatalogContentQuery
+{
+    /**
+     * Reference filters. `pathText` matches a root-relative path substring and
+     * also accepts an exact base64 SHA-1 digest of the content.
+     */
+    CatalogFilter filter;
+}
+
+/** One deduplicated content row with representative reference details. */
+struct CatalogContentRow
+{
+    ContentId id; /// Content identity shared by all references.
+    string displayPath; /// Representative source-relative reference path.
+    string displayName; /// Final component of `displayPath`.
+    ulong size; /// Content size in bytes.
+    size_t referenceCount; /// References sharing this content.
+    CatalogContentFingerprint fingerprint; /// Known digests.
+    CatalogReferenceAvailability availability; /// Representative availability.
+    bool hasFileType; /// File-type metadata exists.
+    bool hasMedia; /// One or more media streams exist.
+    bool hasVideo; /// At least one video stream exists.
+    bool hasAudio; /// At least one audio stream exists.
+    bool hasImage; /// At least one image stream exists.
+    bool hasText; /// At least one text/subtitle stream exists.
+    bool hasArchive; /// Archive metadata exists.
+    bool hasTorrent; /// Torrent metadata exists.
+}
+
+/** One bounded page of deduplicated content rows. */
+struct CatalogContentPage
+{
+    CatalogContentRow[] rows; /// Detached rows in stable source content order.
+    CatalogPageCursor nextCursor; /// Forward continuation.
+    CatalogPageCursor previousCursor; /// Backward continuation.
+    bool hasMore; /// Additional rows follow this page.
+    bool hasPrevious; /// A prior page exists.
+    size_t total; /// Total matching rows for the query.
+}
+
 /** Select optional detail families loaded with a content snapshot. */
 struct CatalogDetailMask
 {
@@ -713,6 +754,10 @@ interface CatalogBackend
      */
     CatalogFilePage listFilesFrom(CatalogFileQuery query, string anchorRelativePath,
         bool forward, size_t limit = 250);
+
+    /** List deduplicated content rows for table-oriented projections. */
+    CatalogContentPage listContents(CatalogContentQuery query,
+        CatalogPageRequest page = CatalogPageRequest.init);
 
     /** Load one detached content snapshot, including only requested details. */
     CatalogContentSnapshot loadContent(ContentId contentId,
@@ -1126,6 +1171,105 @@ version (unittest)
             if (result.hasMore)
                 result.nextCursor = CatalogPageCursor(end, page.limit,
                     fileQueryToken(query));
+            return result;
+        }
+
+        override CatalogContentPage listContents(CatalogContentQuery query,
+            CatalogPageRequest page = CatalogPageRequest.init)
+        {
+            requireTreeQueries();
+            if (page.limit == 0)
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.invalidCursor,
+                    "Catalog page limit must be greater than zero.");
+            const auto queryToken = "contents\0" ~ filterToken(query.filter);
+            if (page.cursor.isValid)
+            {
+                if (page.cursor.adapterQueryToken != queryToken
+                    || page.limit != page.cursor.adapterPageSize)
+                    throw new CatalogBackendException(
+                        CatalogBackendErrorCode.invalidCursor,
+                        "Catalog cursor belongs to a different query or page size.");
+            }
+
+            CatalogContentRow[] all;
+            size_t[string] indexByContent;
+            foreach (file; files)
+            {
+                const token = file.contentId.adapterToken;
+                auto index = token in indexByContent;
+                if (index is null)
+                {
+                    CatalogContentRow row;
+                    row.id = file.contentId;
+                    row.displayPath = file.relativePath;
+                    row.displayName = file.name;
+                    row.size = file.size;
+                    row.referenceCount = 1;
+                    row.availability = file.availability;
+                    row.hasFileType = file.hasFileType;
+                    row.hasMedia = file.hasMedia;
+                    row.hasVideo = file.hasVideo;
+                    row.hasAudio = file.hasAudio;
+                    row.hasImage = file.hasImage;
+                    row.hasText = file.hasText;
+                    row.hasArchive = file.hasArchive;
+                    row.hasTorrent = file.hasTorrent;
+                    indexByContent[token] = all.length;
+                    all ~= row;
+                    continue;
+                }
+                auto row = &all[*index];
+                ++row.referenceCount;
+                if (file.relativePath < row.displayPath)
+                {
+                    row.displayPath = file.relativePath;
+                    row.displayName = file.name;
+                }
+                row.hasFileType = row.hasFileType || file.hasFileType;
+                row.hasMedia = row.hasMedia || file.hasMedia;
+                row.hasVideo = row.hasVideo || file.hasVideo;
+                row.hasAudio = row.hasAudio || file.hasAudio;
+                row.hasImage = row.hasImage || file.hasImage;
+                row.hasText = row.hasText || file.hasText;
+                row.hasArchive = row.hasArchive || file.hasArchive;
+                row.hasTorrent = row.hasTorrent || file.hasTorrent;
+            }
+
+            CatalogContentRow[] matching;
+            foreach (row; all)
+            {
+                bool pathMatch;
+                foreach (file; files)
+                {
+                    if (file.contentId != row.id)
+                        continue;
+                    if (matches(file, query.filter))
+                    {
+                        pathMatch = true;
+                        break;
+                    }
+                }
+                if (pathMatch)
+                    matching ~= row;
+            }
+            const auto start = page.cursor.isValid ? page.cursor.adapterIndex : 0;
+            if (start > matching.length)
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.invalidCursor,
+                    "Catalog cursor is outside this query result.");
+            const auto end = start + page.limit < matching.length
+                ? start + page.limit : matching.length;
+            CatalogContentPage result;
+            result.rows = matching[start .. end];
+            result.total = matching.length;
+            result.hasPrevious = start > 0;
+            if (result.hasPrevious)
+                result.previousCursor = CatalogPageCursor(start > page.limit
+                    ? start - page.limit : 0, page.limit, queryToken);
+            result.hasMore = end < matching.length;
+            if (result.hasMore)
+                result.nextCursor = CatalogPageCursor(end, page.limit, queryToken);
             return result;
         }
 
@@ -1772,6 +1916,31 @@ version (unittest)
             rejectedInvalidHandle = failure.code
                 == CatalogBackendErrorCode.invalidIdentifier;
         assert(rejectedInvalidHandle);
+
+        /* Content rows collapse duplicate references into one display row. */
+        auto contentPage = backend.listContents(CatalogContentQuery.init);
+        assert(contentPage.total == 2);
+        assert(contentPage.rows.length == 2);
+        assert(contentPage.rows[0].displayPath == "a/one.txt");
+        assert(contentPage.rows[0].referenceCount == 3);
+        assert(contentPage.rows[1].displayPath == "b/photo.bmp");
+        assert(contentPage.rows[1].referenceCount == 1);
+        assert(contentPage.rows[1].hasImage);
+        CatalogContentQuery contentTextQuery;
+        contentTextQuery.filter.pathText = "photo";
+        const auto filteredContents = backend.listContents(contentTextQuery);
+        assert(filteredContents.rows.length == 1);
+        assert(filteredContents.rows[0].displayPath == "b/photo.bmp");
+        CatalogPageRequest contentRequest;
+        contentRequest.limit = 1;
+        const auto firstContents = backend.listContents(CatalogContentQuery.init,
+            contentRequest);
+        assert(firstContents.rows.length == 1 && firstContents.hasMore);
+        const auto secondContents = backend.listContents(
+            CatalogContentQuery.init,
+            CatalogPageRequest(1, firstContents.nextCursor));
+        assert(secondContents.rows.length == 1 && !secondContents.hasMore);
+
         assert(backend.resolveDirectory("a")
             == firstDirectories.directories[0].id);
         assert(!backend.resolveDirectory("").isValid);

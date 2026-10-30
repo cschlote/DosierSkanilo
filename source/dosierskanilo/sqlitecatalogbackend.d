@@ -278,6 +278,81 @@ public:
         });
     }
 
+    override CatalogContentPage listContents(CatalogContentQuery query,
+        CatalogPageRequest page = CatalogPageRequest.init)
+    {
+        return withRepository((Repository repository) {
+            validatePageRequest(page);
+            const auto queryToken = contentQueryToken(repository, query);
+            const auto offset = cursorOffset(page, queryToken);
+            RepositoryQueryOptions options;
+            options.offset = offset;
+            options.limit = page.limit + 1;
+            options.text = query.filter.pathText;
+            options.caseSensitive = query.filter.caseSensitive;
+            options.video = query.filter.video;
+            options.audio = query.filter.audio;
+            options.image = query.filter.image;
+            options.textStream = query.filter.text;
+            options.mediaNegated = query.filter.mediaNegated;
+            options.fileType = query.filter.fileType;
+            options.archive = query.filter.archive;
+            options.torrent = query.filter.torrent;
+            options.referencedOnly = true;
+            JsonExportOptions exportOptions;
+            exportOptions.absolutePaths = false;
+            exportOptions.includeDetails = false;
+            auto source = repository.loadCatalogQueryPageWithIds(options,
+                exportOptions);
+
+            CatalogContentPage result;
+            result.total = source.total;
+            const auto count = source.blobs.length < page.limit
+                ? source.blobs.length : page.limit;
+            foreach (index; 0 .. count)
+            {
+                const blob = source.blobs[index];
+                CatalogContentRow row;
+                row.id = contentId(source.blobIds[index]);
+                foreach (spec; blob.fileSpecs)
+                    if (row.displayPath.length == 0
+                        || spec.fileName < row.displayPath)
+                        row.displayPath = spec.fileName;
+                if (row.displayPath.length > 0)
+                    row.displayName = baseName(row.displayPath);
+                row.size = blob.fileSize;
+                row.referenceCount = blob.fileSpecs.length;
+                row.fingerprint = fingerprintFor(blob.fileSize, blob.checkSums);
+                const auto flags = source.flags[index];
+                row.hasFileType = flags.hasFileType;
+                row.hasMedia = flags.hasMedia;
+                row.hasVideo = flags.hasVideo;
+                row.hasAudio = flags.hasAudio;
+                row.hasImage = flags.hasImage;
+                row.hasText = flags.hasText;
+                row.hasArchive = flags.hasArchive;
+                row.hasTorrent = flags.hasTorrent;
+                result.rows ~= row;
+            }
+            result.hasPrevious = offset > 0;
+            if (result.hasPrevious)
+                result.previousCursor = CatalogPageCursor(offset > page.limit
+                    ? offset - page.limit : 0, page.limit, queryToken);
+            result.hasMore = source.blobs.length > page.limit;
+            if (result.hasMore)
+                result.nextCursor = CatalogPageCursor(offset + result.rows.length,
+                    page.limit, queryToken);
+            return result;
+        });
+    }
+
+    string contentQueryToken(Repository repository,
+        CatalogContentQuery query) const
+    {
+        return sourceToken ~ "\0" ~ sourceVersion(repository) ~ "\0contents\0"
+            ~ filterToken(query.filter);
+    }
+
     override CatalogContentSnapshot loadContent(ContentId contentId,
         CatalogDetailMask details = CatalogDetailMask.init)
     {
@@ -2007,6 +2082,58 @@ version (unittest)
         assert(sizeFromEmpty.files.length == 2 && sizeFromEmpty.hasMore);
         assert(sizeFromEmpty.files[0].referenceId
             == sizePage.files[0].referenceId);
+
+        const auto sqliteContents = sqliteBackend.listContents(
+            CatalogContentQuery.init);
+        const auto jsonContents = jsonBackend.listContents(
+            CatalogContentQuery.init);
+        /* JSON merges identical payloads by content hash, while the SQLite
+         * fixture keeps unmerged duplicate blobs until analysis runs, so the
+         * SQLite row set is a superset of the JSON row set here. */
+        assert(jsonContents.total > 0);
+        assert(sqliteContents.total >= jsonContents.total);
+        foreach (row; jsonContents.rows)
+        {
+            bool found;
+            foreach (candidate; sqliteContents.rows)
+                if (candidate.displayPath == row.displayPath)
+                {
+                    found = true;
+                    assert(candidate.size == row.size);
+                    break;
+                }
+            assert(found, row.displayPath);
+        }
+        CatalogPageRequest contentRequest;
+        contentRequest.limit = 1;
+        const auto sqliteFirstContent = sqliteBackend.listContents(
+            CatalogContentQuery.init, contentRequest);
+        assert(sqliteFirstContent.hasMore);
+        const auto sqliteNextContent = sqliteBackend.listContents(
+            CatalogContentQuery.init,
+            CatalogPageRequest(1, sqliteFirstContent.nextCursor));
+        assert(sqliteNextContent.rows.length == 1);
+        assert(sqliteNextContent.rows[0].id
+            == sqliteContents.rows[1].id);
+
+        /* A base64 SHA-1 is accepted as an exact content filter. */
+        string sha1Text;
+        foreach (digest; sqliteContents.rows[0].fingerprint.digests)
+            if (digest.algorithm == "sha1")
+                sha1Text = Base64.encode(digest.value);
+        if (sha1Text.length > 0)
+        {
+            CatalogContentQuery digestQuery;
+            digestQuery.filter.pathText = sha1Text;
+            const auto digestContents = sqliteBackend.listContents(digestQuery);
+            assert(digestContents.rows.length >= 1);
+            bool containsFirst;
+            foreach (row; digestContents.rows)
+                if (row.id == sqliteContents.rows[0].id)
+                    containsFirst = true;
+            assert(containsFirst);
+            assert(jsonBackend.listContents(digestQuery).rows.length >= 1);
+        }
 
         auto wildcardTextQuery = archiveQuery;
         wildcardTextQuery.filter.pathText = "%";

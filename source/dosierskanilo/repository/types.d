@@ -400,6 +400,8 @@ struct RepositoryQueryOptions
     /// Stable keyset position for forward-only catalog iteration.
     long afterBlobId;
     bool useCursor;
+    /// Restrict results to content with at least one file reference.
+    bool referencedOnly;
 }
 
 /** A bounded repository page with stable blob identities. */
