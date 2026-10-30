@@ -1947,12 +1947,10 @@ unittest
         if (exists(root))
             rmdirRecurse(root);
     }
-    write(buildPath(root, "weird!", "payload.txt"), "payload\n");
-    const createArchive = "import sys, zipfile; "
-        ~ "z = zipfile.ZipFile(sys.argv[1], 'w'); "
-        ~ "z.writestr('inside.txt', 'inside'); z.close()";
-    assert(execute(["python3", "-c", createArchive,
-        buildPath(root, "weird!", "name.zip")]).status == 0);
+    write(buildPath(root, "inside.txt"), "inside\n");
+    assert(execute(["zip", "-q", "-j",
+        buildPath(root, "weird!", "name.zip"),
+        buildPath(root, "inside.txt")]).status == 0);
 
     auto repository = Repository.initialize(root);
     scope (exit)
