@@ -9,6 +9,13 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- The catalog contract now supports path-based UI state restoration
+  (`resolveDirectory`, `resolveReference`, `loadReference`), opaque per-instance
+  `uiHandle` keys for UI models, and backend-owned archive-member extraction
+  (`acquireMemberContent`) that resolves nested container chains and stored
+  passwords into the shared leased cache. JSON and SQLite adapters implement the
+  surface and are cross-checked against each other.
+
 - The process-wide archive-member cache can be closed explicitly with
   `closeSharedMemberContentCache()`. It reports `false` while leased members
   are still active, so frontends can stop previews first and otherwise defer

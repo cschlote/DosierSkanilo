@@ -17,6 +17,9 @@ import dosierarkivo.archive : appendArchiveVirtualPath,
     parseArchiveVirtualPath,
     ParsedArchiveVirtualPath;
 import dosierskanilo.catalogbackend;
+import dosierskanilo.membercontentcache : MemberContentLease;
+import dosierskanilo.memberextraction : ArchiveExtractionStep,
+    extractArchiveMember;
 import dosierskanilo.model.archivespec : ArchiveSpec;
 import dosierskanilo.model.checksums : CheckSums;
 import dosierskanilo.model.filespec : FileSpec;
@@ -583,6 +586,118 @@ public:
         result.nextCursor = slice.nextCursor;
         result.hasMore = slice.hasMore;
         return result;
+    }
+
+    override DirectoryId resolveDirectory(string relativePath)
+    {
+        requireTreeQueries();
+        if (relativePath.length == 0 || relativePath == ".")
+            return DirectoryId.init;
+        if (auto index = relativePath in directoryIndexByPath)
+            return directoryRows[*index].id;
+        return DirectoryId.init;
+    }
+
+    override ReferenceId resolveReference(string relativePath)
+    {
+        requireTreeQueries();
+        if (auto token = relativePath in referenceTokenByPath)
+            return ReferenceId(*token);
+        foreach (row; fileRows)
+            if (row.relativePath == relativePath)
+                return row.referenceId;
+        foreach (container; fileRows)
+            if (container.hasArchive)
+                foreach (member; archiveMemberFiles(container))
+                    if (member.relativePath == relativePath)
+                        return member.referenceId;
+        return ReferenceId.init;
+    }
+
+    override CatalogFile loadReference(ReferenceId referenceId)
+    {
+        requireTreeQueries();
+        CatalogFile result;
+        if (!findFileRow(referenceId, result))
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.invalidIdentifier,
+                "Unknown JSON reference identity.");
+        refreshAvailability(result);
+        return result;
+    }
+
+    override MemberContentLease acquireMemberContent(
+        ReferenceId memberReferenceId, shared(bool)* cancellation = null)
+    {
+        requireTreeQueries();
+        if (sourceRoot.length == 0)
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.unsupportedFeature,
+                "JSON member extraction requires an explicit filesystem root.");
+        CatalogFile member;
+        if (!findFileRow(memberReferenceId, member)
+            || member.locator.kind != ContentLocator.Kind.archiveEntry)
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.invalidIdentifier,
+                "Reference is not an indexed JSON archive member.");
+        refreshAvailability(member);
+        if (member.availability != CatalogReferenceAvailability.available)
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.invalidIdentifier,
+                "The archive container is not available on disk.");
+        ArchiveExtractionStep[] steps;
+        auto current = member;
+        string physicalContainer;
+        while (true)
+        {
+            if (current.locator.kind != ContentLocator.Kind.archiveEntry)
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.invalidIdentifier,
+                    "Archive member chain does not end at a filesystem container.");
+            const auto containerReferenceId =
+                current.locator.archiveEntry.containerReferenceId;
+            const auto entryId = current.locator.archiveEntry.entryId;
+            CatalogFile container;
+            if (!findFileRow(containerReferenceId, container))
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.invalidIdentifier,
+                    "Unknown archive container reference.");
+            refreshAvailability(container);
+            if (container.availability != CatalogReferenceAvailability.available)
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.invalidIdentifier,
+                    "The archive container is not available on disk.");
+            CatalogArchiveEntry entry;
+            bool foundEntry;
+            if (auto entries = container.contentId.adapterToken
+                in archiveEntriesByToken)
+                foreach (candidate; *entries)
+                    if (candidate.id == entryId)
+                    {
+                        entry = candidate;
+                        foundEntry = true;
+                        break;
+                    }
+            if (!foundEntry)
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.invalidIdentifier,
+                    "The archive entry identity is no longer indexed.");
+            ArchiveExtractionStep step;
+            step.memberPath = entry.relativePath;
+            step.occurrence = entry.occurrence;
+            step.locator = current.locator;
+            step.password = archivePasswordForContent(container.contentId);
+            step.knownSize = current.size;
+            steps = step ~ steps;
+            if (container.locator.kind == ContentLocator.Kind.filesystem)
+            {
+                physicalContainer = container.locator.filesystem.relativePath;
+                break;
+            }
+            current = container;
+        }
+        return extractArchiveMember(sourceRoot, physicalContainer, steps,
+            cancellation);
     }
 
     override RepositoryBlobPage queryBlobs(RepositoryQueryOptions options)
@@ -2226,6 +2341,33 @@ private:
         return low;
     }
 
+    bool findFileRow(ReferenceId referenceId, out CatalogFile result)
+    {
+        foreach (row; fileRows)
+            if (row.referenceId == referenceId)
+            {
+                result = row;
+                return true;
+            }
+        foreach (container; fileRows)
+            if (container.hasArchive)
+                foreach (member; archiveMemberFiles(container))
+                    if (member.referenceId == referenceId)
+                    {
+                        result = member;
+                        return true;
+                    }
+        return false;
+    }
+
+    string archivePasswordForContent(ContentId contentId) const
+    {
+        if (auto index = contentId.adapterToken in blobIndexByContentToken)
+            if (*index < catalog.dataArray.length)
+                return catalog.dataArray[*index].archivePassword;
+        return "";
+    }
+
     CatalogFile[] archiveMemberFiles(CatalogFile container)
     {
         bool[string] activeContents;
@@ -2433,8 +2575,8 @@ final class JsonCatalogBackendFactory : CatalogBackendFactory
 version (unittest)
 {
     import std.algorithm.searching : canFind;
-    import std.file : DirEntry, SpanMode, dirEntries, exists, getcwd, read,
-        remove, rmdirRecurse, tempDir, write;
+    import std.file : DirEntry, SpanMode, dirEntries, exists, getcwd, getSize,
+        read, remove, rmdirRecurse, tempDir, write;
     import std.path : baseName;
     import std.uuid : randomUUID;
     import dosierskanilo.model.namedbinaryblob :
@@ -2657,6 +2799,48 @@ version (unittest)
             sampleArchive.referenceId, archiveMemberRequest);
         assert(availableMembers.members[0].availability
             == CatalogReferenceAvailability.available);
+
+        /* Typed handles and path-based restoration stay storage-neutral. */
+        assert(backend.uiHandle(sampleArchive.referenceId).startsWith("ref:"));
+        assert(backend.uiHandle(archiveDirectory).startsWith("dir:"));
+        assert(backend.uiHandle(sampleArchive.contentId).startsWith("content:"));
+        assert(backend.uiHandle(sampleArchive.referenceId)
+            != backend.uiHandle(sampleArchive.contentId));
+        assert(backend.resolveDirectory("archives") == archiveDirectory);
+        assert(!backend.resolveDirectory("").isValid);
+        assert(!backend.resolveDirectory("archives/missing").isValid);
+        assert(backend.resolveReference(sampleArchive.relativePath)
+            == sampleArchive.referenceId);
+        assert(!backend.resolveReference("archives/missing.zip").isValid);
+        assert(backend.loadReference(sampleArchive.referenceId).relativePath
+            == sampleArchive.relativePath);
+        bool unknownReferenceRejected;
+        try
+            backend.loadReference(ReferenceId.init);
+        catch (CatalogBackendException failure)
+            unknownReferenceRejected = failure.code
+                == CatalogBackendErrorCode.invalidIdentifier;
+        assert(unknownReferenceRejected);
+
+        /* Nested members extract through the shared leased cache. */
+        CatalogPageRequest allMemberRequest;
+        allMemberRequest.limit = 64;
+        CatalogArchiveMember nestedArchiveMember;
+        foreach (member; backend.listArchiveMembers(sampleArchive.referenceId,
+            allMemberRequest).members)
+            if (member.name == "nested.zip")
+                nestedArchiveMember = member;
+        assert(nestedArchiveMember.referenceId.isValid);
+        const auto nestedMemberPage = backend.listArchiveMembers(
+            nestedArchiveMember.referenceId, allMemberRequest);
+        assert(nestedMemberPage.members.length == 1);
+        assert(backend.resolveReference(
+            "archives/sample.zip!/nested.zip!/deep/readme.txt").isValid);
+        auto nestedLease = backend.acquireMemberContent(
+            nestedMemberPage.members[0].referenceId);
+        assert(exists(nestedLease.path));
+        assert(getSize(nestedLease.path) == nestedMemberPage.members[0].size);
+        nestedLease.release();
 
         CatalogFileQuery mediaQuery;
         mediaQuery.directoryId = mediaDirectory;

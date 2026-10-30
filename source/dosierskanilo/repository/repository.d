@@ -495,6 +495,26 @@ public:
         return loadFileReferenceFromDatabase(database, fileReferenceId);
     }
 
+    /** Load one file reference by its exact repository-relative path. */
+    RepositoryFile fileReferenceByRelativePath(string relativePath)
+    {
+        requireOpen();
+        auto rows = database.execute("SELECT id FROM file_refs "
+            ~ "WHERE relative_path = ?", relativePath);
+        if (rows.empty)
+            return RepositoryFile.init;
+        return loadFileReferenceFromDatabase(database, rows.front.peek!long(0));
+    }
+
+    /** Return the directory ID at an exact repository-relative path, or zero. */
+    long directoryIdByRelativePath(string relativePath)
+    {
+        requireOpen();
+        auto rows = database.execute("SELECT id FROM directories "
+            ~ "WHERE relative_path = ?", relativePath);
+        return rows.empty ? 0 : rows.front.peek!long(0);
+    }
+
     /** Continue forward from a stable file cursor in the query's sorted result. */
     RepositoryFilePage nextFilesPage(RepositoryFileQuery options,
         RepositoryFileCursor cursor)

@@ -5,6 +5,7 @@ import std.algorithm.searching : canFind;
 import std.exception : enforce;
 import std.string : split, startsWith;
 
+import dosierskanilo.membercontentcache : MemberContentLease;
 import dosierskanilo.model.filespec : FileSpec;
 import dosierskanilo.model.namedbinaryblob : NamedBinaryBlob;
 import dosierskanilo.operations : AnalysisOperationRequest, MetadataOperationRequest,
@@ -716,6 +717,78 @@ interface CatalogBackend
     CatalogTorrentEntryPage listTorrentEntries(ContentId contentId,
         CatalogPageRequest page = CatalogPageRequest.init);
 
+    /**
+     * Resolve a root-relative directory path to its typed identity.
+     *
+     * An empty path (or ".") denotes the source root and returns an invalid ID.
+     * An unknown path also returns an invalid ID; callers must not treat
+     * unresolved paths as errors during state restoration.
+     */
+    DirectoryId resolveDirectory(string relativePath);
+
+    /**
+     * Resolve a root-relative reference path to its typed identity.
+     *
+     * Canonical virtual member paths (`container!/member`) are accepted. An
+     * unknown path returns an invalid ID.
+     */
+    ReferenceId resolveReference(string relativePath);
+
+    /**
+     * Load one reference row by typed identity.
+     *
+     * Throws: `CatalogBackendException` with `invalidIdentifier` when the
+     *     reference is unknown or belongs to another source.
+     */
+    CatalogFile loadReference(ReferenceId referenceId);
+
+    /**
+     * Extract one archive member through the process-wide leased cache.
+     *
+     * The backend resolves the container chain, looks up stored container
+     * passwords, and returns a lease the caller must release. Extraction
+     * failures surface as typed backend errors; cache capacity and close
+     * failures are reported by the cache.
+     */
+    MemberContentLease acquireMemberContent(ReferenceId memberReferenceId,
+        shared(bool)* cancellation = null);
+
+    /**
+     * Opaque key for UI tree/list models.
+     *
+     * The value is stable while this backend instance is open, differs between
+     * identifier kinds, and must never be parsed or persisted. Use
+     * `resolveDirectory`/`resolveReference` to restore UI state by path.
+     */
+    final string uiHandle(DirectoryId id)
+    {
+        if (!id.isValid)
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.invalidIdentifier,
+                "Cannot build a UI handle for an invalid directory identity.");
+        return "dir:" ~ id.adapterToken;
+    }
+
+    /// Opaque reference key for UI models; see the directory overload.
+    final string uiHandle(ReferenceId id)
+    {
+        if (!id.isValid)
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.invalidIdentifier,
+                "Cannot build a UI handle for an invalid reference identity.");
+        return "ref:" ~ id.adapterToken;
+    }
+
+    /// Opaque content key for UI models; see the directory overload.
+    final string uiHandle(ContentId id)
+    {
+        if (!id.isValid)
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.invalidIdentifier,
+                "Cannot build a UI handle for an invalid content identity.");
+        return "content:" ~ id.adapterToken;
+    }
+
     /** Page through repository-style blob query results. */
     RepositoryBlobPage queryBlobs(RepositoryQueryOptions options);
 
@@ -1284,6 +1357,56 @@ version (unittest)
             return result;
         }
 
+        override DirectoryId resolveDirectory(string relativePath)
+        {
+            requireTreeQueries();
+            if (relativePath.length == 0 || relativePath == ".")
+                return DirectoryId.init;
+            foreach (directory; directories)
+                if (directory.relativePath == relativePath)
+                    return directory.id;
+            return DirectoryId.init;
+        }
+
+        override ReferenceId resolveReference(string relativePath)
+        {
+            requireTreeQueries();
+            foreach (file; files)
+                if (file.relativePath == relativePath)
+                    return file.referenceId;
+            foreach (container; files)
+                if (container.hasArchive)
+                    foreach (member; archiveMembersFor(container))
+                        if (member.relativePath == relativePath)
+                            return member.referenceId;
+            return ReferenceId.init;
+        }
+
+        override CatalogFile loadReference(ReferenceId referenceId)
+        {
+            requireTreeQueries();
+            foreach (file; files)
+                if (file.referenceId == referenceId)
+                    return file;
+            foreach (container; files)
+                if (container.hasArchive)
+                    foreach (member; archiveMembersFor(container))
+                        if (member.referenceId == referenceId)
+                            return member;
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.invalidIdentifier,
+                "Unknown reference identity.");
+        }
+
+        override MemberContentLease acquireMemberContent(
+            ReferenceId memberReferenceId, shared(bool)* cancellation = null)
+        {
+            requireTreeQueries();
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.unsupportedFeature,
+                "The in-memory contract test backend cannot extract members.");
+        }
+
         override RepositoryBlobPage queryBlobs(RepositoryQueryOptions options)
         {
             enforce(options.limit > 0);
@@ -1570,6 +1693,39 @@ version (unittest)
                 == CatalogBackendErrorCode.invalidCursor;
         assert(rejectedCrossSourceCursor);
         otherBackend.close();
+
+        /* UI handles are opaque kind-scoped keys; paths resolve back to IDs. */
+        assert(backend.uiHandle(firstPage.files[0].referenceId)
+            .startsWith("ref:"));
+        assert(backend.uiHandle(firstPage.files[0].contentId)
+            .startsWith("content:"));
+        assert(backend.uiHandle(firstDirectories.directories[0].id)
+            .startsWith("dir:"));
+        assert(backend.uiHandle(firstPage.files[0].referenceId)
+            != backend.uiHandle(firstPage.files[0].contentId));
+        bool rejectedInvalidHandle;
+        try
+            backend.uiHandle(ReferenceId.init);
+        catch (CatalogBackendException failure)
+            rejectedInvalidHandle = failure.code
+                == CatalogBackendErrorCode.invalidIdentifier;
+        assert(rejectedInvalidHandle);
+        assert(backend.resolveDirectory("a")
+            == firstDirectories.directories[0].id);
+        assert(!backend.resolveDirectory("").isValid);
+        assert(!backend.resolveDirectory("a/missing").isValid);
+        assert(backend.resolveReference("a/one.txt")
+            == firstPage.files[0].referenceId);
+        assert(!backend.resolveReference("a/missing.txt").isValid);
+        assert(backend.loadReference(firstPage.files[0].referenceId).relativePath
+            == "a/one.txt");
+        bool rejectedMissingReference;
+        try
+            backend.loadReference(ReferenceId.init);
+        catch (CatalogBackendException failure)
+            rejectedMissingReference = failure.code
+                == CatalogBackendErrorCode.invalidIdentifier;
+        assert(rejectedMissingReference);
 
         const auto details = backend.loadContent(firstPage.files[0].contentId,
             CatalogDetailMask(true, false, false, false, false));

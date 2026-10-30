@@ -59,6 +59,11 @@ representations; they do not define the new public API.
   rename intent: it reports the old path unavailable and discovers the new path
   as a reference. Duplicate analysis may subsequently associate it with the same
   `ContentId`.
+- UI models use `CatalogBackend.uiHandle` as an opaque key. Handles are stable
+  only while that backend instance is open, are distinct per identifier kind, and
+  must never be parsed or persisted. Persist the reference or directory path
+  instead and restore it with `resolveDirectory`/`resolveReference`; an
+  unresolved path is an ordinary state change, not a backend error.
 - Pure-virtual content has no payload fingerprint of its own. Digests, file
   types, and media info are computed only for content reachable as a physical
   file; a member's digest is supplied by the container's `ArchiveSpec.checkSums`
@@ -165,6 +170,12 @@ CLI parser/output types.
 
 - Returned query/detail values are detached snapshots. Editing them locally
   never writes through to the backend.
+- `resolveDirectory`/`resolveReference` translate display paths back to typed
+  identities for state restoration and return invalid IDs for unknown paths.
+  `loadReference` loads one reference row on demand. `acquireMemberContent`
+  resolves a member's container chain and stored passwords and returns a shared
+  cache lease that the caller releases; frontends never open archives or compute
+  member identities themselves.
 - A page cursor is opaque and bound to the opened source, full query/filter,
   sort order, and page size. Reusing it with another source/query is a typed
   `invalidCursor` error. A committed mutation may invalidate the cursor.

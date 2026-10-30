@@ -12,6 +12,9 @@ import std.uuid : randomUUID;
 
 import dosierarkivo.archive : parseArchiveVirtualPath;
 import dosierskanilo.catalogbackend;
+import dosierskanilo.membercontentcache : MemberContentLease;
+import dosierskanilo.memberextraction : ArchiveExtractionStep,
+    extractArchiveMember;
 import dosierskanilo.model.checksums : CheckSums;
 import dosierskanilo.model.filespec : FileSpec;
 import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION5, NamedBinaryBlob,
@@ -457,6 +460,131 @@ public:
 
         throw new CatalogBackendException(CatalogBackendErrorCode.invalidIdentifier,
             "Reference is not an archive container.");
+    }
+
+    override DirectoryId resolveDirectory(string relativePath)
+    {
+        return withRepository((Repository repository) {
+            if (relativePath.length == 0 || relativePath == ".")
+                return DirectoryId.init;
+            const auto id = repository.directoryIdByRelativePath(relativePath);
+            return id == 0 ? DirectoryId.init : directoryId(id);
+        });
+    }
+
+    override ReferenceId resolveReference(string relativePath)
+    {
+        return withRepository((Repository repository) {
+            auto file = repository.fileReferenceByRelativePath(relativePath);
+            return file.id == 0 ? ReferenceId.init : catalogFile(file).referenceId;
+        });
+    }
+
+    override CatalogFile loadReference(ReferenceId referenceId)
+    {
+        return withRepository((Repository repository) {
+            return catalogFileForReference(repository, referenceId);
+        });
+    }
+
+    override MemberContentLease acquireMemberContent(
+        ReferenceId memberReferenceId, shared(bool)* cancellation = null)
+    {
+        return withRepository((Repository repository) {
+            auto member = catalogFileForReference(repository, memberReferenceId);
+            if (member.locator.kind != ContentLocator.Kind.archiveEntry)
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.invalidIdentifier,
+                    "Reference is not an SQLite archive member.");
+            if (member.availability != CatalogReferenceAvailability.available)
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.invalidIdentifier,
+                    "The archive container is not available on disk.");
+            auto file = repository.fileReference(
+                referenceFileId(memberReferenceId));
+            ArchiveExtractionStep[] steps;
+            string physicalContainer;
+            while (true)
+            {
+                auto container = repository.fileReference(
+                    file.containerReferenceId);
+                if (container.id == 0)
+                    throw new CatalogBackendException(
+                        CatalogBackendErrorCode.invalidIdentifier,
+                        "The archive container chain is incomplete.");
+                const auto parsed = parseArchiveVirtualPath(file.relativePath);
+                if (!parsed.isVirtual)
+                    throw new CatalogBackendException(
+                        CatalogBackendErrorCode.invalidIdentifier,
+                        "Archive member path is not a virtual reference.");
+                const auto layer = parsed.entries[$ - 1];
+                const auto row = catalogFile(file);
+                ArchiveExtractionStep step;
+                step.memberPath = layer.relativePath;
+                step.occurrence = layer.hasOccurrence ? layer.occurrence : 0;
+                step.locator = row.locator;
+                step.password = repository.loadBlobDetails(
+                    container.blobId).archivePassword;
+                step.knownSize = row.size;
+                steps = step ~ steps;
+                if (!container.archiveMember)
+                {
+                    physicalContainer = parseArchiveVirtualPath(
+                        container.relativePath).physicalPath;
+                    break;
+                }
+                file = container;
+            }
+            return extractArchiveMember(repository.rootPath,
+                physicalContainer, steps, cancellation);
+        });
+    }
+
+    long referenceFileId(ReferenceId referenceId) const
+    {
+        const auto token = referenceId.adapterToken;
+        const auto physicalPrefix = sourceToken ~ ":reference:";
+        if (token.startsWith(physicalPrefix))
+            return parseIdentity(token, "reference");
+        const auto archivePrefix = sourceToken ~ ":archive-reference:";
+        if (!token.startsWith(archivePrefix))
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.invalidIdentifier,
+                "Identifier belongs to a different SQLite catalog source.");
+        const auto identity = token[archivePrefix.length .. $];
+        const auto components = identity.split(":");
+        if (components.length < 2)
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.invalidIdentifier,
+                "Malformed archive-member reference identity.");
+        long fileId;
+        try
+            fileId = to!long(components[$ - 1]);
+        catch (Exception)
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.invalidIdentifier,
+                "Malformed archive-member reference identity.");
+        if (fileId <= 0)
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.invalidIdentifier,
+                "Malformed archive-member reference identity.");
+        return fileId;
+    }
+
+    CatalogFile catalogFileForReference(Repository repository,
+        ReferenceId referenceId) const
+    {
+        auto file = repository.fileReference(referenceFileId(referenceId));
+        if (file.id == 0)
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.invalidIdentifier,
+                "Unknown SQLite reference identity.");
+        auto result = catalogFile(file);
+        if (result.referenceId != referenceId)
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.invalidIdentifier,
+                "Reference identity does not match its stored path.");
+        return result;
     }
 
     override CatalogTorrentEntryPage listTorrentEntries(ContentId contentId,
@@ -1605,8 +1733,8 @@ final class DefaultCatalogBackendFactory : CatalogBackendFactory
 
 version (unittest)
 {
-    import std.file : DirEntry, SpanMode, dirEntries, exists, getcwd, mkdirRecurse,
-        remove, rmdirRecurse, tempDir;
+    import std.file : DirEntry, SpanMode, dirEntries, exists, getcwd, getSize,
+        mkdirRecurse, remove, rmdirRecurse, tempDir;
     import std.path : baseName, buildPath;
     import std.uuid : randomUUID;
 
@@ -1910,6 +2038,46 @@ version (unittest)
             == nestedArchiveMembers.members.length);
         assert(jsonNestedArchiveMembers.members[0].relativePath
             == nestedArchiveMembers.members[0].relativePath);
+
+        /* Handles, path restoration, and nested extraction agree across backends. */
+        assert(sqliteBackend.uiHandle(sampleArchive.referenceId)
+            .startsWith("ref:"));
+        assert(sqliteBackend.uiHandle(archiveDirectory).startsWith("dir:"));
+        assert(sqliteBackend.uiHandle(sampleArchive.contentId)
+            .startsWith("content:"));
+        assert(sqliteBackend.uiHandle(sampleArchive.referenceId)
+            != sqliteBackend.uiHandle(sampleArchive.contentId));
+        assert(jsonBackend.uiHandle(jsonContainer.referenceId)
+            .startsWith("ref:"));
+        assert(sqliteBackend.resolveDirectory("archives") == archiveDirectory);
+        assert(jsonBackend.resolveDirectory("archives") == jsonArchiveDirectory);
+        assert(!sqliteBackend.resolveDirectory("").isValid);
+        assert(sqliteBackend.resolveReference(sampleArchive.relativePath)
+            == sampleArchive.referenceId);
+        assert(jsonBackend.resolveReference(jsonContainer.relativePath)
+            == jsonContainer.referenceId);
+        assert(sqliteBackend.loadReference(sampleArchive.referenceId)
+            .relativePath == sampleArchive.relativePath);
+        assert(jsonBackend.loadReference(jsonContainer.referenceId)
+            .relativePath == jsonContainer.relativePath);
+        assert(!sqliteBackend.resolveReference(
+            "archives/missing.zip").isValid);
+        const auto nestedMemberPath =
+            "archives/sample.zip!/nested.zip!/deep/readme.txt";
+        assert(sqliteBackend.resolveReference(nestedMemberPath).isValid);
+        assert(jsonBackend.resolveReference(nestedMemberPath).isValid);
+        auto sqliteNestedLease = sqliteBackend.acquireMemberContent(
+            nestedArchiveMembers.members[0].referenceId);
+        assert(exists(sqliteNestedLease.path));
+        assert(getSize(sqliteNestedLease.path)
+            == nestedArchiveMembers.members[0].size);
+        sqliteNestedLease.release();
+        auto jsonNestedLease = jsonBackend.acquireMemberContent(
+            jsonNestedArchiveMembers.members[0].referenceId);
+        assert(exists(jsonNestedLease.path));
+        assert(getSize(jsonNestedLease.path)
+            == jsonNestedArchiveMembers.members[0].size);
+        jsonNestedLease.release();
 
         /* Detail snapshots and extractor statuses must agree across backends. */
         CatalogDetailMask archiveDetails;

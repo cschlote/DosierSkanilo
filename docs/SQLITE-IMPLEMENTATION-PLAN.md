@@ -1730,12 +1730,17 @@ session cache paths in the catalog.
 
 #### WP-13.6.2: GTK backend/cache integration
 
+- [x] Extend the contract for UI state restoration and member extraction:
+  `resolveDirectory`, `resolveReference`, `loadReference`, opaque per-instance
+  `uiHandle` keys, and `acquireMemberContent` returning a shared cache lease.
+  JSON and SQLite adapters implement the surface; cross-backend tests cover
+  handles, path resolution, and nested extraction.
 - [ ] Replace the GUI-owned JSON/SQLite split in `DirectorySource` with the
   public backend query and member-extraction interfaces; GTK remains a
-  projection/preview client.
+  projection/preview client. Persist paths, not IDs or UI handles.
 - [ ] Expand archive file rows, resolve duplicate/nested entry locators, and use
   shared cache leases for preview and background sibling prefetch.
-- [ ] Add cache preferences and session shutdown cleanup without exposing SQL or
+- [x] Add cache preferences and session shutdown cleanup without exposing SQL or
   serialized-record details in widgets.
 
 #### WP-13.6.3: Cross-frontend parity
