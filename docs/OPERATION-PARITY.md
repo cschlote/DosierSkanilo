@@ -72,8 +72,9 @@ methods for trees, content rows, details, entries, and previews.
 ## Remaining verification
 
 - The GUI CI now runs an Xvfb-backed display job (`scripts/test-display.sh`):
-  the unit suite with the display-gated virtual-table scroll test plus a GUI
-  startup/self-test smoke run. Extend it with Tools interaction tests that start
+  the unit suite with the display-gated virtual-table scroll test plus GUI
+  startup/self-test smoke runs for JSON and repository documents. Extend it with
+  Tools interaction tests that start
   an operation, exercise Cancel/Pause/Resume, and verify progress and refresh in
   the owning tab.
 - Basic cross-process contention and lease release after a backend failure are
