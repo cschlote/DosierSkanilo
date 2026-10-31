@@ -73,10 +73,11 @@ methods for trees, content rows, details, entries, and previews.
 
 - The GUI CI now runs an Xvfb-backed display job (`scripts/test-display.sh`):
   the unit suite with the display-gated virtual-table scroll test plus GUI
-  startup/self-test smoke runs for JSON and repository documents. Extend it with
-  Tools interaction tests that start
-  an operation, exercise Cancel/Pause/Resume, and verify progress and refresh in
-  the owning tab.
+  startup/self-test smoke runs for JSON and repository documents. The self-test
+  can also start scan, metadata, and analyze through the Tools path
+  (`--self-test-operation`), which verifies progress/status handling and the
+  post-operation refresh trigger. Remaining: exercise Cancel/Pause/Resume and
+  verify refresh completion in the owning tab.
 - Basic cross-process contention and lease release after a backend failure are
   covered, and the CLI process-boundary check above confirms the non-blocking
   `targetBusy` behaviour. Cancellation/pause while another process is active
