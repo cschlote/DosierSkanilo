@@ -99,6 +99,15 @@ assert_progress_order "Catalog analysis" "${json_analysis_output}" \
     "writing JSON"
 [[ "$(wc -l < "${synthetic_catalog}")" -eq 0 ]]
 
+recover_output=$("${BIN}" recover "${synthetic_catalog}" 2>&1)
+[[ "${recover_output}" == *"Catalog: ${synthetic_catalog}"* ]]
+restore_source="${TMP_DIR}/restore-source.json"
+cp "${synthetic_catalog}" "${restore_source}"
+"${BIN}" recover "${synthetic_catalog}" --restore-from "${restore_source}"     >"${TMP_DIR}/recover-restore.out" 2>&1
+[[ -f "${synthetic_catalog}" ]]
+[[ "$(find "${TMP_DIR}" -maxdepth 1 -name 'synthetic-catalog.json.before-restore-*' | wc -l)" -ge 1 ]]
+grep -q "Restored" "${TMP_DIR}/recover-restore.out"
+
 pretty_catalog="${TMP_DIR}/pretty-catalog.json"
 "${BIN}" scan "${fixture_root}" --json "${pretty_catalog}" \
     --recursive --checksums --pretty >/dev/null
