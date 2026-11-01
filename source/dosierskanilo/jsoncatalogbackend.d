@@ -2887,6 +2887,58 @@ private final class JsonCatalogDocument : CatalogDocument
         return backend.catalog.dataArray.dup;
     }
 
+    override string suggestedFilesystemRoot()
+    {
+        requireOpen();
+        import std.path : absolutePath, buildNormalizedPath, dirName, isAbsolute;
+
+        string commonRoot;
+        bool sawRelative;
+        foreach (blob; backend.catalog.dataArray)
+        {
+            if (blob is null)
+                continue;
+            foreach (spec; blob.fileSpecs)
+            {
+                if (spec is null || spec.fileName.length == 0)
+                    continue;
+                auto path = spec.fileName;
+                ParsedArchiveVirtualPath parsed;
+                try
+                    parsed = parseArchiveVirtualPath(path);
+                catch (Exception)
+                    continue;
+                if (!isAbsolute(parsed.physicalPath))
+                {
+                    sawRelative = true;
+                    continue;
+                }
+                auto normalized = buildNormalizedPath(absolutePath(
+                    parsed.physicalPath));
+                if (commonRoot.length == 0)
+                    commonRoot = dirName(normalized);
+                else
+                {
+                    while (commonRoot.length > 0
+                        && !normalized.startsWith(commonRoot ~ "/"))
+                        commonRoot = dirName(commonRoot);
+                }
+            }
+        }
+        if (sawRelative || commonRoot.length == 0)
+            return absolutePath(dirName(backend.backendTarget.catalogPath));
+        return commonRoot;
+    }
+
+    override void bindFilesystemRoot(string root)
+    {
+        requireOpen();
+        backend.sourceRoot = root.length > 0
+            ? nativePathToStoragePath(buildNormalizedPath(absolutePath(root)))
+            : "";
+        backend.rebuildIndex();
+    }
+
     override OperationResult applyScan(ScanOperationRequest request,
         OperationControl control)
     {
@@ -3605,6 +3657,7 @@ unittest
 {
     import dosierskanilo.model.namedbinaryblob : NamedBinaryBlobCatalog,
         serializeDataClassWrapperFile;
+    import std.datetime.systime : Clock;
     import std.file : exists, mkdirRecurse, remove, rmdirRecurse, tempDir, write;
     import std.path : buildPath;
     import std.uuid : randomUUID;
@@ -3672,4 +3725,41 @@ unittest
     catch (CatalogBackendException failure)
         rejected = failure.code == CatalogBackendErrorCode.writeConflict;
     assert(rejected, "saving over an externally changed catalog must fail");
+}
+
+@("JSON documents suggest and bind a filesystem root for tree queries")
+unittest
+{
+    import dosierskanilo.model.namedbinaryblob : NamedBinaryBlobCatalog,
+        serializeDataClassWrapperFile;
+    import std.datetime.systime : Clock;
+    import std.file : exists, remove, tempDir;
+    import std.path : buildPath, dirName;
+    import std.uuid : randomUUID;
+
+    const catalogPath = buildPath(tempDir(), "json-root-" ~ randomUUID().toString()
+        ~ ".json");
+    scope (exit)
+        if (exists(catalogPath))
+            remove(catalogPath);
+    auto blob = new NamedBinaryBlob("media/first.txt", 5, Clock.currTime);
+    blob.fileSpecs ~= new FileSpec("media/first.txt", "");
+    NamedBinaryBlobCatalog catalog = NamedBinaryBlobCatalog(DATA_CLASS_VERSION5,
+        [blob]);
+    serializeDataClassWrapperFile(catalogPath, catalog);
+
+    auto backend = new JsonCatalogBackend(
+        OperationTarget.jsonTarget(catalogPath));
+    scope (exit)
+        backend.close();
+    auto document = backend.document();
+    const root = document.suggestedFilesystemRoot();
+    assert(root == dirName(catalogPath));
+    document.bindFilesystemRoot(root);
+    assert(backend.capabilities().supportsTreeQueries);
+    const directories = backend.listDirectories(CatalogDirectoryQuery.init);
+    assert(directories.directories.length == 1);
+    assert(directories.directories[0].relativePath == "media");
+    document.bindFilesystemRoot("");
+    assert(!backend.capabilities().supportsTreeQueries);
 }

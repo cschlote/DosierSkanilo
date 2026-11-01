@@ -733,6 +733,12 @@ interface CatalogDocument
     /// Detached blob snapshot for legacy read projections in the frontend.
     NamedBinaryBlob[] documentBlobs();
 
+    /// Suggested filesystem root for rooted tree queries over this document.
+    string suggestedFilesystemRoot();
+
+    /// Bind or clear the filesystem root used by tree queries.
+    void bindFilesystemRoot(string root);
+
     /// Apply a scan and optional metadata/duplicate phase to the document buffer.
     OperationResult applyScan(ScanOperationRequest request,
         OperationControl control);
