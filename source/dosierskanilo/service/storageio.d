@@ -12,7 +12,7 @@ import std.conv : to;
 import std.datetime.systime;
 import std.file;
 import std.path;
-import std.process : thisProcessID;
+import std.process : environment, thisProcessID;
 import std.string : replace;
 import std.uuid;
 
@@ -379,15 +379,85 @@ unittest
  * Returns:
  *   `true` on success, `false` on failure or cancellation. On failure, the original file is left unchanged if possible.
  */
-bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlobCatalog dynObjectWrapper,
+/** Outcome details of one catalog write attempt. */
+struct CatalogWriteResult
+{
+    bool written; /// The catalog data reached a file.
+    bool cancelled; /// Cancellation was requested before the write finished.
+    bool recovery; /// Data was written outside the canonical catalog path.
+    string canonicalPath; /// Requested catalog location.
+    string writtenPath; /// Canonical or recovery location that received the data.
+    string failedStagingPath; /// Partial staging file kept for diagnosis.
+    string[] attempts; /// Paths that were attempted, in order.
+    string[] errors; /// Failure messages matching `attempts`.
+}
+
+/** Typed write failure carrying the attempted and recovery paths. */
+class CatalogWriteException : Exception
+{
+    CatalogWriteResult writeResult;
+
+    this(CatalogWriteResult result)
+    {
+        string message = "Failed to write JSON catalog.";
+        if (result.recovery)
+            message ~= " Recovery data was written to '" ~ result.writtenPath ~ "'.";
+        else if (result.errors.length > 0)
+            message ~= " " ~ result.errors[$ - 1];
+        if (result.failedStagingPath.length > 0)
+            message ~= " Partial staging file kept at '"
+                ~ result.failedStagingPath ~ "'.";
+        super(message);
+        writeResult = result;
+    }
+}
+
+private string[] recoveryDirectories()
+{
+    string[] directories;
+    auto stateHome = environment.get("XDG_STATE_HOME", "");
+    if (stateHome.length == 0)
+    {
+        const auto home = environment.get("HOME", "");
+        if (home.length > 0)
+            stateHome = buildPath(home, ".local", "state");
+    }
+    if (stateHome.length > 0)
+        directories ~= buildPath(stateHome, "dosierskanilo", "recovery");
+    directories ~= tempDir();
+    return directories;
+}
+
+private string recoveryFileName(string jsonFile, string extension,
+    string nowString)
+{
+    __gshared size_t recoverySerial;
+    const auto serial = atomicFetchAdd(recoverySerial, 1) + 1;
+    return buildPath(baseName(jsonFile, extension) ~ "-recovery-"
+        ~ nowString.replace(":", "-") ~ "-" ~ thisProcessID.to!string
+        ~ "-" ~ serial.to!string ~ extension);
+}
+
+/**
+ * Write a catalog to its canonical path, falling back to recovery locations
+ * when the target directory or file cannot be written.
+ */
+CatalogWriteResult writeCatalogJsonFile(string jsonFile,
+    ref NamedBinaryBlobCatalog dynObjectWrapper,
     string jsonFileExtension = ".json",
     string nowString = Clock.currTime.toISOExtString(),
     string backupDirectory = "",
     bool delegate() cancelCheck = null,
     bool pretty = false)
 {
+    CatalogWriteResult result;
+    result.canonicalPath = jsonFile;
     if (cancelCheck !is null && cancelCheck())
-        return false;
+    {
+        result.cancelled = true;
+        return result;
+    }
+
     string newname = null;
     bool mustCopy = false;
     if (jsonFile.exists)
@@ -395,50 +465,121 @@ bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlobCatalog dynObjectW
         newname = getBackupFileName(jsonFile, jsonFileExtension, nowString,
             backupDirectory);
         logFLine("Backed up existing file '%s' to '%s'.", jsonFile, newname);
-        auto rc = makeBackupFile(newname, jsonFile, mustCopy);
-        if (!rc)
-            return false;
+        if (!makeBackupFile(newname, jsonFile, mustCopy))
+        {
+            result.errors ~= "Could not back up the existing catalog.";
+            return result;
+        }
     }
     if (cancelCheck !is null && cancelCheck())
-        return false;
-    logLine("Serialize Array of Objects");
-    /* Serialize into a staging file in the target directory and rename it into
-     * place afterwards, so a crash or a full disk cannot leave a truncated
-     * catalog at the canonical path. */
-    auto stagingFile = jsonFile ~ ".tmp-" ~ randomUUID().toString();
-    try
     {
-        serializeDataClassWrapperFile(stagingFile, dynObjectWrapper, pretty);
+        result.cancelled = true;
+        return result;
+    }
+
+    logLine("Serialize Array of Objects");
+
+    /* First keep trying the canonical directory, then fall back to application
+     * state directories and the system temporary directory. The old catalog is
+     * never replaced by a recovery write. */
+    string[] candidates = [dirName(jsonFile)];
+    candidates ~= recoveryDirectories();
+    foreach (candidateIndex, directory; candidates)
+    {
         if (cancelCheck !is null && cancelCheck())
         {
-            if (exists(stagingFile))
-                remove(stagingFile);
-            return false;
+            result.cancelled = true;
+            return result;
         }
-        /* POSIX rename replaces the target atomically, so a crash can never
-         * observe a missing catalog. Windows rename refuses existing targets. */
-        version (Windows)
-            if (exists(jsonFile))
-                remove(jsonFile);
-        rename(stagingFile, jsonFile);
-    }
-    catch (Exception ex)
-    {
-        logLine("Something wonderful happened. Can't serialize.");
-        logLine(ex);
-        if (exists(stagingFile))
+        const bool recovery = candidateIndex > 0;
+        string stagingFile;
+        string destination;
+        try
         {
-            try
-                remove(stagingFile);
-            catch (Exception)
+            if (recovery)
             {
+                try
+                    mkdirRecurse(directory);
+                catch (Exception)
+                {
+                }
+                destination = buildPath(directory, recoveryFileName(jsonFile,
+                    jsonFileExtension, nowString));
+                stagingFile = destination ~ ".tmp-" ~ randomUUID().toString();
             }
+            else
+            {
+                destination = jsonFile;
+                stagingFile = jsonFile ~ ".tmp-" ~ randomUUID().toString();
+            }
+            result.attempts ~= stagingFile;
+            serializeDataClassWrapperFile(stagingFile, dynObjectWrapper, pretty);
+            if (cancelCheck !is null && cancelCheck())
+            {
+                if (exists(stagingFile))
+                    remove(stagingFile);
+                result.cancelled = true;
+                return result;
+            }
+            version (Windows)
+                if (exists(destination))
+                    remove(destination);
+            rename(stagingFile, destination);
+            result.written = true;
+            result.recovery = recovery;
+            result.writtenPath = destination;
+            if (recovery)
+            {
+                logFLine("Canonical catalog '%s' could not be written.",
+                    jsonFile);
+                logFLine("Saved recovery catalog to '%s'.", destination);
+            }
+            return result;
         }
-        if (newname !is null)
-            restoreOriginalFile(jsonFile, newname, mustCopy);
+        catch (Exception ex)
+        {
+            result.errors ~= ex.msg;
+            result.failedStagingPath = stagingFile;
+            logLine("Catalog write attempt failed for '", stagingFile, "': ",
+                ex.msg);
+            if (stagingFile.length > 0 && exists(stagingFile))
+                logLine("Partial staging file kept at '", stagingFile, "'.");
+        }
+    }
+
+    if (newname !is null)
+        restoreOriginalFile(jsonFile, newname, mustCopy);
+    return result;
+}
+
+bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlobCatalog dynObjectWrapper,
+    string jsonFileExtension = ".json",
+    string nowString = Clock.currTime.toISOExtString(),
+    string backupDirectory = "",
+    bool delegate() cancelCheck = null,
+    bool pretty = false)
+{
+    auto result = writeCatalogJsonFile(jsonFile, dynObjectWrapper,
+        jsonFileExtension, nowString, backupDirectory, cancelCheck, pretty);
+    if (result.cancelled)
+        return false;
+    if (result.written && !result.recovery)
+        return true;
+    if (result.written)
+    {
+        logLine("The catalog was saved to the recovery file but the canonical "
+            ~ "catalog was not replaced.");
         return false;
     }
-    return true;
+    logLine("Could not write the JSON catalog to any location.");
+    foreach (index, attempt; result.attempts)
+    {
+        const errorMessage = index < result.errors.length
+            ? result.errors[index] : "";
+        logLine("  attempt ", (index + 1).to!string, ": ", attempt,
+            errorMessage.length > 0 ? " - " ~ errorMessage : "");
+    }
+    return false;
 }
 
 /** Write scanned data to some storage file from an array.
@@ -510,4 +651,47 @@ unittest
             foundBackup = true;
     assert(foundBackup, "Backup file should exist after writing existing file.");
 
+}
+
+@("catalog write falls back to a recovery file when the target directory is unusable")
+unittest
+{
+    import dosierskanilo.model.namedbinaryblob :
+        deserializeDataClassJsonWrapperFile;
+    import std.datetime.systime : Clock;
+    import std.file : exists, mkdirRecurse, readText, remove, rmdirRecurse,
+        tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const root = buildPath(tempDir(), "storageio-recovery-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+
+    const blocker = buildPath(root, "not-a-directory");
+    write(blocker, "block");
+    const canonical = buildPath(blocker, "catalog.json");
+
+    NamedBinaryBlobCatalog wrapper = NamedBinaryBlobCatalog(DATA_CLASS_VERSION5,
+        [new NamedBinaryBlob("recover.txt", 4, Clock.currTime)]);
+    auto result = writeCatalogJsonFile(canonical, wrapper);
+    scope (exit)
+        if (result.writtenPath.length > 0 && exists(result.writtenPath))
+            remove(result.writtenPath);
+
+    assert(result.written);
+    assert(result.recovery);
+    assert(!result.cancelled);
+    assert(!exists(canonical));
+    assert(result.attempts.length >= 2,
+        "the canonical directory and at least one recovery location are tried");
+    assert(result.writtenPath.length > 0);
+    assert(exists(result.writtenPath));
+
+    const recovered = deserializeDataClassJsonWrapperFile(result.writtenPath);
+    assert(recovered.dataArray.length == 1);
+    assert(recovered.dataArray[0].getFirstFileName == "recover.txt");
 }
