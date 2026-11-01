@@ -7,6 +7,16 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
+## Unreleased
+
+- JSON catalogs are now streamed to disk one content record at a time instead of
+  being materialized as a full JSON tree and string, keeping memory bounded for
+  multi-million-entry catalogs.
+- Catalog writes retry the target directory and then fall back to an application
+  recovery directory or the system temporary directory. Failed partial staging
+  files are kept for diagnosis, and write failures carry the attempted and
+  recovery paths in the operation error.
+
 ## Release 26.13.0 - 2026-10-30
 
 - The catalog contract now supports path-based UI state restoration
