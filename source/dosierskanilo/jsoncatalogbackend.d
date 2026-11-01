@@ -18,7 +18,8 @@ import dosierarkivo.archive : appendArchiveVirtualPath,
     parseArchiveVirtualPath,
     ParsedArchiveVirtualPath;
 import dosierskanilo.catalogbackend;
-import dosierskanilo.membercontentcache : MemberContentLease;
+import dosierskanilo.membercontentcache : MemberContentCancelledException,
+    MemberContentLease;
 import dosierskanilo.memberextraction : ArchiveExtractionStep,
     extractArchiveMember;
 import dosierskanilo.model.archivespec : ArchiveSpec;
@@ -956,8 +957,12 @@ public:
             }
             current = container;
         }
-        return extractArchiveMember(sourceRoot, physicalContainer, steps,
-            cancellation);
+        try
+            return extractArchiveMember(sourceRoot, physicalContainer, steps,
+                cancellation);
+        catch (MemberContentCancelledException failure)
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.cancelled, failure.msg);
     }
 
     override RepositoryBlobPage queryBlobs(RepositoryQueryOptions options)

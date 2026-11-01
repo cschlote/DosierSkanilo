@@ -9,6 +9,11 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- Member-content cache cancellation is now honored before returning an already
+  cached member, and both catalog adapters report it as the typed
+  `catalogBackendErrorCode.cancelled`; a cancelled extraction discards the
+  materialized file.
+
 - The catalog contract now reports its persistence model and exposes an
   explicit `CatalogDocument` session for JSON sources (`applyScan`,
   `applyAnalysis`, `save`, `discard`, load fingerprint, modified state).

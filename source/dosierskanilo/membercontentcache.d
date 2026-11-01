@@ -200,6 +200,9 @@ public:
         enforce(safe && !isDirectory && normalizedPath == memberPath,
             "Member cache paths must be normalized safe files.");
         enforce(materialize !is null, "Member cache requires a materializer.");
+        if (cancellationRequested(cancellation))
+            throw new MemberContentCancelledException(
+                "Archive member extraction was cancelled.");
         if (expectedSize > maximumBytes)
             throw new MemberContentCacheCapacityException(
                 "Archive member exceeds the configured cache limit.");
@@ -756,4 +759,43 @@ unittest
     second.release();
     cache.close();
     assert(!exists(cache.rootPath));
+}
+
+@("member cache cancellation discards a materialized member")
+unittest
+{
+    import core.atomic : atomicStore;
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath, dirName;
+    import std.uuid : randomUUID;
+
+    const parent = buildPath(tempDir(), "member-cache-cancel-"
+        ~ randomUUID().toString());
+    auto cache = new MemberContentCache(parent, 1024, 1);
+    scope (exit)
+    {
+        cache.close();
+        if (exists(parent))
+            rmdirRecurse(parent);
+    }
+
+    shared bool cancelled;
+    const auto locator = ContentLocator.entry(ReferenceId("cache-cancel"),
+        ArchiveEntryId("entry-0"));
+    auto materialize = (string destinationDirectory) {
+        const outputPath = buildPath(destinationDirectory, "member.bin");
+        mkdirRecurse(dirName(outputPath));
+        write(outputPath, "cancelled");
+        atomicStore(cancelled, true);
+        return true;
+    };
+
+    bool rejected;
+    try
+        cache.acquire(locator, ContentId.init, "container!/member.bin!~0",
+            "member.bin", 9, materialize, &cancelled);
+    catch (MemberContentCancelledException)
+        rejected = true;
+    assert(rejected);
+    assert(cache.bytesUsed == 0);
 }

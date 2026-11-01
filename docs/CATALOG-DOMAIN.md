@@ -170,6 +170,9 @@ CLI parser/output types.
 
 - Returned query/detail values are detached snapshots. Editing them locally
   never writes through to the backend.
+- `acquireMemberContent` reports cooperative cancellation as
+  `CatalogBackendErrorCode.cancelled`; a cancelled extraction leaves no member
+  bytes retained in the shared cache.
 - `resolveDirectory`/`resolveReference` translate display paths back to typed
   identities for state restoration and return invalid IDs for unknown paths.
   `loadReference` loads one reference row on demand. `acquireMemberContent`

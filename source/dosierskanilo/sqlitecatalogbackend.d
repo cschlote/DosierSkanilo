@@ -13,6 +13,7 @@ import std.uuid : randomUUID;
 import dosierarkivo.archive : parseArchiveVirtualPath;
 import dosierskanilo.catalogbackend;
 import dosierskanilo.membercontentcache : MemberContentLease;
+import dosierskanilo.membercontentcache : MemberContentCancelledException;
 import dosierskanilo.memberextraction : ArchiveExtractionStep,
     extractArchiveMember;
 import dosierskanilo.model.checksums : CheckSums;
@@ -671,8 +672,12 @@ public:
                 }
                 file = container;
             }
-            return extractArchiveMember(repository.rootPath,
-                physicalContainer, steps, cancellation);
+            try
+                return extractArchiveMember(repository.rootPath,
+                    physicalContainer, steps, cancellation);
+            catch (MemberContentCancelledException failure)
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.cancelled, failure.msg);
         });
     }
 
@@ -2314,6 +2319,24 @@ version (unittest)
         assert(getSize(jsonNestedLease.path)
             == jsonNestedArchiveMembers.members[0].size);
         jsonNestedLease.release();
+
+        shared bool cancelledLease;
+        cancelledLease = true;
+        bool jsonCancelled;
+        bool sqliteCancelled;
+        try
+            jsonBackend.acquireMemberContent(
+                jsonNestedArchiveMembers.members[0].referenceId,
+                &cancelledLease);
+        catch (CatalogBackendException failure)
+            jsonCancelled = failure.code == CatalogBackendErrorCode.cancelled;
+        try
+            sqliteBackend.acquireMemberContent(
+                nestedArchiveMembers.members[0].referenceId, &cancelledLease);
+        catch (CatalogBackendException failure)
+            sqliteCancelled = failure.code == CatalogBackendErrorCode.cancelled;
+        assert(jsonCancelled && sqliteCancelled,
+            "both adapters must honor member-extraction cancellation");
 
         /* Detail snapshots and extractor statuses must agree across backends. */
         CatalogDetailMask archiveDetails;

@@ -698,7 +698,8 @@ enum CatalogBackendErrorCode
     unsupportedFeature,
     closed,
     backendFailure,
-    writeConflict
+    writeConflict,
+    cancelled
 }
 
 /** Typed error for catalog contract/open/query failures. */
