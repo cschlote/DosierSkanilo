@@ -539,11 +539,24 @@ CatalogWriteResult writeCatalogJsonFile(string jsonFile,
         catch (Exception ex)
         {
             result.errors ~= ex.msg;
-            result.failedStagingPath = stagingFile;
             logLine("Catalog write attempt failed for '", stagingFile, "': ",
                 ex.msg);
             if (stagingFile.length > 0 && exists(stagingFile))
-                logLine("Partial staging file kept at '", stagingFile, "'.");
+            {
+                const failedPath = stagingFile ~ ".failed";
+                try
+                {
+                    rename(stagingFile, failedPath);
+                    result.failedStagingPath = failedPath;
+                    logLine("Partial staging file kept at '", failedPath, "'.");
+                }
+                catch (Exception renameFailure)
+                {
+                    result.failedStagingPath = stagingFile;
+                    logLine("Partial staging file kept at '", stagingFile,
+                        "' (could not rename it: ", renameFailure.msg, ").");
+                }
+            }
         }
     }
 
