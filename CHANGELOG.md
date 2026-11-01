@@ -9,6 +9,13 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- The catalog contract now reports its persistence model and exposes an
+  explicit `CatalogDocument` session for JSON sources (`applyScan`,
+  `applyAnalysis`, `save`, `discard`, load fingerprint, modified state).
+  SQLite remains a transactional store without a document session. Saving a
+  changed document reports `writeConflict` instead of overwriting external
+  edits.
+
 - JSON catalogs are now streamed to disk one content record at a time instead of
   being materialized as a full JSON tree and string, keeping memory bounded for
   multi-million-entry catalogs.

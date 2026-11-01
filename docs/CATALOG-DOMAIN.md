@@ -188,10 +188,15 @@ CLI parser/output types.
   not infer a global content count from them. `CatalogFilter.pathText` also
   accepts an exact base64 SHA-1 digest.
 - The persistence model is part of the adapter capability surface. JSON sources
-  use an in-memory document with explicit save/discard; SQLite sources commit
-  mutations directly. Detached query snapshots never imply a writable document.
-  Modified/dirty state therefore exists only for in-memory documents; a SQLite
-  transaction indicator is a separate concept and is not a dirty flag.
+  expose a `CatalogDocument` (`applyScan`, `applyAnalysis`, `save`, `discard`,
+  `modified`, load fingerprint); SQLite sources commit mutations directly and
+  reject `document()` with `unsupportedFeature`. Detached query snapshots never
+  imply a writable document. Modified/dirty state therefore exists only for
+  in-memory documents; a SQLite transaction indicator is a separate concept and
+  is not a dirty flag.
+- Saving a changed document compares the load-time fingerprint and fails with
+  `writeConflict` when the file changed externally. A failed save leaves the
+  document modified.
 - Saving an in-memory document compares a load-time fingerprint (size and
   modification time, or an equivalent adapter value) so concurrent external
   edits are reported instead of silently overwritten. A failed save leaves the
