@@ -53,6 +53,34 @@ branching in each HMI. The `CatalogBackend` contract and its adapter semantics
 are tracked in `SQLITE-IMPLEMENTATION-PLAN.md` under WP-13, while the
 implemented interface itself lives in `source/dosierskanilo/catalogbackend.d`.
 
+### Persistence models
+
+Two persistence models share the same catalog object model and operation
+executors:
+
+- **In-memory document (JSON).** Opening a catalog loads it into memory.
+  Operations modify that document buffer, and an explicit store step writes it
+  back. A document is *modified* while its buffer differs from the last loaded
+  or saved state. Closing, reloading, or quitting a modified document offers
+  save/discard/cancel. Saving uses the streaming/recovery writer and checks a
+  load-time file fingerprint so external edits are not overwritten silently.
+- **Transactional store (SQLite).** Operations execute and commit directly in
+  the database. There is no persistent document buffer and therefore no
+  modified marker; a marker would only be meaningful if long-lived user
+  transactions are introduced later, in which case it reports an open
+  transaction rather than unsaved data.
+
+`CatalogBackend.capabilities()` reports which model applies, and both models
+are driven through the same polymorphic operation executors.
+`runOperation()` stays a batch facade: for JSON it is load, apply, and store;
+for SQLite it applies transactional changes and returns.
+
+JSON backends expose `CatalogDocument` with `applyScan`, `applyAnalysis`,
+`save`, `discard`, `modified`, and a load fingerprint; SQLite backends reject
+`document()` and remain transactional. The GUI uses the document session for
+JSON tabs with explicit save semantics, while the CLI keeps batch behavior and
+the same operation executors.
+
 ### Product responsibilities
 
 - **Catalog/domain layer:** index filesystem references, identify content by

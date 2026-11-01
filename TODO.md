@@ -99,7 +99,8 @@ Currently one bad file aborts an entire JSON scan/analyze.
   sizes (archive members included when requested), restoring JSON/SQLite
   parity; extended the non-BMP directory test with unfiltered/filtered
   count assertions.
-- [ ] archiveindex `is_virtual` column follow-up (deferred to WP-13 schema).
+- [x] archiveindex `is_virtual` column follow-up: schema v5 adds a generated
+  column and all queries use it.
 
 ### WP-14.4: Review-minor hardening and UX
 
@@ -147,10 +148,11 @@ Split churn from correctness; each item is independently landable.
   typed write errors that keep attempted and partial staging paths.
 - [x] Interactive recovery prompt on a TTY plus `--no-input` to suppress
   prompts for scripts and CI.
-- [ ] Follow-up: GUI recovery actions (retry/save copy/open folder) and a
-  `recover` command for backups and recovery catalogs.
-- [ ] Deferred: Flatpak sha256 verification against published artifacts
-  (release-time check).
+- [x] GUI save failures keep the document modified and offer retry or saving
+  the recovery file as a copy.
+- [x] `recover` command lists and validates backups/recovery catalogs and can
+  restore one with a pre-restore backup.
+- [x] Flatpak sha256 pins verified against the published v26.13.0 archive.
 
 ## P1 — WP-09 closeout: shared CLI/GTK operations
 
@@ -168,7 +170,8 @@ on the same typed requests); only verification remains:
 - [x] Progress phase order and monotonic work counts for both scan modes and
   analysis; the parity matrix is checked in at
   `docs/OPERATION-PARITY.md`.
-- [ ] Display-backed GTK operation start/progress/pause/cancel/refresh tests
+- [x] Display-backed GTK operation start/progress/pause/resume/cancel/refresh
+  coverage via the GUI Xvfb self-test.
   (`DosierSkanilo-Gui`).
 
 `test-cli.sh` covers the CLI side of the matrix; keep the parity table and its
@@ -199,6 +202,20 @@ steps in dependency order:
       `ArchiveSpec.checkSums`, so JSON duplicate analysis excludes them by
       design (found correct-but-undocumented in the 2026-10-28 review). Added
       as WP-13 invariant 6 and an identity rule in `docs/CATALOG-DOMAIN.md`.
+
+## P1 — Persistence models and document mutation sessions
+
+- [x] Add a `CatalogPersistence` capability (`inMemoryDocument` vs
+  `transactionalStore`) to the catalog contract.
+- [x] Add a JSON `CatalogDocument` session (`applyScan`, `applyAnalysis`,
+  `save`, `discard`, load fingerprint, modified state) reusing the operation
+  executors; SQLite rejects it with `unsupportedFeature`.
+- [x] Keep `runOperation()` as the batch facade: JSON load/apply/store, SQLite
+  transactional commit; CLI behavior stays unchanged.
+- [x] Document dirty, conflict, recovery, and SQLite transaction semantics in
+  `docs/ARCHITECTURE.md` and `docs/CATALOG-DOMAIN.md`.
+- [x] GUI uses the document session for JSON tabs with modified marker,
+  save/discard/cancel, reload prompt, and conflict handling.
 
 ## P2 — WP-14 follow-on: archiveindex virtual classification
 

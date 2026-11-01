@@ -170,6 +170,9 @@ CLI parser/output types.
 
 - Returned query/detail values are detached snapshots. Editing them locally
   never writes through to the backend.
+- `acquireMemberContent` reports cooperative cancellation as
+  `CatalogBackendErrorCode.cancelled`; a cancelled extraction leaves no member
+  bytes retained in the shared cache.
 - `resolveDirectory`/`resolveReference` translate display paths back to typed
   identities for state restoration and return invalid IDs for unknown paths.
   `loadReference` loads one reference row on demand. `acquireMemberContent`
@@ -187,6 +190,23 @@ CLI parser/output types.
   row per record, so row counts may differ between storage modes; clients must
   not infer a global content count from them. `CatalogFilter.pathText` also
   accepts an exact base64 SHA-1 digest.
+- The persistence model is part of the adapter capability surface. JSON sources
+  expose a `CatalogDocument` (`applyScan`, `applyAnalysis`, `save`, `discard`,
+  `modified`, load fingerprint); SQLite sources commit mutations directly and
+  reject `document()` with `unsupportedFeature`. Detached query snapshots never
+  imply a writable document. Modified/dirty state therefore exists only for
+  in-memory documents; a SQLite transaction indicator is a separate concept and
+  is not a dirty flag.
+- Saving a changed document compares the load-time fingerprint and fails with
+  `writeConflict` when the file changed externally. A failed save leaves the
+  document modified.
+- In-memory JSON documents bound to a filesystem root use the same directory,
+  file, and detail queries as stored catalogs; binding rebuilds the read index
+  without persisting anything.
+- Saving an in-memory document compares a load-time fingerprint (size and
+  modification time, or an equivalent adapter value) so concurrent external
+  edits are reported instead of silently overwritten. A failed save leaves the
+  document modified and uses the streaming/recovery write path.
 - A page cursor is opaque and bound to the opened source, full query/filter,
   sort order, and page size. Reusing it with another source/query is a typed
   `invalidCursor` error. A committed mutation may invalidate the cursor.

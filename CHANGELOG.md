@@ -9,6 +9,23 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- Repository schema version 5 adds a generated `is_virtual` column to
+  `file_refs`; archive/member queries use it instead of textual path rewriting.
+  The v4-to-v5 migration adds the column in place.
+
+- Member-content cache cancellation is now honored before returning an already
+  cached member, and both catalog adapters report it as the typed
+  `catalogBackendErrorCode.cancelled`; a cancelled extraction discards the
+  materialized file.
+
+- The catalog contract now reports its persistence model and exposes an
+  explicit `CatalogDocument` session for JSON sources (`applyScan`,
+  `applyAnalysis`, `save`, `discard`, load fingerprint, modified state).
+  SQLite remains a transactional store without a document session. Saving a
+  changed document reports `writeConflict` instead of overwriting external
+  edits. JSON documents can also derive and bind a filesystem root so frontends
+  use the same backend tree/query paths for JSON and SQLite tabs.
+
 - JSON catalogs are now streamed to disk one content record at a time instead of
   being materialized as a full JSON tree and string, keeping memory bounded for
   multi-million-entry catalogs.
@@ -18,6 +35,9 @@ They represent the functional evolution and are intentionally summarized.
   recovery paths in the operation error.
 - The CLI offers to copy a recovery catalog to a chosen path when stdin is a
   terminal; the new `--no-input` option suppresses all interactive prompts.
+- A new `recover` command lists backups and recovery catalogs with validity and
+  entry counts, and can restore a chosen file over the catalog after validation
+  while keeping a pre-restore backup.
 
 ## Release 26.13.0 - 2026-10-30
 

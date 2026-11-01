@@ -656,6 +656,13 @@ struct CatalogSourceInfo
 }
 
 /** Optional behavior and call concurrency supported by one source implementation. */
+/** Persistence model exposed by one catalog backend. */
+enum CatalogPersistence
+{
+    inMemoryDocument, ///< Operations modify a document buffer; saving is explicit.
+    transactionalStore ///< Operations commit directly in the storage backend.
+}
+
 struct CatalogBackendCapabilities
 {
     OperationKind[] operations; /// Operations accepted by this source.
@@ -668,6 +675,7 @@ struct CatalogBackendCapabilities
     bool supportsArchiveEntryQueries; /// Can page through archive metadata.
     bool supportsTorrentEntryQueries; /// Can page through torrent descriptors.
     bool supportsFirstClassArchiveReferences; /// Members are normal content references.
+    CatalogPersistence persistence = CatalogPersistence.transactionalStore; ///< Mutation model.
 
     /// Whether this backend accepts the specified operation kind.
     bool supports(OperationKind operation) const
@@ -689,7 +697,9 @@ enum CatalogBackendErrorCode
     unsupportedOperation,
     unsupportedFeature,
     closed,
-    backendFailure
+    backendFailure,
+    writeConflict,
+    cancelled
 }
 
 /** Typed error for catalog contract/open/query failures. */
@@ -703,6 +713,46 @@ class CatalogBackendException : Exception
         super(message);
         this.code = code;
     }
+}
+
+/**
+ * One explicit save/discard session over an in-memory catalog document.
+ *
+ * Only sources with `CatalogPersistence.inMemoryDocument` provide this view.
+ * Applying an operation changes the document buffer and marks it modified;
+ * `save` persists the buffer, `discard` reloads from storage. Stored vs.
+ * in-memory mutations stay separate from transactional stores.
+ */
+interface CatalogDocument
+{
+    /// Whether the document buffer differs from its last loaded/saved state.
+    bool modified() const;
+
+    /// Adapter fingerprint captured at load time for conflict detection.
+    string fingerprint() const;
+
+    /// Suggested filesystem root for rooted tree queries over this document.
+    string suggestedFilesystemRoot();
+
+    /// Bind or clear the filesystem root used by tree queries.
+    void bindFilesystemRoot(string root);
+
+    /// Apply a scan and optional metadata/duplicate phase to the document buffer.
+    OperationResult applyScan(ScanOperationRequest request,
+        OperationControl control);
+
+    /// Apply an analysis and optional metadata phase to the document buffer.
+    OperationResult applyAnalysis(AnalysisOperationRequest request,
+        OperationControl control);
+
+    /// Persist the document buffer; throws a typed error on failure or conflict.
+    void save(bool pretty = false);
+
+    /// Discard in-memory changes and reload the stored catalog.
+    void discard();
+
+    /// Release the document session after operations have finished.
+    void close();
 }
 
 /** One source-bound, storage-neutral view over JSON or repository storage.
@@ -724,6 +774,9 @@ interface CatalogBackend
 
     /** Supported operations/features; unsupported behavior is never inferred. */
     CatalogBackendCapabilities capabilities();
+
+    /** Open the in-memory document view; unsupported for transactional stores. */
+    CatalogDocument document();
 
     /** Return bounded aggregates for the source root under the shared filter. */
     CatalogRootSummary rootSummary(CatalogFilter filter = CatalogFilter.init);
@@ -1311,6 +1364,13 @@ version (unittest)
                 archivePasswords[files[matches[0]].relativePath] = password;
         }
 
+        override CatalogDocument document()
+        {
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.unsupportedFeature,
+                "The contract fake has no in-memory document view.");
+        }
+
         override OperationTarget target()
         {
             requireOpen();
@@ -1352,6 +1412,7 @@ version (unittest)
             result.supportsArchiveEntryQueries = true;
             result.supportsTorrentEntryQueries = true;
             result.supportsFirstClassArchiveReferences = true;
+            result.persistence = CatalogPersistence.transactionalStore;
             return result;
         }
 

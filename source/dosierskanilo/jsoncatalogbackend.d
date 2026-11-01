@@ -18,7 +18,8 @@ import dosierarkivo.archive : appendArchiveVirtualPath,
     parseArchiveVirtualPath,
     ParsedArchiveVirtualPath;
 import dosierskanilo.catalogbackend;
-import dosierskanilo.membercontentcache : MemberContentLease;
+import dosierskanilo.membercontentcache : MemberContentCancelledException,
+    MemberContentLease;
 import dosierskanilo.memberextraction : ArchiveExtractionStep,
     extractArchiveMember;
 import dosierskanilo.model.archivespec : ArchiveSpec;
@@ -32,9 +33,13 @@ import dosierskanilo.repository.types : JsonImportOptions, RepositoryBlobPage,
     RepositoryBlobFlags, RepositoryDuplicateGroup, RepositoryInfo,
     RepositoryQueryOptions;
 import dosierskanilo.operationrunner;
+import dosierskanilo.service.jsonoperations : JsonAnalysisApplication,
+    JsonScanApplication, analyzeJsonCatalogInto, commitJsonCatalog,
+    scanJsonCatalogInto;
 import dosierskanilo.operations : AnalysisOperationRequest, MetadataOperationRequest,
-    OperationControl, OperationKind, OperationPhase, OperationProgress,
-    OperationResult, OperationState, OperationStorageMode, OperationTarget,
+    OperationControl, OperationErrorCode, OperationKind, OperationPhase,
+    OperationProgress, OperationResult, OperationState, OperationStorageMode,
+    OperationTarget,
     ScanOperationRequest;
 import dosierskanilo.service.jsonoperations : commitJsonCatalog;
 
@@ -121,6 +126,7 @@ private:
     size_t[string] blobIndexByRelativePath;
     size_t[string] blobIndexByContentToken;
     string[] contentTokenByBlobIndex;
+    JsonCatalogDocument documentSession;
     FileSpec[string] fileSpecByRelativePath;
     size_t[string] directoryIndexByPath;
 
@@ -157,6 +163,14 @@ public:
                 clearIndex();
             }
         }
+    }
+
+    override CatalogDocument document()
+    {
+        requireOpen();
+        if (documentSession is null)
+            documentSession = new JsonCatalogDocument(this);
+        return documentSession;
     }
 
     override OperationTarget target()
@@ -199,6 +213,7 @@ public:
         result.supportsArchiveEntryQueries = true;
         result.supportsTorrentEntryQueries = !torrentEntryDetailsUnavailable;
         result.supportsFirstClassArchiveReferences = true;
+        result.persistence = CatalogPersistence.inMemoryDocument;
         return result;
     }
 
@@ -942,8 +957,12 @@ public:
             }
             current = container;
         }
-        return extractArchiveMember(sourceRoot, physicalContainer, steps,
-            cancellation);
+        try
+            return extractArchiveMember(sourceRoot, physicalContainer, steps,
+                cancellation);
+        catch (MemberContentCancelledException failure)
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.cancelled, failure.msg);
     }
 
     override RepositoryBlobPage queryBlobs(RepositoryQueryOptions options)
@@ -2811,6 +2830,219 @@ private:
 }
 
 /** Explicit factory for direct JSON catalog sources. */
+/** Explicit save/discard session over one JSON catalog document. */
+private final class JsonCatalogDocument : CatalogDocument
+{
+    private JsonCatalogBackend backend;
+    private string loadedFingerprint;
+    private bool dirty;
+    private bool closed;
+
+    this(JsonCatalogBackend backend)
+    {
+        this.backend = backend;
+        loadedFingerprint = fingerprintFor(backend.backendTarget.catalogPath);
+    }
+
+    private static string fingerprintFor(string path)
+    {
+        import std.file : exists, getSize, timeLastModified;
+
+        if (!exists(path))
+            return "";
+        return getSize(path).to!string ~ ":"
+            ~ timeLastModified(path).stdTime.to!string;
+    }
+
+    private void requireOpen() const
+    {
+        if (closed)
+            throw new CatalogBackendException(CatalogBackendErrorCode.closed,
+                "The catalog document session is closed.");
+    }
+
+    private void requireTarget(OperationTarget request, bool scan) const
+    {
+        /* Document operations identify the catalog; the scan root is an
+         * operation input and does not have to match the read root bound for
+         * tree queries. */
+        const target = backend.backendTarget;
+        if (request.mode != OperationStorageMode.jsonCatalog
+            || request.catalogPath != target.catalogPath)
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.invalidTarget,
+                "The operation target does not match the opened document.");
+    }
+
+    override bool modified() const
+    {
+        requireOpen();
+        return dirty;
+    }
+
+    override string fingerprint() const
+    {
+        requireOpen();
+        return loadedFingerprint;
+    }
+
+    override string suggestedFilesystemRoot()
+    {
+        requireOpen();
+        import std.path : absolutePath, buildNormalizedPath, dirName, isAbsolute;
+
+        string commonRoot;
+        bool sawRelative;
+        foreach (blob; backend.catalog.dataArray)
+        {
+            if (blob is null)
+                continue;
+            foreach (spec; blob.fileSpecs)
+            {
+                if (spec is null || spec.fileName.length == 0)
+                    continue;
+                auto path = spec.fileName;
+                ParsedArchiveVirtualPath parsed;
+                try
+                    parsed = parseArchiveVirtualPath(path);
+                catch (Exception)
+                    continue;
+                if (!isAbsolute(parsed.physicalPath))
+                {
+                    sawRelative = true;
+                    continue;
+                }
+                auto normalized = buildNormalizedPath(absolutePath(
+                    parsed.physicalPath));
+                if (commonRoot.length == 0)
+                    commonRoot = dirName(normalized);
+                else
+                {
+                    while (commonRoot.length > 0
+                        && !normalized.startsWith(commonRoot ~ "/"))
+                        commonRoot = dirName(commonRoot);
+                }
+            }
+        }
+        if (sawRelative || commonRoot.length == 0)
+            return absolutePath(dirName(backend.backendTarget.catalogPath));
+        return commonRoot;
+    }
+
+    override void bindFilesystemRoot(string root)
+    {
+        requireOpen();
+        backend.sourceRoot = root.length > 0
+            ? nativePathToStoragePath(buildNormalizedPath(absolutePath(root)))
+            : "";
+        backend.rebuildIndex();
+    }
+
+    override OperationResult applyScan(ScanOperationRequest request,
+        OperationControl control)
+    {
+        requireOpen();
+        requireTarget(request.target, true);
+        if (control is null)
+            control = new OperationControl();
+        OperationResult result;
+        result.operationId = request.operationId;
+        result.operation = OperationKind.scan;
+        result.state = OperationState.running;
+        try
+        {
+            const application = scanJsonCatalogInto(backend.catalog,
+                request.target.filesystemRoot, request.scanOptions,
+                request.metadataOptions, request.mergeDuplicates, control,
+                request.operationId);
+            result.scanSummary = application.scanSummary;
+            result.metadataSummary = application.metadataSummary;
+            result.analysisSummary = application.analysisSummary;
+            result.state = application.cancelled
+                ? OperationState.cancelled : OperationState.completed;
+            if (!request.dryRun)
+            {
+                dirty = true;
+                backend.rebuildIndex();
+            }
+        }
+        catch (Exception ex)
+        {
+            result.state = OperationState.failed;
+            result.errorCode = OperationErrorCode.backendFailure;
+            result.error = ex.msg;
+        }
+        result.changesCommitted = false;
+        return result;
+    }
+
+    override OperationResult applyAnalysis(AnalysisOperationRequest request,
+        OperationControl control)
+    {
+        requireOpen();
+        requireTarget(request.target, false);
+        if (control is null)
+            control = new OperationControl();
+        OperationResult result;
+        result.operationId = request.operationId;
+        result.operation = OperationKind.analyze;
+        result.state = OperationState.running;
+        try
+        {
+            const application = analyzeJsonCatalogInto(backend.catalog,
+                request.metadataOptions, request.options, control,
+                request.operationId);
+            result.metadataSummary = application.metadataSummary;
+            result.analysisSummary = application.analysisSummary;
+            result.state = application.cancelled
+                ? OperationState.cancelled : OperationState.completed;
+            if (!request.dryRun)
+            {
+                dirty = true;
+                backend.rebuildIndex();
+            }
+        }
+        catch (Exception ex)
+        {
+            result.state = OperationState.failed;
+            result.errorCode = OperationErrorCode.backendFailure;
+            result.error = ex.msg;
+        }
+        result.changesCommitted = false;
+        return result;
+    }
+
+    override void save(bool pretty = false)
+    {
+        requireOpen();
+        if (!dirty)
+            return;
+        const current = fingerprintFor(backend.backendTarget.catalogPath);
+        if (current != loadedFingerprint)
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.writeConflict,
+                "The catalog changed on disk since it was loaded.");
+        commitJsonCatalog(backend.backendTarget.catalogPath, backend.catalog,
+            pretty);
+        loadedFingerprint = fingerprintFor(backend.backendTarget.catalogPath);
+        dirty = false;
+        backend.rebuildIndex();
+    }
+
+    override void discard()
+    {
+        requireOpen();
+        backend.reloadCatalog();
+        loadedFingerprint = fingerprintFor(backend.backendTarget.catalogPath);
+        dirty = false;
+    }
+
+    override void close()
+    {
+        closed = true;
+    }
+}
+
 final class JsonCatalogBackendFactory : CatalogBackendFactory
 {
     override CatalogBackend open(OperationTarget target)
@@ -3417,4 +3649,116 @@ version (unittest)
         assert(backPage.files[1].relativePath == firstPage.files[1].relativePath);
     }
 
+}
+
+@("JSON document sessions keep explicit save and discard semantics")
+unittest
+{
+    import dosierskanilo.model.namedbinaryblob : NamedBinaryBlobCatalog,
+        serializeDataClassWrapperFile;
+    import std.datetime.systime : Clock;
+    import std.file : exists, mkdirRecurse, remove, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const token = randomUUID().toString();
+    const root = buildPath(tempDir(), "json-document-" ~ token);
+    const catalogPath = buildPath(tempDir(), "json-document-" ~ token ~ ".json");
+    mkdirRecurse(root);
+    scope (exit)
+    {
+        if (exists(root))
+            rmdirRecurse(root);
+        if (exists(catalogPath))
+            remove(catalogPath);
+    }
+    write(buildPath(root, "first.txt"), "first");
+    NamedBinaryBlobCatalog emptyCatalog = NamedBinaryBlobCatalog(
+        DATA_CLASS_VERSION5, []);
+    serializeDataClassWrapperFile(catalogPath, emptyCatalog);
+
+    auto backend = new JsonCatalogBackend(
+        OperationTarget.jsonTarget(catalogPath, root));
+    scope (exit)
+        backend.close();
+    assert(backend.capabilities().persistence
+        == CatalogPersistence.inMemoryDocument);
+
+    auto document = backend.document();
+    assert(!document.modified());
+
+    ScanOperationRequest scan;
+    scan.operationId = 1;
+    scan.target = backend.target();
+    scan.scanOptions.recursive = true;
+    const applied = document.applyScan(scan, new OperationControl());
+    assert(applied.state == OperationState.completed, applied.error);
+    assert(document.modified());
+    assert(!applied.changesCommitted);
+    assert(backend.rootSummary().fileReferenceCount == 1);
+
+    document.discard();
+    assert(!document.modified());
+    assert(backend.rootSummary().fileReferenceCount == 0);
+
+    scan.operationId = 2;
+    assert(document.applyScan(scan, new OperationControl()).state
+        == OperationState.completed);
+    document.save();
+    assert(!document.modified());
+
+    auto reloaded = new JsonCatalogBackend(
+        OperationTarget.jsonTarget(catalogPath, root));
+    scope (exit)
+        reloaded.close();
+    assert(reloaded.rootSummary().fileReferenceCount == 1);
+
+    /* An external catalog change must not be overwritten silently. */
+    scan.operationId = 3;
+    assert(document.applyScan(scan, new OperationControl()).state
+        == OperationState.completed);
+    write(catalogPath, "{\"dataVersion\":5,\"dataArray\":[]}");
+    bool rejected;
+    try
+        document.save();
+    catch (CatalogBackendException failure)
+        rejected = failure.code == CatalogBackendErrorCode.writeConflict;
+    assert(rejected, "saving over an externally changed catalog must fail");
+}
+
+@("JSON documents suggest and bind a filesystem root for tree queries")
+unittest
+{
+    import dosierskanilo.model.namedbinaryblob : NamedBinaryBlobCatalog,
+        serializeDataClassWrapperFile;
+    import std.datetime.systime : Clock;
+    import std.file : exists, remove, tempDir;
+    import std.path : buildPath, dirName;
+    import std.uuid : randomUUID;
+
+    const catalogPath = buildPath(tempDir(), "json-root-" ~ randomUUID().toString()
+        ~ ".json");
+    scope (exit)
+        if (exists(catalogPath))
+            remove(catalogPath);
+    auto blob = new NamedBinaryBlob("media/first.txt", 5, Clock.currTime);
+    blob.fileSpecs ~= new FileSpec("media/first.txt", "");
+    NamedBinaryBlobCatalog catalog = NamedBinaryBlobCatalog(DATA_CLASS_VERSION5,
+        [blob]);
+    serializeDataClassWrapperFile(catalogPath, catalog);
+
+    auto backend = new JsonCatalogBackend(
+        OperationTarget.jsonTarget(catalogPath));
+    scope (exit)
+        backend.close();
+    auto document = backend.document();
+    const root = document.suggestedFilesystemRoot();
+    assert(root == dirName(catalogPath));
+    document.bindFilesystemRoot(root);
+    assert(backend.capabilities().supportsTreeQueries);
+    const directories = backend.listDirectories(CatalogDirectoryQuery.init);
+    assert(directories.directories.length == 1);
+    assert(directories.directories[0].relativePath == "media");
+    document.bindFilesystemRoot("");
+    assert(!backend.capabilities().supportsTreeQueries);
 }

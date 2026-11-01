@@ -1973,3 +1973,71 @@ unittest
         ~ " failed=" ~ summary.failed.to!string);
     assert(entries[0].name == "inside.txt");
 }
+
+@("deep archive scans persist encrypted member metadata on content blobs")
+unittest
+{
+    import std.algorithm.searching : canFind, endsWith;
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.process : Config, execute;
+    import std.uuid : randomUUID;
+
+    const root = buildPath(tempDir(), "repository-deep-member-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    write(buildPath(root, "payload.txt"), "secret payload\n");
+    assert(execute(["zip", "-q", "-P", "archive-secret", "-j",
+        "private.zip", "payload.txt"], null, Config.none, size_t.max,
+        root).status == 0);
+
+    auto repository = Repository.initialize(root);
+    scope (exit)
+        repository.close();
+    repository.scan();
+
+    MetadataScanOptions options;
+    options.scanArchives = true;
+    options.deepArchiveScan = true;
+    options.detectFileTypes = true;
+    size_t passwordPrompts;
+    options.archivePasswordCallback = (string path, string reason,
+        out string password) {
+        ++passwordPrompts;
+        password = "archive-secret";
+        return true;
+    };
+    const summary = repository.updateMetadata(options);
+    assert(summary.archivesUpdated == 1, summary.failed.to!string);
+    assert(summary.failed == 0);
+    assert(passwordPrompts == 1);
+
+    RepositoryFileQuery containerQuery;
+    containerQuery.archive = true;
+    const containers = repository.listFiles(containerQuery);
+    assert(containers.length == 1);
+    const container = containers[0];
+    assert(repository.loadBlobDetails(container.blobId).archivePassword
+        == "archive-secret");
+
+    RepositoryFileQuery memberQuery;
+    memberQuery.includeArchiveMembers = true;
+    memberQuery.text = "private.zip!/payload.txt";
+    memberQuery.limit = 10;
+    RepositoryFile member;
+    foreach (file; repository.listFiles(memberQuery))
+        if (file.archiveMember && file.relativePath.endsWith("!/payload.txt"))
+            member = file;
+    assert(member.id > 0);
+    assert(member.blobId > 0);
+    const details = repository.loadBlobDetails(member.blobId);
+    assert(details.checkSums.hasDigests);
+    assert(details.fileType.length > 0);
+    foreach (spec; details.fileSpecs)
+        assert(!spec.fileName.startsWith(".dosierskanilo")
+            && !spec.fileName.canFind(".tmp-"),
+            "member metadata must not reference the temporary cache path");
+}

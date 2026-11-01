@@ -13,6 +13,7 @@ import std.uuid : randomUUID;
 import dosierarkivo.archive : parseArchiveVirtualPath;
 import dosierskanilo.catalogbackend;
 import dosierskanilo.membercontentcache : MemberContentLease;
+import dosierskanilo.membercontentcache : MemberContentCancelledException;
 import dosierskanilo.memberextraction : ArchiveExtractionStep,
     extractArchiveMember;
 import dosierskanilo.model.checksums : CheckSums;
@@ -74,6 +75,13 @@ public:
                 "Could not open SQLite repository: " ~ failure.msg);
     }
 
+    override CatalogDocument document()
+    {
+        throw new CatalogBackendException(
+            CatalogBackendErrorCode.unsupportedFeature,
+            "SQLite repositories have no in-memory document view.");
+    }
+
     override OperationTarget target()
     {
         requireOpen();
@@ -109,6 +117,7 @@ public:
         result.supportsArchiveEntryQueries = true;
         result.supportsTorrentEntryQueries = true;
         result.supportsFirstClassArchiveReferences = true;
+        result.persistence = CatalogPersistence.transactionalStore;
         return result;
     }
 
@@ -663,8 +672,12 @@ public:
                 }
                 file = container;
             }
-            return extractArchiveMember(repository.rootPath,
-                physicalContainer, steps, cancellation);
+            try
+                return extractArchiveMember(repository.rootPath,
+                    physicalContainer, steps, cancellation);
+            catch (MemberContentCancelledException failure)
+                throw new CatalogBackendException(
+                    CatalogBackendErrorCode.cancelled, failure.msg);
         });
     }
 
@@ -2307,6 +2320,24 @@ version (unittest)
             == jsonNestedArchiveMembers.members[0].size);
         jsonNestedLease.release();
 
+        shared bool cancelledLease;
+        cancelledLease = true;
+        bool jsonCancelled;
+        bool sqliteCancelled;
+        try
+            jsonBackend.acquireMemberContent(
+                jsonNestedArchiveMembers.members[0].referenceId,
+                &cancelledLease);
+        catch (CatalogBackendException failure)
+            jsonCancelled = failure.code == CatalogBackendErrorCode.cancelled;
+        try
+            sqliteBackend.acquireMemberContent(
+                nestedArchiveMembers.members[0].referenceId, &cancelledLease);
+        catch (CatalogBackendException failure)
+            sqliteCancelled = failure.code == CatalogBackendErrorCode.cancelled;
+        assert(jsonCancelled && sqliteCancelled,
+            "both adapters must honor member-extraction cancellation");
+
         /* Detail snapshots and extractor statuses must agree across backends. */
         CatalogDetailMask archiveDetails;
         archiveDetails.archiveSummary = true;
@@ -2748,4 +2779,28 @@ unittest
     assert(sqliteFiles[0].relativePath == "first.txt");
     assert(jsonFiles[0].relativePath == sqliteFiles[0].relativePath);
     assert(sqliteFiles[0].size == jsonFiles[0].size);
+}
+
+@("SQLite backends are transactional stores without document sessions")
+unittest
+{
+    import std.exception : assertThrown;
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const root = buildPath(tempDir(), "sqlite-document-" ~ randomUUID().toString());
+    mkdirRecurse(root);
+    auto repository = Repository.initialize(root);
+    repository.close();
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+
+    auto backend = new SqliteCatalogBackend(OperationTarget.repositoryTarget(root));
+    scope (exit)
+        backend.close();
+    assert(backend.capabilities().persistence
+        == CatalogPersistence.transactionalStore);
+    assertThrown!CatalogBackendException(backend.document());
 }

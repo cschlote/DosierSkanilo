@@ -5,27 +5,41 @@ import d2sqlite3;
 
 import std.typecons : Nullable;
 
-/** SQL predicate recognizing canonical virtual paths while honoring `!!` escapes. */
+/** SQL predicate selecting virtual file references through the stored column. */
 string isVirtualFileReferenceSql(string columnExpression)
 {
-    return "instr(replace(" ~ columnExpression ~ ", '!!', ''), '!/') > 0";
+    import std.string : lastIndexOf;
+
+    auto tableAlias = columnExpression;
+    const separator = tableAlias.lastIndexOf('.');
+    if (separator != -1)
+        tableAlias = tableAlias[0 .. separator];
+    else
+        tableAlias = "file_refs";
+    return "(" ~ tableAlias ~ ".is_virtual = 1)";
 }
 
-@("virtual path SQL predicate recognizes escaped separators")
+@("virtual reference predicate selects the stored generated column")
 unittest
 {
-    auto db = Database(":memory:");
-    bool isVirtual(string path)
-    {
-        return db.execute("SELECT " ~ isVirtualFileReferenceSql("?"), path)
-            .oneValue!long != 0;
-    }
+    assert(isVirtualFileReferenceSql("f.relative_path")
+        == "(f.is_virtual = 1)");
+    assert(isVirtualFileReferenceSql("relative_path")
+        == "(file_refs.is_virtual = 1)");
 
-    assert(!isVirtual("plain!!/physical.txt"));
-    assert(!isVirtual("double!!!!/physical.txt"));
-    assert(isVirtual("archive.zip!/member.txt"));
-    assert(isVirtual("literal!!!/archive.zip"));
-    assert(isVirtual("literal!!!/archive.zip!/member.txt"));
+    auto db = Database(":memory:");
+    db.execute("CREATE TABLE file_refs (relative_path TEXT NOT NULL, "
+        ~ "is_virtual INTEGER GENERATED ALWAYS AS (instr(replace("
+        ~ "relative_path, '!!', ''), '!/') > 0) VIRTUAL)");
+    db.execute("INSERT INTO file_refs (relative_path) VALUES (?)",
+        "plain!!/physical.txt");
+    db.execute("INSERT INTO file_refs (relative_path) VALUES (?)",
+        "archive.zip!/member.txt");
+    db.execute("INSERT INTO file_refs (relative_path) VALUES (?)",
+        "literal!!!/archive.zip");
+    auto result = db.execute("SELECT count(*) FROM file_refs f WHERE "
+        ~ isVirtualFileReferenceSql("f.relative_path"));
+    assert(result.oneValue!long == 2);
 }
 
 /**

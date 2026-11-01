@@ -54,6 +54,74 @@ struct JsonAnalysisExecutionResult
     bool cancelled;
 }
 
+/** Summaries of one scan applied directly to an in-memory catalog. */
+struct JsonScanApplication
+{
+    ScanSummary scanSummary;
+    MetadataSummary metadataSummary;
+    AnalysisSummary analysisSummary;
+    bool cancelled;
+}
+
+/** Summaries of one analysis applied directly to an in-memory catalog. */
+struct JsonAnalysisApplication
+{
+    MetadataSummary metadataSummary;
+    AnalysisSummary analysisSummary;
+    bool cancelled;
+}
+
+/** Scan a filesystem into an already loaded catalog without writing it. */
+JsonScanApplication scanJsonCatalogInto(ref NamedBinaryBlobCatalog catalog,
+    string filesystemRoot, RepositoryScanOptions scanOptions,
+    MetadataScanOptions metadataOptions, bool mergeDuplicates,
+    OperationControl control, ulong operationId)
+{
+    JsonScanApplication application;
+    if (!scanJsonDirectory(filesystemRoot, scanOptions,
+        catalog.dataVersion == DATA_CLASS_VERSION5,
+        catalog.dataArray, control, operationId, application.scanSummary))
+    {
+        application.cancelled = true;
+        return application;
+    }
+    auto metadata = updateJsonMetadata(catalog.dataArray,
+        metadataOptions, OperationKind.scan, control, operationId);
+    application.metadataSummary = metadata.summary;
+    application.cancelled = metadata.cancelled;
+    if (!application.cancelled && mergeDuplicates)
+    {
+        RepositoryAnalysisOptions analysisOptions;
+        if (!analyzeJsonRecords(catalog.dataArray, analysisOptions,
+            catalog.dataVersion == DATA_CLASS_VERSION5, OperationKind.scan,
+            control, operationId, application.analysisSummary))
+            application.cancelled = true;
+    }
+    return application;
+}
+
+/** Enrich an already loaded catalog with metadata and analysis, without writing. */
+JsonAnalysisApplication analyzeJsonCatalogInto(ref NamedBinaryBlobCatalog catalog,
+    MetadataScanOptions metadataOptions, RepositoryAnalysisOptions analysisOptions,
+    OperationControl control, ulong operationId)
+{
+    JsonAnalysisApplication application;
+    auto metadata = updateJsonMetadata(catalog.dataArray,
+        metadataOptions, OperationKind.analyze, control, operationId);
+    application.metadataSummary = metadata.summary;
+    if (metadata.cancelled)
+    {
+        application.cancelled = true;
+        return application;
+    }
+    if (!analyzeJsonRecords(catalog.dataArray, analysisOptions,
+        catalog.dataVersion == DATA_CLASS_VERSION5,
+        OperationKind.analyze, control, operationId,
+        application.analysisSummary))
+        application.cancelled = true;
+    return application;
+}
+
 /** Load a JSON catalog, scan its filesystem root, and run selected extractors. */
 JsonScanExecutionResult scanJsonCatalog(string catalogPath, string filesystemRoot,
     bool forceOverwrite, RepositoryScanOptions scanOptions,
@@ -63,26 +131,12 @@ JsonScanExecutionResult scanJsonCatalog(string catalogPath, string filesystemRoo
     JsonScanExecutionResult execution;
     execution.catalog = loadJsonCatalog(catalogPath, forceOverwrite, control,
         OperationKind.scan, operationId);
-    if (!scanJsonDirectory(filesystemRoot, scanOptions,
-        execution.catalog.dataVersion == DATA_CLASS_VERSION5,
-        execution.catalog.dataArray, control, operationId,
-        execution.scanSummary))
-    {
-        execution.cancelled = true;
-        return execution;
-    }
-    auto metadata = updateJsonMetadata(execution.catalog.dataArray,
-        metadataOptions, OperationKind.scan, control, operationId);
-    execution.metadataSummary = metadata.summary;
-    execution.cancelled = metadata.cancelled;
-    if (!execution.cancelled && mergeDuplicates)
-    {
-        RepositoryAnalysisOptions analysisOptions;
-        if (!analyzeJsonRecords(execution.catalog.dataArray, analysisOptions,
-            execution.catalog.dataVersion == DATA_CLASS_VERSION5, OperationKind.scan,
-            control, operationId, execution.analysisSummary))
-            execution.cancelled = true;
-    }
+    const application = scanJsonCatalogInto(execution.catalog, filesystemRoot,
+        scanOptions, metadataOptions, mergeDuplicates, control, operationId);
+    execution.scanSummary = application.scanSummary;
+    execution.metadataSummary = application.metadataSummary;
+    execution.analysisSummary = application.analysisSummary;
+    execution.cancelled = application.cancelled;
     return execution;
 }
 
@@ -95,19 +149,11 @@ JsonAnalysisExecutionResult analyzeJsonCatalog(string catalogPath,
     JsonAnalysisExecutionResult execution;
     execution.catalog = loadJsonCatalog(catalogPath, forceOverwrite, control,
         OperationKind.analyze, operationId);
-    auto metadata = updateJsonMetadata(execution.catalog.dataArray,
-        metadataOptions, OperationKind.analyze, control, operationId);
-    execution.metadataSummary = metadata.summary;
-    if (metadata.cancelled)
-    {
-        execution.cancelled = true;
-        return execution;
-    }
-    if (!analyzeJsonRecords(execution.catalog.dataArray, analysisOptions,
-        execution.catalog.dataVersion == DATA_CLASS_VERSION5,
-        OperationKind.analyze, control, operationId,
-        execution.analysisSummary))
-        execution.cancelled = true;
+    const application = analyzeJsonCatalogInto(execution.catalog, metadataOptions,
+        analysisOptions, control, operationId);
+    execution.metadataSummary = application.metadataSummary;
+    execution.analysisSummary = application.analysisSummary;
+    execution.cancelled = application.cancelled;
     return execution;
 }
 

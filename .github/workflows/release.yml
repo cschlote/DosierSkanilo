@@ -1,0 +1,79 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    name: Validate release metadata
+    runs-on: ubuntu-24.04
+    container:
+      image: alpine:3.20
+    steps:
+      - name: Install base tools
+        run: apk add --no-cache git bash tar zstd
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate tag, VERSION, and CHANGELOG
+        run: ./scripts/validate-release.sh "${GITHUB_REF_NAME}"
+
+  test:
+    name: Test release
+    runs-on: ubuntu-24.04
+    container:
+      image: alpine:3.20
+    needs:
+      - validate
+    steps:
+      - name: Install base tools
+        run: apk add --no-cache git bash tar zstd
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install build dependencies
+        run: |
+          sh ./scripts/install-dependencies.sh build
+          sh ./scripts/install-dependencies.sh runtime
+
+      - name: Run tests
+        run: ./scripts/test.sh
+
+  publish:
+    name: Publish GitHub release
+    runs-on: ubuntu-24.04
+    needs:
+      - test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create release notes and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v heading="## Release ${version} " \
+            'index($0, heading) == 1 { flag = 1; next }
+             /^## / { if (flag) exit }
+             flag' CHANGELOG.md > release-notes.md
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            echo "Release ${GITHUB_REF_NAME} already exists."
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              --title "DosierSkanilo ${version}" \
+              --notes-file release-notes.md
+          fi
