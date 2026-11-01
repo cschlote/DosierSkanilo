@@ -25,6 +25,9 @@ They represent the functional evolution and are intentionally summarized.
   recovery paths in the operation error.
 - The CLI offers to copy a recovery catalog to a chosen path when stdin is a
   terminal; the new `--no-input` option suppresses all interactive prompts.
+- A new `recover` command lists backups and recovery catalogs with validity and
+  entry counts, and can restore a chosen file over the catalog after validation
+  while keeping a pre-restore backup.
 
 ## Release 26.13.0 - 2026-10-30
 

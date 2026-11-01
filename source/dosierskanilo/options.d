@@ -55,6 +55,7 @@ struct ArgsArray
 	bool argDryRun; ///< Run JSON work without writing the catalog back.
 	bool argPrettyJSON; ///< Indent saved JSON catalogs for human reading.
 	bool argNoInput; ///< Suppress interactive prompts and input.
+	string argRestoreFrom; ///< Recovery file to copy over the catalog.
 	bool argMergeDuplicates; ///< Merge duplicate records after a scan.
 	bool argPickHidden; ///< Include hidden files and directories.
 	bool argVerboseOutputs; ///< Enable verbose logging.

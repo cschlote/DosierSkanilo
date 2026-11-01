@@ -297,3 +297,8 @@ staging file kept for diagnosis.
 When the CLI runs with a terminal on stdin, a failed catalog write offers to copy
 the recovery file to a chosen path. Scripts and CI should pass `--no-input` to
 suppress the prompt; the recovery path is still reported in the error output.
+
+`dosierskanilo recover CATALOG.json` lists backups next to the catalog and
+recovery files in the application state directory, validates each catalog, and
+prints its entry count. `--restore-from FILE` validates that file and copies it
+over the catalog, keeping a `.before-restore-*` copy of the current catalog.

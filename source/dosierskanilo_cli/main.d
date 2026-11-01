@@ -112,13 +112,143 @@ int main(string[] args)
 					signal(SIGINT, oldhandler);
 
 			bool rc;
-			if (parsed.command == CliCommand.scan || parsed.command == CliCommand.analyze)
+			if (parsed.command == CliCommand.recover)
+				rc = executeCatalogRecovery(options);
+			else if (parsed.command == CliCommand.scan
+				|| parsed.command == CliCommand.analyze)
 				rc = executeCatalogOperation(options);
 			else
 				rc = executeRepositoryOperation(options);
 			return rc ? 0 : 1;
 		}
 	}
+}
+
+/** List backups/recovery files for one catalog and optionally restore one. */
+bool executeCatalogRecovery(ArgsArray options)
+{
+	import dosierskanilo.model.namedbinaryblob :
+		deserializeDataClassJsonWrapperFile;
+	import std.algorithm.sorting : sort;
+	import std.file : SpanMode, copy, dirEntries, exists, isFile, mkdirRecurse,
+		remove, rename, tempDir, timeLastModified;
+	import std.path : baseName, buildPath, dirName;
+	import std.process : environment;
+	import std.uuid : randomUUID;
+
+	const catalog = options.argJSONFile;
+	if (catalog.empty)
+	{
+		errorFLine("recover requires a JSON catalog path.");
+		return false;
+	}
+	const name = baseName(catalog);
+	const stem = name.length > jsonFileExtension.length
+		&& name[$ - jsonFileExtension.length .. $] == jsonFileExtension
+		? name[0 .. $ - jsonFileExtension.length] : name;
+
+	string[] directories = [dirName(catalog)];
+	auto stateHome = environment.get("XDG_STATE_HOME", "");
+	if (stateHome.empty)
+	{
+		const home = environment.get("HOME", "");
+		if (!home.empty)
+			stateHome = buildPath(home, ".local", "state");
+	}
+	if (!stateHome.empty)
+		directories ~= buildPath(stateHome, "dosierskanilo", "recovery");
+	directories ~= tempDir();
+
+	string[] candidates;
+	foreach (directory; directories)
+	{
+		if (!exists(directory))
+			continue;
+		foreach (entry; dirEntries(directory, SpanMode.shallow))
+		{
+			if (!isFile(entry.name))
+				continue;
+			const candidateName = baseName(entry.name);
+			if (candidateName.startsWith(stem ~ "-")
+				|| candidateName.startsWith(stem ~ jsonFileExtension ~ ".tmp-"))
+				candidates ~= entry.name;
+		}
+	}
+	candidates.sort;
+
+	noticeFLine("Catalog: %s", catalog);
+	if (candidates.length == 0)
+		logLine("No backups or recovery files found.");
+	foreach (candidate; candidates)
+	{
+		bool valid;
+		size_t entries;
+		string errorMessage;
+		try
+		{
+			const loaded = deserializeDataClassJsonWrapperFile(candidate);
+			entries = loaded.dataArray.length;
+			valid = true;
+		}
+		catch (Exception ex)
+			errorMessage = ex.msg;
+		logFLine("%s %s", valid ? "valid  " : "invalid", candidate);
+		if (valid)
+			logLine("    entries: %s", entries);
+		else
+			logLine("    %s", errorMessage);
+	}
+
+	if (options.argRestoreFrom.empty)
+		return true;
+
+	const restoreFrom = options.argRestoreFrom;
+	if (!exists(restoreFrom))
+	{
+		errorFLine("Recovery file does not exist: %s", restoreFrom);
+		return false;
+	}
+	try
+		deserializeDataClassJsonWrapperFile(restoreFrom);
+	catch (Exception ex)
+	{
+		errorFLine("Recovery file is not a valid catalog: %s", ex.msg);
+		return false;
+	}
+
+	if (!exists(dirName(catalog)))
+		mkdirRecurse(dirName(catalog));
+	if (exists(catalog))
+	{
+		const backup = catalog ~ ".before-restore-"
+			~ Clock.currTime.toISOExtString.replace(":", "-");
+		copy(catalog, backup);
+		logFLine("Backed up current catalog to '%s'.", backup);
+	}
+	const staging = catalog ~ ".restore-" ~ randomUUID().toString();
+	try
+	{
+		copy(restoreFrom, staging);
+		version (Windows)
+			if (exists(catalog))
+				remove(catalog);
+		rename(staging, catalog);
+	}
+	catch (Exception ex)
+	{
+		if (exists(staging))
+		{
+			try
+				remove(staging);
+			catch (Exception)
+			{
+			}
+		}
+		errorFLine("Could not restore the catalog: %s", ex.msg);
+		return false;
+	}
+	noticeFLine("Restored '%s' from '%s'.", catalog, restoreFrom);
+	return true;
 }
 
 private bool configureArchiveCache(ArgsArray options)

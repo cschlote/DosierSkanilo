@@ -149,7 +149,8 @@ Split churn from correctness; each item is independently landable.
   prompts for scripts and CI.
 - [x] GUI save failures keep the document modified and offer retry or saving
   the recovery file as a copy.
-- [ ] Follow-up: `recover` command for backups and recovery catalogs.
+- [x] `recover` command lists and validates backups/recovery catalogs and can
+  restore one with a pre-restore backup.
 - [ ] Deferred: Flatpak sha256 verification against published artifacts
   (release-time check).
 

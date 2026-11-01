@@ -59,6 +59,7 @@ Commands:
     duplicates List duplicate blob groups
     import     Import JSON v0-v5 into a catalog
     export     Export a catalog as JSON v5
+    recover    List backups/recovery files and optionally restore one
 
 JSON target options:
 
@@ -83,6 +84,10 @@ JSON output:
 Global options:
 
     --no-input                Suppress interactive prompts and read no input
+
+Recovery options:
+
+    --restore-from FILE       Copy FILE over the catalog after validation
 
 Option scope keys use the fixed columns `S A M I L D R G J` (`-` means not
 available for that scope):
@@ -122,7 +127,8 @@ enum CliCommand
     list,
     duplicates,
     importJson,
-    exportJson
+    exportJson,
+    recover
 }
 
 /** Result state of command-line parsing. */
@@ -162,7 +168,7 @@ ParsedCommandLine parseCommandLine(string[] args)
         switch (args[1])
         {
             case "init", "scan", "metadata", "analyze", "info", "list",
-                "duplicates", "import", "export":
+                "duplicates", "import", "export", "recover":
                 command = args[1];
                 commandIndex = 1;
                 break;
@@ -233,6 +239,7 @@ ParsedCommandLine parseCommandLine(string[] args)
             "pick-hidden", "S-------- Pick hidden files and directories too", &argsarray.argPickHidden,
             "dry-run", "--------J Compute JSON results without writing the catalog", &argsarray.argDryRun,
             "no-input", "-------G- Suppress interactive prompts and input", &argsarray.argNoInput,
+            "restore-from", "------R-- Copy this recovery file over the catalog", &argsarray.argRestoreFrom,
             "merge-duplicates", "--------J Analyze and merge duplicates after scan", &argsarray.argMergeDuplicates,
             "pretty", "-------G- Indent saved JSON catalogs for human reading (scan, analyze, and export only)", &argsarray.argPrettyJSON,
             "verbose", "-------G- Be verbose", &argsarray.argVerboseOutputs,
@@ -307,6 +314,18 @@ ParsedCommandLine parseCommandLine(string[] args)
     if (argsarray.argVersion)
         return ParsedCommandLine(ParseStatus.showVersion, CliCommand.noCommand, argsarray);
 
+    if (command == "recover")
+    {
+        if (!rootArgument.empty)
+            argsarray.argJSONFile = rootArgument;
+        if (argsarray.argJSONFile.empty)
+        {
+            errorLine("recover requires a JSON catalog path.");
+            return ParsedCommandLine(ParseStatus.error, CliCommand.noCommand, argsarray);
+        }
+        return ParsedCommandLine(ParseStatus.run, CliCommand.recover, argsarray);
+    }
+
     const bool jsonMode = (command == "scan" || command == "analyze"
         || command == "list" || command == "duplicates")
         && !argsarray.argJSONFile.empty;
@@ -368,6 +387,8 @@ private CliCommand commandToCliCommand(string command)
         return CliCommand.importJson;
     case "export":
         return CliCommand.exportJson;
+    case "recover":
+        return CliCommand.recover;
     case "":
         return CliCommand.noCommand;
     }
@@ -452,6 +473,7 @@ unittest
     assert(helpText.canFind("--archive-cache-size"));
     assert(helpText.canFind("--pretty"));
     assert(helpText.canFind("--no-input"));
+    assert(helpText.canFind("recover"));
     assert(helpText.canFind("--verbose"));
     assert(helpText.canFind("S A M I L D R G J"));
     auto outdatedMetadataFlag = parseCommandLine(["program", "metadata",
@@ -509,6 +531,13 @@ unittest
         "--json", "./test/out.json", "--no-input"]);
     assert(jsonScanNoInput.status == ParseStatus.run);
     assert(jsonScanNoInput.options.argNoInput);
+
+    auto recovery = parseCommandLine(["program", "recover",
+        "./test/catalog.json", "--restore-from", "./test/backup.json"]);
+    assert(recovery.status == ParseStatus.run);
+    assert(recovery.command == CliCommand.recover);
+    assert(recovery.options.argJSONFile == "./test/catalog.json");
+    assert(recovery.options.argRestoreFrom == "./test/backup.json");
 
     auto jsonScanMergeDryRun = parseCommandLine(["program", "scan",
         "./test", "--json", "./test/out.json", "--checksums",
