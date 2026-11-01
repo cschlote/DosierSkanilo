@@ -730,6 +730,9 @@ interface CatalogDocument
     /// Adapter fingerprint captured at load time for conflict detection.
     string fingerprint() const;
 
+    /// Detached blob snapshot for legacy read projections in the frontend.
+    NamedBinaryBlob[] documentBlobs();
+
     /// Apply a scan and optional metadata/duplicate phase to the document buffer.
     OperationResult applyScan(ScanOperationRequest request,
         OperationControl control);

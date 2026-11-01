@@ -2881,6 +2881,12 @@ private final class JsonCatalogDocument : CatalogDocument
         return loadedFingerprint;
     }
 
+    override NamedBinaryBlob[] documentBlobs()
+    {
+        requireOpen();
+        return backend.catalog.dataArray.dup;
+    }
+
     override OperationResult applyScan(ScanOperationRequest request,
         OperationControl control)
     {
