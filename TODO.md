@@ -152,8 +152,7 @@ Split churn from correctness; each item is independently landable.
   the recovery file as a copy.
 - [x] `recover` command lists and validates backups/recovery catalogs and can
   restore one with a pre-restore backup.
-- [ ] Deferred: Flatpak sha256 verification against published artifacts
-  (release-time check).
+- [x] Flatpak sha256 pins verified against the published v26.13.0 archive.
 
 ## P1 — WP-09 closeout: shared CLI/GTK operations
 
@@ -171,7 +170,8 @@ on the same typed requests); only verification remains:
 - [x] Progress phase order and monotonic work counts for both scan modes and
   analysis; the parity matrix is checked in at
   `docs/OPERATION-PARITY.md`.
-- [ ] Display-backed GTK operation start/progress/pause/cancel/refresh tests
+- [x] Display-backed GTK operation start/progress/pause/resume/cancel/refresh
+  coverage via the GUI Xvfb self-test.
   (`DosierSkanilo-Gui`).
 
 `test-cli.sh` covers the CLI side of the matrix; keep the parity table and its
@@ -214,8 +214,8 @@ steps in dependency order:
   transactional commit; CLI behavior stays unchanged.
 - [x] Document dirty, conflict, recovery, and SQLite transaction semantics in
   `docs/ARCHITECTURE.md` and `docs/CATALOG-DOMAIN.md`.
-- [ ] GUI: use the document session for JSON tabs, show a modified marker, and
-  add save/discard/cancel with conflict handling.
+- [x] GUI uses the document session for JSON tabs with modified marker,
+  save/discard/cancel, reload prompt, and conflict handling.
 
 ## P2 — WP-14 follow-on: archiveindex virtual classification
 
