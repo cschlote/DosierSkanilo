@@ -280,3 +280,16 @@ referenced binary record and selected metadata.
 The existing version-3 writer remains available for compatibility. If SQLite
 stores fields that version 3 cannot represent, an extended JSON version must
 be added rather than silently dropping those fields.
+
+## Writing and recovery
+
+Catalogs are streamed one content record at a time to a staging file in the
+target directory, flushed, synced, and renamed into place. The previous catalog
+is hard-linked or copied to a timestamped backup before replacement.
+
+If the canonical location cannot be written, the writer retries and then saves
+the catalog to `$XDG_STATE_HOME/dosierskanilo/recovery` (or
+`~/.local/state/dosierskanilo/recovery`), falling back to the system temporary
+directory. A recovery write never replaces the canonical catalog. Errors include
+the attempted paths, the recovery path when one was written, and any partial
+staging file kept for diagnosis.

@@ -25,7 +25,8 @@ import dosierskanilo.operationlease : TargetCatalogReplacementLease;
 import dosierskanilo.progress : ProgressCallBack;
 import dosierskanilo.repository.types : AnalysisSummary, MetadataScanOptions,
     MetadataSummary, RepositoryAnalysisOptions, RepositoryScanOptions, ScanSummary;
-import dosierskanilo.service.storageio : writeStorageJsonFile;
+import dosierskanilo.service.storageio : CatalogWriteException,
+    writeCatalogJsonFile, writeStorageJsonFile;
 
 /** Execute a JSON scan and optional metadata phase before committing the file. */
 struct JsonScanExecutionResult
@@ -125,8 +126,13 @@ bool commitJsonCatalog(string catalogPath, ref NamedBinaryBlobCatalog catalog,
         catalogPath);
     scope (exit)
         replacementLease.release();
-    return writeStorageJsonFile(catalogPath, catalog, ".json",
+    auto result = writeCatalogJsonFile(catalogPath, catalog, ".json",
         Clock.currTime.toISOExtString(), "", cancelCheck, pretty);
+    if (result.cancelled)
+        return false;
+    if (result.written && !result.recovery)
+        return true;
+    throw new CatalogWriteException(result);
 }
 
 private NamedBinaryBlobCatalog loadJsonCatalog(string catalogPath,

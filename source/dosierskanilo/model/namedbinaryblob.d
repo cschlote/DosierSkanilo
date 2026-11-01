@@ -1538,6 +1538,12 @@ void upgradeDataClassCatalogToV5(ref NamedBinaryBlobCatalog wrapper)
 void serializeDataClassWrapperFile(string fileName, ref NamedBinaryBlobCatalog wrapper,
 	bool pretty = false)
 {
+	import std.conv : to;
+	import std.json : JSONValue;
+	import std.stdio : File;
+	import std.string : replace;
+	import jsonizer.tojson : PrettyJson, toJSONString;
+
 	logFLineVerbose("Generate JSON data and write it to file %s", fileName);
 	if (wrapper.dataVersion == 0)
 		wrapper.dataVersion = DATA_CLASS_VERSION5;
@@ -1548,18 +1554,72 @@ void serializeDataClassWrapperFile(string fileName, ref NamedBinaryBlobCatalog w
 	auto sortedDeserializedData_rng = sortDataClassArrayByFileName(wrapper.dataArray);
 	auto uniqSortedDeserializedData = uniqDataClassArrayByFileName(sortedDeserializedData_rng);
 	wrapper.dataArray = fixupDataClassArrayOutV5(uniqSortedDeserializedData);
+	scope (exit)
+	{
+		wrapper.dataArray = fixupDataClassArrayIn(wrapper.dataArray);
+		foreach (blob; wrapper.dataArray)
+			if (blob !is null)
+				blob.fileSpecsUseArchiveVirtualGrammar = true;
+	}
+
+	/* Stream the catalog so memory use stays bounded by one blob instead of
+	 * materializing the complete JSON tree and string for millions of rows. */
+	auto file = File(fileName, "wb");
+	scope (exit)
+		file.close();
 	if (pretty)
-		writeJSON!(NamedBinaryBlobCatalog)(fileName, wrapper);
+	{
+		file.write("{\n    \"dataVersion\": ");
+		file.write(wrapper.dataVersion.to!string);
+		if (wrapper.mediaInfoVersion.length > 0)
+		{
+			file.write(",\n    \"mediaInfoVersion\": ");
+			file.write(JSONValue(wrapper.mediaInfoVersion).toString);
+		}
+		if (wrapper.fileUtilityVersion.length > 0)
+		{
+			file.write(",\n    \"fileUtilityVersion\": ");
+			file.write(JSONValue(wrapper.fileUtilityVersion).toString);
+		}
+		file.write(",\n    \"dataArray\": [\n");
+		foreach (index, blob; wrapper.dataArray)
+		{
+			const text = blob is null ? "null"
+				: toJSONString(blob, PrettyJson.yes);
+			file.write("        ");
+			file.write(text.replace("\n", "\n        "));
+			file.write(index + 1 < wrapper.dataArray.length ? ",\n" : "\n");
+		}
+		file.write("    ]\n}\n");
+	}
 	else
 	{
-		import jsonizer.tojson : PrettyJson, toJSONString;
-		import std.file : write;
-		write(fileName, toJSONString(wrapper, PrettyJson.no));
+		file.write("{\"dataVersion\":");
+		file.write(wrapper.dataVersion.to!string);
+		if (wrapper.mediaInfoVersion.length > 0)
+		{
+			file.write(",\"mediaInfoVersion\":");
+			file.write(JSONValue(wrapper.mediaInfoVersion).toString);
+		}
+		if (wrapper.fileUtilityVersion.length > 0)
+		{
+			file.write(",\"fileUtilityVersion\":");
+			file.write(JSONValue(wrapper.fileUtilityVersion).toString);
+		}
+		file.write(",\"dataArray\":[");
+		foreach (index, blob; wrapper.dataArray)
+		{
+			if (index > 0)
+				file.write(",");
+			if (blob is null)
+				file.write("null");
+			else
+				file.write(toJSONString(blob, PrettyJson.no));
+		}
+		file.write("]}");
 	}
-	wrapper.dataArray = fixupDataClassArrayIn(wrapper.dataArray);
-	foreach (blob; wrapper.dataArray)
-		if (blob !is null)
-			blob.fileSpecsUseArchiveVirtualGrammar = true;
+	file.flush();
+	file.sync();
 }
 
 @("serializeDataClassWrapperFile writes compact JSON unless pretty is requested")
