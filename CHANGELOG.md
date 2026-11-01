@@ -16,6 +16,8 @@ They represent the functional evolution and are intentionally summarized.
   recovery directory or the system temporary directory. Failed partial staging
   files are kept for diagnosis, and write failures carry the attempted and
   recovery paths in the operation error.
+- The CLI offers to copy a recovery catalog to a chosen path when stdin is a
+  terminal; the new `--no-input` option suppresses all interactive prompts.
 
 ## Release 26.13.0 - 2026-10-30
 

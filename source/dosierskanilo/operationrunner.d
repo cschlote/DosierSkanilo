@@ -4,6 +4,7 @@ module dosierskanilo.operationrunner;
 import std.exception : enforce;
 
 import dosierskanilo.operations;
+import dosierskanilo.service.storageio : CatalogWriteException;
 import dosierskanilo.model.namedbinaryblob : NamedBinaryBlobCatalog;
 import dosierskanilo.repository : Repository;
 import dosierskanilo.repository.types : MetadataScanOptions, RepositoryAnalysisOptions;
@@ -214,6 +215,13 @@ private OperationResult runRepositoryOperation(ulong operationId,
         result.errorCode = OperationErrorCode.callbackFailure;
         result.error = ex.msg;
     }
+    catch (CatalogWriteException ex)
+    {
+        result.state = OperationState.failed;
+        result.errorCode = OperationErrorCode.backendFailure;
+        result.error = ex.msg;
+        applyCatalogWriteFailure(result, ex);
+    }
     catch (Exception ex)
     {
         result.state = OperationState.failed;
@@ -318,6 +326,13 @@ private OperationResult runJsonScanOperation(ScanOperationRequest request,
         result.errorCode = OperationErrorCode.callbackFailure;
         result.error = ex.msg;
     }
+    catch (CatalogWriteException ex)
+    {
+        result.state = OperationState.failed;
+        result.errorCode = OperationErrorCode.backendFailure;
+        result.error = ex.msg;
+        applyCatalogWriteFailure(result, ex);
+    }
     catch (Exception ex)
     {
         result.state = OperationState.failed;
@@ -371,6 +386,13 @@ private OperationResult runJsonAnalysisOperation(AnalysisOperationRequest reques
         result.state = OperationState.failed;
         result.errorCode = OperationErrorCode.callbackFailure;
         result.error = ex.msg;
+    }
+    catch (CatalogWriteException ex)
+    {
+        result.state = OperationState.failed;
+        result.errorCode = OperationErrorCode.backendFailure;
+        result.error = ex.msg;
+        applyCatalogWriteFailure(result, ex);
     }
     catch (Exception ex)
     {
@@ -434,6 +456,14 @@ private void reportOperation(OperationControl control, ulong operationId,
     progress.totalKnown = totalKnown;
     progress.message = message;
     control.report(progress);
+}
+
+private void applyCatalogWriteFailure(ref OperationResult result,
+    CatalogWriteException failure)
+{
+    result.recoveryPath = failure.writeResult.writtenPath;
+    result.writeAttempts = failure.writeResult.attempts.dup;
+    result.failedStagingPath = failure.writeResult.failedStagingPath;
 }
 
 private OperationResult failedOperation(ulong operationId, OperationKind operation,
@@ -1651,4 +1681,41 @@ unittest
 
     auto nextLease = TargetWriteLease.acquire(request.target);
     nextLease.release();
+}
+
+@("JSON write failures expose recovery paths through the operation result")
+unittest
+{
+    import std.conv : to;
+    import std.file : exists, mkdirRecurse, remove, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const root = buildPath(tempDir(), "operation-recovery-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    write(buildPath(root, "payload.txt"), "payload\n");
+    const blocker = buildPath(root, "not-a-directory");
+    write(blocker, "block");
+    const catalogPath = buildPath(blocker, "catalog.json");
+
+    ScanOperationRequest scan;
+    scan.operationId = 77;
+    scan.target = OperationTarget.jsonTarget(catalogPath, root);
+    scan.scanOptions.recursive = true;
+    const result = runOperation(scan, new OperationControl());
+
+    scope (exit)
+        if (result.recoveryPath.length > 0 && exists(result.recoveryPath))
+            remove(result.recoveryPath);
+
+    assert(result.state == OperationState.failed);
+    assert(result.recoveryPath.length > 0,
+        "a recovery catalog should have been written: error=" ~ result.error
+        ~ " attempts=" ~ result.writeAttempts.length.to!string);
+    assert(exists(result.recoveryPath));
+    assert(result.writeAttempts.length >= 2);
 }

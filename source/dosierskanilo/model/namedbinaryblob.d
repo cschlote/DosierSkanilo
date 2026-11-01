@@ -1652,6 +1652,39 @@ unittest
 	assert(pretty.canFind("    \""));
 }
 
+@("streaming catalog writes round-trip thousands of records")
+unittest
+{
+	import std.conv : to;
+	import std.file : exists, remove, tempDir;
+	import std.path : buildPath;
+	import std.uuid : randomUUID;
+
+	const path = buildPath(tempDir(), "streamed-catalog-"
+		~ randomUUID().toString() ~ ".json");
+	scope (exit)
+		if (exists(path))
+			remove(path);
+
+	NamedBinaryBlob[] blobs;
+	foreach (index; 0 .. 10_000)
+	{
+		auto blob = new NamedBinaryBlob("streamed-" ~ index.to!string ~ ".bin",
+			cast(size_t) index + 1, Clock.currTime);
+		blob.fileSpecs ~= new FileSpec(
+			"media/streamed-" ~ index.to!string ~ ".bin", "");
+		blobs ~= blob;
+	}
+	auto catalog = NamedBinaryBlobCatalog(DATA_CLASS_VERSION5, blobs);
+	serializeDataClassWrapperFile(path, catalog);
+	const auto loaded = deserializeDataClassJsonWrapperFile(path);
+	assert(loaded.dataArray.length == blobs.length);
+	assert(loaded.dataArray[0].getFirstFileName
+		== "media/streamed-0.bin");
+	assert(loaded.dataArray[$ - 1].getFirstFileName
+		== "media/streamed-9999.bin");
+}
+
 @("JSON v5 promotes nested and duplicate archive members to virtual references")
 unittest
 {

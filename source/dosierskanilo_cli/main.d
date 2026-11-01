@@ -343,6 +343,93 @@ private AnalysisOperationRequest analysisRequestFromCli(ArgsArray options,
 	return request;
 }
 
+/** Whether standard input is attached to a terminal. */
+private bool stdinIsInteractive()
+{
+	version (Posix)
+	{
+		import core.sys.posix.unistd : isatty;
+		return isatty(0) != 0;
+	}
+	else
+		return false;
+}
+
+private bool copyRecoveryCatalog(string source, string destination)
+{
+	import std.file : copy, exists, remove, rename;
+	import std.path : dirName;
+	import std.uuid : randomUUID;
+
+	const staging = destination ~ ".tmp-" ~ randomUUID().toString();
+	try
+	{
+		copy(source, staging);
+		version (Windows)
+			if (exists(destination))
+				remove(destination);
+		rename(staging, destination);
+		return true;
+	}
+	catch (Exception ex)
+	{
+		if (exists(staging))
+		{
+			try
+				remove(staging);
+			catch (Exception)
+			{
+			}
+		}
+		errorLine("Could not save the recovery catalog to '%s': %s",
+			destination, ex.msg);
+		return false;
+	}
+}
+
+/** Offer to copy a recovery catalog to a user-chosen path. */
+private bool offerCatalogRecovery(ArgsArray options, OperationResult result)
+{
+	import std.file : exists;
+	import std.stdio : stdin, stdout;
+	import std.string : strip;
+
+	if (result.recoveryPath.empty)
+		return false;
+	if (!exists(result.recoveryPath))
+	{
+		errorLine("The reported recovery file '%s' no longer exists.",
+			result.recoveryPath);
+		return false;
+	}
+	if (options.argNoInput || !stdinIsInteractive())
+	{
+		errorLine("Catalog data is available at '%s'.", result.recoveryPath);
+		errorLine("Copy it manually or re-run in a terminal without --no-input.");
+		return false;
+	}
+
+	const defaultTarget = options.argJSONFile;
+	foreach (attempt; 0 .. 3)
+	{
+		stdout.write("Copy recovery catalog to [%s] (empty cancels): ",
+			defaultTarget.empty ? "path" : defaultTarget);
+		stdout.flush();
+		auto destination = strip(stdin.readln());
+		if (destination.empty)
+		{
+			errorLine("Recovery catalog kept at '%s'.", result.recoveryPath);
+			return false;
+		}
+		if (copyRecoveryCatalog(result.recoveryPath, destination))
+		{
+			noticeFLine("Saved catalog to '%s'.", destination);
+			return true;
+		}
+	}
+	return false;
+}
+
 private bool reportCatalogOperationResult(string backendName, ArgsArray options,
 	OperationResult result)
 {
@@ -353,7 +440,11 @@ private bool reportCatalogOperationResult(string backendName, ArgsArray options,
 		if (result.state == OperationState.cancelled)
 			errorLine(backendName ~ " operation cancelled; no changes were written.");
 		else
+		{
 			errorLine(backendName ~ " operation failed: ", result.error);
+			if (offerCatalogRecovery(options, result))
+				return true;
+		}
 		return false;
 	}
 	if (cancelledWithSavedData)

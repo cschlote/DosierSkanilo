@@ -80,6 +80,10 @@ JSON output:
     --pretty                  Indent saved JSON catalogs for human reading
                               (scan, analyze, and export only)
 
+Global options:
+
+    --no-input                Suppress interactive prompts and read no input
+
 Option scope keys use the fixed columns `S A M I L D R G J` (`-` means not
 available for that scope):
 
@@ -228,6 +232,7 @@ ParsedCommandLine parseCommandLine(string[] args)
             "replace", "S-----R-- Replace existing data (JSON scan or import)", &argsarray.argReplaceCatalog,
             "pick-hidden", "S-------- Pick hidden files and directories too", &argsarray.argPickHidden,
             "dry-run", "--------J Compute JSON results without writing the catalog", &argsarray.argDryRun,
+            "no-input", "-------G- Suppress interactive prompts and input", &argsarray.argNoInput,
             "merge-duplicates", "--------J Analyze and merge duplicates after scan", &argsarray.argMergeDuplicates,
             "pretty", "-------G- Indent saved JSON catalogs for human reading (scan, analyze, and export only)", &argsarray.argPrettyJSON,
             "verbose", "-------G- Be verbose", &argsarray.argVerboseOutputs,
@@ -446,6 +451,7 @@ unittest
     assert(helpText.canFind("--archive-cache-dir"));
     assert(helpText.canFind("--archive-cache-size"));
     assert(helpText.canFind("--pretty"));
+    assert(helpText.canFind("--no-input"));
     assert(helpText.canFind("--verbose"));
     assert(helpText.canFind("S A M I L D R G J"));
     auto outdatedMetadataFlag = parseCommandLine(["program", "metadata",
@@ -498,6 +504,11 @@ unittest
         && jsonScan.command == CliCommand.scan);
     assert(jsonScan.options.argBaseDir == "./test");
     assert(jsonScan.options.argJSONFile == "./test/out.json");
+
+    auto jsonScanNoInput = parseCommandLine(["program", "scan", "./test",
+        "--json", "./test/out.json", "--no-input"]);
+    assert(jsonScanNoInput.status == ParseStatus.run);
+    assert(jsonScanNoInput.options.argNoInput);
 
     auto jsonScanMergeDryRun = parseCommandLine(["program", "scan",
         "./test", "--json", "./test/out.json", "--checksums",
