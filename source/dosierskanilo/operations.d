@@ -246,6 +246,12 @@ struct OperationResult
     MetadataSummary metadataSummary;
     /// Populated for analysis operations and JSON scans with merge-duplicates.
     AnalysisSummary analysisSummary;
+    /// Recovery file written when the canonical JSON catalog could not be saved.
+    string recoveryPath;
+    /// Staging paths attempted by a failed JSON catalog write.
+    string[] writeAttempts;
+    /// Partial staging file retained for diagnosis after a failed write.
+    string failedStagingPath;
 }
 
 /** Cooperative pause/cancellation control and progress channel for one operation. */

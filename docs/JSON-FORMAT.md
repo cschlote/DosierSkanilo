@@ -293,3 +293,7 @@ the catalog to `$XDG_STATE_HOME/dosierskanilo/recovery` (or
 directory. A recovery write never replaces the canonical catalog. Errors include
 the attempted paths, the recovery path when one was written, and any partial
 staging file kept for diagnosis.
+
+When the CLI runs with a terminal on stdin, a failed catalog write offers to copy
+the recovery file to a chosen path. Scripts and CI should pass `--no-input` to
+suppress the prompt; the recovery path is still reported in the error output.

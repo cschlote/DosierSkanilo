@@ -145,9 +145,10 @@ Split churn from correctness; each item is independently landable.
   file-type, media, archive, and torrent phases, including sequential batches.
 - [x] Stream JSON catalog writes and fall back to recovery directories with
   typed write errors that keep attempted and partial staging paths.
-- [ ] Follow-up: interactive `--ask-on-write-error` prompt on a TTY, GUI
-  recovery actions (retry/save copy/open folder), and a `recover` command for
-  backups and recovery catalogs.
+- [x] Interactive recovery prompt on a TTY plus `--no-input` to suppress
+  prompts for scripts and CI.
+- [ ] Follow-up: GUI recovery actions (retry/save copy/open folder) and a
+  `recover` command for backups and recovery catalogs.
 - [ ] Deferred: Flatpak sha256 verification against published artifacts
   (release-time check).
 
