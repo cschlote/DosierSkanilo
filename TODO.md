@@ -200,6 +200,17 @@ steps in dependency order:
       design (found correct-but-undocumented in the 2026-10-28 review). Added
       as WP-13 invariant 6 and an identity rule in `docs/CATALOG-DOMAIN.md`.
 
+## P1 — Persistence models and document mutation sessions
+
+- [ ] Add a `CatalogPersistence` capability (`inMemoryDocument` vs
+  `transactionalStore`) to the catalog contract.
+- [ ] Add a JSON `CatalogDocument`/mutation-session surface (`apply`, `save`,
+  `discard`, `revert`, load fingerprint) that reuses the operation executors.
+- [ ] Keep `runOperation()` as the batch facade: JSON load/apply/store, SQLite
+  transactional commit; CLI behavior stays unchanged.
+- [ ] Document dirty, conflict, recovery, and SQLite transaction semantics in
+  `docs/ARCHITECTURE.md` and `docs/CATALOG-DOMAIN.md`.
+
 ## P2 — WP-14 follow-on: archiveindex virtual classification
 
 Folded into WP-14.3; listed here only for priority ordering. It becomes its

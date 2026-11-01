@@ -187,6 +187,15 @@ CLI parser/output types.
   row per record, so row counts may differ between storage modes; clients must
   not infer a global content count from them. `CatalogFilter.pathText` also
   accepts an exact base64 SHA-1 digest.
+- The persistence model is part of the adapter capability surface. JSON sources
+  use an in-memory document with explicit save/discard; SQLite sources commit
+  mutations directly. Detached query snapshots never imply a writable document.
+  Modified/dirty state therefore exists only for in-memory documents; a SQLite
+  transaction indicator is a separate concept and is not a dirty flag.
+- Saving an in-memory document compares a load-time fingerprint (size and
+  modification time, or an equivalent adapter value) so concurrent external
+  edits are reported instead of silently overwritten. A failed save leaves the
+  document modified and uses the streaming/recovery write path.
 - A page cursor is opaque and bound to the opened source, full query/filter,
   sort order, and page size. Reusing it with another source/query is a typed
   `invalidCursor` error. A committed mutation may invalidate the cursor.
