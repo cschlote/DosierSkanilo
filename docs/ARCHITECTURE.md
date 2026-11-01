@@ -70,10 +70,10 @@ executors:
   transactions are introduced later, in which case it reports an open
   transaction rather than unsaved data.
 
-`CatalogBackend.capabilities()` reports which model applies, and both models are
-driven through the same polymorphic operation executors. `runOperation()` stays a
-batch facade: for JSON it is load, apply, and store; for SQLite it applies
-transactional changes and returns. A future backend `CatalogDocument`/
+`CatalogBackend.capabilities()` reports which model applies, and both models
+are driven through the same polymorphic operation executors.
+`runOperation()` stays a batch facade: for JSON it is load, apply, and store;
+for SQLite it applies transactional changes and returns. A future backend `CatalogDocument`/
 mutation-session surface will expose `apply`, `save`, `discard`, and `revert`
 for the in-memory model so the GUI can keep explicit save semantics without
 duplicating operation logic. The CLI keeps the batch behavior.
