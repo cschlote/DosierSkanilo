@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+ROOT_DIR="$(CDPATH="" cd -- "$(dirname -- "$0")/.." && pwd)"
 TAG=${1:-}
 if [ -z "${TAG}" ]; then
 	printf 'usage: %s vX.Y.Z\n' "$0" >&2
