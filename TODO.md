@@ -147,8 +147,9 @@ Split churn from correctness; each item is independently landable.
   typed write errors that keep attempted and partial staging paths.
 - [x] Interactive recovery prompt on a TTY plus `--no-input` to suppress
   prompts for scripts and CI.
-- [ ] Follow-up: GUI recovery actions (retry/save copy/open folder) and a
-  `recover` command for backups and recovery catalogs.
+- [x] GUI save failures keep the document modified and offer retry or saving
+  the recovery file as a copy.
+- [ ] Follow-up: `recover` command for backups and recovery catalogs.
 - [ ] Deferred: Flatpak sha256 verification against published artifacts
   (release-time check).
 
