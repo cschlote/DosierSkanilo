@@ -9,6 +9,12 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- JSON catalogs with double-escaped archive-member paths
+  (`container!!/member`, written by older tooling) are folded back into their
+  archive container instead of exposing a phantom `container!` directory.
+  Duplicate member references keep the entry with the real size or a complete
+  fingerprint.
+
 - Repository schema version 5 adds a generated `is_virtual` column to
   `file_refs`; archive/member queries use it instead of textual path rewriting.
   The v4-to-v5 migration adds the column in place.

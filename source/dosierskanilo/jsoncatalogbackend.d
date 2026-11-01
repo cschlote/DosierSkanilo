@@ -1628,6 +1628,43 @@ private:
             physicalInput = parsed.physicalPath;
             result.isVirtual = parsed.isVirtual;
             result.virtualEntries = parsed.entries;
+            if (!parsed.isVirtual && parsed.physicalPath.canFind('!'))
+            {
+                /* Older writers stored some archive members with the whole
+                 * virtual path escaped twice (`container!!/member`). Decoded,
+                 * the physical path then contains an archive separator. When
+                 * no such literal path exists on disk, fold it back into the
+                 * archive reference instead of exposing a phantom directory. */
+                ParsedArchiveVirtualPath reinterpreted;
+                bool doubleEscaped;
+                try
+                {
+                    reinterpreted = parseArchiveVirtualPath(parsed.physicalPath);
+                    doubleEscaped = reinterpreted.isVirtual;
+                }
+                catch (Exception)
+                {
+                }
+                if (doubleEscaped)
+                {
+                    auto literalPath = parsed.physicalPath;
+                    if (!isAbsolute(literalPath) && sourceRoot.length > 0)
+                        literalPath = buildPath(sourceRoot, literalPath);
+                    bool literalExists;
+                    try
+                        literalExists = exists(literalPath);
+                    catch (Exception)
+                    {
+                    }
+                    if (!literalExists)
+                    {
+                        parsed = reinterpreted;
+                        physicalInput = parsed.physicalPath;
+                        result.isVirtual = true;
+                        result.virtualEntries = parsed.entries;
+                    }
+                }
+            }
         }
         string normalizedPhysical;
         string prefix;
@@ -2007,16 +2044,6 @@ private:
             const auto finalLayer = reference.entries[$ - 1];
             const auto occurrence = finalLayer.hasOccurrence
                 ? finalLayer.occurrence : 0;
-            bool alreadyIndexed;
-            foreach (existing; entries)
-                if (existing.relativePath == finalLayer.relativePath
-                    && existing.occurrence == occurrence)
-                {
-                    alreadyIndexed = true;
-                    break;
-                }
-            if (alreadyIndexed)
-                continue;
             CatalogArchiveEntry entry;
             entry.id = ArchiveEntryId(*parentToken ~ ":v5:"
                 ~ finalLayer.relativePath ~ ":" ~ occurrence.to!string);
@@ -2030,7 +2057,34 @@ private:
             entry.contentId = contentIdFromToken(reference.contentToken);
             if (auto content = reference.contentToken in contentByToken)
                 entry.fingerprint = (*content).fingerprint;
-            entries ~= entry;
+
+            size_t existingIndex = size_t.max;
+            foreach (index, existing; entries)
+                if (existing.relativePath == finalLayer.relativePath
+                    && existing.occurrence == occurrence)
+                {
+                    existingIndex = index;
+                    break;
+                }
+            if (existingIndex != size_t.max)
+            {
+                /* Duplicate member references (for example a stale
+                 * zero-byte projection next to the indexed member) must not
+                 * hide the reference that carries the real size or a
+                 * complete fingerprint. */
+                auto existing = entries[existingIndex];
+                const bool richer = (entry.size > existing.size
+                        && existing.size == 0)
+                    || (entry.fingerprint.complete
+                        && !existing.fingerprint.complete);
+                if (!richer)
+                    continue;
+                entry.id = existing.id;
+                entry.index = existing.index;
+                entries[existingIndex] = entry;
+            }
+            else
+                entries ~= entry;
             archiveEntriesByToken[*parentToken] = entries;
 
             if (auto parentContent = *parentToken in contentByToken)
@@ -3647,6 +3701,83 @@ version (unittest)
         assert(firstPage.files.length == 2 && secondPage.files.length == 2);
         assert(backPage.files[0].relativePath == firstPage.files[0].relativePath);
         assert(backPage.files[1].relativePath == firstPage.files[1].relativePath);
+    }
+
+    @("JSON backend folds double-escaped archive members into their container")
+    unittest
+    {
+        import std.datetime.systime : Clock;
+        import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION5,
+            FileSpec, NamedBinaryBlob, NamedBinaryBlobCatalog,
+            serializeDataClassWrapperFile;
+
+        const token = randomUUID().toString();
+        const root = buildPath(tempDir(), "json-double-escaped-" ~ token);
+        const catalogPath = buildPath(tempDir(), "json-double-escaped-"
+            ~ token ~ ".json");
+        scope (exit)
+            if (exists(catalogPath))
+                remove(catalogPath);
+
+        auto container = new NamedBinaryBlob();
+        container.fileSize = 14;
+        container.fileSpecs = [new FileSpec("archives/test.zip", "")];
+        container.fileSpecsUseArchiveVirtualGrammar = true;
+
+        auto stale = new NamedBinaryBlob();
+        stale.fileSize = 0;
+        stale.fileSpecs = [new FileSpec(
+            "archives/test.zip!!/member.txt", "")];
+        stale.fileSpecsUseArchiveVirtualGrammar = true;
+
+        auto member = new NamedBinaryBlob();
+        member.fileSize = 6;
+        member.fileSpecs = [new FileSpec(
+            "archives/test.zip!/member.txt", "")];
+        member.fileSpecsUseArchiveVirtualGrammar = true;
+
+        NamedBinaryBlobCatalog catalog;
+        catalog.dataVersion = DATA_CLASS_VERSION5;
+        /* Keep the stale projection before the indexed member so the size
+         * preference has to resolve the duplicate. */
+        catalog.dataArray = [container, stale, member];
+        serializeDataClassWrapperFile(catalogPath, catalog);
+
+        auto backend = new JsonCatalogBackend(
+            OperationTarget.jsonTarget(catalogPath, root));
+        scope (exit)
+            backend.close();
+
+        assert(backend.capabilities().supportsTreeQueries);
+        const auto archiveDirectory = backend.resolveDirectory("archives");
+        assert(archiveDirectory.isValid);
+        CatalogFileQuery query;
+        query.directoryId = archiveDirectory;
+        query.filter.includeArchiveMembers = true;
+        query.sortOrder = CatalogSortOrder.pathAscending;
+        CatalogPageRequest request;
+        request.limit = 32;
+        const auto page = backend.listFiles(query, request);
+        string[] paths;
+        foreach (file; page.files)
+            paths ~= file.relativePath;
+        const string[] expected = ["archives/test.zip",
+            "archives/test.zip!/member.txt"];
+        assert(paths == expected, paths.to!string);
+
+        ulong memberSize;
+        foreach (file; page.files)
+            if (file.relativePath == "archives/test.zip!/member.txt")
+                memberSize = file.size;
+        assert(memberSize == 6, memberSize.to!string);
+
+        CatalogDirectoryQuery directoryQuery;
+        directoryQuery.parentId = archiveDirectory;
+        const auto directoryPage = backend.listDirectories(directoryQuery,
+            request);
+        foreach (directory; directoryPage.directories)
+            assert(!directory.relativePath.canFind("!!"),
+                directory.relativePath);
     }
 
 }
