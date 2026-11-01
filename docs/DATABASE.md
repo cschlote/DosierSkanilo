@@ -135,6 +135,14 @@ Member references keep the physical container's `directory_id`; the TreeView
 projects inner path components beneath the expandable archive file row rather
 than storing archive directories as additional rows.
 
+### Schema version 5: stored virtual classification
+
+The v4-to-v5 migration adds a generated `is_virtual` column to `file_refs`.
+SQLite computes it from the canonical path (`!!` escapes removed, then `!/`
+detection), so existing and future rows are classified without backfilling or
+changing inserts. Queries select the generated column instead of scanning and
+rewriting path text.
+
 `torrent_info` references one blob and stores all currently available torrent
 fields, including the fields that version-3 JSON does not currently output.
 `torrent_files` stores the torrent-relative path and length for each entry.

@@ -99,7 +99,8 @@ Currently one bad file aborts an entire JSON scan/analyze.
   sizes (archive members included when requested), restoring JSON/SQLite
   parity; extended the non-BMP directory test with unfiltered/filtered
   count assertions.
-- [ ] archiveindex `is_virtual` column follow-up (deferred to WP-13 schema).
+- [x] archiveindex `is_virtual` column follow-up: schema v5 adds a generated
+  column and all queries use it.
 
 ### WP-14.4: Review-minor hardening and UX
 

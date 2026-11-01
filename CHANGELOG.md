@@ -9,6 +9,10 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- Repository schema version 5 adds a generated `is_virtual` column to
+  `file_refs`; archive/member queries use it instead of textual path rewriting.
+  The v4-to-v5 migration adds the column in place.
+
 - Member-content cache cancellation is now honored before returning an already
   cached member, and both catalog adapters report it as the typed
   `catalogBackendErrorCode.cancelled`; a cancelled extraction discards the

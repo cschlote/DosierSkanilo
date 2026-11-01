@@ -232,6 +232,20 @@ void migrate(ref Database db, string now)
         }
     }
 
+    if (schemaVersion >= 2 && schemaVersion < currentRepositorySchemaVersion)
+    {
+        bool hasVirtualColumn;
+        foreach (row; db.execute("PRAGMA table_info(file_refs)"))
+            if (row.peek!string(1) == "is_virtual")
+                hasVirtualColumn = true;
+        if (!hasVirtualColumn)
+        {
+            db.execute("ALTER TABLE file_refs ADD COLUMN is_virtual INTEGER "
+                ~ "GENERATED ALWAYS AS (instr(replace(relative_path, '!!', '')"
+                ~ ", '!/') > 0) VIRTUAL");
+        }
+    }
+
     if (schemaVersion == 2)
     {
         try
@@ -302,6 +316,28 @@ void migrate(ref Database db, string now)
             db.execute("UPDATE repository SET schema_version = 4 WHERE id = 1");
             db.commit();
             schemaVersion = 4;
+        }
+        catch (Exception ex)
+        {
+            try
+                db.rollback();
+            catch (Exception)
+            {
+            }
+            throw ex;
+        }
+    }
+
+    if (schemaVersion == 4)
+    {
+        try
+        {
+            db.begin();
+            db.execute("INSERT INTO schema_migrations (version, applied_at) "
+                ~ "VALUES (5, ?)", now);
+            db.execute("UPDATE repository SET schema_version = 5 WHERE id = 1");
+            db.commit();
+            schemaVersion = 5;
         }
         catch (Exception ex)
         {
