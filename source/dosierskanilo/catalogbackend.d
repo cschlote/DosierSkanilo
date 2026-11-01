@@ -730,9 +730,6 @@ interface CatalogDocument
     /// Adapter fingerprint captured at load time for conflict detection.
     string fingerprint() const;
 
-    /// Detached blob snapshot for legacy read projections in the frontend.
-    NamedBinaryBlob[] documentBlobs();
-
     /// Suggested filesystem root for rooted tree queries over this document.
     string suggestedFilesystemRoot();
 

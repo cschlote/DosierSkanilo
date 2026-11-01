@@ -2858,12 +2858,12 @@ private final class JsonCatalogDocument : CatalogDocument
 
     private void requireTarget(OperationTarget request, bool scan) const
     {
+        /* Document operations identify the catalog; the scan root is an
+         * operation input and does not have to match the read root bound for
+         * tree queries. */
         const target = backend.backendTarget;
         if (request.mode != OperationStorageMode.jsonCatalog
-            || request.catalogPath != target.catalogPath
-            || (scan && request.filesystemRoot != target.filesystemRoot)
-            || (request.filesystemRoot.length > 0
-                && request.filesystemRoot != target.filesystemRoot))
+            || request.catalogPath != target.catalogPath)
             throw new CatalogBackendException(
                 CatalogBackendErrorCode.invalidTarget,
                 "The operation target does not match the opened document.");
@@ -2879,12 +2879,6 @@ private final class JsonCatalogDocument : CatalogDocument
     {
         requireOpen();
         return loadedFingerprint;
-    }
-
-    override NamedBinaryBlob[] documentBlobs()
-    {
-        requireOpen();
-        return backend.catalog.dataArray.dup;
     }
 
     override string suggestedFilesystemRoot()

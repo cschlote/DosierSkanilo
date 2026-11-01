@@ -197,6 +197,9 @@ CLI parser/output types.
 - Saving a changed document compares the load-time fingerprint and fails with
   `writeConflict` when the file changed externally. A failed save leaves the
   document modified.
+- In-memory JSON documents bound to a filesystem root use the same directory,
+  file, and detail queries as stored catalogs; binding rebuilds the read index
+  without persisting anything.
 - Saving an in-memory document compares a load-time fingerprint (size and
   modification time, or an equivalent adapter value) so concurrent external
   edits are reported instead of silently overwritten. A failed save leaves the

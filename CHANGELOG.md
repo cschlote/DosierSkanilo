@@ -14,7 +14,8 @@ They represent the functional evolution and are intentionally summarized.
   `applyAnalysis`, `save`, `discard`, load fingerprint, modified state).
   SQLite remains a transactional store without a document session. Saving a
   changed document reports `writeConflict` instead of overwriting external
-  edits.
+  edits. JSON documents can also derive and bind a filesystem root so frontends
+  use the same backend tree/query paths for JSON and SQLite tabs.
 
 - JSON catalogs are now streamed to disk one content record at a time instead of
   being materialized as a full JSON tree and string, keeping memory bounded for
