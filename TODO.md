@@ -202,14 +202,17 @@ steps in dependency order:
 
 ## P1 — Persistence models and document mutation sessions
 
-- [ ] Add a `CatalogPersistence` capability (`inMemoryDocument` vs
+- [x] Add a `CatalogPersistence` capability (`inMemoryDocument` vs
   `transactionalStore`) to the catalog contract.
-- [ ] Add a JSON `CatalogDocument`/mutation-session surface (`apply`, `save`,
-  `discard`, `revert`, load fingerprint) that reuses the operation executors.
-- [ ] Keep `runOperation()` as the batch facade: JSON load/apply/store, SQLite
+- [x] Add a JSON `CatalogDocument` session (`applyScan`, `applyAnalysis`,
+  `save`, `discard`, load fingerprint, modified state) reusing the operation
+  executors; SQLite rejects it with `unsupportedFeature`.
+- [x] Keep `runOperation()` as the batch facade: JSON load/apply/store, SQLite
   transactional commit; CLI behavior stays unchanged.
-- [ ] Document dirty, conflict, recovery, and SQLite transaction semantics in
+- [x] Document dirty, conflict, recovery, and SQLite transaction semantics in
   `docs/ARCHITECTURE.md` and `docs/CATALOG-DOMAIN.md`.
+- [ ] GUI: use the document session for JSON tabs, show a modified marker, and
+  add save/discard/cancel with conflict handling.
 
 ## P2 — WP-14 follow-on: archiveindex virtual classification
 
