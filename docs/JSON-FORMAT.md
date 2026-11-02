@@ -282,7 +282,10 @@ serialization functions.
 ## Import and Export Rules for SQLite
 
 SQLite import must normalize every supported JSON representation into the
-relational model. JSON export must construct the required relationship closure:
+relational model. Duplicate source paths are resolved instead of aborting: an
+identical reference is skipped, a stale zero-size reference is replaced by a
+reference with real content, and conflicting references keep the first one with
+an import summary. JSON export must construct the required relationship closure:
 a filtered export must include each selected file reference together with its
 referenced binary record and selected metadata.
 

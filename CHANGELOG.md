@@ -9,6 +9,11 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- JSON import now resolves duplicate file references instead of failing on the
+  `file_refs.relative_path` constraint: identical duplicates are skipped, a
+  stale zero-size reference is replaced by richer content, and conflicting
+  references keep the first with an import summary.
+
 - JSON backends defer the directory/reference index until a filesystem root is
   bound, so GUI document opening no longer builds the complete index twice.
   Content pages materialize only the requested window instead of every matching
