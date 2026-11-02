@@ -11,12 +11,15 @@ import std.algorithm.searching : startsWith;
 import std.datetime.systime;
 import std.file : DirEntry, SpanMode, dirEntries, isFile;
 import std.parallelism : Task, TaskPool, task;
-import std.path : absolutePath, baseName, buildNormalizedPath, dirSeparator;
+import std.path : absolutePath, baseName, buildNormalizedPath, buildPath,
+    dirName, dirSeparator, isAbsolute;
 import std.string : empty, endsWith, replace, split;
 import std.conv : to;
 
-import dosierarkivo.archive : escapeArchiveVirtualPath,
-    nativePathToStoragePath, parseArchiveVirtualPath;
+import dosierarkivo.archive : appendArchiveVirtualPath,
+    escapeArchiveVirtualPath, nativePathToStoragePath, parseArchiveVirtualPath,
+    ParsedArchiveVirtualPath;
+import dosierskanilo.model.filespec : FileSpec;
 import dosierskanilo.model.archivespec : ArchiveSpec;
 import dosierskanilo.model.checksums : CheckSums;
 import dosierskanilo.model.namedbinaryblob : NamedBinaryBlob,
@@ -84,6 +87,12 @@ JsonScanApplication scanJsonCatalogInto(ref NamedBinaryBlobCatalog catalog,
     OperationControl control, ulong operationId)
 {
     JsonScanApplication application;
+    const bool pathsUseV5Grammar = catalog.dataVersion == DATA_CLASS_VERSION5;
+    absolutizeJsonStoredPaths(catalog.dataArray, filesystemRoot,
+        pathsUseV5Grammar);
+    scope (exit)
+        normalizeJsonCatalogPaths(catalog.dataArray, filesystemRoot,
+            pathsUseV5Grammar);
     if (!scanJsonDirectory(filesystemRoot, scanOptions,
         catalog.dataVersion == DATA_CLASS_VERSION5,
         catalog.dataArray, control, operationId, application.scanSummary))
@@ -108,10 +117,17 @@ JsonScanApplication scanJsonCatalogInto(ref NamedBinaryBlobCatalog catalog,
 
 /** Enrich an already loaded catalog with metadata and analysis, without writing. */
 JsonAnalysisApplication analyzeJsonCatalogInto(ref NamedBinaryBlobCatalog catalog,
-    MetadataScanOptions metadataOptions, RepositoryAnalysisOptions analysisOptions,
-    OperationControl control, ulong operationId)
+    string filesystemRoot, MetadataScanOptions metadataOptions,
+    RepositoryAnalysisOptions analysisOptions, OperationControl control,
+    ulong operationId)
 {
     JsonAnalysisApplication application;
+    const bool pathsUseV5Grammar = catalog.dataVersion == DATA_CLASS_VERSION5;
+    absolutizeJsonStoredPaths(catalog.dataArray, filesystemRoot,
+        pathsUseV5Grammar);
+    scope (exit)
+        normalizeJsonCatalogPaths(catalog.dataArray, filesystemRoot,
+            pathsUseV5Grammar);
     auto metadata = updateJsonMetadata(catalog.dataArray,
         metadataOptions, OperationKind.analyze, control, operationId);
     application.metadataSummary = metadata.summary;
@@ -148,15 +164,17 @@ JsonScanExecutionResult scanJsonCatalog(string catalogPath, string filesystemRoo
 
 /** Load and enrich a JSON catalog for an explicit JSON analysis operation. */
 JsonAnalysisExecutionResult analyzeJsonCatalog(string catalogPath,
-    bool forceOverwrite, MetadataScanOptions metadataOptions,
+    string filesystemRoot, bool forceOverwrite, MetadataScanOptions metadataOptions,
     RepositoryAnalysisOptions analysisOptions, OperationControl control,
     ulong operationId)
 {
     JsonAnalysisExecutionResult execution;
     execution.catalog = loadJsonCatalog(catalogPath, forceOverwrite, control,
         OperationKind.analyze, operationId);
-    const application = analyzeJsonCatalogInto(execution.catalog, metadataOptions,
-        analysisOptions, control, operationId);
+    const auto baseRoot = filesystemRoot.length > 0
+        ? filesystemRoot : dirName(catalogPath);
+    const application = analyzeJsonCatalogInto(execution.catalog, baseRoot,
+        metadataOptions, analysisOptions, control, operationId);
     execution.metadataSummary = application.metadataSummary;
     execution.analysisSummary = application.analysisSummary;
     execution.cancelled = application.cancelled;
@@ -250,8 +268,9 @@ private bool scanJsonDirectory(string root, RepositoryScanOptions options,
         {
             summary.filesFound++;
             auto storedFileName = pathsUseV5Grammar
-                ? escapeArchiveVirtualPath(nativePathToStoragePath(entry.name))
-                : entry.name;
+                ? escapeArchiveVirtualPath(nativePathToStoragePath(
+                    absolutePath(entry.name)))
+                : nativePathToStoragePath(absolutePath(entry.name));
             NamedBinaryBlob existing;
             if (auto indexed = storedFileName in existingByPath)
                 existing = *indexed;
@@ -314,6 +333,111 @@ private bool scanJsonDirectory(string root, RepositoryScanOptions options,
             return false;
     }
     return !cancellationRequested(control);
+}
+
+private string storedPathRelativeTo(string root, string path)
+{
+    const auto base = buildNormalizedPath(absolutePath(root));
+    const auto full = buildNormalizedPath(isAbsolute(path)
+        ? absolutePath(path) : buildPath(base, path));
+    const auto prefix = base == "/" ? "/" : base ~ "/";
+    if (full == base || !full.startsWith(prefix))
+        return "";
+    return nativePathToStoragePath(full[prefix.length .. $]);
+}
+
+private void absolutizeJsonStoredPaths(ref NamedBinaryBlob[] blobs,
+    string root, bool pathsUseV5Grammar)
+{
+    const auto base = buildNormalizedPath(absolutePath(root));
+    const auto prefix = base == "/" ? "/" : base ~ "/";
+    NamedBinaryBlob[] kept;
+    foreach (blob; blobs)
+    {
+        if (blob is null)
+            continue;
+        FileSpec[] references;
+        bool[string] seen;
+        foreach (spec; blob.fileSpecs)
+        {
+            if (spec is null || spec.fileName.length == 0)
+                continue;
+            ParsedArchiveVirtualPath parsed;
+            try
+                parsed = parseArchiveVirtualPath(spec.fileName);
+            catch (Exception)
+                continue;
+            const auto full = buildNormalizedPath(isAbsolute(parsed.physicalPath)
+                ? parsed.physicalPath : buildPath(base, parsed.physicalPath));
+            if (full == base || !full.startsWith(prefix))
+                continue;
+            if (pathsUseV5Grammar)
+            {
+                auto canonical = escapeArchiveVirtualPath(
+                    nativePathToStoragePath(full));
+                foreach (entry; parsed.entries)
+                    canonical = appendArchiveVirtualPath(canonical,
+                        entry.relativePath, entry.hasOccurrence
+                            ? entry.occurrence : size_t.max);
+                spec.fileName = canonical;
+            }
+            else
+                spec.fileName = nativePathToStoragePath(full);
+            if (spec.fileName in seen)
+                continue;
+            seen[spec.fileName] = true;
+            references ~= spec;
+        }
+        blob.fileSpecs = references;
+        if (blob.fileSpecs.length > 0)
+            kept ~= blob;
+    }
+    blobs = kept;
+}
+
+package(dosierskanilo) void normalizeJsonCatalogPaths(ref NamedBinaryBlob[] blobs,
+    string root, bool pathsUseV5Grammar)
+{
+    NamedBinaryBlob[] kept;
+    foreach (blob; blobs)
+    {
+        if (blob is null)
+            continue;
+        FileSpec[] references;
+        bool[string] seen;
+        foreach (spec; blob.fileSpecs)
+        {
+            if (spec is null || spec.fileName.length == 0)
+                continue;
+            ParsedArchiveVirtualPath parsed;
+            try
+                parsed = parseArchiveVirtualPath(spec.fileName);
+            catch (Exception)
+                continue;
+            const relative = storedPathRelativeTo(root, parsed.physicalPath);
+            if (relative.length == 0)
+                continue;
+            if (pathsUseV5Grammar)
+            {
+                auto canonical = escapeArchiveVirtualPath(relative);
+                foreach (entry; parsed.entries)
+                    canonical = appendArchiveVirtualPath(canonical,
+                        entry.relativePath, entry.hasOccurrence
+                            ? entry.occurrence : size_t.max);
+                spec.fileName = canonical;
+            }
+            else
+                spec.fileName = relative;
+            if (spec.fileName in seen)
+                continue;
+            seen[spec.fileName] = true;
+            references ~= spec;
+        }
+        blob.fileSpecs = references;
+        if (blob.fileSpecs.length > 0)
+            kept ~= blob;
+    }
+    blobs = kept;
 }
 
 private void clearJsonDerivedMetadata(NamedBinaryBlob blob)
@@ -1116,4 +1240,56 @@ unittest
     assert(item.errors.length == 0);
     assert(blob.fileType.length == 0);
     assert(blob.torrentInfo is null);
+}
+
+@("JSON scan stores paths relative to the scan base directory")
+unittest
+{
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const auto root = buildPath(tempDir(), "json-relative-scan-"
+        ~ randomUUID().toString());
+    mkdirRecurse(buildPath(root, "nested"));
+    write(buildPath(root, "nested", "sample.txt"), "payload");
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+
+    NamedBinaryBlobCatalog catalog;
+    catalog.dataVersion = DATA_CLASS_VERSION5;
+    RepositoryScanOptions scanOptions;
+    MetadataScanOptions metadataOptions;
+    const application = scanJsonCatalogInto(catalog, root, scanOptions,
+        metadataOptions, false, null, 1);
+    assert(!application.cancelled);
+    assert(catalog.dataArray.length == 1);
+    assert(catalog.dataArray[0].fileSpecs.length == 1);
+    assert(catalog.dataArray[0].fileSpecs[0].fileName == "nested/sample.txt",
+        catalog.dataArray[0].fileSpecs[0].fileName);
+}
+
+@("JSON path normalization keeps only references below the base directory")
+unittest
+{
+    import std.file : tempDir;
+    import std.path : buildPath;
+
+    const root = buildPath(tempDir(), "json-normalize-base");
+    auto blob = new NamedBinaryBlob();
+    blob.fileSize = 1;
+    blob.fileSpecs = [
+        new FileSpec(buildPath(root, "inside.txt"), ""),
+        new FileSpec("./relative.txt", ""),
+        new FileSpec("/etc/hosts", ""),
+    ];
+    NamedBinaryBlob[] blobs = [blob];
+    normalizeJsonCatalogPaths(blobs, root, true);
+    assert(blobs.length == 1);
+    assert(blobs[0].fileSpecs.length == 2);
+    assert(blobs[0].fileSpecs[0].fileName == "inside.txt",
+        blobs[0].fileSpecs[0].fileName);
+    assert(blobs[0].fileSpecs[1].fileName == "relative.txt",
+        blobs[0].fileSpecs[1].fileName);
 }

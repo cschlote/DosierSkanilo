@@ -9,6 +9,12 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- JSON scan/save now stores file references relative to the catalog/base
+  directory, regardless of whether the scan root was written as `./`, a
+  relative path, or an absolute path. References outside that base directory are
+  discarded. JSON import applies the same rule and skips outside references
+  instead of aborting.
+
 - JSON import now resolves duplicate file references instead of failing on the
   `file_refs.relative_path` constraint: identical duplicates are skipped, a
   stale zero-size reference is replaced by richer content, and conflicting

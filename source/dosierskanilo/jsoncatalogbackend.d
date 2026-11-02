@@ -41,7 +41,7 @@ import dosierskanilo.repository.types : JsonImportOptions, RepositoryBlobPage,
 import dosierskanilo.operationrunner;
 import dosierskanilo.service.jsonoperations : JsonAnalysisApplication,
     JsonScanApplication, analyzeJsonCatalogInto, commitJsonCatalog,
-    scanJsonCatalogInto;
+    normalizeJsonCatalogPaths, scanJsonCatalogInto;
 import dosierskanilo.operations : AnalysisOperationRequest, MetadataOperationRequest,
     OperationControl, OperationErrorCode, OperationKind, OperationPhase,
     OperationProgress, OperationResult, OperationState, OperationStorageMode,
@@ -3073,8 +3073,11 @@ private final class JsonCatalogDocument : CatalogDocument
         result.state = OperationState.running;
         try
         {
+            const auto baseRoot = backend.sourceRoot.length > 0
+                ? backend.sourceRoot
+                : dirName(backend.backendTarget.catalogPath);
             const application = analyzeJsonCatalogInto(backend.catalog,
-                request.metadataOptions, request.options, control,
+                baseRoot, request.metadataOptions, request.options, control,
                 request.operationId);
             result.metadataSummary = application.metadataSummary;
             result.analysisSummary = application.analysisSummary;
@@ -3106,6 +3109,11 @@ private final class JsonCatalogDocument : CatalogDocument
             throw new CatalogBackendException(
                 CatalogBackendErrorCode.writeConflict,
                 "The catalog changed on disk since it was loaded.");
+        const auto baseRoot = backend.sourceRoot.length > 0
+            ? backend.sourceRoot
+            : dirName(backend.backendTarget.catalogPath);
+        normalizeJsonCatalogPaths(backend.catalog.dataArray, baseRoot,
+            backend.catalog.dataVersion == DATA_CLASS_VERSION5);
         commitJsonCatalog(backend.backendTarget.catalogPath, backend.catalog,
             pretty);
         loadedFingerprint = fingerprintFor(backend.backendTarget.catalogPath);
@@ -3555,7 +3563,7 @@ version (unittest)
         remove(missingPath);
         AnalysisOperationRequest analyze;
         analyze.operationId = 2;
-        analyze.target = OperationTarget.jsonTarget(catalogPath);
+        analyze.target = OperationTarget.jsonTarget(catalogPath, root);
         const auto retained = backend.runOperation(analyze, new OperationControl());
         assert(retained.state == OperationState.completed, retained.error);
         assert(retained.analysisSummary.missingFiles == 1);
@@ -3888,6 +3896,59 @@ unittest
     catch (CatalogBackendException failure)
         rejected = failure.code == CatalogBackendErrorCode.writeConflict;
     assert(rejected, "saving over an externally changed catalog must fail");
+}
+
+@("JSON document save stores base-relative references and drops outside paths")
+unittest
+{
+    import dosierskanilo.model.filespec : FileSpec;
+    import dosierskanilo.model.namedbinaryblob : NamedBinaryBlobCatalog,
+        deserializeDataClassJsonWrapperFile, serializeDataClassWrapperFile;
+    import std.datetime.systime : Clock;
+    import std.file : exists, mkdirRecurse, remove, rmdirRecurse, tempDir;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const token = randomUUID().toString();
+    const root = buildPath(tempDir(), "json-path-save-" ~ token);
+    const catalogPath = buildPath(tempDir(), "json-path-save-" ~ token
+        ~ ".json");
+    mkdirRecurse(root);
+    scope (exit)
+    {
+        if (exists(root))
+            rmdirRecurse(root);
+        if (exists(catalogPath))
+            remove(catalogPath);
+    }
+
+    auto blob = new NamedBinaryBlob();
+    blob.fileSize = 1;
+    blob.fileSpecs = [
+        new FileSpec(buildPath(root, "inside.txt"), ""),
+        new FileSpec("/etc/hosts", ""),
+    ];
+    NamedBinaryBlobCatalog catalog = NamedBinaryBlobCatalog(DATA_CLASS_VERSION5,
+        [blob]);
+    serializeDataClassWrapperFile(catalogPath, catalog);
+
+    auto backend = new JsonCatalogBackend(
+        OperationTarget.jsonTarget(catalogPath, root));
+    scope (exit)
+        backend.close();
+    auto document = backend.document();
+    AnalysisOperationRequest request;
+    request.operationId = 1;
+    request.target = backend.target();
+    assert(document.applyAnalysis(request, new OperationControl()).state
+        == OperationState.completed);
+    document.save();
+
+    const loaded = deserializeDataClassJsonWrapperFile(catalogPath);
+    assert(loaded.dataArray.length == 1);
+    assert(loaded.dataArray[0].fileSpecs.length == 1);
+    assert(loaded.dataArray[0].fileSpecs[0].fileName == "inside.txt",
+        loaded.dataArray[0].fileSpecs[0].fileName);
 }
 
 @("JSON documents suggest and bind a filesystem root for tree queries")
