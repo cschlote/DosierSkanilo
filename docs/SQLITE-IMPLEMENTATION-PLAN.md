@@ -7,6 +7,21 @@
 > Status lines and test counts below describe the date noted in each section;
 > they are not a claim about the current release.
 
+## Status board (2026-11-02)
+
+| Work package | State | Evidence |
+| --- | --- | --- |
+| WP-09 shared operations | Complete | `docs/OPERATION-PARITY.md` and backend/GUI display tests |
+| WP-13 catalog backend | Complete | JSON v5, SQLite schema v5, `CatalogBackend`, shared cache, GUI integration |
+| WP-14 review remediation | Complete | `docs/reviews/2026-10-28-code-review.md` closeout and regression tests |
+| Persistence/document sessions | Complete | `CatalogDocument`, JSON save/discard, conflict handling |
+| Next backend release | Planned | `TODO.md`, target `26.14.0` |
+| Documentation/DDoc | Current pass done | `TODO.md` P1 follow-ups remain |
+
+The checkboxes below are the historical implementation record. Open work is
+tracked only in [`TODO.md`](TODO.md); do not treat an unchecked historical box
+as a current commitment without checking that file.
+
 This document turns the SQLite repository design into an incremental work plan.
 Each work package has a clear result and an exit criterion. A package should be
 completed and verified before the next dependent package is started.
