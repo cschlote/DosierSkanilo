@@ -1,8 +1,8 @@
 # Catalog Domain Values and Locators
 
-Status: WP-13.1 through WP-13.5.3 are implemented. JSON v5 and SQLite schema v4
+Status: WP-13.1 through WP-13.6 are implemented. JSON v5 and SQLite schema v5
 store archive members as normal virtual references; the shared extraction cache
-and GUI navigation remain planned work.
+and GUI archive navigation are implemented.
 
 This document freezes the concepts needed by a storage-neutral catalog API.
 It distinguishes payload identity from the places where that payload is
@@ -72,7 +72,7 @@ representations; they do not define the new public API.
   member fingerprint. Adapters must not treat a missing member digest as
   corruption or invent one from the archive file.
 
-IDs are stable only within the catalog-source contract above. JSON v3 has no
+IDs are stable only within the catalog-source contract above. JSON has no
 serialized content/reference IDs, so its adapter may assign source-scoped IDs;
 no cross-import or cross-adapter ID equality is promised. Adding portable IDs to
 an interchange format requires an explicit JSON schema decision, not an
@@ -144,9 +144,9 @@ relative to the torrent root and expected byte length. It does not assert that
 those bytes exist locally, does not create a `ContentId`, and is not linked to a
 filesystem reference by matching its display name. A later explicit matching
 operation may create that relationship. Until then, torrent entries remain
-metadata associated with the `.torrent` content record. The current JSON v3
+metadata associated with the `.torrent` content record. The current JSON v5
 writer's reduced torrent fields remain a compatibility constraint; exporting
-additional fields requires an extended JSON version.
+additional fields requires a later JSON version.
 
 ## Backend contract
 
@@ -215,10 +215,11 @@ CLI parser/output types.
   concurrent-read behavior.
   Unsupported operations/features fail explicitly with
   `CatalogBackendException`; adapters do not silently substitute another mode.
-- `JsonCatalogBackend` reads legacy arrays and JSON versions 1-4. It requires an
+- `JsonCatalogBackend` reads legacy arrays and JSON versions 1-5. It requires an
   explicit filesystem root for tree queries and scans; analysis of an explicit
-  catalog can run without one. JSON v3 omits torrent file-list details, so the
-  adapter reports torrent-entry queries unsupported when that data is absent.
+  catalog can run without one, and a document session can bind a root later.
+  The JSON v5 writer omits torrent file-list details, so the adapter reports
+  torrent-entry queries unsupported when that data is absent.
 - Each `runOperation` call is synchronous at the method boundary, accepts the
   shared `OperationControl`, joins its workers before returning, and reports its
   terminal `OperationResult` including `changesCommitted`. The caller must keep
@@ -271,8 +272,9 @@ is authoritative.
   as normal content records with virtual `FileSpec` paths. JSON v0-v4 nested
   `ArchiveSpec[]` remains an import-compatibility shape.
 - SQLite `blobs.id` approximates `ContentId`; `file_refs.id` approximates
-  `ReferenceId`; schema v4 uses `file_refs.relative_path` for physical and
-  virtual path layers. These integer IDs remain adapter-private.
+  `ReferenceId`; schema v5 uses `file_refs.relative_path` for physical and
+  virtual path layers and the generated `is_virtual` column for classification.
+  These integer IDs remain adapter-private.
 - `RepositoryArchiveEntry` exposes a stable row ID, normalized path, ordered
   index/duplicate occurrence, size/time/checksums, and a linked content ID after
   deep extraction. `CatalogBackend.listArchiveMembers` combines that entry ID
@@ -280,14 +282,15 @@ is authoritative.
   stable member-reference ID. `CatalogFile.hasArchive` identifies expandable
   physical/member file rows. Setting `CatalogFilter.includeArchiveMembers`
   includes safe, deeply indexed member references in the ordinary file query,
-  directory visibility, root summary, and relationship-closed JSON subsets (v3
-  for flat data and v4 when nested entries are selected). Nested locator chains
-  are supported. The TreeView can expand the existing file row and group member
-  paths beneath it without adding a database directory relation.
+  directory visibility, root summary, and relationship-closed JSON v5 subsets.
+  Nested locator chains are supported. The GUI tree expands the existing file
+  row, synthesizes inner directory nodes from member paths, and does not add a
+  database directory relation.
 - `ArchiveSpec` is the JSON v0-v4 compatibility representation. JSON v5 stores
   each scraped member as a normal content record with a virtual `FileSpec`;
   legacy nested `ArchiveSpec` trees remain readable and are promoted on export.
-- SQL schema v4 stores members in normal `file_refs` and `blobs`; archive index
+- SQL schema v5 stores members in normal `file_refs` and `blobs`; archive index
   version/depth state lives in `metadata_status`. The former
-  `archive_entries`/`archive_indexes` tables are removed, and inner directories
-  remain a TreeView projection rather than persisted directory rows.
+  `archive_entries`/`archive_indexes` tables are removed, and inner archive
+  directories remain a GUI tree projection rather than persisted directory
+  rows.

@@ -2,18 +2,19 @@
 
 This document describes the persistent SQLite repository backend for
 DosierSkanilo. The database represents the current state of one directory tree.
-It does not contain scan history in its first version.
+It does not contain scan history.
 
-Current schema version: **3**. Version 2 repositories migrate archive rows to
-stable ordered/path-occurrence identities when opened. WP-13.5 plans schema
-version 4 to replace those archive-specific rows with virtual file references.
+Current schema version: **5**. Version 2 repositories migrate archive rows to
+stable ordered/path-occurrence identities when opened. Version 4 replaces those
+archive-specific rows with virtual file references, and version 5 adds the
+generated `is_virtual` classification column.
 
 ## Goals
 
 - Keep the current state of one repository root and its descendants.
 - Avoid loading the complete catalog into a D object graph for every query.
 - Preserve the content-centric duplicate model of `NamedBinaryBlob`.
-- Provide fast, relational queries for a future GUI.
+- Provide fast, relational queries for the GUI and library clients.
 - Keep JSON as a complete import and export format.
 - Offer a stable library API so the GUI does not depend on SQL details.
 
@@ -77,7 +78,7 @@ repository
 - `file_refs`: A path, modification timestamp and existence/observation state
   pointing to a blob.
 - `metadata_status`: Per-blob extractor state, version, scan time, and last error.
-  Schema v4 records archive-index state and shallow/deep completion here.
+  Schema v4 and later record archive-index state and shallow/deep completion here.
 - `archive_passwords`: Optional clear-text password associated with a blob, added
   in schema version 2. Repository files and JSON exports containing passwords
   are sensitive data.
@@ -128,12 +129,12 @@ added. The GUI extraction cache is session data and is never stored in SQLite.
 An archive-member `file_ref` is not a path to an extracted cache file. Its
 availability and locator are resolved through the encoded container chain. The
 backend's deep scraper uses a leased session cache and persists results against
-the member's ordinary blob ID; its path is not serialized. The GUI previewer is
-planned to use the same service. Byte-identical occurrences may share a blob
-while retaining separate virtual references.
-Member references keep the physical container's `directory_id`; the TreeView
-projects inner path components beneath the expandable archive file row rather
-than storing archive directories as additional rows.
+the member's ordinary blob ID; its path is not serialized. GUI archive previews
+use the same leased cache service through the catalog backend. Byte-identical
+occurrences may share a blob while retaining separate virtual references.
+Member references keep the physical container's `directory_id`; the GUI tree
+synthesizes inner archive directories beneath the expandable archive file row
+rather than storing them as additional database rows.
 
 ### Schema version 5: stored virtual classification
 
@@ -144,7 +145,7 @@ changing inserts. Queries select the generated column instead of scanning and
 rewriting path text.
 
 `torrent_info` references one blob and stores all currently available torrent
-fields, including the fields that version-3 JSON does not currently output.
+fields, including the fields that the current JSON v5 writer does not output.
 `torrent_files` stores the torrent-relative path and length for each entry.
 
 ## Directory Rows Versus Derived Paths
@@ -191,19 +192,21 @@ The `.dosierskanilo` SQLite repository is the normal working storage for new
 catalogs. JSON remains the complete structured interchange format and the
 interchange boundary between repository and non-repository workflows:
 
-- Import accepts all currently supported legacy and version-4 forms, including
-  recursively indexed nested archive metadata.
+- Import accepts all currently supported legacy forms from version 0 through
+  version 5, including recursively indexed nested archive metadata.
 - Import runs inside one SQLite transaction.
 - Export can select all data or a filtered relationship closure.
 - A filtered export includes the selected file references, their blobs and the
   metadata explicitly selected by the export options.
-- Version-3 export remains available for existing consumers.
-- An extended JSON version is required before fields not representable in
-  version 3, such as complete torrent file lists, can be exported losslessly.
+- All current exports write JSON v5. The version-3 and version-4 format
+  selectors remain source-compatible but are rejected as output formats.
+- A later JSON version is required before fields not representable in v5, such
+  as complete torrent file lists, can be exported losslessly.
 
-The direct JSON mode is an explicit CLI command group. It can load, scan,
-analyze and write a JSON catalog without creating or discovering a repository.
-SQLite commands never silently switch to this mode.
+Direct JSON mode is an explicit CLI storage target selected with
+`--json CATALOG.json`. It can load, scan, analyze, list and write a JSON catalog
+without creating or discovering a repository. SQLite commands never silently
+switch to this mode.
 
 The database is therefore not required to mimic the JSON shape. It is allowed
 to normalize relationships and reconstruct JSON at the boundary.
@@ -241,37 +244,34 @@ Supported deployment options remain:
 - Add an explicit external database-root configuration if local metadata with
   remote media is not sufficient.
 
-## Public API Boundary: Current and Target
+## Public API Boundary
 
-The implemented database API is the concrete `Repository` class in
-`source/dosierskanilo/repository/repository.d`, re-exported by
-`import dosierskanilo.repository`. It owns initialization/discovery, normalized
-queries, JSON transfer, and synchronous convenience methods for scan, metadata,
-and analysis. `d2sqlite3`, SQL statements, and schema migrations remain behind
-this class. Public reads return typed repository DTOs, but some legacy catalog
-methods still expose `NamedBinaryBlob`, the JSON serialization model.
-
-The shared long-running `runOperation()` API handles explicit SQLite and JSON
-targets for scan/metadata/analysis. It is an operation facade; it is not yet the
-polymorphic read/query base class for both storage formats. The GTK directory
-view currently combines `Repository` DTO queries with its own JSON projection
-through a GUI-owned `DirectorySource`.
-
-The desired API is a storage-neutral catalog/backend interface created by a
-factory from an explicit target. JSON and SQLite implementations should expose
+The storage-neutral `CatalogBackend` contract in
+`source/dosierskanilo/catalogbackend.d` is the public read/query surface for
+both storage formats. `JsonCatalogBackend` and `SqliteCatalogBackend` implement
 the same logical directory/file reads, stable identifiers, filters, sorting,
-details, and navigation cursors. HMI code should depend on that interface rather
-than branching on SQLite DTOs or `NamedBinaryBlob`; SQL drivers and JSON
-serialization stay private adapters. Do not claim generic SQL-database support
-yet: first freeze the backend contract and SQLite behavior, then assess which
-transaction, keyset-query, migration, and binary-type capabilities another SQL
-engine would need. The staged design is tracked as WP-13 in
+details, archive/torrent projections, and navigation cursors. HMI code depends
+on that interface rather than branching on SQLite DTOs or `NamedBinaryBlob`;
+SQL drivers and JSON serialization stay private adapters.
+
+`CatalogBackendFactory` creates a backend from an explicit target. The concrete
+`Repository` class in `source/dosierskanilo/repository/repository.d`, re-exported
+by `import dosierskanilo.repository`, remains the SQLite compatibility facade
+for initialization/discovery, normalized queries, JSON transfer, and synchronous
+convenience methods for scan, metadata, and analysis. The shared
+`runOperation()` API handles explicit SQLite and JSON targets for
+scan/metadata/analysis through the same backend selection.
+
+Do not claim generic SQL-database support yet: assess which transaction,
+keyset-query, migration, and binary-type capabilities another SQL engine would
+need before adding one. The staged design is tracked as WP-13 in
 `SQLITE-IMPLEMENTATION-PLAN.md`.
 
 Schema v3 stored `archive_entries` as metadata children of a container blob and
 linked deeply fingerprinted members to ordinary content blobs. Schema v4
-replaces that archive-specific relation with virtual `file_refs`; the migration
-is documented in `SQLITE-IMPLEMENTATION-PLAN.md`.
+replaced that archive-specific relation with virtual `file_refs`, and schema v5
+adds the generated `is_virtual` classification column; the migrations are
+documented in `SQLITE-IMPLEMENTATION-PLAN.md`.
 
 ## API and Package Versioning
 
@@ -302,11 +302,11 @@ The detailed, checkable work breakdown is maintained in
 3. Implement JSON import into the normalized current-state schema.
 4. Implement repository scanning without materializing the complete catalog.
 5. Implement JSON export and filtered relationship-closure export.
-6. Add typed query methods for the future GUI.
+6. Add typed query methods for the GUI.
 7. Add CLI commands for repository discovery, initialization and scanning.
 8. Add compatibility tests for JSON round trips and database migrations.
 
-These phases record the SQLite rollout sequence and are complete. WP-13.1 through
-WP-13.5.3 add the storage-neutral API, JSON v5 and SQLite schema v4. The shared
-extraction cache and GTK archive navigation remain follow-up work; JSON v0-v4
-remain readable compatibility inputs.
+These phases record the SQLite rollout sequence and are complete. WP-13.1
+through WP-13.6 add the storage-neutral API, JSON v5, SQLite schema v5, the
+shared extraction cache, and GUI archive navigation. JSON v0-v4 remain readable
+compatibility inputs.

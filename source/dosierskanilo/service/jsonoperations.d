@@ -1,4 +1,10 @@
-/** Controlled operations over explicit JSON catalogs. */
+/** Controlled scan, metadata, analysis, and persistence operations for explicit
+ * JSON catalogs.
+ *
+ * Authors: Carsten Schlote, schlote@vahanus.net
+ * Copyright: Carsten Schlote, licensed under GPL-3.0-only
+ * License: GPL-3.0-only
+ */
 module dosierskanilo.service.jsonoperations;
 
 import std.algorithm.searching : startsWith;
@@ -28,47 +34,47 @@ import dosierskanilo.repository.types : AnalysisSummary, MetadataScanOptions,
 import dosierskanilo.service.storageio : CatalogWriteException,
     writeCatalogJsonFile, writeStorageJsonFile;
 
-/** Execute a JSON scan and optional metadata phase before committing the file. */
+/** Detached result of loading, scanning and enriching a JSON catalog. */
 struct JsonScanExecutionResult
 {
-    NamedBinaryBlobCatalog catalog;
-    ScanSummary scanSummary;
-    MetadataSummary metadataSummary;
-    AnalysisSummary analysisSummary;
-    bool cancelled;
+    NamedBinaryBlobCatalog catalog; ///< Updated catalog, or the input on cancellation.
+    ScanSummary scanSummary; ///< Filesystem scan counters.
+    MetadataSummary metadataSummary; ///< Scan-time metadata counters.
+    AnalysisSummary analysisSummary; ///< Duplicate-merge counters.
+    bool cancelled; ///< True when cooperative cancellation stopped the run.
 }
 
-/** Execute JSON metadata extraction without writing the catalog. */
+/** Metadata-only result for an in-memory JSON catalog. */
 struct JsonMetadataExecutionResult
 {
-    MetadataSummary summary;
-    bool cancelled;
+    MetadataSummary summary; ///< Metadata counters.
+    bool cancelled; ///< True when cooperative cancellation stopped the run.
 }
 
-/** Execute JSON analysis after any selected metadata jobs. */
+/** Detached result of loading and analyzing a JSON catalog. */
 struct JsonAnalysisExecutionResult
 {
-    NamedBinaryBlobCatalog catalog;
-    MetadataSummary metadataSummary;
-    AnalysisSummary analysisSummary;
-    bool cancelled;
+    NamedBinaryBlobCatalog catalog; ///< Updated catalog, or the input on cancellation.
+    MetadataSummary metadataSummary; ///< Optional pre-analysis metadata counters.
+    AnalysisSummary analysisSummary; ///< Duplicate/missing-file analysis counters.
+    bool cancelled; ///< True when cooperative cancellation stopped the run.
 }
 
 /** Summaries of one scan applied directly to an in-memory catalog. */
 struct JsonScanApplication
 {
-    ScanSummary scanSummary;
-    MetadataSummary metadataSummary;
-    AnalysisSummary analysisSummary;
-    bool cancelled;
+    ScanSummary scanSummary; ///< Filesystem scan counters.
+    MetadataSummary metadataSummary; ///< Scan-time metadata counters.
+    AnalysisSummary analysisSummary; ///< Duplicate-merge counters.
+    bool cancelled; ///< True when cooperative cancellation stopped the run.
 }
 
 /** Summaries of one analysis applied directly to an in-memory catalog. */
 struct JsonAnalysisApplication
 {
-    MetadataSummary metadataSummary;
-    AnalysisSummary analysisSummary;
-    bool cancelled;
+    MetadataSummary metadataSummary; ///< Optional pre-analysis metadata counters.
+    AnalysisSummary analysisSummary; ///< Duplicate/missing-file analysis counters.
+    bool cancelled; ///< True when cooperative cancellation stopped the run.
 }
 
 /** Scan a filesystem into an already loaded catalog without writing it. */

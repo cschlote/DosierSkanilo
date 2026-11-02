@@ -1287,9 +1287,12 @@ NamedBinaryBlob[] deserializeDataClassJsonString(const string serializedData)
  *
  * Params:
  *   fileName = the name of JSON file to read.
- *   verbose = enable verbose logging
+ *   progressCallBack = optional callback for deserialization progress.
  * Returns:
- *   wrapper with deserialized NamedBinaryBlob data and metadata, or an empty wrapper when file is missing
+ *   wrapper with deserialized NamedBinaryBlob data and metadata, or an empty
+ *   wrapper when the file is missing.
+ * Throws:
+ *   `CatalogFormatException` for unsupported versions or malformed catalog data.
  */
 NamedBinaryBlobCatalog deserializeDataClassJsonWrapperFile(string fileName,
 	ProgressCallBack* progressCallBack = null)
@@ -1331,9 +1334,13 @@ unittest
  *
  * Params:
  *   fileName = the name of JSON file to read.
- *   verbose = enable verbose logging
+ *   verbose = retained for source compatibility; logging is controlled by
+ *     `dosierskanilo.logging`.
  * Returns:
- *   array of deserialized NamedBinaryBlob objects, or empty array when file is missing
+ *   array of deserialized NamedBinaryBlob objects, or an empty array when the
+ *   file is missing.
+ * Throws:
+ *   `CatalogFormatException` for unsupported versions or malformed catalog data.
  */
 NamedBinaryBlob[] deserializeDataClassJsonFile(string fileName, bool verbose = false)
 {
@@ -1516,7 +1523,15 @@ private NamedBinaryBlob[] fixupDataClassArrayOutV5(
 	return dataArray;
 }
 
-/** Promote a deserialized version-0..5 catalog to the canonical JSON-v5 model. */
+/** Promote a deserialized version 2..5 catalog to the canonical JSON-v5 model.
+ *
+ * Version 1 is normalized during deserialization. Unsupported versions throw.
+ *
+ * Params:
+ *   wrapper = catalog to normalize in place.
+ * Throws:
+ *   `Exception` when `wrapper.dataVersion` is outside 2..5.
+ */
 void upgradeDataClassCatalogToV5(ref NamedBinaryBlobCatalog wrapper)
 {
 	if (wrapper.dataVersion < DATA_CLASS_VERSION2
@@ -1527,13 +1542,19 @@ void upgradeDataClassCatalogToV5(ref NamedBinaryBlobCatalog wrapper)
 	wrapper.dataVersion = DATA_CLASS_VERSION5;
 }
 
-/** Serialize the wrapper object into a JSON file.
+/** Normalize and serialize a catalog as a JSON-v5 file.
  *
- * Store the wrapper data in a JSON file.
+ * The wrapper is promoted to version 5, runtime metadata is refreshed, and
+ * records are sorted and deduplicated before streaming. The passed wrapper is
+ * mutated: `dataVersion` becomes 5 and `dataArray` reflects the normalized
+ * records.
+ *
  * Params:
- *   fileName = The filename for the JSON
- *   wrapper = Wrapper object to serialize
- *   pretty = Indent the serialized JSON for human reading
+ *   fileName = destination JSON file.
+ *   wrapper = catalog to normalize and write.
+ *   pretty = indent the serialized JSON for human reading.
+ * Throws:
+ *   `Exception` for unsupported catalog versions or serialization failures.
  */
 void serializeDataClassWrapperFile(string fileName, ref NamedBinaryBlobCatalog wrapper,
 	bool pretty = false)
@@ -2054,17 +2075,7 @@ unittest
 	assert(dco.mediaInfoSig, "No MediaInfo was set.");
 }
 
-/** Get the contents of an archive file
- *
- * This code is called for a unique binary blob. So the MediaInfo MUST be
- * identical.
- *
- * Params:
- *   obj = NamedBinaryBlob object to update
- *   rescan = force rescan even if info exists
- *   gotCtrlC = shared bool pointer to check for Ctrl-C interrupt
- *   progressCallBack = callback function to report progress
- */
+/** Build the cache identity for one archive container. */
 private string archiveCacheIdentity(NamedBinaryBlob blob,
 	string physicalPath, string displayPath)
 {
@@ -2078,6 +2089,31 @@ private string archiveCacheIdentity(NamedBinaryBlob blob,
 		~ "\0" ~ blob.fileSize.to!string ~ "\0" ~ blob.getFirstFileModDate;
 }
 
+/** Index archive members and optionally inspect them deeply.
+ *
+ * The blob must describe one archive file. Shallow indexing records member
+ * names; deep indexing extracts each safe member through the leased member
+ * cache to collect size, checksums, file type, and MediaInfo. Nested archives
+ * are indexed recursively up to `maxDepth`.
+ *
+ * Params:
+ *   obj = archive blob to update in place.
+ *   rescan = force a fresh index even when archive metadata exists.
+ *   deep = extract members for checksums and detailed metadata.
+ *   gotCtrlC = optional cooperative cancellation flag.
+ *   progressCallBack = optional progress callback.
+ *   passwordCallback = optional callback for encrypted archives.
+ *   depth = current nesting depth (zero for the outer archive).
+ *   maxDepth = maximum nested archive depth.
+ *   displayArchivePath = canonical virtual path of this container when nested.
+ *   memberCache = shared member-content cache; a process default is used when null.
+ *   inspectMemberFileType = run file-type detection on extracted members.
+ *   inspectMemberMediaInfo = extract MediaInfo signatures for members.
+ * Throws:
+ *   `ArchivePasswordRequiredException`/`ArchivePasswordCancelledException` when
+ *   a password is needed and cannot be supplied, or extraction errors that are
+ *   not recoverable for a duplicate occurrence.
+ */
 void updateArchives(NamedBinaryBlob obj,
 	bool rescan = false,
 	bool deep = true,

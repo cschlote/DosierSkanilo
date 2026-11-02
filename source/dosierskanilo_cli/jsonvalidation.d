@@ -1,4 +1,9 @@
-/** Validation rules for the explicit direct JSON CLI workflow. */
+/** Validation rules for the explicit direct JSON CLI workflow.
+ *
+ * Authors: Carsten Schlote, schlote@vahanus.net
+ * Copyright: Carsten Schlote, licensed under GPL-3.0-only
+ * License: GPL-3.0-only
+ */
 module dosierskanilo_cli.jsonvalidation;
 
 import std.file : exists, isDir, isFile, remove, tempDir, write;

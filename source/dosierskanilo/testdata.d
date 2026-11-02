@@ -1,4 +1,9 @@
-/** Deterministic synthetic catalog data shared by tests and the fixture CLI. */
+/** Deterministic synthetic catalog data shared by tests and the fixture CLI.
+ *
+ * Authors: Carsten Schlote, schlote@vahanus.net
+ * Copyright: Carsten Schlote, licensed under GPL-3.0-only
+ * License: GPL-3.0-only
+ */
 module dosierskanilo.testdata;
 
 import core.sync.condition : Condition;

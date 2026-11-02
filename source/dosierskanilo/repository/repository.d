@@ -1,4 +1,9 @@
-/** Persistent repository access for DosierSkanilo. */
+/** Persistent repository access for DosierSkanilo.
+ *
+ * Authors: Carsten Schlote, schlote@vahanus.net
+ * Copyright: Carsten Schlote, licensed under GPL-3.0-only
+ * License: GPL-3.0-only
+ */
 module dosierskanilo.repository.repository;
 
 import d2sqlite3;
@@ -132,7 +137,20 @@ private:
     }
 
 public:
-    /** Initialize or open a repository rooted at `rootPath`. */
+    /**
+     * Initialize or open a repository rooted at `rootPath`.
+     *
+     * Creates `.dosierskanilo/{logs,exports,backups}` below an existing root.
+     *
+     * Params:
+     *   rootPath = existing directory to use as the repository root.
+     *   options = repository/version options.
+     * Returns:
+     *   An open repository handle.
+     * Throws:
+     *   `RepositoryException` when the root does not exist or contains an
+     *   incompatible repository.
+     */
     static Repository initialize(string rootPath,
         RepositoryOptions options = RepositoryOptions())
     {

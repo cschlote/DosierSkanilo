@@ -16,8 +16,8 @@ import std.format : format;
 /** Basic contents description nested under the archive's `NamedBinaryBlob`.
  *
  * This type stores entry path, size, modification time, and optional checksums.
- * It does not itself have a content-blob identity or source locator; promotion
- * of archive members into the normal catalog model is planned in WP-13.5.
+ * It has no content-blob identity or source locator of its own; v5 promotion
+ * converts these trees into ordinary virtual `FileSpec` references.
  */
 class ArchiveSpec
 {
@@ -27,12 +27,13 @@ class ArchiveSpec
 	/* public serialized members */
 	@jsonize
 	{
-		string fileName;
-		size_t fileSize;
-		string timeLastModified;
+		string fileName; ///< Path of the entry inside the archive.
+		size_t fileSize; ///< Uncompressed member size when known.
+		string timeLastModified; ///< Member timestamp when supplied by the format.
 	}
- @jsonize(JsonizeIn.opt, JsonizeOut.opt)
- CheckSums checkSums;
+    /// Member digests when deep inspection ran.
+    @jsonize(JsonizeIn.opt, JsonizeOut.opt)
+    CheckSums checkSums;
     /** Version-4 recursive index of this member when it is itself an archive. */
     @jsonize(JsonizeIn.opt, JsonizeOut.opt)
     ArchiveSpec[] nestedEntries;
@@ -41,19 +42,20 @@ class ArchiveSpec
     string archivePassword;
 
     /** Scraped member metadata held in-memory until v5 promotion. */
-    string fileType;
-    MediaInfoSig mediaInfoSig;
+    string fileType; ///< File-type signature for the extracted member.
+    MediaInfoSig mediaInfoSig; ///< MediaInfo streams for the extracted member.
 
     /** Adapter-only identity data; never serialized in JSON catalogs. */
     @jsonize(JsonizeIn.no, JsonizeOut.no)
     {
-        size_t entryIndex;
-        size_t occurrence;
-        bool hasIndexIdentity;
-        long contentBlobId;
-        string contentIdentity;
+        size_t entryIndex; ///< Position in the container's ordered entry index.
+        size_t occurrence; ///< Zero-based occurrence among duplicate names.
+        bool hasIndexIdentity; ///< True when `entryIndex`/`occurrence` are authoritative.
+        long contentBlobId; ///< Linked content blob ID when deep inspection copied one.
+        string contentIdentity; ///< Adapter-private content identity token.
     }
 
+	/// Construct an empty archive-entry descriptor.
 	this()
 	{
 		fileName = "";
@@ -64,6 +66,7 @@ class ArchiveSpec
 		archivePassword = "";
 	}
 
+	/// Construct an entry with a stored modification timestamp.
 	this(string fn, size_t fsize, string modtime, CheckSums sums)
 	{
 		fileName = fn;
@@ -78,6 +81,7 @@ class ArchiveSpec
 	import core.stdcpp.array;
 	import std.experimental.allocator.building_blocks.fallback_allocator;
 
+	/// Construct an entry from a `SysTime` modification timestamp.
 	this(string fn, size_t fsize, SysTime modtime, CheckSums sums)
 	{
 		fileName = fn;

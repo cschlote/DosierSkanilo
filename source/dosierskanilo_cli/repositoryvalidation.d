@@ -1,4 +1,9 @@
-/** Validation rules for SQLite repository CLI commands. */
+/** Validation rules for SQLite repository CLI commands.
+ *
+ * Authors: Carsten Schlote, schlote@vahanus.net
+ * Copyright: Carsten Schlote, licensed under GPL-3.0-only
+ * License: GPL-3.0-only
+ */
 module dosierskanilo_cli.repositoryvalidation;
 
 import std.file : exists, isDir, remove, tempDir, write;

@@ -69,7 +69,7 @@ Operation requests, cancellation, leases, and committed-state refresh stay
 covered by the WP-09 evidence above; the GUI now consumes the same catalog
 methods for trees, content rows, details, entries, and previews.
 
-## Remaining verification
+## Verification evidence
 
 - The GUI CI now runs an Xvfb-backed display job (`scripts/test-display.sh`):
   the unit suite with the display-gated virtual-table scroll test plus GUI

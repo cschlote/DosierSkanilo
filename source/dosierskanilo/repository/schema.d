@@ -1,4 +1,9 @@
-/** Internal SQLite schema and migration handling. */
+/** Internal SQLite schema (currently version 5) and idempotent migrations.
+ *
+ * Authors: Carsten Schlote, schlote@vahanus.net
+ * Copyright: Carsten Schlote, licensed under GPL-3.0-only
+ * License: GPL-3.0-only
+ */
 module dosierskanilo.repository.schema;
 
 import d2sqlite3;
@@ -166,7 +171,14 @@ CREATE INDEX IF NOT EXISTS idx_archive_entries_blob
     ON archive_entries(blob_id);
 SQL";
 
-/** Apply all schema migrations required by the current library. */
+/** Apply all schema migrations required by the current library.
+ *
+ * Params:
+ *   db = open repository database.
+ *   now = ISO timestamp stored in migration rows.
+ * Throws:
+ *   `RepositoryException` when the database schema is newer than this library.
+ */
 void migrate(ref Database db, string now)
 {
     db.execute("PRAGMA foreign_keys = ON");

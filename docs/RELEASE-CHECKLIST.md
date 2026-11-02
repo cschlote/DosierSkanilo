@@ -18,7 +18,10 @@ released from the same integration branch and each tag is prefixed with `v`.
 - [ ] GUI display suite: `./scripts/test-display.sh` (Xvfb) — unit suite with
       display-gated tests, JSON/repository self-tests, splitter/video-sink checks,
       and the 95,001-record JSON/SQLite smoke loads.
-- [ ] `./scripts/benchmark-filters.sh 1000 10000 100000` reviewed for regressions.
+- [ ] GUI: `./scripts/benchmark-filters.sh 1000 10000 100000` reviewed for
+      regressions.
+- [ ] Backend: `./scripts/benchmark-storage.sh ./test/json_file_v2.json 3`
+      reviewed for storage regressions.
 
 ## Manual verification
 

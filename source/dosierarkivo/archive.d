@@ -167,8 +167,8 @@ struct ArchiveVirtualPathLayer
 /** Physical container path followed by zero or more archive-member layers. */
 struct ParsedArchiveVirtualPath
 {
-    string physicalPath;
-    ArchiveVirtualPathLayer[] entries;
+    string physicalPath; /// Physical container path after decoding escapes.
+    ArchiveVirtualPathLayer[] entries; /// Decoded archive layers, outermost first.
 
     @property bool isVirtual() const @safe
     {

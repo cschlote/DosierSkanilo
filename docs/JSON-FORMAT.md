@@ -2,7 +2,7 @@
 
 This document describes the JSON formats used by DosierSkanilo for import and
 export. The current writer emits version 5. Readers continue to accept JSON
-versions 0-4 and legacy root arrays.
+versions 0-5 plus legacy root arrays.
 
 The CLI writes compact JSON by default. Pass `--pretty` to indent saved
 catalogs for human reading; compact and pretty output carry the same data.
@@ -136,16 +136,16 @@ record. The JSON adapter derives source-scoped member references and content IDs
 from deep checksums for the lifetime of an open catalog. Version 4 can additionally
 persist nested entry metadata; runtime reference identities are rebuilt on open.
 The backend projects virtual member references through the common catalog API
-and uses a session-scoped extraction cache for deep scraping. The expandable GTK
-archive TreeView and previewer integration with that cache remain planned under
-WP-13.5 and the GUI archive workflow plan.
+and uses a session-scoped extraction cache for deep scraping. The GTK archive
+tree expands those references lazily, and the previewer extracts selected
+members through the same leased cache service.
 
 The current shallow archive scan records entry names only; size, timestamp and
 checksums are populated by deep scanning, which extracts entries to temporary
 files. An `ArchiveSpec` with zero/empty values can therefore mean “listed but not
 deeply inspected,” not necessarily an empty member. Typed archive descriptors
 report safe normalized paths and duplicate occurrence. V5 stores the empty-index
-state and shallow/deep completion explicitly; SQLite schema v4 stores that state
+state and shallow/deep completion explicitly; SQLite schema v5 stores that state
 in `metadata_status`.
 
 ## Version 4: Nested Archive Entries
@@ -154,7 +154,7 @@ Version 4 keeps the version-3 root object and record fields. An `ArchiveSpec` ma
 add an optional `nestedEntries` array whose elements use the same entry shape,
 recursively describing a member that is itself an archive.
 
-- Readers accept versions 1-4 and legacy root arrays.
+- Readers accept versions 1-5 and legacy root arrays.
 - Version 4 is retained as an input-compatibility shape; current writers emit
   version 5.
 - Version-4 nested `ArchiveSpec` trees are promoted to virtual `FileSpec`
@@ -182,6 +182,12 @@ one or more virtual `FileSpec.fileName` references. The path grammar is:
 In v5, `FileSpec.fileName` uses this escaping for all path components, including
 physical paths that contain `!`. Readers decode each path layer before resolving
 physical paths; virtual layers are resolved through the archive-member chain.
+
+Older writers sometimes escaped an entire member path twice, producing
+`container!!/member`. The JSON backend accepts that compatibility form and folds
+it back into the archive reference when the decoded physical path does not exist
+as a literal directory. If both forms are present, the duplicate member
+reference with the real size or a complete fingerprint wins.
 
 For example, a scanned member can be represented as an ordinary blob record:
 
@@ -213,7 +219,7 @@ accepting v0-v4; importing a v4 nested `ArchiveSpec` tree converts it to normal
 member blob records and virtual references, carrying forward entry checksums,
 nested archive passwords, and nested member references. The optional
 `archiveIndexKnown` and `archiveIndexDeep` fields retain empty-index and scan-depth
-state when no `ArchiveSpec` list is written. SQLite schema v4 stores virtual
+state when no `ArchiveSpec` list is written. SQLite schema v5 stores virtual
 members as normal `file_refs`, keeps their physical `directory_id`, and moves
 index state to `metadata_status`; the schema contains no archive-entry/index
 tables. Deep checksums are emitted for duplicate-name members only when the
@@ -230,9 +236,9 @@ The current JSON writer outputs these `torrentInfo` fields:
 
 The in-memory `TorrentInfo` model also contains `isMultiFile`, `files`,
 `infoHashHex`, `announce`, `pieceLength` and `piecesCount`. These fields are
-currently marked as input-only and are not written to the version-3 JSON
-format. A future extended JSON version must be introduced before these fields
-can be exported without information loss.
+currently marked as input-only and are not written by the current JSON v5
+writer. A later JSON version must be introduced before these fields can be
+exported without information loss.
 
 ## Versions and Migration
 
@@ -240,7 +246,7 @@ The reader supports the following historical forms:
 
 - A legacy root-level JSON array without a wrapper object.
 - Version 1 wrapper data with legacy scalar filename and checksum fields.
-- Version 2 and version 3 wrapper data.
+- Version 2, version 3, version 4 and version 5 wrapper data.
 - Legacy fields such as `fileNames`, `mediaInfo`, `md5sum_b64`, `sha1sum_b64`
   and `xxh64sum_b64` inside a record.
 
@@ -250,7 +256,8 @@ During input migration:
 2. Legacy checksum fields are copied into `checkSums`.
 3. Legacy textual MediaInfo is parsed into `mediaInfoSig`.
 4. Invalid empty torrent and media records are removed.
-5. The in-memory catalog is normalized to version 3.
+5. The input version is retained in memory; saving or importing promotes the
+   catalog to version 5.
 
 JSON analysis retains records whose source files are currently unavailable by
 default. `dropMissing` is the explicit opt-in to remove them. Duplicate-merge
@@ -261,9 +268,9 @@ During output migration:
 
 1. Records are sorted by their first path.
 2. Duplicate path records are reduced to one record.
-3. A single path uses `fileName` and `timeLastModified`.
-4. Multiple paths use `fileSpecs`.
-5. Legacy fields are cleared before serialization.
+3. Every record is written with `fileSpecs`, including a single reference.
+4. Legacy `fileName`/`timeLastModified` fields are accepted only as input and
+   are cleared before serialization.
 
 The relevant implementation is in
 `source/dosierskanilo/model/namedbinaryblob.d`, especially
@@ -277,9 +284,10 @@ relational model. JSON export must construct the required relationship closure:
 a filtered export must include each selected file reference together with its
 referenced binary record and selected metadata.
 
-The existing version-3 writer remains available for compatibility. If SQLite
-stores fields that version 3 cannot represent, an extended JSON version must
-be added rather than silently dropping those fields.
+All current exports write JSON v5. The version-3 and version-4 format selectors
+remain source-compatible but are rejected as output formats. If SQLite stores
+fields that v5 cannot represent, a later JSON version must be added rather than
+silently dropping those fields.
 
 ## Writing and recovery
 

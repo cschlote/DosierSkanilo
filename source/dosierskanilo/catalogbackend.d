@@ -1,4 +1,9 @@
-/** Storage-neutral catalog query and operation contract. */
+/** Storage-neutral catalog query and operation contract.
+ *
+ * Authors: Carsten Schlote, schlote@vahanus.net
+ * Copyright: Carsten Schlote, licensed under GPL-3.0-only
+ * License: GPL-3.0-only
+ */
 module dosierskanilo.catalogbackend;
 
 import std.algorithm.searching : canFind;
@@ -552,7 +557,13 @@ struct CatalogDetailMask
     bool torrentSummary; /// Include torrent manifest summary.
 }
 
-/** Current archive metadata view. First-class content references arrive in WP-13.5. */
+/**
+ * One archive-index row in the current catalog model.
+ *
+ * `contentId` is set when deep inspection linked the member to a content
+ * record. Locatable members are exposed through `CatalogArchiveMember`; this
+ * struct is the index/metadata view used for paged archive listings.
+ */
 struct CatalogArchiveEntry
 {
     ArchiveEntryId id; /// Distinguishes duplicate-name occurrences.
@@ -655,7 +666,6 @@ struct CatalogSourceInfo
     string displayName; /// Human-facing source label; not an ID.
 }
 
-/** Optional behavior and call concurrency supported by one source implementation. */
 /** Persistence model exposed by one catalog backend. */
 enum CatalogPersistence
 {
@@ -663,6 +673,7 @@ enum CatalogPersistence
     transactionalStore ///< Operations commit directly in the storage backend.
 }
 
+/** Optional behavior and call concurrency supported by one source implementation. */
 struct CatalogBackendCapabilities
 {
     OperationKind[] operations; /// Operations accepted by this source.
@@ -690,16 +701,16 @@ struct CatalogBackendCapabilities
 /** Stable failure categories for opening/querying a backend contract. */
 enum CatalogBackendErrorCode
 {
-    invalidTarget,
-    invalidIdentifier,
-    invalidLocator,
-    invalidCursor,
-    unsupportedOperation,
-    unsupportedFeature,
-    closed,
-    backendFailure,
-    writeConflict,
-    cancelled
+    invalidTarget, ///< The target shape or source does not match the request.
+    invalidIdentifier, ///< An unknown or foreign typed identity was supplied.
+    invalidLocator, ///< A locator is malformed or not safe to resolve.
+    invalidCursor, ///< A cursor belongs to another source, query, or page size.
+    unsupportedOperation, ///< The adapter does not accept this operation kind.
+    unsupportedFeature, ///< The feature is not available for this source.
+    closed, ///< The backend or document session was already closed.
+    backendFailure, ///< Storage/adapter work failed; see the message.
+    writeConflict, ///< The stored source changed after it was loaded.
+    cancelled ///< Cooperative cancellation stopped the work.
 }
 
 /** Typed error for catalog contract/open/query failures. */
@@ -722,6 +733,9 @@ class CatalogBackendException : Exception
  * Applying an operation changes the document buffer and marks it modified;
  * `save` persists the buffer, `discard` reloads from storage. Stored vs.
  * in-memory mutations stay separate from transactional stores.
+ *
+ * Document sessions are intended for interactive edit/save workflows. Use the
+ * batch operation API when a dry-run preview must leave the document untouched.
  */
 interface CatalogDocument
 {
@@ -745,13 +759,30 @@ interface CatalogDocument
     OperationResult applyAnalysis(AnalysisOperationRequest request,
         OperationControl control);
 
-    /// Persist the document buffer; throws a typed error on failure or conflict.
+    /**
+     * Persist the in-memory buffer when the document is modified.
+     *
+     * Params:
+     *   pretty = indent the serialized catalog for human reading.
+     * Throws: `CatalogBackendException` with `writeConflict` when the stored
+     *     file changed after loading, or `CatalogWriteException` when the
+     *     streaming write and its recovery fallback both fail.
+     */
     void save(bool pretty = false);
 
-    /// Discard in-memory changes and reload the stored catalog.
+    /**
+     * Discard unsaved changes and reload the stored catalog.
+     *
+     * Throws: `CatalogBackendException` with `backendFailure` when the stored
+     *     catalog cannot be reloaded. The session stays open.
+     */
     void discard();
 
-    /// Release the document session after operations have finished.
+    /**
+     * Mark the session closed without saving or discarding.
+     *
+     * Later document calls throw `CatalogBackendException` with `closed`.
+     */
     void close();
 }
 
@@ -775,7 +806,12 @@ interface CatalogBackend
     /** Supported operations/features; unsupported behavior is never inferred. */
     CatalogBackendCapabilities capabilities();
 
-    /** Open the in-memory document view; unsupported for transactional stores. */
+    /**
+     * Open the in-memory document view.
+     *
+     * Throws: `CatalogBackendException` with `unsupportedFeature` for
+     *     transactional stores or when the adapter has no document session.
+     */
     CatalogDocument document();
 
     /** Return bounded aggregates for the source root under the shared filter. */
@@ -964,8 +1000,11 @@ interface CatalogBackend
 interface CatalogBackendFactory
 {
     /**
-     * Open exactly this target or throw a typed target/open error. JSON targets
-     * may omit the filesystem root when they are used only for analysis.
+     * Open exactly this target or throw a typed target/open error.
+     *
+     * JSON targets may omit the filesystem root for analysis-only use. Rooted
+     * tree queries and scans require a root at open time or a later call to
+     * `CatalogDocument.bindFilesystemRoot`.
      */
     CatalogBackend open(OperationTarget target);
 }

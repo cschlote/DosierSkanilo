@@ -1,4 +1,6 @@
-/** Data Scanner
+/** Filesystem scanning and scanner-job orchestration for the JSON catalog
+ * pipeline.
+ *
  * Authors: Carsten Schlote, schlote@vahanus.net
  * Copyright: Carsten Schlote, licensed under GPL-3.0-only
  * License: GPL-3.0-only
@@ -32,17 +34,19 @@ import dosierskanilo.progress;
  *  Try to find an existing NamedBinaryBlob object in the dynamic array, or
  *  create a container object and add it to the dynamic Array.
  *
- *  Files are updated in-place when only metadata changes; otherwise a new blob
- *  node is created so history is preserved for multi-file entries.
+ *  Single-FileSpec blobs are updated in place when size or modification time
+ *  changes; multi-FileSpec blobs split out a new blob so the other references
+ *  keep their history.
  *
  * Params:
  *   scanPath = path to directory for the scan.
  *   pickHidden = if true, hidden files and directories are also scanned.
  *   dynObjectArray = database objects collected so far.
- *   gotCtrlC = shared abort flag set by the signal handler.
+ *   gotCtrlC = shared abort flag; currently accepted for API compatibility and
+ *     polled later by the scanner jobs, not during this walk.
  *   argsArray = parsed command-line options.
  * Returns:
- *   `true` if the scan completed.
+ *   `true` if the walk completed.
  */
 bool scanDirTree(string scanPath, bool pickHidden = false, ref NamedBinaryBlob[] dynObjectArray, ref shared(
         bool) gotCtrlC, ref ArgsArray argsArray)

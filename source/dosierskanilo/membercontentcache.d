@@ -1,4 +1,9 @@
-/** Session-scoped, leased cache for extracted archive member bytes. */
+/** Session-scoped, leased cache for extracted archive member bytes.
+ *
+ * Authors: Carsten Schlote, schlote@vahanus.net
+ * Copyright: Carsten Schlote, licensed under GPL-3.0-only
+ * License: GPL-3.0-only
+ */
 module dosierskanilo.membercontentcache;
 
 import core.atomic : atomicLoad;
@@ -106,6 +111,7 @@ private:
     }
 
 public:
+    /// Filesystem path to the pinned materialized file, valid until `release()`.
     @property string path() const
     {
         return cachedPath;
@@ -188,7 +194,30 @@ public:
         mkdirRecurse(sessionRoot);
     }
 
-    /** Acquire or materialize bytes for one archive-entry locator. */
+    /**
+     * Acquire or materialize bytes for one archive-entry locator.
+     *
+     * The cache is single-flight per identity: concurrent callers share one
+     * materialization. The returned lease pins the file until `release()`.
+     *
+     * Params:
+     *   locator = structured container/entry location.
+     *   contentId = known content identity, or an invalid ID when unknown.
+     *   fallbackIdentity = stable cache key used before content identity exists.
+     *   memberPath = normalized safe member path inside the cache directory.
+     *   expectedSize = expected member size in bytes; zero when unknown.
+     *   materialize = callback that writes the member below the supplied
+     *     destination directory.
+     *   cancellation = optional cooperative cancellation flag.
+     * Returns:
+     *   A lease the caller must release before closing the cache.
+     * Throws:
+     *   `MemberContentCacheException` for invalid paths or materialization
+     *   failures, `MemberContentNotExtractableException` when the member cannot
+     *   be materialized, `MemberContentCacheCapacityException` when the byte
+     *   limit would be exceeded, `MemberContentCacheClosedException` after
+     *   `close()`, and `MemberContentCancelledException` on cancellation.
+     */
     MemberContentLease acquire(ContentLocator locator, ContentId contentId,
         string fallbackIdentity, string memberPath, ulong expectedSize,
         MemberContentMaterializer materialize, shared(bool)* cancellation = null)

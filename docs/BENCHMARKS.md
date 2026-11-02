@@ -30,7 +30,8 @@ boundary. They are not representative of a paginated GUI query.
 - 100,000 records: JSON `1.76 s`/`219 MB`; SQLite import `2.93 s`/`240 MB`;
   export `2.43 s`/`240 MB`.
 
-The full JSON and full export paths still materialize the complete domain model.
+Full JSON loads and repository exports still materialize the complete domain
+model; catalog writes now stream records with memory bounded by one record.
 SQLite becomes advantageous for the intended GUI path because repository page
 queries apply filters and `LIMIT/OFFSET` before domain objects are created.
 

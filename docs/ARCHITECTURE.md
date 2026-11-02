@@ -1,8 +1,9 @@
 # Architecture and Data Model
 
-This document describes the current `DosierSkanilo` architecture, the intended
-storage-neutral catalog API, and the blob-centric data model. It distinguishes
-implemented classes from the next API layer to design.
+This document describes the current `DosierSkanilo` architecture, the
+storage-neutral catalog API, and the blob-centric data model. It separates the
+implemented catalog contract from compatibility facades and remaining
+follow-up work.
 
 ## 1. High-Level Workflow
 
@@ -22,7 +23,7 @@ flowchart TD
     C -.-> R
 ```
 
-## 1.1 Current API Boundary and Target
+## 1.1 Current API Boundary
 
 The domain vocabulary is content-centric: one `NamedBinaryBlob` describes one
 binary payload; one or more `FileSpec` values identify filesystem paths that
@@ -40,13 +41,13 @@ refer to that payload. `CheckSums`, `MediaInfoSig`, `ArchiveSpec`, and
   compatibility API. It owns lifecycle, relational queries, scan/metadata/
   analysis wrappers, and JSON transfer. `d2sqlite3` remains internal.
 - JSON persistence is implemented by the wrapper serializer in
-  `model/namedbinaryblob.d` and JSON services in `service/`. The new
-  `runOperation()` dispatcher selects the JSON or repository executor from an
-  explicit `OperationTarget`; it remains the operation facade rather than the
-  query/read backend itself.
-- The GUI's `DirectorySource` currently adapts JSON projections and public
-  `Repository` DTO/query methods. This abstraction is GUI-owned rather than a
-  backend public base class.
+  `model/namedbinaryblob.d` and JSON services in `service/`.
+  `runOperation()` selects the JSON or repository executor from an explicit
+  `OperationTarget`; it remains the operation facade rather than the query/read
+  backend itself.
+- The GUI's `CatalogDirectorySource` adapts `CatalogBackend` directory/file
+  queries for both JSON and repository tabs. It is GUI-owned, while the
+  `CatalogBackend` contract remains the backend public API.
 
 Long-running operations should use the same backend selection rather than
 branching in each HMI. The `CatalogBackend` contract and its adapter semantics
@@ -126,12 +127,12 @@ the same operation executors.
   storage-neutral instance lifecycle. The factory selects the implementation,
   the instance serves query and operation methods, and `close()` ends the
   backend session.
-- GUI `DirectorySource`: JSON/SQLite tree-query adapter used by GTK. Currently
-  defined in the GUI repository, not the backend public catalog API.
+- GUI `CatalogDirectorySource`: backend-neutral tree-query adapter used by GTK.
+  Defined in the GUI repository, not the backend public catalog API.
 
 ### Desired content/reference model
 
-The target model separates content identity from where content is addressable:
+The content/reference model separates content identity from where content is addressable:
 
 ```text
 Catalog -> ContentBlob (size, digest set, extracted metadata)
@@ -152,12 +153,12 @@ content, but each occurrence keeps a distinct virtual reference. Cache keys use
 content identity when known and otherwise the structured container/entry chain.
 
 `dosierarkivo.FileArchive` returns typed entry descriptors and extracts entries
-to a destination path, but extraction currently selects by member name and does
-not reliably select every duplicate occurrence. WP-13.5 will add exact-occurrence
-extraction and a shared bounded session cache. Scraping, MediaInfo, and preview
-will consume the same extracted file; cache paths will never be persisted as
-source references. Listing remains lazy and selected-entry extraction remains
-on demand.
+to a destination path. ZIP and TAR can select exact duplicate occurrences when
+their runtime tools support it; RAR and 7z cannot, so those occurrences remain
+without deep fingerprints. Scraping, MediaInfo, and preview consume the same
+shared bounded session cache; cache paths are never persisted as source
+references. Listing remains lazy and selected-entry extraction remains on
+demand.
 
 ## Layer Order for API Refinement
 
@@ -165,7 +166,7 @@ The intended dependency order is:
 
 1. **Domain values:** content identity, checksums, metadata state, physical and
    virtual references, and stable IDs independent of JSON, SQLite, or GTK.
-2. **Storage adapters:** `JsonCatalogBackend` and `SqlCatalogBackend` implement
+2. **Storage adapters:** `JsonCatalogBackend` and `SqliteCatalogBackend` implement
    the same transaction, import/export, cursor, and query contracts. SQLite is
    the only implemented SQL engine; an interface does not imply another SQL
    engine is already supported.
@@ -269,8 +270,9 @@ WP-09.1 and WP-09.1b define frontend-neutral request, progress, cancellation,
 and cooperative pause/resume contracts. Controlled SQLite/JSON executors,
 cross-process target leases, and initial CLI/GTK adapters are implemented. A
 paused operation holds no active SQLite transaction or statement; it retains
-the per-target write lease until it resumes or is cancelled. Remaining parity and
-process-level lifecycle coverage is tracked in the backend plan.
+the per-target write lease until it resumes or is cancelled. Parity evidence is
+recorded in [OPERATION-PARITY.md](OPERATION-PARITY.md); new interactive dialog
+cases remain tracked in the backend plan.
 
 Scheduling policy details:
 
@@ -322,18 +324,17 @@ The normalized SQLite repository is described in
 [DATABASE.md](DATABASE.md). JSON remains the import/export boundary rather than
 the query store for large repositories.
 
-### Shared Read API Target
+### Shared Read API
 
-JSON and SQLite should become implementations behind one read-only
-`CatalogBackend` API. The common API returns directory/file projection DTOs and
-accepts the same filter and sort state. It may expose an internal cursor with
-`nextCursor` and `hasMore`, but consumers see one logical result sequence rather
-than storage-specific pages. Stable IDs support `next` and `previous` navigation
-within the active filtered/sorted sequence. This contract is a target, not a
-claim that the public API is already polymorphic.
+JSON and SQLite are implementations behind one read-only `CatalogBackend` API.
+The common API returns directory/file projection DTOs and accepts the same
+filter and sort state. It exposes an internal cursor with `nextCursor` and
+`hasMore`, but consumers see one logical result sequence rather than
+storage-specific pages. Stable identifiers support `next` and `previous`
+navigation within the active filtered/sorted sequence.
 
-JSON may keep its complete index in memory. SQLite should use bounded keyset or
-cursor queries so large repositories do not materialize their complete catalog.
+JSON keeps its complete index in memory. SQLite uses bounded keyset or cursor
+queries so large repositories do not materialize their complete catalog.
 
 The implementation sequence is tracked in
 [SQLITE-IMPLEMENTATION-PLAN.md](SQLITE-IMPLEMENTATION-PLAN.md).
@@ -346,19 +347,16 @@ The implementation sequence is tracked in
 - Backends: `zip`, `tar`, `rar`, `7z`
 - `getEntries()` and `extractEntry()` interface
 
-`FileArchive` now returns typed entry descriptors and can extract members to a
+`FileArchive` returns typed entry descriptors and can extract members to a
 destination directory. Deep `updateArchives()` recursively indexes nested
-archives. JSON v5 and SQLite schema v4 represent safe members as ordinary
-virtual file references linked to normal content blobs. The remaining extractor
-gap is exact occurrence selection: `extractEntry()` accepts a member name, so
-adapters cannot claim deep fingerprints for duplicate-name occurrences they
-cannot select.
+archives. JSON v5 and SQLite schema v5 represent safe members as ordinary
+virtual file references linked to normal content blobs. ZIP and TAR adapters can
+select precise duplicate occurrences when their tools support it; RAR and 7z
+leave duplicate entries without deep fingerprints.
 
-The backend deep scraper now uses a shared leased extraction cache for checksums,
-file type, MediaInfo, and nested indexing. GTK preview integration remains
-follow-up work. ZIP and TAR adapters can select precise duplicate occurrences
-when their tools support it; other formats leave duplicate entries without deep
-fingerprints. The canonical spelling
+The backend deep scraper uses a shared leased extraction cache for checksums,
+file type, MediaInfo, and nested indexing. GTK archive previews use the same
+cache through the catalog backend. The canonical spelling
 uses `!/` for container transitions, `!!` for a literal exclamation mark, and
 `!~N` for duplicate occurrences; structured locators remain the identity. Cache
 paths are scratch inputs only, never durable file references; cache cleanup waits
@@ -398,9 +396,9 @@ flowchart LR
   namedbinaryblob --> dosierarkivo
 ```
 
-The future `CatalogBackend` interface belongs between `operationrunner` and the
-storage-specific `repository` / JSON implementations. It should not expose
-SQLite types or JSON serializer types.
+The `CatalogBackend` interface sits between `operationrunner` and the
+storage-specific `repository` / JSON implementations. It does not expose SQLite
+types or JSON serializer types.
 
 ## 9. Practical Implications
 

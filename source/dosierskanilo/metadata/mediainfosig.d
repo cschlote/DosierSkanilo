@@ -395,18 +395,22 @@ class MediaInfoSig
 	{
 		return videoStreams.length > 0;
 	}
+	/// True when at least one audio stream is present.
 	bool hasAudio() const
 	{
 		return audioStreams.length > 0;
 	}
+	/// True when at least one image stream is present.
 	bool hasImage() const
 	{
 		return imageStreams.length > 0;
 	}
+	/// True when at least one text/subtitle stream is present.
 	bool hasText() const
 	{
 		return textStreams.length > 0;
 	}
+	/// True when any video, audio, image, or text stream is present.
 	bool hasMedia() const
 	{
 		return hasVideo() || hasAudio() || hasImage() || hasText();
