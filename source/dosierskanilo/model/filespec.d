@@ -19,22 +19,25 @@ class FileSpec
 
 	@jsonize(JsonizeIn.opt, JsonizeOut.opt)
 	{
-		string fileName;
-		string timeLastModified;
+		string fileName; ///< Physical path or canonical virtual archive path.
+		string timeLastModified; ///< Observed modification timestamp.
 	}
 
+	/// Construct an empty reference.
 	this()
 	{
 		fileName = "";
 		timeLastModified = "";
 	}
 
+	/// Construct a reference with a stored modification timestamp.
 	this(string fn, string modtime) @safe
 	{
 		fileName = fn;
 		timeLastModified = modtime;
 	}
 
+	/// Construct a reference from a `SysTime` modification timestamp.
 	this(string fn, SysTime modtime)
 	{
 		fileName = fn;

@@ -1,4 +1,10 @@
-/** Cross-process exclusive write leases for operation targets. */
+/** Cross-process advisory leases for operation targets: exclusive writes,
+ * shared JSON reads, and short-lived catalog-replacement locks.
+ *
+ * Authors: Carsten Schlote, schlote@vahanus.net
+ * Copyright: Carsten Schlote, licensed under GPL-3.0-only
+ * License: GPL-3.0-only
+ */
 module dosierskanilo.operationlease;
 
 import std.file : mkdirRecurse, tempDir;

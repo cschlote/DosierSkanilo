@@ -1,4 +1,9 @@
-/** Command-line frontend for the deterministic synthetic test catalog generator. */
+/** Command-line frontend for the deterministic synthetic test catalog generator.
+ *
+ * Authors: Carsten Schlote, schlote@vahanus.net
+ * Copyright: Carsten Schlote, licensed under GPL-3.0-only
+ * License: GPL-3.0-only
+ */
 module dosierskanilo_testdata;
 
 import std.exception : enforce;

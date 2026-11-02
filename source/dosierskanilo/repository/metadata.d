@@ -1,4 +1,9 @@
-/** Metadata extraction against repository-managed file references. */
+/** Metadata extraction against repository-managed file references.
+ *
+ * Authors: Carsten Schlote, schlote@vahanus.net
+ * Copyright: Carsten Schlote, licensed under GPL-3.0-only
+ * License: GPL-3.0-only
+ */
 module dosierskanilo.repository.metadata;
 
 import d2sqlite3;
@@ -229,7 +234,12 @@ private void finalizeMetadataRun(ref Database db, MetadataScanOptions options,
         currentTimestamp());
 }
 
-/** Run the selected metadata jobs one blob at a time. */
+/** Run the selected metadata jobs with per-blob commits.
+ *
+ * Uses bounded parallel batches when `options.threads > 1`; otherwise processes
+ * blobs sequentially. The source version is bumped when the run completes or is
+ * cancelled so existing cursors are invalidated.
+ */
 MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
     MetadataScanOptions options)
 {

@@ -64,7 +64,7 @@ module dosierskanilo.format.byte_reader;
 
 ## Logging
 
-The current skeleton has no runtime logging layer. When one is introduced,
-messages must be concise and include file path and byte offset for parse errors.
-Milestone messages should be infrequent; detailed byte-level tracing should be
-opt-in and never the default output.
+The library and CLI share `dosierskanilo.logging`. Keep messages concise and
+include the file path and byte offset for parse errors. Milestone messages should
+be infrequent; detailed byte-level tracing should be opt-in and never the default
+output.

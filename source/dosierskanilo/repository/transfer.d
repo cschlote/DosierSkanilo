@@ -1,4 +1,10 @@
-/** JSON transfer between the normalized repository and the legacy format. */
+/** Canonical JSON-v5 import/export and read projections over the normalized
+ * repository. Legacy v0-v4 catalogs are upgraded during import.
+ *
+ * Authors: Carsten Schlote, schlote@vahanus.net
+ * Copyright: Carsten Schlote, licensed under GPL-3.0-only
+ * License: GPL-3.0-only
+ */
 module dosierskanilo.repository.transfer;
 
 import d2sqlite3;
@@ -157,7 +163,12 @@ void exportCatalogJson(ref Database db, string rootPath, string jsonFile,
     exportCatalogJsonControlled(db, rootPath, jsonFile, options, null, 0);
 }
 
-/** Export repository data with cooperative cancellation. */
+/** Export repository data with cooperative cancellation.
+ *
+ * Returns: `false` when cancellation was requested or the canonical catalog
+ *     could not be written (for example a recovery-only write). The detailed
+ *     write outcome is available through the storage layer logs.
+ */
 bool exportCatalogJsonControlled(ref Database db, string rootPath,
     string jsonFile, JsonExportOptions options, OperationControl control,
     ulong operationId)

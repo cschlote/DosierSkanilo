@@ -1,4 +1,9 @@
-/** Public value types used by the repository API. */
+/** Public value types used by the repository API.
+ *
+ * Authors: Carsten Schlote, schlote@vahanus.net
+ * Copyright: Carsten Schlote, licensed under GPL-3.0-only
+ * License: GPL-3.0-only
+ */
 module dosierskanilo.repository.types;
 
 import std.path : buildPath;
@@ -137,9 +142,9 @@ struct ScanSummary
 /** Scan summary plus cooperative-cancellation outcome for controlled callers. */
 struct ScanExecutionResult
 {
-    ScanSummary summary;
-    bool cancelled;
-    bool committed;
+    ScanSummary summary; /// Counters collected by the scan.
+    bool cancelled; /// True when cooperative cancellation stopped the scan.
+    bool committed; /// True when the scan committed its changes.
 }
 
 /** Options for metadata extraction after a repository filesystem scan. */
@@ -189,9 +194,9 @@ struct MetadataSummary
 /** Metadata summary plus cooperative-cancellation outcome. */
 struct MetadataExecutionResult
 {
-    MetadataSummary summary;
-    bool cancelled;
-    bool committed;
+    MetadataSummary summary; /// Counters collected by the metadata run.
+    bool cancelled; /// True when cooperative cancellation stopped the run.
+    bool committed; /// True when the metadata run committed its changes.
 }
 
 /** Options controlling SQL-based repository analysis. */
@@ -206,48 +211,48 @@ struct RepositoryAnalysisOptions
 /** Directory projection returned by the repository tree API. */
 struct RepositoryDirectory
 {
-    long id;
-    long parentId;
-    string name;
-    string relativePath;
-    size_t childDirectoryCount;
-    size_t fileCount;
-    ulong aggregateSize;
+    long id; /// Stable repository directory identity.
+    long parentId; /// Parent directory ID; zero denotes the repository root.
+    string name; /// Final path component shown in the tree.
+    string relativePath; /// Root-relative display path.
+    size_t childDirectoryCount; /// Immediate matching child directories.
+    size_t fileCount; /// File references below this directory.
+    ulong aggregateSize; /// Aggregate size of referenced content below this directory.
 }
 
 /** Bounded aggregate values used to construct the repository root node. */
 struct RepositoryRootSummary
 {
-    size_t childDirectoryCount;
-    size_t fileCount;
-    ulong aggregateSize;
+    size_t childDirectoryCount; /// Immediate matching child directories.
+    size_t fileCount; /// Matching file references below the root.
+    ulong aggregateSize; /// Aggregate size of matching references.
 }
 
 /** File projection returned by the repository tree API. */
 struct RepositoryFile
 {
-    long id;
-    long directoryId;
-    long blobId;
-    string name;
-    string relativePath;
-    ulong size;
-    string modifiedAt;
-    bool present;
-    bool hasFileType;
-    bool hasMedia;
-    bool hasVideo;
-    bool hasAudio;
-    bool hasImage;
-    bool hasText;
-    bool hasArchive;
-    bool hasTorrent;
-    bool archiveMember;
-    long containerReferenceId;
-    long archiveEntryId;
-    long archiveContainerBlobId;
-    size_t archiveEntryIndex;
-    string archiveContainerIdentity;
+    long id; /// Stable file-reference identity.
+    long directoryId; /// Parent directory ID.
+    long blobId; /// Content blob identity.
+    string name; /// Final path component shown in the tree.
+    string relativePath; /// Root-relative display path.
+    ulong size; /// Content size in bytes.
+    string modifiedAt; /// Last observed modification timestamp.
+    bool present; /// True when at least one reference currently exists on disk.
+    bool hasFileType; /// File-type metadata exists.
+    bool hasMedia; /// One or more media streams exist.
+    bool hasVideo; /// A video stream exists.
+    bool hasAudio; /// An audio stream exists.
+    bool hasImage; /// An image stream exists.
+    bool hasText; /// A text/subtitle stream exists.
+    bool hasArchive; /// Archive metadata exists.
+    bool hasTorrent; /// Torrent metadata exists.
+    bool archiveMember; /// True for a virtual archive-member reference.
+    long containerReferenceId; /// Container file-reference ID for archive members.
+    long archiveEntryId; /// Archive-entry row ID for archive members.
+    long archiveContainerBlobId; /// Container content blob ID for archive members.
+    size_t archiveEntryIndex; /// Ordered index of the member in its container.
+    string archiveContainerIdentity; /// Canonical virtual container path for nested members.
 }
 
 /** Query options for bounded directory children reads. */
@@ -255,18 +260,18 @@ struct RepositoryDirectoryQuery
 {
     /// Parent directory ID; zero denotes the repository root.
     long parentId;
-    size_t offset;
-    size_t limit = 250;
-    string text;
-    bool caseSensitive;
-    bool video;
-    bool audio;
-    bool image;
-    bool textStream;
-    bool mediaNegated;
-    bool fileType;
-    bool archive;
-    bool torrent;
+    size_t offset; /// Zero-based result offset.
+    size_t limit = 250; /// Maximum number of directories to return.
+    string text; /// Optional path text filter.
+    bool caseSensitive; /// Apply `text` case-sensitively.
+    bool video; /// Require a video media stream.
+    bool audio; /// Require an audio media stream.
+    bool image; /// Require an image media stream.
+    bool textStream; /// Require a text/subtitle media stream.
+    bool mediaNegated; /// Invert the combined media-stream condition.
+    bool fileType; /// Require file-type metadata.
+    bool archive; /// Require archive metadata.
+    bool torrent; /// Require torrent metadata.
     /// Exclude references currently marked missing on disk.
     bool availableOnly;
     /// Include indexed archive members in child-file queries.
@@ -295,33 +300,34 @@ struct RepositoryArchiveEntry
 /** Torrent file projection for lazy detail views. */
 struct RepositoryTorrentFile
 {
-    long id;
-    string relativePath;
-    ulong size;
+    long id; /// Stable torrent-file row identity.
+    string relativePath; /// Path relative to the torrent root.
+    ulong size; /// Declared member size in bytes.
 }
 
 /** Bounded archive-entry query. */
 struct RepositoryArchiveQuery
 {
-    long blobId;
-    size_t offset;
-    size_t limit = 250;
+    long blobId; /// Content blob that owns the archive index.
+    size_t offset; /// Zero-based entry offset.
+    size_t limit = 250; /// Maximum number of entries to return.
 }
 
 /** Bounded torrent-file query. */
 struct RepositoryTorrentQuery
 {
-    long blobId;
-    size_t offset;
-    size_t limit = 250;
+    long blobId; /// Content blob that owns the torrent manifest.
+    size_t offset; /// Zero-based entry offset.
+    size_t limit = 250; /// Maximum number of entries to return.
 }
 
+/** Stable ordering for repository file pages. */
 enum RepositoryFileSortOrder : int
 {
-    pathAscending = 0,
-    pathDescending = 1,
-    sizeAscending = 2,
-    sizeDescending = 3,
+    pathAscending = 0, ///< Root-relative path ascending.
+    pathDescending = 1, ///< Root-relative path descending.
+    sizeAscending = 2, ///< Content size ascending, path as tie-breaker.
+    sizeDescending = 3, ///< Content size descending, path as tie-breaker.
 }
 
 /** Query options for bounded file children reads. */
@@ -329,44 +335,44 @@ struct RepositoryFileQuery
 {
     /// Directory ID; zero denotes files directly below the repository root.
     long directoryId;
-    size_t offset;
-    size_t limit = 250;
-    string text;
-    bool caseSensitive;
-    bool video;
-    bool audio;
-    bool image;
-    bool textStream;
-    bool mediaNegated;
-    bool fileType;
-    bool archive;
-    bool torrent;
+    size_t offset; /// Zero-based result offset when no keyset cursor is used.
+    size_t limit = 250; /// Maximum number of files to return.
+    string text; /// Optional path text filter.
+    bool caseSensitive; /// Apply `text` case-sensitively.
+    bool video; /// Require a video media stream.
+    bool audio; /// Require an audio media stream.
+    bool image; /// Require an image media stream.
+    bool textStream; /// Require a text/subtitle media stream.
+    bool mediaNegated; /// Invert the combined media-stream condition.
+    bool fileType; /// Require file-type metadata.
+    bool archive; /// Require archive metadata.
+    bool torrent; /// Require torrent metadata.
     /// Exclude references currently marked missing on disk.
     bool availableOnly;
     /// Include indexed archive members in child-file queries.
     bool includeArchiveMembers;
-    RepositoryFileSortOrder sortOrder = RepositoryFileSortOrder.pathAscending;
-    /// Keyset cursor, interpreted using sortOrder.
+    RepositoryFileSortOrder sortOrder = RepositoryFileSortOrder.pathAscending; ///< Stable page ordering.
+    /// Keyset cursor path, interpreted using `sortOrder`.
     string afterPath;
-    long afterId;
-    ulong afterSize;
-    bool beforeCursor;
+    long afterId; /// Keyset cursor reference ID.
+    ulong afterSize; /// Keyset cursor size for size orderings.
+    bool beforeCursor; /// Page backward from the keyset cursor.
 }
 
 /** Opaque position in a stable repository file sequence. */
 struct RepositoryFileCursor
 {
-    string relativePath;
-    long id;
-    ulong size;
+    string relativePath; /// Root-relative path at the cursor.
+    long id; /// File-reference ID at the cursor.
+    ulong size; /// Content size used by size orderings.
 }
 
 /** One bounded file result chunk and its continuation state. */
 struct RepositoryFilePage
 {
-    RepositoryFile[] files;
-    RepositoryFileCursor nextCursor;
-    bool hasMore;
+    RepositoryFile[] files; /// File rows in the requested stable order.
+    RepositoryFileCursor nextCursor; /// Cursor for the following page.
+    bool hasMore; /// Additional rows follow this page.
 }
 
 /** Query options for bounded repository catalog reads. */
@@ -378,7 +384,7 @@ struct RepositoryQueryOptions
     size_t limit = 250;
     /// Path text filter; caseSensitive affects paths, not binary SHA1 equality.
     string text;
-    bool caseSensitive;
+    bool caseSensitive; /// Apply `text` case-sensitively.
     /// Require a video media stream.
     bool video;
     /// Require an audio media stream.
@@ -399,7 +405,7 @@ struct RepositoryQueryOptions
     long[] blobIds;
     /// Stable keyset position for forward-only catalog iteration.
     long afterBlobId;
-    bool useCursor;
+    bool useCursor; /// Use `afterBlobId` instead of `offset` when true.
     /// Restrict results to content with at least one file reference.
     bool referencedOnly;
 }
@@ -407,25 +413,25 @@ struct RepositoryQueryOptions
 /** A bounded repository page with stable blob identities. */
 struct RepositoryBlobPage
 {
-    NamedBinaryBlob[] blobs;
-    long[] blobIds;
-    RepositoryBlobFlags[] flags;
-    size_t total;
-    long nextCursor;
-    bool hasMore;
+    NamedBinaryBlob[] blobs; /// Blob payloads in stable cursor order.
+    long[] blobIds; /// Stable blob IDs matching `blobs`.
+    RepositoryBlobFlags[] flags; /// Presence flags matching `blobs`.
+    size_t total; /// Total matching blobs before paging.
+    long nextCursor; /// Cursor for the following page; zero when exhausted.
+    bool hasMore; /// Additional blobs follow this page.
 }
 
 /** Presence flags for one repository blob summary. */
 struct RepositoryBlobFlags
 {
-    bool hasMedia;
-    bool hasVideo;
-    bool hasAudio;
-    bool hasImage;
-    bool hasText;
-    bool hasFileType;
-    bool hasArchive;
-    bool hasTorrent;
+    bool hasMedia; /// One or more media streams exist.
+    bool hasVideo; /// A video stream exists.
+    bool hasAudio; /// An audio stream exists.
+    bool hasImage; /// An image stream exists.
+    bool hasText; /// A text/subtitle stream exists.
+    bool hasFileType; /// File-type metadata exists.
+    bool hasArchive; /// Archive metadata exists.
+    bool hasTorrent; /// Torrent metadata exists.
 }
 
 /** Counters returned by repository analysis. */
@@ -446,9 +452,9 @@ struct AnalysisSummary
 /** Analysis summary plus cooperative-cancellation outcome. */
 struct AnalysisExecutionResult
 {
-    AnalysisSummary summary;
-    bool cancelled;
-    bool committed;
+    AnalysisSummary summary; /// Counters collected by the analysis.
+    bool cancelled; /// True when cooperative cancellation stopped the analysis.
+    bool committed; /// True when the analysis committed its changes.
 }
 
 /** One read-only group of blobs with identical complete checksums. */

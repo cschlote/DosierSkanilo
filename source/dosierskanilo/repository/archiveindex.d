@@ -1,4 +1,9 @@
-/** Shared persistence helpers for archive-member content identities. */
+/** Shared persistence helpers for archive-member content identities.
+ *
+ * Authors: Carsten Schlote, schlote@vahanus.net
+ * Copyright: Carsten Schlote, licensed under GPL-3.0-only
+ * License: GPL-3.0-only
+ */
 module dosierskanilo.repository.archiveindex;
 
 import d2sqlite3;

@@ -1,4 +1,9 @@
-/** Frontend-neutral request and run-control types for long-running operations. */
+/** Frontend-neutral request and run-control types for long-running operations.
+ *
+ * Authors: Carsten Schlote, schlote@vahanus.net
+ * Copyright: Carsten Schlote, licensed under GPL-3.0-only
+ * License: GPL-3.0-only
+ */
 module dosierskanilo.operations;
 
 import core.atomic : atomicLoad, atomicStore;
@@ -87,7 +92,7 @@ enum OperationPhase
 /** Explicit filesystem/catalog target; no target is inferred by this API. */
 struct OperationTarget
 {
-    OperationStorageMode mode;
+    OperationStorageMode mode; /// Explicit storage mode selected by the caller.
     /// Root of the initialized `.dosierskanilo` repository.
     string repositoryRoot;
     /// Explicit direct-JSON catalog path.
@@ -120,9 +125,9 @@ struct ScanOperationRequest
 {
     /// Caller-assigned nonzero identity echoed in progress and result values.
     ulong operationId;
-    OperationTarget target;
-    RepositoryScanOptions scanOptions;
-    MetadataScanOptions metadataOptions;
+    OperationTarget target; ///< Explicit JSON or repository source.
+    RepositoryScanOptions scanOptions; ///< Filesystem traversal and cleanup options.
+    MetadataScanOptions metadataOptions; ///< Selected scan-time metadata extractors.
     /// Continue with an empty catalog if an existing JSON input is malformed.
     bool forceJsonOverwrite;
     /// Analyze and merge duplicate records after scanning.
@@ -138,19 +143,20 @@ struct ScanOperationRequest
 /** Request for standalone repository metadata extraction. */
 struct MetadataOperationRequest
 {
-    ulong operationId;
-    OperationTarget target;
-    MetadataScanOptions options;
+    ulong operationId; ///< Caller-assigned nonzero identity.
+    OperationTarget target; ///< Explicit repository source.
+    MetadataScanOptions options; ///< Selected metadata extractors and limits.
 }
 
 /** Request for duplicate/missing-file analysis. */
 struct AnalysisOperationRequest
 {
-    ulong operationId;
-    OperationTarget target;
-    RepositoryAnalysisOptions options;
-    /// Direct JSON analyze may run the existing selected scanner jobs first.
-    /// Repository analyze rejects metadata options, as the current CLI does.
+    ulong operationId; ///< Caller-assigned nonzero identity.
+    OperationTarget target; ///< Explicit JSON or repository source.
+    RepositoryAnalysisOptions options; ///< Duplicate merge and missing-file options.
+    /// Metadata extractor options for direct JSON analysis. Repository analysis
+    /// rejects them; JSON analysis runs the selected jobs before duplicate
+    /// analysis.
     MetadataScanOptions metadataOptions;
     /// Continue with an empty catalog if an existing JSON input is malformed.
     bool forceJsonOverwrite;
@@ -177,9 +183,10 @@ enum OperationRequestError
 /** Typed validation outcome for a request. */
 struct OperationRequestValidation
 {
-    OperationRequestError error;
-    string message;
+    OperationRequestError error; /// Stable validation failure category.
+    string message; /// Human-readable validation diagnostic.
 
+    /// True when the request has no shape/option error.
     @property bool valid() const
     {
         return error == OperationRequestError.none;
@@ -189,24 +196,26 @@ struct OperationRequestValidation
 /** Progress value passed from an operation executor to either frontend. */
 struct OperationProgress
 {
-    ulong operationId;
-    OperationKind operation;
-    OperationState state;
-    OperationPhase phase;
-    ulong completed;
-    ulong total;
+    ulong operationId; /// Caller-assigned operation identity.
+    OperationKind operation; /// Operation family that produced this event.
+    OperationState state; /// Current lifecycle state.
+    OperationPhase phase; /// Fine-grained phase within the operation.
+    ulong completed; /// Completed work units, or percentage when `totalKnown`.
+    ulong total; /// Total work units, or percentage denominator when `totalKnown`.
     /// False means `completed` is a work count/status value, not a percentage.
     bool totalKnown;
     /// Optional byte-level progress for a current per-blob subtask.
     ulong subtaskCompleted;
-    ulong subtaskTotal;
-    bool subtaskTotalKnown;
+    ulong subtaskTotal; ///< Total units for the current subtask.
+    bool subtaskTotalKnown; ///< False when `subtaskTotal` is only a status value.
     /// Display unit for the optional subtask counters (for example bytes or entries).
     string subtaskUnit;
     /// True when a pause request can be acknowledged at a reachable safe checkpoint.
     bool pauseAvailable;
-    string path;
-    string message;
+    /// Position of `path` in the operation's file order when known.
+    size_t fileOrderIndex;
+    string path; /// Current file, archive member, or source path when known.
+    string message; /// Human-readable status message.
 }
 
 /** Progress callbacks run synchronously on a reporting worker thread. */
@@ -233,11 +242,11 @@ enum OperationErrorCode
 /** Terminal result for one completed, cancelled, or failed operation. */
 struct OperationResult
 {
-    ulong operationId;
-    OperationKind operation;
-    OperationState state;
-    OperationErrorCode errorCode;
-    string error;
+    ulong operationId; /// Caller-assigned operation identity.
+    OperationKind operation; /// Operation family that produced the result.
+    OperationState state; /// Terminal lifecycle state.
+    OperationErrorCode errorCode; /// Stable failure category, `none` on success.
+    string error; /// Actionable failure diagnostic; may be empty.
     /// Whether any source mutation committed before this terminal result.
     bool changesCommitted;
     /// Populated for `scan` operations; other summaries remain their init value.
@@ -339,7 +348,12 @@ public:
             pauseAvailable = available;
     }
 
-    /** Request a cooperative pause; false means no safe point is currently reachable. */
+    /**
+     * Request a cooperative pause.
+     *
+     * Returns: `true` when already paused or the request was recorded;
+     *     `false` when cancellation is pending or no safe point is reachable.
+     */
     bool requestPause()
     {
         synchronized (runControlMutex)
@@ -355,7 +369,12 @@ public:
         }
     }
 
-    /** Resume a paused operation and wake its worker. */
+    /**
+     * Resume a paused operation and wake its worker.
+     *
+     * Returns: `true` when the operation was paused and is now resumed;
+     *     `false` otherwise.
+     */
     bool requestResume()
     {
         synchronized (runControlMutex)
@@ -408,7 +427,15 @@ public:
         return !cancelled;
     }
 
-    /** Deliver an event; callback invocations are serialized, but may use a worker thread. */
+    /**
+     * Deliver one progress event.
+     *
+     * Callback invocations are serialized, but may run on a worker thread.
+     * The event state is adjusted to `cancelling` or `pausing` when those
+     * requests are pending.
+     *
+     * Throws: `OperationCallbackException` when the progress callback throws.
+     */
     void report(OperationProgress event)
     {
         synchronized (runControlMutex)

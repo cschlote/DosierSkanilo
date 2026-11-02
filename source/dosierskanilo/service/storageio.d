@@ -1,4 +1,4 @@
-/** JSON storage helpers.
+/** JSON catalog storage, backup, staging, and recovery helpers.
  *
  * Authors: Carsten Schlote, schlote@vahanus.net
  * Copyright: Carsten Schlote, licensed under GPL-3.0-only
@@ -21,12 +21,13 @@ import dosierskanilo.model.namedbinaryblob;
 
 /** Read scanner data from a JSON storage file.
  *
- * Missing files are treated as first-run state. Deserialization errors only
- * abort the load when `forceOverwrite` is false.
+ * Missing files are treated as first-run state. With `forceOverwrite`, a
+ * catalog-format error is replaced by an empty catalog; I/O, callback, and
+ * out-of-memory failures still abort the read.
  *
  * Params:
  *   jsonFile = JSON storage file path.
- *   forceOverwrite = continue with an empty database when deserialization fails.
+ *   forceOverwrite = replace catalog-format errors with an empty catalog.
  *   dynObjectWrapper = destination wrapper object.
  * Returns:
  *   `true` on success or intentional empty initialization.
@@ -153,17 +154,19 @@ unittest
     assert(exists(jsonFile));
 }
 
-/** Generate a backup file name based on the original file name and current timestamp.
+/** Build a collision-free backup file name for one catalog write.
  *
- * The backup name keeps the original basename and appends the timestamp before
- * the extension.
+ * The name is `<basename>-<timestamp>-<pid>-<serial><extension>`; the process
+ * id and per-process serial disambiguate writes within the same second.
  *
  * Params:
- *   originalFile = the original file path to base the backup name on.
- *   extension = the file extension to use for the backup file (e.g., ".json").
- *   nowString = optional timestamp string to use in the backup file name (default: current time in ISO format).
+ *   originalFile = the catalog path used to derive the basename and directory.
+ *   extension = file extension to keep (for example ".json").
+ *   nowString = timestamp string inserted into the name.
+ *   backupDirectory = optional backup directory; empty keeps the backup next
+ *     to the original catalog.
  * Returns:
- *   a new file name in the format "basename-YYYY-MM-DDTHH-MM-SS.extension".
+ *   The backup path in `backupDirectory` or beside `originalFile`.
  */
 private string getBackupFileName(string originalFile, string extension,
     string nowString = Clock.currTime.toISOExtString(), string backupDirectory = "")
@@ -360,25 +363,6 @@ unittest
     assert(readText(original) == content);
 }
 
-/** Write scanned data to some storage file.
- *
- * The function writes through a backup file first so the original JSON is only
- * replaced after serialization succeeds.
- *
- * Params:
- *   jsonFile = JSON storage file path.
- *   dynObjectWrapper = source wrapper object.
- *   jsonFileExtension = file extension for backup files (default: ".json").
- *   nowString = optional timestamp string to use in backup file names (default: current time in ISO format).
- *   backupDirectory = optional directory for the backup file; empty keeps the
- *     backup next to the catalog.
- *   cancelCheck = optional callback invoked before work starts and after
- *     serialization. A `true` result discards the staging file and leaves the
- *     original catalog unchanged.
- *   pretty = Indent the serialized JSON for human reading.
- * Returns:
- *   `true` on success, `false` on failure or cancellation. On failure, the original file is left unchanged if possible.
- */
 /** Outcome details of one catalog write attempt. */
 struct CatalogWriteResult
 {
@@ -395,7 +379,7 @@ struct CatalogWriteResult
 /** Typed write failure carrying the attempted and recovery paths. */
 class CatalogWriteException : Exception
 {
-    CatalogWriteResult writeResult;
+    CatalogWriteResult writeResult; ///< Paths and failure details from the write attempt.
 
     this(CatalogWriteResult result)
     {
@@ -565,6 +549,27 @@ CatalogWriteResult writeCatalogJsonFile(string jsonFile,
     return result;
 }
 
+/** Write scanned data to a JSON storage file.
+ *
+ * The function writes through a staging file and backup so the original JSON is
+ * only replaced after serialization succeeds. If the canonical location cannot
+ * be written, it retries and then falls back to a recovery location.
+ *
+ * Params:
+ *   jsonFile = JSON storage file path.
+ *   dynObjectWrapper = source wrapper object.
+ *   jsonFileExtension = file extension for backup files (default: ".json").
+ *   nowString = optional timestamp string to use in backup file names.
+ *   backupDirectory = optional directory for the backup file; empty keeps the
+ *     backup next to the catalog.
+ *   cancelCheck = optional callback invoked before work starts and after
+ *     serialization. A `true` result discards the staging file and leaves the
+ *     original catalog unchanged.
+ *   pretty = indent the serialized JSON for human reading.
+ * Returns:
+ *   `true` only when the canonical catalog was replaced. Returns `false` on
+ *   cancellation, canonical write failure, or a recovery-only write.
+ */
 bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlobCatalog dynObjectWrapper,
     string jsonFileExtension = ".json",
     string nowString = Clock.currTime.toISOExtString(),

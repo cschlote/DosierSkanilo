@@ -1,4 +1,9 @@
-/** SQLite repository adapter for the storage-neutral catalog contract. */
+/** SQLite repository adapter for the storage-neutral catalog contract.
+ *
+ * Authors: Carsten Schlote, schlote@vahanus.net
+ * Copyright: Carsten Schlote, licensed under GPL-3.0-only
+ * License: GPL-3.0-only
+ */
 module dosierskanilo.sqlitecatalogbackend;
 
 import std.algorithm.searching : canFind, startsWith;
@@ -1774,7 +1779,6 @@ private:
     }
 }
 
-/** Explicit factory for SQLite repository targets. */
 @("SQLite backend export cancellation writes no output")
 unittest
 {
@@ -1836,6 +1840,7 @@ unittest
     assert(backend.repositoryInfo().schemaVersion > 0);
 }
 
+/** Explicit factory for SQLite repository targets. */
 final class SqliteCatalogBackendFactory : CatalogBackendFactory
 {
     override CatalogBackend open(OperationTarget target)

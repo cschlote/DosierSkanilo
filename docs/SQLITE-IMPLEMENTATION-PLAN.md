@@ -1,5 +1,12 @@
 # SQLite Backend Implementation Plan
 
+> **Status:** Historical implementation plan and work-package record. Current
+> behavior is documented in [ARCHITECTURE.md](ARCHITECTURE.md),
+> [DATABASE.md](DATABASE.md), [CATALOG-DOMAIN.md](CATALOG-DOMAIN.md),
+> [JSON-FORMAT.md](JSON-FORMAT.md), and [OPERATION-API.md](OPERATION-API.md).
+> Status lines and test counts below describe the date noted in each section;
+> they are not a claim about the current release.
+
 This document turns the SQLite repository design into an incremental work plan.
 Each work package has a clear result and an exit criterion. A package should be
 completed and verified before the next dependent package is started.
@@ -59,13 +66,13 @@ and transport controls, not user-visible SQL pages. JSON can use an in-memory
 index; SQLite should use stable keyset/cursor queries. Both sources must expose
 the same DTOs, filter semantics, sort order, stable IDs, and logical navigation.
 
-## Current Implementation Snapshot (2026-10-14)
+## Historical Implementation Snapshot (2026-10-14)
 
 Implemented in the backend:
 
-- The repository lifecycle, SQLite schema v4, JSON v0-v5 import/export,
-  scanner persistence core, SQL-based analysis, and explicit SQLite/JSON CLI
-  modes.
+- The repository lifecycle, SQLite schema v4 at that date, JSON v0-v5
+  import/export, scanner persistence core, SQL-based analysis, and explicit
+  SQLite/JSON CLI modes.
 - Typed directory, file, blob-summary, archive-entry, and torrent-file DTOs.
 - Bounded directory/file, blob-cursor, archive-entry, and torrent-file queries.
 - Stable forward blob cursors and stable next/previous file cursors, including
@@ -92,14 +99,15 @@ reviewed manifest, a single-flight test seed, JSON/SQLite parity coverage, and
 CLI integration checks. Existing checked-in audio, image, video, and torrent
 fixtures remain as compatibility inputs; the generated corpus supplements them.
 
-WP-13.1 freezes the catalog domain model and WP-13.2 declares the storage-neutral
+WP-13.1 froze the catalog domain model and WP-13.2 declared the storage-neutral
 `CatalogBackend` interface and DTOs in `source/dosierskanilo/catalogbackend.d`.
-WP-13.3 implements the JSON v0-v3 adapter. WP-13.4 adds the SQLite adapter over
-the public `Repository` facade and an explicit default factory for both targets.
-WP-13.5.1 through WP-13.5.3 provide stable archive-entry identities, recursive
-nested scanning, JSON v5 virtual member references, and SQLite schema v4
-file-reference migration without archive-specific tables. The next slices add a
-shared extraction cache used by scraping and the GUI TreeView/Previewer.
+WP-13.3 implemented the JSON adapter for versions 0-5. WP-13.4 added the SQLite
+adapter over the public `Repository` facade and an explicit default factory for
+both targets. WP-13.5.1 through WP-13.5.4 provided stable archive-entry
+identities, recursive nested scanning, JSON v5 virtual member references, SQLite
+schema v4 file-reference migration without archive-specific tables, and the
+shared extraction cache. WP-13.6 completed CLI/GTK integration; schema v5 added
+the generated `is_virtual` column.
 
 The backend library tests and GUI tests/build are separate checks. GUI-specific
 status, test commands, and remaining UI integration tests are maintained in
@@ -115,13 +123,13 @@ Last verified on this snapshot:
   `./scripts/test-cli.sh` passed.
 - GUI startup: `HOME=/tmp G_DEBUG=fatal-warnings
   ./build/bin/dosierskanilo-gui --self-test --self-test-delay=1000` passed with
-  the new Tools menu loaded. Interactive operation dialogs still need a
-  display-backed exercise.
+  the Tools menu loaded. Display-backed operation coverage was added later in
+  the GUI Xvfb job.
 
 ## CLI Target Contract
 
 The CLI has two explicit, non-overlapping storage modes. Top-level commands
-use SQLite; the `json` keyword selects direct JSON mode. There is no implicit
+use SQLite; `--json CATALOG.json` selects direct JSON mode. There is no implicit
 option-only mode and no requirement to keep old spelling aliases.
 
 SQLite is the default mode for top-level commands. The repository commands are:
@@ -138,11 +146,13 @@ dosierskanilo import [ROOT] INPUT.json [--replace]
 dosierskanilo export [ROOT] --output OUTPUT.json
 ```
 
-The pure JSON commands are:
+The direct JSON command forms are:
 
 ```text
 dosierskanilo scan [ROOT] --json CATALOG.json [--base-dir DIR] [OPTIONS]
 dosierskanilo analyze [ROOT] --json CATALOG.json [--base-dir DIR] [OPTIONS]
+dosierskanilo list [ROOT] --json CATALOG.json [FILTERS]
+dosierskanilo duplicates [ROOT] --json CATALOG.json
 ```
 
 JSON commands operate only on the specified catalog and filesystem path. They

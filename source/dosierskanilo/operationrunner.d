@@ -1,4 +1,9 @@
-/** Executors for frontend-neutral long-running operations. */
+/** Executors for frontend-neutral long-running operations.
+ *
+ * Authors: Carsten Schlote, schlote@vahanus.net
+ * Copyright: Carsten Schlote, licensed under GPL-3.0-only
+ * License: GPL-3.0-only
+ */
 module dosierskanilo.operationrunner;
 
 import std.exception : enforce;
@@ -14,9 +19,19 @@ import dosierskanilo.service.jsonoperations : analyzeJsonCatalog,
     commitJsonCatalog, scanJsonCatalog;
 
 /**
- * Execute a SQLite repository or explicit JSON catalog scan through the shared
- * operation contract. Request-shape validation remains a separate pre-dispatch
- * step.
+ * Execute a SQLite repository or explicit JSON catalog scan.
+ *
+ * The request is validated with `validateOperationRequest`, the target write
+ * lease is acquired, and the operation runs synchronously to a terminal result.
+ *
+ * Params:
+ *   request = scan request with an explicit target and scan/metadata options.
+ *   control = cooperative cancel/pause control; a fresh control is used when null.
+ * Returns:
+ *   Terminal result with scan/metadata summaries and `changesCommitted`.
+ * Throws:
+ *   `Exception` carrying the validation message when the request shape is
+ *   invalid. Busy-target and backend failures are returned in `result`.
  */
 OperationResult runOperation(ScanOperationRequest request,
     OperationControl control)

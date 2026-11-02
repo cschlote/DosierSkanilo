@@ -3,6 +3,10 @@
  * Backends resolve typed container/entry chains and delegate the physical
  * extraction here so JSON and SQLite sources share one identity, password,
  * cancellation, and cleanup path.
+ *
+ * Authors: Carsten Schlote, schlote@vahanus.net
+ * Copyright: Carsten Schlote, licensed under GPL-3.0-only
+ * License: GPL-3.0-only
  */
 module dosierskanilo.memberextraction;
 

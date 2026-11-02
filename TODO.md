@@ -45,7 +45,7 @@ Currently one bad file aborts an entire JSON scan/analyze.
   "JSON metadata run survives corrupt archive alongside good files",
   "MediaInfoSig tolerates null stream references from old catalogs".
 
-### WP-14.2: Member-content-cache lifecycle (review M2)
+### WP-14.2: Member-content-cache lifecycle (review M2) — DONE
 
 - Preserve lease accounting for disposed (`stale`) entries so `release()`
   and the `close()` guard observe them; track an outstanding-lease counter.
@@ -68,7 +68,7 @@ Currently one bad file aborts an entire JSON scan/analyze.
 - [x] Regression test "member cache keeps lease accounting for stale
   entries and close honours it".
 
-### WP-14.3: Catalog API correctness (review M4, M5, M6)
+### WP-14.3: Catalog API correctness (review M4, M5, M6) — DONE
 
 - Typed `limit > 0` enforcement in the public
   `loadCatalogQueryPageWithIdsFromDatabase()` and every
@@ -102,7 +102,7 @@ Currently one bad file aborts an entire JSON scan/analyze.
 - [x] archiveindex `is_virtual` column follow-up: schema v5 adds a generated
   column and all queries use it.
 
-### WP-14.4: Review-minor hardening and UX
+### WP-14.4: Review-minor hardening and UX — DONE
 
 Split churn from correctness; each item is independently landable.
 
@@ -121,7 +121,7 @@ Split churn from correctness; each item is independently landable.
 - Documentation/scripts: derive `ROOT_DIR` from script location in
   `scripts/test-cli.sh`; dynamic markdown list and `--config=cli` in
   `scripts/lint.sh`; verify Flatpak sha256 pins against the published
-  `v26.12.2` artifacts before the next release.
+  `v26.13.0` artifacts before the next release.
 
 - [x] Backup names disambiguated with process id and per-process serial in
   `getBackupFileName()` and `backupDatabase()`; collision tests updated to
@@ -154,12 +154,13 @@ Split churn from correctness; each item is independently landable.
   restore one with a pre-restore backup.
 - [x] Flatpak sha256 pins verified against the published v26.13.0 archive.
 
-## P1 — WP-09 closeout: shared CLI/GTK operations
+## P1 — WP-09 closeout: shared CLI/GTK operations — DONE
 
 The backend plan in `docs/SQLITE-IMPLEMENTATION-PLAN.md`, section WP-09, is
 the source of truth. Implementation is complete (WP-09.1/09.1b contracts,
 controlled SQLite and JSON operations, writer leases, CLI and GTK adapters
-on the same typed requests); only verification remains:
+on the same typed requests). Implementation and verification are complete; the
+evidence is recorded below and in `docs/OPERATION-PARITY.md`.
 
 - [x] Process-level Ctrl-C checks for every mutating family (JSON and SQLite
   scan, SQLite metadata, JSON and SQLite analysis, import, full and selected
@@ -178,11 +179,11 @@ on the same typed requests); only verification remains:
 evidence in `docs/OPERATION-PARITY.md` in sync. Do not reintroduce an
 HMI-owned scan or analysis implementation.
 
-## P1 — WP-13.6.x: complete the storage-neutral catalog rollout
+## P1 — WP-13.6.x: storage-neutral catalog rollout — DONE
 
 `docs/SQLITE-IMPLEMENTATION-PLAN.md`, sections WP-13 and WP-13.6, remain the
-plan of record. WP-13.6.1 (CLI virtual archive references) is merged; next
-steps in dependency order:
+plan of record. WP-13.6.1 through WP-13.6.3 are merged; the completed items are
+listed in dependency order:
 
 - [x] WP-13.6.2: GTK backend and cache integration (`DosierSkanilo-Gui`).
       Trees, content rows, details, archive/torrent pages, and member previews
@@ -203,7 +204,7 @@ steps in dependency order:
       design (found correct-but-undocumented in the 2026-10-28 review). Added
       as WP-13 invariant 6 and an identity rule in `docs/CATALOG-DOMAIN.md`.
 
-## P1 — Persistence models and document mutation sessions
+## P1 — Persistence models and document mutation sessions — DONE
 
 - [x] Add a `CatalogPersistence` capability (`inMemoryDocument` vs
   `transactionalStore`) to the catalog contract.
@@ -217,10 +218,9 @@ steps in dependency order:
 - [x] GUI uses the document session for JSON tabs with modified marker,
   save/discard/cancel, reload prompt, and conflict handling.
 
-## P2 — WP-14 follow-on: archiveindex virtual classification
+## Closed — WP-14 follow-on: archiveindex virtual classification
 
-Folded into WP-14.3; listed here only for priority ordering. It becomes its
-own slice if the WP-13 schema work does not land first.
+Folded into WP-14.3 and completed by schema v5; retained here for history.
 
 ## P2 — Network-filesystem compatibility decision
 

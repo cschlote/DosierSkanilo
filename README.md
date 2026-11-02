@@ -48,37 +48,38 @@ directory for its relative paths:
 ./build/bin/dosierskanilo analyze --json library-scan.json
 ```
 
-SQLite and JSON are separate command groups. A JSON command never discovers or
-creates `.dosierskanilo`; a SQLite command never silently falls back to direct
-JSON storage. JSON remains the structured exchange format for explicit SQLite
-import and export:
+SQLite and JSON are separate explicit storage targets. A JSON command never
+discovers or creates `.dosierskanilo`; a SQLite command never silently falls
+back to direct JSON storage. JSON remains the structured exchange format for
+explicit SQLite import and export:
 
 ```bash
 ./build/bin/dosierskanilo import /data/library library-scan.json --replace
 ./build/bin/dosierskanilo export /data/library --output library-export.json
 ```
 
-Both modes use the same catalog concepts but have independent command contracts.
+Both modes share the catalog contract and the same top-level commands; the
+storage target is selected explicitly with `--json` for direct JSON work.
 
-## Shared Query Vision
+## Shared Catalog API
 
-Library consumers such as the GUI or a web UI should not need to know whether a
-source is JSON or SQLite. The repository API currently provides typed directory
-and file projections, typed filters, stable file-reference sorting, forward
-blob-catalog cursors, and next/previous file-reference cursors. Archive and
-torrent details can be queried separately in bounded chunks.
+Library consumers such as the GUI or a web UI do not need to know whether a
+source is JSON or SQLite. `CatalogBackend` provides typed directory and file
+projections, typed filters, stable reference sorting, bounded cursors,
+next/previous reference navigation, and separate archive/torrent detail pages.
+`CatalogBackendFactory` opens the adapter from an explicit target, and
+`CatalogDocument` adds explicit save/discard semantics for JSON documents.
 
-The GUI keeps database chunks internal and presents one logical filtered
+The GUI keeps storage chunks internal and presents one logical filtered
 sequence. JSON/SQLite parity coverage includes case-sensitive path filtering in
-the directory tree and Blob/catalog view, size sorting, and forward/backward
-paging. Broader interaction and large-detail coverage remain tracked in
-`docs/SQLITE-IMPLEMENTATION-PLAN.md` and `TODO.md`.
+the directory tree and catalog view, size sorting, forward/backward paging,
+archive-member pages, and shared previews. Cross-adapter evidence is recorded
+in [docs/OPERATION-PARITY.md](docs/OPERATION-PARITY.md); remaining GUI-only
+interaction coverage is tracked in `TODO.md`.
 
-The GUI now exposes shared scan, metadata, and analysis requests from its Tools
+The GUI exposes shared scan, metadata, and analysis requests from its Tools
 menu, with background progress, cooperative cancellation, safe pause/resume, and
-explicit SQLite/JSON targets. The CLI uses the same operation requests. Remaining
-CLI/GUI parity and process-level lifecycle checks are tracked in WP-09 of
-`docs/SQLITE-IMPLEMENTATION-PLAN.md`.
+explicit SQLite/JSON targets. The CLI uses the same operation requests.
 
 ## Build and Test
 
@@ -119,11 +120,11 @@ Compiler strategy:
 
 ## CI and Linting
 
-The GitLab pipeline uses Alpine and separates dependencies by stage:
+The GitLab pipeline runs one lint job and three build jobs:
 
 - `lint`: installs lint dependencies only (`dub`, `hadolint`, `shellcheck`)
-- `build`: installs build dependencies only
-- `test`: installs build + runtime dependencies
+- `build:debian13`, `build:ubuntu24.04`, `build:alpine`: each installs build and
+  runtime dependencies, builds the project, and runs the test suite
 
 Dependency installation is orchestrated by `.gitlab-ci.yml`. Local helper scripts
 (`scripts/build.sh`, `scripts/test.sh`, `scripts/lint.sh`) assume required tools
@@ -153,7 +154,7 @@ Run the same stage order locally:
 
 ## CLI Reference
 
-The target command groups are:
+The supported command forms are:
 
 ```text
 dosierskanilo init [ROOT]
@@ -163,11 +164,14 @@ dosierskanilo analyze [ROOT] [OPTIONS]
 dosierskanilo info [ROOT]
 dosierskanilo list [ROOT] [FILTERS]
 dosierskanilo duplicates [ROOT]
-dosierskanilo import [ROOT] INPUT.json --replace
+dosierskanilo import [ROOT] INPUT.json [--replace]
 dosierskanilo export [ROOT] --output OUTPUT.json [--path VIRTUAL_PATH]
+dosierskanilo recover CATALOG.json [--restore-from FILE]
 
 dosierskanilo scan [ROOT] --json CATALOG.json [--base-dir DIR] [OPTIONS]
 dosierskanilo analyze [ROOT] --json CATALOG.json [--base-dir DIR] [OPTIONS]
+dosierskanilo list [ROOT] --json CATALOG.json [FILTERS]
+dosierskanilo duplicates [ROOT] --json CATALOG.json
 ```
 
 Common options use kebab-case: `--recursive`, `--checksums`, `--file-types`,

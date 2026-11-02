@@ -1,4 +1,9 @@
-/** SQL-based duplicate and missing-file analysis. */
+/** SQL-based duplicate and missing-file analysis.
+ *
+ * Authors: Carsten Schlote, schlote@vahanus.net
+ * Copyright: Carsten Schlote, licensed under GPL-3.0-only
+ * License: GPL-3.0-only
+ */
 module dosierskanilo.repository.analysis;
 
 import d2sqlite3;
@@ -47,7 +52,15 @@ unittest
         ~ "ON b.id = f.blob_id").oneValue!long == 600);
 }
 
-/** Return duplicate groups without modifying repository state. */
+/**
+ * Return duplicate groups of referenced blobs with complete checksums.
+ *
+ * Params:
+ *   db = open repository database.
+ *   limit = maximum number of groups to return.
+ * Returns:
+ *   Groups grouped by size and digest; repository state is not modified.
+ */
 RepositoryDuplicateGroup[] queryDuplicateGroups(ref Database db, size_t limit = 100)
 {
     RepositoryDuplicateGroup[] groups;

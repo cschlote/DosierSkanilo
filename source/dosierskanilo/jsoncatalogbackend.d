@@ -1,4 +1,9 @@
-/** JSON v0-v5 adapter for the storage-neutral catalog contract. */
+/** JSON v0-v5 adapter for the storage-neutral catalog contract.
+ *
+ * Authors: Carsten Schlote, schlote@vahanus.net
+ * Copyright: Carsten Schlote, licensed under GPL-3.0-only
+ * License: GPL-3.0-only
+ */
 module dosierskanilo.jsoncatalogbackend;
 
 import std.algorithm.searching : canFind, startsWith;
@@ -2883,7 +2888,6 @@ private:
     }
 }
 
-/** Explicit factory for direct JSON catalog sources. */
 /** Explicit save/discard session over one JSON catalog document. */
 private final class JsonCatalogDocument : CatalogDocument
 {
@@ -3097,6 +3101,7 @@ private final class JsonCatalogDocument : CatalogDocument
     }
 }
 
+/** Explicit factory for direct JSON catalog sources. */
 final class JsonCatalogBackendFactory : CatalogBackendFactory
 {
     override CatalogBackend open(OperationTarget target)

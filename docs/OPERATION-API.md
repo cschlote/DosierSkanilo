@@ -31,8 +31,9 @@ opening the paths; the executing operation performs filesystem/repository
 validation and returns operational errors through its result.
 
 `OperationTarget.jsonTarget(catalogPath, filesystemRoot)` requires both paths for
-scan. `filesystemRoot` may be empty for JSON analysis, whose current CLI accepts
-only a catalog argument. Repository targets must not also specify JSON paths.
+scan. `filesystemRoot` may be empty for JSON analysis; the CLI accepts an
+optional `ROOT` or `--base-dir DIR` and never invents a root from a SQLite
+repository. Repository targets must not also specify JSON paths.
 
 ## Existing CLI option mapping
 
@@ -45,15 +46,15 @@ Map these flags to typed request fields:
 - `--checksums`, `--file-types`, `--media-info`, `--rescan-media-info`,
   `--scan-torrents`, and `--threads` map to metadata options. They are available
   on SQLite scan/metadata and JSON scan/analyze as currently supported.
-- `--scan-archives` maps to `metadataOptions.scanArchives = true` and
-  `metadataOptions.deepArchiveScan = false`, matching current CLI behavior.
+- One `--scan-archives` maps to `metadataOptions.scanArchives = true` and
+  `metadataOptions.deepArchiveScan = false`. Repeating the flag enables deep
+  archive scanning (`deepArchiveScan = true`).
 - `--rescan-media-info` is a modifier, not an extractor by itself; standalone
   metadata requests still require at least one selected extractor.
 
-The current CLI exposes archive scanning as a flag, not a depth value. The
-request retains the library's `deepArchiveScan` field for API compatibility, but
-WP-09 frontend adapters must not present an unimplemented depth option as if it
-were a CLI capability.
+The CLI selects archive scan depth by repeating `--scan-archives`; it does not
+expose a numeric depth value. Frontend adapters must not present an
+unimplemented depth option.
 
 `--verbose` and terminal formatting remain frontend presentation settings, not
 operation request fields. `--text`, `--limit`, `--offset`, media/presence query
@@ -232,8 +233,9 @@ under SQLite/WAL rules while the target lease blocks another mutator. JSON reade
 take a shared catalog-read lease, so they may parse the old catalog while an
 operation computes. The backup/replacement phase takes a short exclusive catalog
 lease, preventing readers from racing the rename/write sequence. The backend uses
-advisory cross-process target leases; broader process-boundary contention and
-crash-release tests remain in WP-09.2e.
+advisory cross-process target leases. Process-boundary contention and lock
+release after failure are covered by the WP-09 evidence in
+[OPERATION-PARITY.md](OPERATION-PARITY.md).
 
 ## Current implementation boundary
 
