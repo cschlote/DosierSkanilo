@@ -19,6 +19,7 @@ import std.path : baseName, buildNormalizedPath, dirName, isAbsolute;
 import std.string : empty, endsWith, replace, split;
 import std.typecons : Nullable;
 
+import dosierskanilo.logging : logLine, logLineVerbose;
 import dosierarkivo.archive : appendArchiveVirtualPath, archiveIndexVersion,
     escapeArchiveVirtualPath, nativePathToStoragePath,
     parseArchiveVirtualPath, ParsedArchiveVirtualPath;
@@ -84,6 +85,7 @@ bool importCatalogJsonControlled(ref Database db, string rootPath,
             0, total, "Importing JSON catalog.");
 
         ImportedArchiveIndex[] archiveIndexes;
+        ImportReferenceStats referenceStats;
         foreach (physicalPass; [true, false])
             foreach (blob; catalog.dataArray)
             {
@@ -98,7 +100,8 @@ bool importCatalogJsonControlled(ref Database db, string rootPath,
                 if (blob is null || hasPhysicalFileReference(blob)
                     != physicalPass)
                     continue;
-                const auto blobId = insertBlob(db, rootPath, blob);
+                const auto blobId = insertBlob(db, rootPath, blob,
+                    referenceStats);
                 if (blob.archiveIndexKnown)
                     archiveIndexes ~= ImportedArchiveIndex(blobId,
                         blob.archiveIndexDeep);
@@ -125,6 +128,13 @@ bool importCatalogJsonControlled(ref Database db, string rootPath,
                 return false;
             }
         }
+        if (referenceStats.identicalSkipped > 0
+            || referenceStats.richerReplaced > 0
+            || referenceStats.conflictSkipped > 0)
+            logLine("Import references: ", referenceStats.identicalSkipped,
+                " identical duplicates skipped, ",
+                referenceStats.richerReplaced, " stale references replaced, ",
+                referenceStats.conflictSkipped, " conflicts kept first.");
         db.commit();
         return true;
     }
@@ -1431,7 +1441,15 @@ private string parentArchivePath(string path)
     return result;
 }
 
-private long insertBlob(ref Database db, string rootPath, NamedBinaryBlob blob)
+private struct ImportReferenceStats
+{
+    size_t identicalSkipped;
+    size_t richerReplaced;
+    size_t conflictSkipped;
+}
+
+private long insertBlob(ref Database db, string rootPath, NamedBinaryBlob blob,
+    ref ImportReferenceStats stats)
 {
     auto md5 = encodeBase64(blob.checkSums.md5sum_b64);
     auto sha1 = encodeBase64(blob.checkSums.sha1sum_b64);
@@ -1476,21 +1494,68 @@ private long insertBlob(ref Database db, string rootPath, NamedBinaryBlob blob)
             if (directory > 0)
                 directoryId = Nullable!long(directory);
         }
+        enum conflictSuffix = " ON CONFLICT(relative_path) DO NOTHING";
         if (directoryId.isNull)
         {
             db.execute("INSERT INTO file_refs "
                 ~ "(blob_id, relative_path, time_last_modified, "
-                ~ "exists_on_disk, last_seen_at) VALUES (?, ?, ?, 1, ?)",
+                ~ "exists_on_disk, last_seen_at) VALUES (?, ?, ?, 1, ?)"
+                ~ conflictSuffix,
                 id, relative, spec.timeLastModified, currentTimestamp());
         }
         else
         {
             db.execute("INSERT INTO file_refs "
                 ~ "(blob_id, directory_id, relative_path, time_last_modified, "
-                ~ "exists_on_disk, last_seen_at) VALUES (?, ?, ?, ?, 1, ?)",
+                ~ "exists_on_disk, last_seen_at) VALUES (?, ?, ?, ?, 1, ?)"
+                ~ conflictSuffix,
                 id, directoryId.get, relative, spec.timeLastModified,
                 currentTimestamp());
         }
+        if (db.changes != 0)
+            continue;
+
+        auto existing = db.execute("SELECT f.blob_id, b.file_size, b.md5, "
+            ~ "b.sha1, b.xxh64 FROM file_refs f JOIN blobs b ON b.id = f.blob_id "
+            ~ "WHERE f.relative_path = ?", relative);
+        if (existing.empty)
+            continue;
+        auto row = existing.front;
+        const auto existingBlobId = row.peek!long(0);
+        if (existingBlobId == id)
+        {
+            ++stats.identicalSkipped;
+            continue;
+        }
+        const auto existingSize = cast(ulong) row.peek!long(1);
+        auto existingMd5 = row.peek!(Nullable!Blob)(2);
+        auto existingSha1 = row.peek!(Nullable!Blob)(3);
+        auto existingXxh64 = row.peek!(Nullable!Blob)(4);
+        const bool sameContent = existingSize == blob.fileSize
+            && existingMd5 == md5 && existingSha1 == sha1
+            && existingXxh64 == xxh64;
+        if (sameContent)
+        {
+            ++stats.identicalSkipped;
+            continue;
+        }
+        const bool existingComplete = !existingMd5.isNull
+            && !existingSha1.isNull && !existingXxh64.isNull;
+        const bool richer = (blob.checkSums.hasDigests && !existingComplete)
+            || (existingSize == 0 && blob.fileSize > 0);
+        if (richer)
+        {
+            db.execute("UPDATE file_refs SET blob_id = ?, "
+                ~ "time_last_modified = ?, last_seen_at = ? "
+                ~ "WHERE relative_path = ?", id, spec.timeLastModified,
+                currentTimestamp(), relative);
+            ++stats.richerReplaced;
+            continue;
+        }
+        logLineVerbose("Skipping conflicting duplicate file reference '",
+            relative, "' (kept blob ", existingBlobId, ")");
+        ++stats.conflictSkipped;
+        continue;
     }
 
     insertMediaInfo(db, id, blob.mediaInfoSig);
@@ -1908,4 +1973,72 @@ unittest
     assert(directories.length == 1);
     assert(directories[0].fileCount == 3);
     assert(directories[0].aggregateSize == 103);
+}
+
+@("JSON import resolves duplicate file references")
+unittest
+{
+    import std.file : exists, remove, tempDir;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+    import dosierskanilo.model.filespec : FileSpec;
+    import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION5,
+        NamedBinaryBlob, NamedBinaryBlobCatalog, serializeDataClassWrapperFile;
+    import dosierskanilo.repository.schema : migrate;
+
+    const token = randomUUID().toString();
+    const catalogPath = buildPath(tempDir(), "duplicate-import-" ~ token
+        ~ ".json");
+    scope (exit)
+        if (exists(catalogPath))
+            remove(catalogPath);
+
+    auto first = new NamedBinaryBlob();
+    first.fileSize = 1;
+    first.fileSpecs = [new FileSpec("a.txt", ""),
+        new FileSpec("dup.txt", "")];
+    auto second = new NamedBinaryBlob();
+    second.fileSize = 2;
+    second.fileSpecs = [new FileSpec("b.txt", ""),
+        new FileSpec("dup.txt", "")];
+    auto stale = new NamedBinaryBlob();
+    stale.fileSize = 0;
+    stale.fileSpecs = [new FileSpec("c.txt", ""),
+        new FileSpec("stale.txt", "")];
+    auto fresh = new NamedBinaryBlob();
+    fresh.fileSize = 9;
+    fresh.fileSpecs = [new FileSpec("d.txt", ""),
+        new FileSpec("stale.txt", "")];
+
+    NamedBinaryBlobCatalog catalog = NamedBinaryBlobCatalog(DATA_CLASS_VERSION5,
+        [first, second, stale, fresh]);
+    serializeDataClassWrapperFile(catalogPath, catalog);
+
+    auto db = Database(":memory:");
+    migrate(db, "2026-01-01T00:00:00");
+    JsonImportOptions options;
+    assert(importCatalogJsonControlled(db, tempDir(), catalogPath, options,
+        null, 0));
+
+    size_t referenceCount;
+    long dupBlob;
+    long staleBlob;
+    foreach (row; db.execute("SELECT relative_path, blob_id FROM file_refs "
+        ~ "ORDER BY relative_path"))
+    {
+        ++referenceCount;
+        const relative = decodeNullableString(
+            row.peek!(Nullable!string)(0));
+        if (relative == "dup.txt")
+            dupBlob = row.peek!long(1);
+        if (relative == "stale.txt")
+            staleBlob = row.peek!long(1);
+    }
+    assert(referenceCount == 6, referenceCount.to!string);
+    assert(dupBlob != 0);
+    assert(staleBlob != 0);
+    assert(db.execute("SELECT file_size FROM blobs WHERE id = ?", dupBlob)
+        .oneValue!long == 1, "first complete reference wins a conflict");
+    assert(db.execute("SELECT file_size FROM blobs WHERE id = ?", staleBlob)
+        .oneValue!long == 9, "a real reference replaces a stale zero-size one");
 }
