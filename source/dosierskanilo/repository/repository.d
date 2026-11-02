@@ -37,7 +37,8 @@ import dosierskanilo.repository.transfer : exportCatalogJson,
     loadCatalogQueryPageFromDatabase, loadCatalogQueryPageWithIdsFromDatabase,
     loadBlobDetailsFromDatabase, loadBlobFingerprintFromDatabase,
     countCatalogQueryFromDatabase,
-    listDirectoriesFromDatabase, loadRootSummaryFromDatabase, listFilesFromDatabase,
+    countPhysicalFileReferences, listDirectoriesFromDatabase,
+    loadRootSummaryFromDatabase, listFilesFromDatabase,
     listFilesPageFromDatabase, listArchiveEntriesFromDatabase,
     listTorrentFilesFromDatabase, loadFileReferenceFromDatabase,
     loadArchiveEntryFromDatabase;
@@ -488,6 +489,13 @@ public:
     {
         requireOpen();
         return loadRootSummaryFromDatabase(database);
+    }
+
+    /** Count all non-virtual file references in one SQL query. */
+    size_t physicalFileReferenceCount()
+    {
+        requireOpen();
+        return countPhysicalFileReferences(database);
     }
 
     /** List immediate file references using bounded SQL queries. */

@@ -132,12 +132,14 @@ public:
             CatalogRootSummary result;
             if (!hasActiveFilter(filter))
             {
+                /* The normalized repository summary already counts every
+                 * physical reference and aggregates its content size in SQL.
+                 * Walking millions of rows through the page API here made the
+                 * initial tree load take minutes on large repositories. */
                 auto summary = repository.rootSummary();
                 result.childDirectoryCount = summary.childDirectoryCount;
-                walkMatchingFiles(repository, filter, "", (RepositoryFile file) {
-                    ++result.fileReferenceCount;
-                    result.aggregateSize += file.size;
-                });
+                result.fileReferenceCount = repository.physicalFileReferenceCount();
+                result.aggregateSize = summary.aggregateSize;
                 return result;
             }
 
@@ -1977,7 +1979,9 @@ version (unittest)
         assert(sqliteScan.scanSummary.filesFound == jsonScan.scanSummary.filesFound);
         assert(sqliteBackend.rootSummary().fileReferenceCount == 12);
         assert(sqliteBackend.rootSummary().aggregateSize
-            == jsonBackend.rootSummary().aggregateSize);
+            == jsonBackend.rootSummary().aggregateSize,
+            sqliteBackend.rootSummary().aggregateSize.to!string ~ " != "
+            ~ jsonBackend.rootSummary().aggregateSize.to!string);
 
         CatalogDirectoryQuery directoryQuery;
         CatalogPageRequest directoryRequest;

@@ -9,6 +9,13 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- JSON backends defer the directory/reference index until a filesystem root is
+  bound, so GUI document opening no longer builds the complete index twice.
+  Content pages materialize only the requested window instead of every matching
+  row, and SQLite root summaries use one SQL aggregate instead of walking all
+  file references. Large-catalog loads are substantially faster at lower peak
+  memory.
+
 - JSON catalogs with double-escaped archive-member paths
   (`container!!/member`, written by older tooling) are folded back into their
   archive container instead of exposing a phantom `container!` directory.
