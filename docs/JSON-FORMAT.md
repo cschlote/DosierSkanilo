@@ -105,6 +105,10 @@ Legacy writers used the shorter representation for exactly one path:
 This is an input compatibility shape, not a different domain concept. On input,
 both forms are converted to `fileSpecs` by `fixupDataClassArrayIn()`. JSON v5
 always writes `fileSpecs`, including for a single physical or virtual reference.
+Writers store physical paths relative to the catalog/base directory, whether the
+scan root was spelled as `./`, another relative path, or an absolute path.
+References outside that base directory are discarded; they are never rewritten
+as `..` paths.
 
 ### MediaInfo
 
@@ -282,12 +286,13 @@ serialization functions.
 ## Import and Export Rules for SQLite
 
 SQLite import must normalize every supported JSON representation into the
-relational model. Duplicate source paths are resolved instead of aborting: an
-identical reference is skipped, a stale zero-size reference is replaced by a
-reference with real content, and conflicting references keep the first one with
-an import summary. JSON export must construct the required relationship closure:
-a filtered export must include each selected file reference together with its
-referenced binary record and selected metadata.
+relational model. References outside the repository root are skipped. Duplicate
+source paths are resolved instead of aborting: an identical reference is
+skipped, a stale zero-size reference is replaced by a reference with real
+content, and conflicting references keep the first one with an import summary.
+JSON export must construct the required relationship closure: a filtered export
+must include each selected file reference together with its referenced binary
+record and selected metadata.
 
 All current exports write JSON v5. The version-3 and version-4 format selectors
 remain source-compatible but are rejected as output formats. If SQLite stores

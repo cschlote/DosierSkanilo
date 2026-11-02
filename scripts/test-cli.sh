@@ -92,7 +92,8 @@ assert_monotonic_progress "Catalog scan" checksums "${synthetic_json_output}"
 json_rescan_output=$("${BIN}" scan "${fixture_root}" \
     --json "${synthetic_catalog}" --recursive --checksums)
 [[ "$(grep -c "Read serialized data from JSON file" <<<"${json_rescan_output}" || true)" -eq 1 ]]
-json_analysis_output=$("${BIN}" analyze --json "${synthetic_catalog}")
+json_analysis_output=$("${BIN}" analyze --json "${synthetic_catalog}" \
+    --base-dir "${fixture_root}")
 [[ "${json_analysis_output}" == *"Catalog analysis: 0 missing, 0 dropped, 1 duplicate groups, 1 merged blobs, 0 orphaned blobs."* ]]
 assert_progress_order "Catalog analysis" "${json_analysis_output}" \
     "reading JSON" "missing files" duplicates "analysis cleanup" \
@@ -112,7 +113,8 @@ pretty_catalog="${TMP_DIR}/pretty-catalog.json"
 "${BIN}" scan "${fixture_root}" --json "${pretty_catalog}" \
     --recursive --checksums --pretty >/dev/null
 [[ "$(wc -l < "${pretty_catalog}")" -gt 1 ]]
-"${BIN}" analyze --json "${pretty_catalog}" --pretty >/dev/null
+"${BIN}" analyze --json "${pretty_catalog}" --base-dir "${fixture_root}" \
+    --pretty >/dev/null
 [[ "$(wc -l < "${pretty_catalog}")" -gt 1 ]]
 json_list_output=$("${BIN}" list --json "${synthetic_catalog}" \
     --base-dir "${fixture_root}" --format=json \
@@ -146,7 +148,8 @@ fi
 "${BIN}" scan "${fixture_root}" --json "${archive_catalog}" \
     --recursive --checksums --scan-archives --scan-archives >/dev/null
 "${BIN}" analyze "${archive_sqlite_root}" >/dev/null
-"${BIN}" analyze --json "${archive_catalog}" >/dev/null
+"${BIN}" analyze --json "${archive_catalog}" --base-dir "${fixture_root}" \
+    >/dev/null
 
 archive_json_list=$("${BIN}" list --json "${archive_catalog}" \
     --base-dir "${fixture_root}" --limit 200 --format=json \
@@ -268,7 +271,8 @@ wait "${export_pid}" 2>/dev/null || true
 [[ "${crash_staged}" == true ]]
 cmp "${crash_pristine}" "${crash_output}"
 rm -f "${crash_output}".tmp-*
-"${BIN}" analyze --json "${crash_output}" >/dev/null
+"${BIN}" analyze --json "${crash_output}" --base-dir "${crash_repo}" \
+    >/dev/null
 
 # SIGINT during repository import or export cancels without publishing.
 cancel_import_repo="${TMP_DIR}/cancel-import-repo"
@@ -420,7 +424,8 @@ cancel_catalog="${TMP_DIR}/cancel-catalog.json"
 cancel_pristine="${TMP_DIR}/cancel-pristine.json"
 cp "${crash_source}" "${cancel_catalog}"
 cp "${cancel_catalog}" "${cancel_pristine}"
-"${BIN}" analyze --json "${cancel_catalog}" >"${TMP_DIR}/cancel-stdout" 2>&1 &
+"${BIN}" analyze --json "${cancel_catalog}" --base-dir "${crash_repo}" \
+    >"${TMP_DIR}/cancel-stdout" 2>&1 &
 analyze_pid=$!
 sleep 0.5
 kill -INT "${analyze_pid}" 2>/dev/null || true
@@ -442,7 +447,7 @@ cp "${ROOT_DIR}/test/dummy-text-file.txt" "${sqlite_root}/nested/sample.txt"
 [[ -f "${catalog}" ]]
 [[ ! -d "${library}/.dosierskanilo" ]]
 pushd "${TMP_DIR}" >/dev/null
-"${BIN}" analyze --json "${catalog}"
+"${BIN}" analyze --json "${catalog}" --base-dir "${library}"
 popd >/dev/null
 
 # Top-level commands use SQLite and discover the root from a nested directory.

@@ -378,8 +378,9 @@ private OperationResult runJsonAnalysisOperation(AnalysisOperationRequest reques
         else
         {
             auto execution = analyzeJsonCatalog(request.target.catalogPath,
-                request.forceJsonOverwrite, request.metadataOptions,
-                request.options, control, request.operationId);
+                request.target.filesystemRoot, request.forceJsonOverwrite,
+                request.metadataOptions, request.options, control,
+                request.operationId);
             result.metadataSummary = execution.metadataSummary;
             result.analysisSummary = execution.analysisSummary;
             if (execution.cancelled)
@@ -1396,7 +1397,7 @@ unittest
     remove(missingPath);
     AnalysisOperationRequest analyze;
     analyze.operationId = 906;
-    analyze.target = OperationTarget.jsonTarget(catalogPath);
+    analyze.target = OperationTarget.jsonTarget(catalogPath, root);
     auto retained = runOperation(analyze, new OperationControl());
     assert(retained.state == OperationState.completed, retained.error);
     assert(retained.analysisSummary.missingFiles == 1);
@@ -1404,7 +1405,7 @@ unittest
     bool missingReferenceRetained;
     foreach (blob; deserializeDataClassJsonWrapperFile(catalogPath).dataArray)
         foreach (file; blob.fileSpecs)
-            if (file.fileName == missingPath)
+            if (file.fileName == "same-size/different.txt")
                 missingReferenceRetained = true;
     assert(missingReferenceRetained);
 

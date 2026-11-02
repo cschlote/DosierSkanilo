@@ -130,11 +130,14 @@ bool importCatalogJsonControlled(ref Database db, string rootPath,
         }
         if (referenceStats.identicalSkipped > 0
             || referenceStats.richerReplaced > 0
-            || referenceStats.conflictSkipped > 0)
+            || referenceStats.conflictSkipped > 0
+            || referenceStats.outsideSkipped > 0)
             logLine("Import references: ", referenceStats.identicalSkipped,
                 " identical duplicates skipped, ",
                 referenceStats.richerReplaced, " stale references replaced, ",
-                referenceStats.conflictSkipped, " conflicts kept first.");
+                referenceStats.conflictSkipped, " conflicts kept first, ",
+                referenceStats.outsideSkipped,
+                " outside the repository root skipped.");
         db.commit();
         return true;
     }
@@ -1446,6 +1449,7 @@ private struct ImportReferenceStats
     size_t identicalSkipped;
     size_t richerReplaced;
     size_t conflictSkipped;
+    size_t outsideSkipped;
 }
 
 private long insertBlob(ref Database db, string rootPath, NamedBinaryBlob blob,
@@ -1468,8 +1472,13 @@ private long insertBlob(ref Database db, string rootPath, NamedBinaryBlob blob,
         if (spec is null || spec.fileName.empty)
             continue;
         auto parsed = parseArchiveVirtualPath(spec.fileName);
-        const auto physicalRelativePath = repositoryRelativePath(rootPath,
-            parsed.physicalPath);
+        string physicalRelativePath;
+        if (!tryRepositoryRelativePath(rootPath, parsed.physicalPath,
+                physicalRelativePath))
+        {
+            ++stats.outsideSkipped;
+            continue;
+        }
         string relative;
         Nullable!long directoryId;
         if (parsed.isVirtual)
@@ -1592,6 +1601,29 @@ private long ensureDirectory(ref Database db, string relativeDirectory)
             ~ "WHERE relative_path = ?", current).oneValue!long;
     }
     return parentId;
+}
+
+private bool tryRepositoryRelativePath(string rootPath, string path,
+    out string relative)
+{
+    import std.algorithm.searching : startsWith;
+
+    auto normalized = nativePathToStoragePath(buildNormalizedPath(path));
+    if (!isAbsolute(normalized))
+    {
+        relative = normalized;
+        return true;
+    }
+    if (rootPath.empty)
+        return false;
+    auto normalizedRoot = nativePathToStoragePath(buildNormalizedPath(rootPath));
+    if (normalized == normalizedRoot)
+        return false;
+    const auto prefix = normalizedRoot == "/" ? "/" : normalizedRoot ~ "/";
+    if (!normalized.startsWith(prefix))
+        return false;
+    relative = normalized[prefix.length .. $];
+    return true;
 }
 
 private string repositoryRelativePath(string rootPath, string path)
