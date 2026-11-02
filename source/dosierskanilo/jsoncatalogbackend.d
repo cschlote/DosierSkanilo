@@ -14,7 +14,7 @@ import std.file : exists;
 import std.path : absolutePath, baseName, buildNormalizedPath, buildPath,
     isAbsolute,
     dirName, isAbsolute;
-import std.string : replace, split, toLower;
+import std.string : lastIndexOf, replace, split, toLower;
 import std.uuid : randomUUID;
 
 import dosierarkivo.archive : appendArchiveVirtualPath,
@@ -156,7 +156,11 @@ public:
             catalogLoadError = failure.msg;
             catalog = NamedBinaryBlobCatalog(DATA_CLASS_VERSION3, []);
         }
-        if (catalogLoadError.length == 0)
+        /* An unrooted JSON source is analysis-only until a filesystem root is
+         * bound. Deferring the tree index avoids building and discarding the
+         * complete directory/reference index twice when a frontend binds the
+         * suggested root immediately after opening. */
+        if (catalogLoadError.length == 0 && sourceRoot.length > 0)
         {
             try
                 rebuildIndex();
@@ -334,6 +338,8 @@ public:
             throw new CatalogBackendException(CatalogBackendErrorCode.invalidCursor,
                 "Catalog cursor belongs to a different query or page size.");
         const auto start = page.cursor.isValid ? page.cursor.adapterIndex : 0;
+        import core.time : MonoTime;
+        const auto contentsStarted = MonoTime.currTime;
 
         CatalogFile[] references = fileRows.dup;
         foreach (ref container; fileRows)
@@ -342,32 +348,20 @@ public:
 
         size_t[string] referenceCounts;
         string[string] displayPaths;
-        string[string] displayNames;
-        bool[string] pathMatches;
         foreach (ref candidate; references)
         {
             const token = candidate.contentId.adapterToken;
             ++referenceCounts[token];
             const auto displayPath = displayPaths.get(token, "");
             if (displayPath.length == 0 || candidate.relativePath < displayPath)
-            {
                 displayPaths[token] = candidate.relativePath;
-                displayNames[token] = candidate.name;
-            }
-            if (!pathMatches.get(token, false))
-            {
-                auto path = candidate.relativePath;
-                auto text = query.filter.pathText;
-                if (!query.filter.caseSensitive)
-                {
-                    path = path.toLower;
-                    text = text.toLower;
-                }
-                pathMatches[token] = text.length == 0 || path.canFind(text);
-            }
         }
+        logLineVerbose("[contents] reference maps=", references.length,
+            " elapsedMs=", cast(long) (MonoTime.currTime - contentsStarted).total!"msecs");
 
-        CatalogContentRow[] matching;
+        const auto scanStarted = MonoTime.currTime;
+        size_t matched;
+        CatalogContentRow[] window;
         foreach (blobIndex, ref blob; catalog.dataArray)
         {
             const token = contentTokenForBlobIndex(blobIndex);
@@ -375,56 +369,77 @@ public:
                 continue;
             const bool digestMatch = query.filter.pathText.length > 0
                 && blob.checkSums.sha1sum_b64 == query.filter.pathText;
-            if (!pathMatches.get(token, false) && !digestMatch)
+            const auto referenceCount = referenceCounts.get(token, 0);
+            if (referenceCount == 0 && !digestMatch)
                 continue;
-            CatalogContentRow row;
-            row.id = ContentId(token);
-            row.size = blob.fileSize;
-            row.referenceCount = referenceCounts.get(token, 0);
-            row.displayPath = displayPaths.get(token, "");
-            row.displayName = displayNames.get(token, "");
-            row.fingerprint = fingerprintFor(blob.fileSize, blob.checkSums);
-            row.availability = CatalogReferenceAvailability.notChecked;
-            if (auto content = token in contentByToken)
+            if (query.filter.pathText.length > 0 && !digestMatch)
             {
-                row.hasFileType = (*content).fileType.length > 0;
-                row.hasArchive = (*content).hasArchive;
-                row.hasTorrent = (*content).hasTorrent;
-                foreach (stream; (*content).mediaStreams)
-                    final switch (stream.kind)
-                    {
-                    case CatalogMediaKind.image:
-                        row.hasImage = true;
-                        break;
-                    case CatalogMediaKind.video:
-                        row.hasVideo = true;
-                        break;
-                    case CatalogMediaKind.audio:
-                        row.hasAudio = true;
-                        break;
-                    case CatalogMediaKind.text:
-                        row.hasText = true;
-                        break;
-                    }
-                row.hasMedia = row.hasImage || row.hasVideo || row.hasAudio
-                    || row.hasText;
+                auto path = displayPaths.get(token, "");
+                auto text = query.filter.pathText;
+                if (!query.filter.caseSensitive)
+                {
+                    path = path.toLower;
+                    text = text.toLower;
+                }
+                if (path.length == 0 || !path.canFind(text))
+                    continue;
             }
-            matching ~= row;
+            if (matched >= start && window.length < page.limit)
+            {
+                CatalogContentRow row;
+                row.id = ContentId(token);
+                row.size = blob.fileSize;
+                row.referenceCount = referenceCount;
+                row.displayPath = displayPaths.get(token, "");
+                const slash = row.displayPath.lastIndexOf('/');
+                row.displayName = slash >= 0
+                    ? row.displayPath[slash + 1 .. $] : row.displayPath;
+                row.fingerprint = fingerprintFor(blob.fileSize, blob.checkSums);
+                row.availability = CatalogReferenceAvailability.notChecked;
+                if (auto content = token in contentByToken)
+                {
+                    row.hasFileType = (*content).fileType.length > 0;
+                    row.hasArchive = (*content).hasArchive;
+                    row.hasTorrent = (*content).hasTorrent;
+                    foreach (stream; (*content).mediaStreams)
+                        final switch (stream.kind)
+                        {
+                        case CatalogMediaKind.image:
+                            row.hasImage = true;
+                            break;
+                        case CatalogMediaKind.video:
+                            row.hasVideo = true;
+                            break;
+                        case CatalogMediaKind.audio:
+                            row.hasAudio = true;
+                            break;
+                        case CatalogMediaKind.text:
+                            row.hasText = true;
+                            break;
+                        }
+                    row.hasMedia = row.hasImage || row.hasVideo || row.hasAudio
+                        || row.hasText;
+                }
+                window ~= row;
+            }
+            ++matched;
         }
+        logLineVerbose("[contents] scan blobs=", catalog.dataArray.length,
+            " matches=", matched, " window=", window.length, " elapsedMs=",
+            cast(long) (MonoTime.currTime - scanStarted).total!"msecs");
 
-        if (start > matching.length)
+        if (start > matched)
             throw new CatalogBackendException(CatalogBackendErrorCode.invalidCursor,
                 "Catalog cursor is outside this query result.");
-        const auto end = start + page.limit < matching.length
-            ? start + page.limit : matching.length;
+        const auto end = start + window.length;
         CatalogContentPage result;
-        result.rows = matching[start .. end];
-        result.total = matching.length;
+        result.rows = window;
+        result.total = matched;
         result.hasPrevious = start > 0;
         if (result.hasPrevious)
             result.previousCursor = CatalogPageCursor(start > page.limit
                 ? start - page.limit : 0, page.limit, queryToken);
-        result.hasMore = end < matching.length;
+        result.hasMore = end < matched;
         if (result.hasMore)
             result.nextCursor = CatalogPageCursor(end, page.limit, queryToken);
         return result;
@@ -3001,7 +3016,10 @@ private final class JsonCatalogDocument : CatalogDocument
         backend.sourceRoot = root.length > 0
             ? nativePathToStoragePath(buildNormalizedPath(absolutePath(root)))
             : "";
-        backend.rebuildIndex();
+        if (backend.sourceRoot.length > 0)
+            backend.rebuildIndex();
+        else
+            backend.clearIndex();
     }
 
     override OperationResult applyScan(ScanOperationRequest request,
@@ -3342,6 +3360,8 @@ version (unittest)
             CatalogContentQuery.init,
             CatalogPageRequest(2, firstContents.nextCursor));
         assert(nextContents.rows.length == 2);
+        assert(nextContents.total == allContents.total);
+        assert(nextContents.hasPrevious);
         assert(nextContents.rows[0].displayPath
             != firstContents.rows[1].displayPath);
         CatalogContentQuery archiveContents;
@@ -3896,6 +3916,8 @@ unittest
     scope (exit)
         backend.close();
     auto document = backend.document();
+    assert(!backend.capabilities().supportsTreeQueries,
+        "unrooted JSON documents defer the tree index until a root is bound");
     const root = document.suggestedFilesystemRoot();
     assert(root == dirName(catalogPath));
     document.bindFilesystemRoot(root);

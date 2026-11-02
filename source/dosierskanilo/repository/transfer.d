@@ -287,6 +287,14 @@ RepositoryDirectory[] listDirectoriesFromDatabase(ref Database db,
     return result;
 }
 
+/** Count all physical file references in the repository. */
+size_t countPhysicalFileReferences(ref Database db)
+{
+    auto result = db.execute("SELECT count(*) FROM file_refs WHERE "
+        ~ "NOT (" ~ isVirtualFileReferenceSql("relative_path") ~ ")");
+    return cast(size_t) result.front.peek!long(0);
+}
+
 /** Count root children and aggregate repository size without loading file rows. */
 RepositoryRootSummary loadRootSummaryFromDatabase(ref Database db)
 {

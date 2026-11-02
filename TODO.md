@@ -63,6 +63,10 @@ and behavior fixes since `26.13.0`).
       silently; existing readers must keep their guarantees.
 - [ ] Add distribution smoke checks for the supported package formats
       (Debian/Ubuntu/Alpine, Arch, Fedora, Flatpak) to the release evidence.
+- [ ] Decide whether direct JSON browsing needs a streaming reader/index for
+      multi-million-record catalogs, or an explicit size guard that recommends
+      repository import. Current direct JSON tabs hold the complete catalog and
+      derived index in memory.
 - [ ] Revisit network-filesystem SQLite placement only if a representative
       CIFS/SMB or NFS environment provides exclusive cross-host locks, working
       WAL shared memory, atomic rename, durable sync, and hard links (or the

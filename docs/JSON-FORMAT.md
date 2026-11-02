@@ -11,7 +11,9 @@ JSON is a compatibility and exchange format. It is not intended to be the
 primary query store for large repositories. The `.dosierskanilo` SQLite
 repository is the normal working store and is described in [DATABASE.md](DATABASE.md).
 The direct JSON-file workflow remains supported for existing users, scripts and
-catalogs and is not scheduled for short-term removal.
+catalogs and is not scheduled for short-term removal. Direct JSON tabs keep the
+complete catalog and its derived index in memory, so multi-million-record
+catalogs should be imported into a repository before interactive browsing.
 
 ## Root Object
 
