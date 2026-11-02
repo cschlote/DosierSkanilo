@@ -23,6 +23,7 @@ import dosierarkivo.archive : appendArchiveVirtualPath,
     parseArchiveVirtualPath,
     ParsedArchiveVirtualPath;
 import dosierskanilo.catalogbackend;
+import dosierskanilo.logging : logLineVerbose;
 import dosierskanilo.membercontentcache : MemberContentCancelledException,
     MemberContentLease;
 import dosierskanilo.memberextraction : ArchiveExtractionStep,
@@ -1917,6 +1918,9 @@ private:
 
     void rebuildIndex()
     {
+        import core.time : MonoTime;
+
+        const auto started = MonoTime.currTime;
         clearIndex();
         treeQueriesAvailable = sourceRoot.length > 0;
         bool[string] seenPaths;
@@ -2016,6 +2020,10 @@ private:
         prunePathMap(referenceTokenByPath, seenReferencePaths);
         fileRows.sort!((left, right) => left.relativePath < right.relativePath);
         directoryRows.sort!((left, right) => left.relativePath < right.relativePath);
+        logLineVerbose("[json-index] blobs=", catalog.dataArray.length,
+            " files=", fileRows.length, " dirs=", directoryRows.length,
+            " elapsedMs=",
+            cast(long) (MonoTime.currTime - started).total!"msecs");
     }
 
     void prunePathMap(T)(ref T[string] values, bool[string] retained)
