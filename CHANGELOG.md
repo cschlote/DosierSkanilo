@@ -9,6 +9,13 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- JSON import inserts all content records and physical references before linking
+  virtual archive members. Catalogs that share a blob between an extracted file
+  and an archive member no longer fail with a missing physical container when
+  the member sorts before its container. Double-escaped member paths are folded
+  back into their container during import instead of creating phantom `!`
+  directories.
+
 - JSON import finalization no longer compares every archive index against every
   file reference. Large imports report a finalizing phase and use faster
   unreachable-blob cleanup, removing a long pause after the progress bar reached

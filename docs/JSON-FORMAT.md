@@ -290,6 +290,8 @@ relational model. References outside the repository root are skipped. Duplicate
 source paths are resolved instead of aborting: an identical reference is
 skipped, a stale zero-size reference is replaced by a reference with real
 content, and conflicting references keep the first one with an import summary.
+Double-escaped member paths are folded back into their archive container when no
+literal `!` directory exists below the repository root.
 JSON export must construct the required relationship closure: a filtered export
 must include each selected file reference together with its referenced binary
 record and selected metadata.
