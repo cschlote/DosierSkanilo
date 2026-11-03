@@ -15,7 +15,8 @@ import std.array : join;
 import std.base64 : Base64;
 import std.conv : to;
 import std.exception : enforce;
-import std.path : baseName, buildNormalizedPath, dirName, isAbsolute;
+import std.file : exists;
+import std.path : baseName, buildNormalizedPath, buildPath, dirName, isAbsolute;
 import std.string : empty, endsWith, replace, split;
 import std.typecons : Nullable;
 
@@ -86,30 +87,106 @@ bool importCatalogJsonControlled(ref Database db, string rootPath,
 
         ImportedArchiveIndex[] archiveIndexes;
         ImportReferenceStats referenceStats;
-        foreach (physicalPass; [true, false])
-            foreach (blob; catalog.dataArray)
+        long[] blobIds;
+        blobIds.length = catalog.dataArray.length;
+
+        /* Insert every content record before any reference. A blob can carry
+         * both physical and virtual specs, and a virtual member may sort before
+         * its container. Splitting the passes prevents order-dependent
+         * "missing physical container" failures. */
+        foreach (index, blob; catalog.dataArray)
+        {
+            if (blob is null)
+                continue;
+            const auto blobId = insertBlobRecord(db, blob);
+            blobIds[index] = blobId;
+            if (blob.archiveIndexKnown)
+                archiveIndexes ~= ImportedArchiveIndex(blobId,
+                    blob.archiveIndexDeep);
+            if (control !is null)
             {
-                if (control !is null)
+                if (control.cancellationRequested)
                 {
-                    if (control.cancellationRequested)
-                    {
-                        db.rollback();
-                        return false;
-                    }
+                    db.rollback();
+                    return false;
                 }
-                if (blob is null || hasPhysicalFileReference(blob)
-                    != physicalPass)
-                    continue;
-                const auto blobId = insertBlob(db, rootPath, blob,
-                    referenceStats);
-                if (blob.archiveIndexKnown)
-                    archiveIndexes ~= ImportedArchiveIndex(blobId,
-                        blob.archiveIndexDeep);
-                if (control !is null && ++processed % 512 == 0)
+                if (++processed % 512 == 0)
                     reportImportProgress(control, operationId,
                         OperationPhase.jsonWrite, processed, total,
                         "Importing JSON catalog.");
             }
+        }
+
+        foreach (index, blob; catalog.dataArray)
+        {
+            if (blob is null)
+                continue;
+            foreach (spec; blob.fileSpecs)
+            {
+                if (spec is null || spec.fileName.empty)
+                    continue;
+                ParsedArchiveVirtualPath parsed;
+                try
+                    parsed = parseImportPath(rootPath, spec.fileName);
+                catch (Exception)
+                    continue;
+                if (parsed.isVirtual)
+                    continue;
+                insertFileReference(db, rootPath, blobIds[index], blob, spec,
+                    parsed, referenceStats);
+            }
+            if (control !is null && control.cancellationRequested)
+            {
+                db.rollback();
+                return false;
+            }
+        }
+
+        struct VirtualReferenceWork
+        {
+            long blobId;
+            NamedBinaryBlob blob;
+            FileSpec spec;
+            ParsedArchiveVirtualPath parsed;
+            size_t depth;
+        }
+
+        import std.algorithm.sorting : sort;
+        VirtualReferenceWork[] virtualWork;
+        foreach (index, blob; catalog.dataArray)
+        {
+            if (blob is null)
+                continue;
+            foreach (spec; blob.fileSpecs)
+            {
+                if (spec is null || spec.fileName.empty)
+                    continue;
+                ParsedArchiveVirtualPath parsed;
+                try
+                    parsed = parseImportPath(rootPath, spec.fileName);
+                catch (Exception)
+                    continue;
+                if (!parsed.isVirtual)
+                    continue;
+                virtualWork ~= VirtualReferenceWork(blobIds[index], blob, spec,
+                    parsed, parsed.entries.length);
+            }
+        }
+        virtualWork.sort!((left, right) => left.depth < right.depth);
+        if (virtualWork.length > 0 && control !is null)
+            reportImportProgress(control, operationId, OperationPhase.jsonWrite,
+                processed, total, "Linking archive members.");
+        foreach (work; virtualWork)
+        {
+            insertFileReference(db, rootPath, work.blobId, work.blob, work.spec,
+                work.parsed, referenceStats);
+            if (control !is null && control.cancellationRequested)
+            {
+                db.rollback();
+                return false;
+            }
+        }
+
         if (control !is null)
             reportImportProgress(control, operationId, OperationPhase.jsonWrite,
                 processed, total,
@@ -1394,23 +1471,6 @@ private void clearCatalog(ref Database db)
     db.execute("DELETE FROM blobs");
 }
 
-private bool hasPhysicalFileReference(NamedBinaryBlob blob)
-{
-    foreach (spec; blob.fileSpecs)
-    {
-        if (spec is null || spec.fileName.empty)
-            continue;
-        try
-        {
-            if (!parseArchiveVirtualPath(spec.fileName).isVirtual)
-                return true;
-        }
-        catch (Exception)
-            return true;
-    }
-    return false;
-}
-
 private void persistImportedArchiveStatuses(ref Database db,
     ImportedArchiveIndex[] archiveIndexes)
 {
@@ -1475,8 +1535,7 @@ private struct ImportReferenceStats
     size_t outsideSkipped;
 }
 
-private long insertBlob(ref Database db, string rootPath, NamedBinaryBlob blob,
-    ref ImportReferenceStats stats)
+private long insertBlobRecord(ref Database db, NamedBinaryBlob blob)
 {
     auto md5 = encodeBase64(blob.checkSums.md5sum_b64);
     auto sha1 = encodeBase64(blob.checkSums.sha1sum_b64);
@@ -1489,110 +1548,135 @@ private long insertBlob(ref Database db, string rootPath, NamedBinaryBlob blob,
     if (!blob.archivePassword.empty)
         db.execute("INSERT INTO archive_passwords (blob_id, password) VALUES (?, ?)",
             id, blob.archivePassword);
-
-    foreach (spec; blob.fileSpecs)
-    {
-        if (spec is null || spec.fileName.empty)
-            continue;
-        auto parsed = parseArchiveVirtualPath(spec.fileName);
-        string physicalRelativePath;
-        if (!tryRepositoryRelativePath(rootPath, parsed.physicalPath,
-                physicalRelativePath))
-        {
-            ++stats.outsideSkipped;
-            continue;
-        }
-        string relative;
-        Nullable!long directoryId;
-        if (parsed.isVirtual)
-        {
-            relative = escapeArchiveVirtualPath(physicalRelativePath);
-            foreach (entry; parsed.entries)
-                relative = appendArchiveVirtualPath(relative, entry.relativePath,
-                    entry.hasOccurrence ? entry.occurrence : size_t.max);
-            auto physicalReference = db.execute("SELECT directory_id FROM file_refs "
-                ~ "WHERE relative_path = ?", escapeArchiveVirtualPath(
-                    physicalRelativePath));
-            enforce(!physicalReference.empty,
-                "JSON v5 archive member has no physical container reference: "
-                ~ spec.fileName);
-            directoryId = physicalReference.front.peek!(Nullable!long)(0);
-        }
-        else
-        {
-            relative = escapeArchiveVirtualPath(physicalRelativePath);
-            const auto directory = ensureDirectory(db,
-                dirName(physicalRelativePath));
-            if (directory > 0)
-                directoryId = Nullable!long(directory);
-        }
-        enum conflictSuffix = " ON CONFLICT(relative_path) DO NOTHING";
-        if (directoryId.isNull)
-        {
-            db.execute("INSERT INTO file_refs "
-                ~ "(blob_id, relative_path, time_last_modified, "
-                ~ "exists_on_disk, last_seen_at) VALUES (?, ?, ?, 1, ?)"
-                ~ conflictSuffix,
-                id, relative, spec.timeLastModified, currentTimestamp());
-        }
-        else
-        {
-            db.execute("INSERT INTO file_refs "
-                ~ "(blob_id, directory_id, relative_path, time_last_modified, "
-                ~ "exists_on_disk, last_seen_at) VALUES (?, ?, ?, ?, 1, ?)"
-                ~ conflictSuffix,
-                id, directoryId.get, relative, spec.timeLastModified,
-                currentTimestamp());
-        }
-        if (db.changes != 0)
-            continue;
-
-        auto existing = db.execute("SELECT f.blob_id, b.file_size, b.md5, "
-            ~ "b.sha1, b.xxh64 FROM file_refs f JOIN blobs b ON b.id = f.blob_id "
-            ~ "WHERE f.relative_path = ?", relative);
-        if (existing.empty)
-            continue;
-        auto row = existing.front;
-        const auto existingBlobId = row.peek!long(0);
-        if (existingBlobId == id)
-        {
-            ++stats.identicalSkipped;
-            continue;
-        }
-        const auto existingSize = cast(ulong) row.peek!long(1);
-        auto existingMd5 = row.peek!(Nullable!Blob)(2);
-        auto existingSha1 = row.peek!(Nullable!Blob)(3);
-        auto existingXxh64 = row.peek!(Nullable!Blob)(4);
-        const bool sameContent = existingSize == blob.fileSize
-            && existingMd5 == md5 && existingSha1 == sha1
-            && existingXxh64 == xxh64;
-        if (sameContent)
-        {
-            ++stats.identicalSkipped;
-            continue;
-        }
-        const bool existingComplete = !existingMd5.isNull
-            && !existingSha1.isNull && !existingXxh64.isNull;
-        const bool richer = (blob.checkSums.hasDigests && !existingComplete)
-            || (existingSize == 0 && blob.fileSize > 0);
-        if (richer)
-        {
-            db.execute("UPDATE file_refs SET blob_id = ?, "
-                ~ "time_last_modified = ?, last_seen_at = ? "
-                ~ "WHERE relative_path = ?", id, spec.timeLastModified,
-                currentTimestamp(), relative);
-            ++stats.richerReplaced;
-            continue;
-        }
-        logLineVerbose("Skipping conflicting duplicate file reference '",
-            relative, "' (kept blob ", existingBlobId, ")");
-        ++stats.conflictSkipped;
-        continue;
-    }
-
     insertMediaInfo(db, id, blob.mediaInfoSig);
     insertTorrentInfo(db, id, blob.torrentInfo);
     return id;
+}
+
+/** Decode a stored path and fold double-escaped archive members back into
+ * their container when no literal `!` directory exists below the root. */
+private ParsedArchiveVirtualPath parseImportPath(string rootPath, string path)
+{
+    auto parsed = parseArchiveVirtualPath(path);
+    if (parsed.isVirtual || !parsed.physicalPath.canFind("!/"))
+        return parsed;
+    const auto literal = isAbsolute(parsed.physicalPath)
+        ? buildNormalizedPath(parsed.physicalPath)
+        : buildPath(buildNormalizedPath(rootPath), parsed.physicalPath);
+    bool literalExists;
+    try
+        literalExists = exists(literal);
+    catch (Exception)
+    {
+    }
+    if (literalExists)
+        return parsed;
+    try
+        return parseArchiveVirtualPath(parsed.physicalPath);
+    catch (Exception)
+        return parsed;
+}
+
+private void insertFileReference(ref Database db, string rootPath, long id,
+    NamedBinaryBlob blob, FileSpec spec, ParsedArchiveVirtualPath parsed,
+    ref ImportReferenceStats stats)
+{
+    string physicalRelativePath;
+    if (!tryRepositoryRelativePath(rootPath, parsed.physicalPath,
+            physicalRelativePath))
+    {
+        ++stats.outsideSkipped;
+        return;
+    }
+    string relative;
+    Nullable!long directoryId;
+    if (parsed.isVirtual)
+    {
+        relative = escapeArchiveVirtualPath(physicalRelativePath);
+        foreach (entry; parsed.entries)
+            relative = appendArchiveVirtualPath(relative, entry.relativePath,
+                entry.hasOccurrence ? entry.occurrence : size_t.max);
+        auto physicalReference = db.execute("SELECT directory_id FROM file_refs "
+            ~ "WHERE relative_path = ?", escapeArchiveVirtualPath(
+                physicalRelativePath));
+        enforce(!physicalReference.empty,
+            "JSON v5 archive member has no physical container reference: "
+            ~ spec.fileName);
+        directoryId = physicalReference.front.peek!(Nullable!long)(0);
+    }
+    else
+    {
+        relative = escapeArchiveVirtualPath(physicalRelativePath);
+        const auto directory = ensureDirectory(db,
+            dirName(physicalRelativePath));
+        if (directory > 0)
+            directoryId = Nullable!long(directory);
+    }
+
+    const auto md5 = encodeBase64(blob.checkSums.md5sum_b64);
+    const auto sha1 = encodeBase64(blob.checkSums.sha1sum_b64);
+    const auto xxh64 = encodeBase64(blob.checkSums.xxh64sum_b64);
+    enum conflictSuffix = " ON CONFLICT(relative_path) DO NOTHING";
+    if (directoryId.isNull)
+    {
+        db.execute("INSERT INTO file_refs "
+            ~ "(blob_id, relative_path, time_last_modified, "
+            ~ "exists_on_disk, last_seen_at) VALUES (?, ?, ?, 1, ?)"
+            ~ conflictSuffix,
+            id, relative, spec.timeLastModified, currentTimestamp());
+    }
+    else
+    {
+        db.execute("INSERT INTO file_refs "
+            ~ "(blob_id, directory_id, relative_path, time_last_modified, "
+            ~ "exists_on_disk, last_seen_at) VALUES (?, ?, ?, ?, 1, ?)"
+            ~ conflictSuffix,
+            id, directoryId.get, relative, spec.timeLastModified,
+            currentTimestamp());
+    }
+    if (db.changes != 0)
+        return;
+
+    auto existing = db.execute("SELECT f.blob_id, b.file_size, b.md5, "
+        ~ "b.sha1, b.xxh64 FROM file_refs f JOIN blobs b ON b.id = f.blob_id "
+        ~ "WHERE f.relative_path = ?", relative);
+    if (existing.empty)
+        return;
+    auto row = existing.front;
+    const auto existingBlobId = row.peek!long(0);
+    if (existingBlobId == id)
+    {
+        ++stats.identicalSkipped;
+        return;
+    }
+    const auto existingSize = cast(ulong) row.peek!long(1);
+    auto existingMd5 = row.peek!(Nullable!Blob)(2);
+    auto existingSha1 = row.peek!(Nullable!Blob)(3);
+    auto existingXxh64 = row.peek!(Nullable!Blob)(4);
+    const bool sameContent = existingSize == blob.fileSize
+        && existingMd5 == md5 && existingSha1 == sha1
+        && existingXxh64 == xxh64;
+    if (sameContent)
+    {
+        ++stats.identicalSkipped;
+        return;
+    }
+    const bool existingComplete = !existingMd5.isNull
+        && !existingSha1.isNull && !existingXxh64.isNull;
+    const bool richer = (blob.checkSums.hasDigests && !existingComplete)
+        || (existingSize == 0 && blob.fileSize > 0);
+    if (richer)
+    {
+        db.execute("UPDATE file_refs SET blob_id = ?, "
+            ~ "time_last_modified = ?, last_seen_at = ? "
+            ~ "WHERE relative_path = ?", id, spec.timeLastModified,
+            currentTimestamp(), relative);
+        ++stats.richerReplaced;
+        return;
+    }
+    logLineVerbose("Skipping conflicting duplicate file reference '",
+        relative, "' (kept blob ", existingBlobId, ")");
+    ++stats.conflictSkipped;
 }
 
 private long ensureDirectory(ref Database db, string relativeDirectory)
@@ -2096,4 +2180,88 @@ unittest
         .oneValue!long == 1, "first complete reference wins a conflict");
     assert(db.execute("SELECT file_size FROM blobs WHERE id = ?", staleBlob)
         .oneValue!long == 9, "a real reference replaces a stale zero-size one");
+}
+
+@("JSON import links virtual members when their blob also has a physical path")
+unittest
+{
+    import std.file : exists, remove, tempDir;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+    import dosierskanilo.model.filespec : FileSpec;
+    import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION5,
+        NamedBinaryBlob, NamedBinaryBlobCatalog, serializeDataClassWrapperFile;
+    import dosierskanilo.repository.schema : migrate;
+
+    const catalogPath = buildPath(tempDir(), "import-order-" ~ randomUUID()
+        .toString() ~ ".json");
+    scope (exit)
+        if (exists(catalogPath))
+            remove(catalogPath);
+
+    auto container = new NamedBinaryBlob();
+    container.fileSize = 10;
+    container.fileSpecs = [new FileSpec("z.zip", "")];
+    /* The first path sorts before the container, so the virtual member is
+     * encountered before its physical container. */
+    auto combined = new NamedBinaryBlob();
+    combined.fileSize = 5;
+    combined.fileSpecs = [new FileSpec("a.txt", ""),
+        new FileSpec("z.zip!/member.txt", "")];
+    NamedBinaryBlobCatalog catalog = NamedBinaryBlobCatalog(DATA_CLASS_VERSION5,
+        [container, combined]);
+    serializeDataClassWrapperFile(catalogPath, catalog);
+
+    auto db = Database(":memory:");
+    migrate(db, "2026-01-01T00:00:00");
+    JsonImportOptions options;
+    assert(importCatalogJsonControlled(db, tempDir(), catalogPath, options,
+        null, 0));
+    assert(db.execute("SELECT count(*) FROM file_refs WHERE relative_path = ?",
+        "z.zip!/member.txt").oneValue!long == 1);
+    assert(db.execute("SELECT b.file_size FROM file_refs f JOIN blobs b "
+        ~ "ON b.id = f.blob_id WHERE f.relative_path = ?",
+        "z.zip!/member.txt").oneValue!long == 5);
+}
+
+@("JSON import folds double-escaped archive member paths")
+unittest
+{
+    import std.file : exists, remove, tempDir;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+    import dosierskanilo.model.filespec : FileSpec;
+    import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION5,
+        NamedBinaryBlob, NamedBinaryBlobCatalog, serializeDataClassWrapperFile;
+    import dosierskanilo.repository.schema : migrate;
+
+    const catalogPath = buildPath(tempDir(), "import-double-escaped-"
+        ~ randomUUID().toString() ~ ".json");
+    scope (exit)
+        if (exists(catalogPath))
+            remove(catalogPath);
+
+    auto container = new NamedBinaryBlob();
+    container.fileSize = 10;
+    container.fileSpecs = [new FileSpec("archive.zip", "")];
+    auto stale = new NamedBinaryBlob();
+    stale.fileSize = 0;
+    stale.fileSpecs = [new FileSpec("archive.zip!!/member.txt", "")];
+    auto member = new NamedBinaryBlob();
+    member.fileSize = 5;
+    member.fileSpecs = [new FileSpec("archive.zip!/member.txt", "")];
+    NamedBinaryBlobCatalog catalog = NamedBinaryBlobCatalog(DATA_CLASS_VERSION5,
+        [container, stale, member]);
+    serializeDataClassWrapperFile(catalogPath, catalog);
+
+    auto db = Database(":memory:");
+    migrate(db, "2026-01-01T00:00:00");
+    JsonImportOptions options;
+    assert(importCatalogJsonControlled(db, tempDir(), catalogPath, options,
+        null, 0));
+    assert(db.execute("SELECT count(*) FROM file_refs WHERE relative_path "
+        ~ "LIKE '%!!%'").oneValue!long == 0);
+    assert(db.execute("SELECT b.file_size FROM file_refs f JOIN blobs b "
+        ~ "ON b.id = f.blob_id WHERE f.relative_path = ?",
+        "archive.zip!/member.txt").oneValue!long == 5);
 }
