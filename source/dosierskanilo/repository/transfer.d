@@ -110,10 +110,25 @@ bool importCatalogJsonControlled(ref Database db, string rootPath,
                         OperationPhase.jsonWrite, processed, total,
                         "Importing JSON catalog.");
             }
+        if (control !is null)
+            reportImportProgress(control, operationId, OperationPhase.jsonWrite,
+                processed, total,
+                "Finalizing import: archive links and cleanup.");
+        import core.time : MonoTime;
+        auto phaseStarted = MonoTime.currTime;
         persistImportedArchiveStatuses(db, archiveIndexes);
+        logLineVerbose("[import] archive statuses elapsedMs=",
+            cast(long) (MonoTime.currTime - phaseStarted).total!"msecs");
+        phaseStarted = MonoTime.currTime;
         resolveArchiveMemberBlobLinks(db);
+        logLineVerbose("[import] archive member links elapsedMs=",
+            cast(long) (MonoTime.currTime - phaseStarted).total!"msecs");
+        phaseStarted = MonoTime.currTime;
         deleteUnreachableBlobs(db);
+        logLineVerbose("[import] unreachable blobs elapsedMs=",
+            cast(long) (MonoTime.currTime - phaseStarted).total!"msecs");
 
+        phaseStarted = MonoTime.currTime;
         db.execute("UPDATE repository SET updated_at = ?, "
             ~ "media_info_version = ?, file_utility_version = ? WHERE id = 1",
             currentTimestamp(), catalog.mediaInfoVersion,
@@ -138,7 +153,10 @@ bool importCatalogJsonControlled(ref Database db, string rootPath,
                 referenceStats.conflictSkipped, " conflicts kept first, ",
                 referenceStats.outsideSkipped,
                 " outside the repository root skipped.");
+        phaseStarted = MonoTime.currTime;
         db.commit();
+        logLineVerbose("[import] commit elapsedMs=",
+            cast(long) (MonoTime.currTime - phaseStarted).total!"msecs");
         return true;
     }
     catch (Exception ex)
@@ -1396,26 +1414,31 @@ private bool hasPhysicalFileReference(NamedBinaryBlob blob)
 private void persistImportedArchiveStatuses(ref Database db,
     ImportedArchiveIndex[] archiveIndexes)
 {
-    string[] referencePaths;
-    foreach (row; db.execute("SELECT relative_path FROM file_refs"))
-        referencePaths ~= row.peek!string(0).idup;
+    if (archiveIndexes.length == 0)
+        return;
+
+    /* Collect parent container paths of virtual references once. The previous
+     * nested loop compared every archive index against every file reference,
+     * which became quadratic on large catalogs. */
+    bool[string] archiveParents;
+    foreach (row; db.execute("SELECT relative_path FROM file_refs WHERE "
+        ~ isVirtualFileReferenceSql("relative_path")))
+    {
+        const parent = parentArchivePath(row.peek!string(0));
+        if (parent.length > 0)
+            archiveParents[parent] = true;
+    }
 
     foreach (archive; archiveIndexes)
     {
         bool hasEntries;
         foreach (row; db.execute("SELECT relative_path FROM file_refs "
             ~ "WHERE blob_id = ?", archive.blobId))
-        {
-            auto containerPath = row.peek!string(0);
-            foreach (candidate; referencePaths)
-                if (parentArchivePath(candidate) == containerPath)
-                {
-                    hasEntries = true;
-                    break;
-                }
-            if (hasEntries)
+            if (row.peek!string(0) in archiveParents)
+            {
+                hasEntries = true;
                 break;
-        }
+            }
         const auto state = hasEntries ? "completed" : "empty";
         const auto extractorVersion = archiveIndexVersion
             ~ (archive.deep ? ":deep" : ":shallow");
