@@ -80,15 +80,17 @@ size_t countUnreachableBlobs(ref Database db)
 /** Remove content rows that no physical or virtual reference points to. */
 size_t deleteUnreachableBlobs(ref Database db)
 {
-    auto removed = countUnreachableBlobs(db);
-    db.execute("DELETE FROM blobs WHERE id NOT IN "
-        ~ "(SELECT blob_id FROM file_refs)");
-    return removed;
+    db.execute("DELETE FROM blobs WHERE NOT EXISTS ("
+        ~ "SELECT 1 FROM file_refs f WHERE f.blob_id = blobs.id)");
+    return cast(size_t) db.changes;
 }
 
 /** Prefer an existing content blob when references have complete equal digests. */
 void resolveArchiveMemberBlobLinks(ref Database db)
 {
+    if (db.execute("SELECT 1 FROM file_refs WHERE "
+        ~ isVirtualFileReferenceSql("relative_path") ~ " LIMIT 1").empty)
+        return;
     db.execute("UPDATE file_refs SET blob_id = ("
         ~ "SELECT b.id FROM blobs b WHERE b.file_size = (SELECT c.file_size "
         ~ "FROM blobs c WHERE c.id = file_refs.blob_id) AND b.md5 = (SELECT c.md5 "

@@ -9,6 +9,11 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- JSON import finalization no longer compares every archive index against every
+  file reference. Large imports report a finalizing phase and use faster
+  unreachable-blob cleanup, removing a long pause after the progress bar reached
+  100 %.
+
 - JSON scan/save now stores file references relative to the catalog/base
   directory, regardless of whether the scan root was written as `./`, a
   relative path, or an absolute path. References outside that base directory are
