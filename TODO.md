@@ -63,6 +63,10 @@ and behavior fixes since `26.13.0`).
       silently; existing readers must keep their guarantees.
 - [ ] Add distribution smoke checks for the supported package formats
       (Debian/Ubuntu/Alpine, Arch, Fedora, Flatpak) to the release evidence.
+- [ ] Populate archive-member sizes and timestamps during shallow scans for ZIP,
+      TAR, RAR, and 7z by parsing their listing output. Shallow scans currently
+      leave member sizes at zero, which makes the GUI show 0-byte archive
+      entries until a deep scan extracts them.
 - [ ] Decide whether direct JSON browsing needs a streaming reader/index for
       multi-million-record catalogs, or an explicit size guard that recommends
       repository import. Current direct JSON tabs hold the complete catalog and

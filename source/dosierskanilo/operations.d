@@ -304,7 +304,10 @@ public:
     /** Whether a caller requested cooperative cancellation. */
     @property bool cancellationRequested() const nothrow
     {
-        return atomicLoad(cancelRequested);
+        if (atomicLoad(cancelRequested))
+            return true;
+        return cancellationMirror !is null
+            && atomicLoad(*cancellationMirror);
     }
 
     /**
@@ -861,4 +864,18 @@ unittest
 
     assert(atomicLoad(callbackCount) == 40);
     assert(!atomicLoad(callbacksOverlapped));
+}
+
+@("operation control observes a bound cancellation mirror")
+unittest
+{
+    shared bool mirrorFlag;
+    auto control = new OperationControl();
+    control.bindCancellationMirror(&mirrorFlag);
+    assert(!control.cancellationRequested);
+    atomicStore(mirrorFlag, true);
+    assert(control.cancellationRequested);
+    control.unbindCancellationMirror();
+    atomicStore(mirrorFlag, false);
+    assert(!control.cancellationRequested);
 }
