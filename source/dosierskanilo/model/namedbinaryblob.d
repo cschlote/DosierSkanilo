@@ -2143,10 +2143,14 @@ void updateArchives(NamedBinaryBlob obj,
 		import std.algorithm.sorting : sort;
 		import std.file : exists;
 
-		if (obj.fileSize) // Empty files surely have no info at all....
+		/* Do not trust the stored size alone: imported catalogs may carry a
+		 * zero size for a file that exists on disk. Only skip the work when
+		 * there is neither a stored size nor an existing physical file. */
+		auto existingFiles = obj.getExistingFiles;
+		if (obj.fileSize || existingFiles.length > 0)
 		{
 			auto filespecs = obj.fileSpecs.sort;
-			foreach (spec; obj.getExistingFiles)
+			foreach (spec; existingFiles)
 			{
 				import std.string : startsWith;
 				import std.algorithm.searching : find;
@@ -2429,6 +2433,9 @@ void updateArchives(NamedBinaryBlob obj,
 				}
 			}
 		}
+		else if (obj.fileSpecs.length > 0)
+			logFLineVerbose("No existing file for archive scan (stored size %d, %d candidate(s)).",
+				obj.fileSize, obj.fileSpecs.length);
 	}
 }
 
@@ -2668,6 +2675,39 @@ unittest
 	}
 	assert(sawGood);
 	assert(sawBroken);
+}
+
+@("archive scanning ignores a stale zero file size")
+unittest
+{
+	import std.file : exists, getSize, mkdirRecurse, rmdirRecurse, tempDir, write;
+	import std.path : buildPath;
+	import std.process : Config, execute;
+	import std.uuid : randomUUID;
+
+	auto root = buildPath(tempDir(), "dosierskanilo-zero-size-archive-"
+		~ randomUUID().toString());
+	mkdirRecurse(root);
+	scope (exit)
+		if (exists(root))
+			rmdirRecurse(root);
+
+	write(buildPath(root, "payload.txt"), "payload");
+	auto archivePath = buildPath(root, "payload.zip");
+	auto create = execute(["zip", "-q", "-j", archivePath,
+		buildPath(root, "payload.txt")]);
+	assert(create.status == 0, create.output);
+
+	/* JSON imports may leave a zero size on a reference whose file exists. */
+	auto blob = new NamedBinaryBlob(archivePath, 0, SysTime(1_234_567));
+	assert(blob.fileSize == 0);
+	auto cache = new MemberContentCache(buildPath(root, "cache"));
+	scope (exit)
+		cache.close();
+	updateArchives(blob, true, true, null, null, null, 0, 8, "", cache);
+
+	assert(blob.archiveSpecs.length == 1);
+	assert(blob.archiveSpecs[0].fileName == "payload.txt");
 }
 
 @("deep archive scan fingerprints selectable duplicate occurrences")

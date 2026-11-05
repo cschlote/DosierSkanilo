@@ -21,6 +21,12 @@ They represent the functional evolution and are intentionally summarized.
   the whole archive appear empty. Cancellation, password failures, and cache
   shutdown still stop the scan.
 
+- Archive scans no longer skip a file that the catalog stores with size zero.
+  Imported JSON catalogs can leave a stale zero size on an archive that exists
+  on disk; the scanner now checks the physical file and indexes its members
+  instead of reporting zero archive updates. A verbose log explains when no
+  physical file is available for a stored archive reference.
+
 - Operation controls observe bound external cancellation flags, so GUI archive
   scans can stop at controlled metadata checkpoints.
 
