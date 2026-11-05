@@ -98,6 +98,7 @@ class FileArchiveRar : FileArchive
         {
             if (auto meta = entry.name in metadata)
             {
+                entry.isDirectory = meta.isDirectory;
                 if (meta.hasSize)
                 {
                     entry.size = meta.size;
@@ -182,7 +183,7 @@ unittest
 {
     import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
     import std.path : buildPath;
-    import std.process : execute, executeShell;
+    import std.process : Config, execute, executeShell;
     import std.uuid : randomUUID;
 
     if (executeShell("command -v rar").status != 0)
@@ -204,4 +205,37 @@ unittest
     auto archive = new FileArchiveRar(archivePath);
     assert(archive.extractEntry("-psecret", output));
     assert(exists(buildPath(output, "-psecret")));
+}
+
+@("rar descriptors mark directory entries")
+unittest
+{
+    import std.file : exists, mkdirRecurse, remove, rmdirRecurse, tempDir;
+    import std.path : buildPath;
+    import std.process : Config, execute, executeShell;
+    import std.uuid : randomUUID;
+
+    if (executeShell("command -v rar").status != 0)
+        return;
+    const root = buildPath(tempDir(), "rar-directory-entries-"
+        ~ randomUUID().toString());
+    const source = buildPath(root, "source", "001", "empty", "deeper");
+    mkdirRecurse(source);
+    const archivePath = buildPath(root, "nested.rar");
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    auto created = execute(["rar", "a", "-r", archivePath, "001"],
+        null, Config.none, size_t.max, buildPath(root, "source"));
+    assert(created.status == 0, created.output);
+
+    auto entries = (new FileArchiveRar(archivePath)).getEntryDescriptors();
+    bool foundDirectory;
+    foreach (entry; entries)
+        if (entry.name == "001" || entry.name == "001/empty")
+        {
+            assert(entry.isDirectory, entry.name);
+            foundDirectory = true;
+        }
+    assert(foundDirectory);
 }

@@ -11,7 +11,9 @@ They represent the functional evolution and are intentionally summarized.
 
 - RAR listings now expose member sizes and timestamps without extracting every
   entry. Shallow archive scans persist those values, so archive rows no longer
-  show zero-byte members until a deep scan runs.
+  show zero-byte members until a deep scan runs. RAR directory entries are
+  marked as directories, so deep scans no longer try to materialize them as
+  files and fail on archives with nested empty directories.
 
 - Operation controls observe bound external cancellation flags, so GUI archive
   scans can stop at controlled metadata checkpoints.
