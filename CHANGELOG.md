@@ -9,6 +9,9 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- Operation controls observe bound external cancellation flags, so GUI archive
+  scans can stop at controlled metadata checkpoints.
+
 - JSON import inserts all content records and physical references before linking
   virtual archive members. Catalogs that share a blob between an extracted file
   and an archive member no longer fail with a missing physical container when
