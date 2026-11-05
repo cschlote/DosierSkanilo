@@ -8,10 +8,12 @@ module dosierarkivo.rararchive;
 
 import std.algorithm : filter;
 import std.array : array;
+import std.conv : to;
 import std.file : exists, getcwd, remove;
 import std.path : buildPath;
 import std.process : execute, executeShell;
-import std.string : empty, format, split;
+import std.string : empty, format, indexOf, replace, split, splitLines,
+    startsWith, strip;
 
 import dosierarkivo.archive;
 version (unittest)
@@ -25,6 +27,90 @@ class FileArchiveRar : FileArchive
     this(string filename)
     {
         super(ArchiveType.rar, filename);
+    }
+
+    override ArchiveEntryDescriptor[] getEntryDescriptors(string password = "")
+    {
+        auto entries = super.getEntryDescriptors(password);
+        if (entries is null)
+            return null;
+
+        struct Metadata
+        {
+            ulong size;
+            string modifiedAt;
+            bool hasSize;
+            bool hasModifiedAt;
+            bool isDirectory;
+        }
+
+        auto passwordOption = password.length > 0 ? "-p" ~ password : "-p-";
+        auto rc = execute(["unrar", "lt", passwordOption, this.fileName]);
+        if (rc.status != 0 && isArchivePasswordFailure(rc.output))
+            throw new ArchivePasswordRequiredException(rc.output);
+        if (rc.status != 0)
+            throw new ArchiveToolException(rc.output);
+
+        Metadata[string] metadata;
+        Metadata current;
+        string currentName;
+        void commitCurrent()
+        {
+            if (currentName.length > 0)
+                metadata[currentName] = current;
+            current = Metadata.init;
+            currentName = "";
+        }
+        foreach (line; rc.output.splitLines())
+        {
+            const text = line.strip;
+            if (text.startsWith("Name: "))
+            {
+                commitCurrent();
+                currentName = text[6 .. $].strip;
+            }
+            else if (currentName.length > 0 && text.startsWith("Type: "))
+                current.isDirectory = text[6 .. $].strip == "Directory";
+            else if (currentName.length > 0 && text.startsWith("Size: "))
+            {
+                try
+                {
+                    current.size = text[6 .. $].strip.to!ulong;
+                    current.hasSize = !current.isDirectory;
+                }
+                catch (Exception)
+                {
+                }
+            }
+            else if (currentName.length > 0 && text.startsWith("mtime: "))
+            {
+                auto value = text[7 .. $].strip;
+                const comma = value.indexOf(',');
+                if (comma >= 0)
+                    value = value[0 .. comma];
+                current.modifiedAt = value.replace(" ", "T");
+                current.hasModifiedAt = current.modifiedAt.length > 0;
+            }
+        }
+        commitCurrent();
+
+        foreach (ref entry; entries)
+        {
+            if (auto meta = entry.name in metadata)
+            {
+                if (meta.hasSize)
+                {
+                    entry.size = meta.size;
+                    entry.hasSize = true;
+                }
+                if (meta.hasModifiedAt)
+                {
+                    entry.modifiedAt = meta.modifiedAt;
+                    entry.hasModifiedAt = true;
+                }
+            }
+        }
+        return entries;
     }
 
     override string[] getEntries(string password = "")
@@ -81,6 +167,14 @@ unittest
 
     auto obj = fileArchive(rarFileName);
     testAbstractImpl(obj);
+    auto descriptors = obj.getEntryDescriptors();
+    assert(descriptors.length == expectedEntries.length);
+    foreach (descriptor; descriptors)
+    {
+        assert(descriptor.hasSize, descriptor.name);
+        assert(descriptor.size > 0, descriptor.name);
+        assert(descriptor.hasModifiedAt, descriptor.name);
+    }
 }
 
 @("rar extraction treats option-like member names as files")
