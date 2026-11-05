@@ -2229,7 +2229,10 @@ void updateArchives(NamedBinaryBlob obj,
                                 && !archiveObj.supportsEntryOccurrence))
                         {
                             auto unscannedEntry = new ArchiveSpec(arcfile,
-                                arcFileSize, arcModTimeStr, sums);
+                                descriptor.hasSize ? descriptor.size : arcFileSize,
+                                descriptor.hasModifiedAt
+                                    ? descriptor.modifiedAt : arcModTimeStr,
+                                sums);
                             unscannedEntry.entryIndex = idx;
                             unscannedEntry.occurrence = descriptor.occurrence;
                             unscannedEntry.hasIndexIdentity = true;
@@ -2302,7 +2305,11 @@ void updateArchives(NamedBinaryBlob obj,
                                 logFLineVerbose("Archive adapter could not select duplicate occurrence %d of '%s'; leaving it without a deep fingerprint.",
                                     descriptor.occurrence, descriptor.relativePath);
                                 auto unscannedEntry = new ArchiveSpec(arcfile,
-                                    arcFileSize, arcModTimeStr, sums);
+                                    descriptor.hasSize
+                                        ? descriptor.size : arcFileSize,
+                                    descriptor.hasModifiedAt
+                                        ? descriptor.modifiedAt : arcModTimeStr,
+                                    sums);
                                 unscannedEntry.entryIndex = idx;
                                 unscannedEntry.occurrence = descriptor.occurrence;
                                 unscannedEntry.hasIndexIdentity = true;
@@ -2375,8 +2382,13 @@ void updateArchives(NamedBinaryBlob obj,
                                 nestedPassword = nestedBlob.archivePassword;
                             }
                         }
-                        auto aspec = new ArchiveSpec(arcfile, arcFileSize,
-                            arcModTimeStr, sums);
+                        auto aspec = new ArchiveSpec(arcfile,
+                            arcFileSize != 0 ? arcFileSize
+                                : descriptor.hasSize ? descriptor.size : 0,
+                            arcModTimeStr.length > 0 ? arcModTimeStr
+                                : descriptor.hasModifiedAt
+                                    ? descriptor.modifiedAt : "",
+                            sums);
                         aspec.entryIndex = idx;
                         aspec.occurrence = descriptor.occurrence;
                         aspec.hasIndexIdentity = true;
