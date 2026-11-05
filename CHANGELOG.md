@@ -15,6 +15,12 @@ They represent the functional evolution and are intentionally summarized.
   marked as directories, so deep scans no longer try to materialize them as
   files and fail on archives with nested empty directories.
 
+- A damaged or unsupported archive member no longer discards the complete
+  archive scan. The member keeps its indexed name, size, and timestamp without
+  a deep fingerprint, and preview fails only for that member instead of making
+  the whole archive appear empty. Cancellation, password failures, and cache
+  shutdown still stop the scan.
+
 - Operation controls observe bound external cancellation flags, so GUI archive
   scans can stop at controlled metadata checkpoints.
 
