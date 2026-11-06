@@ -779,22 +779,22 @@ void progressCallBack(size_t i, size_t m)
 
 import std.datetime;
 
-SysTime lastProgress;
-size_t lastIdx;
-size_t lastTotalFiles;
-string lastFile;
-private SysTime lastOperationProgress;
-private string lastOperationPhase;
-private bool operationProgressLineOpen;
-private SysTime operationStartedAt;
-private string operationContextLabel;
-private string operationContextDetail;
-private bool operationHeaderPrinted;
+private __gshared SysTime lastProgress;
+private __gshared size_t lastIdx;
+private __gshared size_t lastTotalFiles;
+private __gshared string lastFile;
+private __gshared SysTime lastOperationProgress;
+private __gshared string lastOperationPhase;
+private __gshared bool operationProgressLineOpen;
+private __gshared SysTime operationStartedAt;
+private __gshared string operationContextLabel;
+private __gshared string operationContextDetail;
+private __gshared bool operationHeaderPrinted;
 private __gshared Mutex operationStateMutex;
-private bool operationHeartbeatActive;
-private uint operationHeartbeatGeneration;
-private OperationProgress lastOperationEvent;
-private bool haveLastOperationEvent;
+private __gshared bool operationHeartbeatActive;
+private __gshared uint operationHeartbeatGeneration;
+private __gshared OperationProgress lastOperationEvent;
+private __gshared bool haveLastOperationEvent;
 
 shared static this()
 {
@@ -1019,9 +1019,12 @@ private void printOperationHeartbeat(uint generation)
 
 private void ensureOperationHeader()
 {
-    if (operationHeaderPrinted)
-        return;
-    operationHeaderPrinted = true;
+    synchronized (operationStateMutex)
+    {
+        if (operationHeaderPrinted)
+            return;
+        operationHeaderPrinted = true;
+    }
     printOperationStart(operationContextLabel, operationContextDetail);
 }
 
@@ -1117,9 +1120,11 @@ string formatOperationProgressLine(OperationProgress event, size_t columns,
         timing = formatElapsed(elapsed);
         if (detailed && elapsed.total!"seconds" > 0 && event.completed > 0)
         {
-            const rate = cast(ulong)(event.completed
-                / elapsed.total!"seconds");
-            timing ~= format("  %s/s", formatProgressCount(rate));
+            const real rate = event.completed
+                / cast(real) elapsed.total!"seconds";
+            timing ~= rate >= 10.0
+                ? format("  %s/s", formatProgressCount(cast(ulong) rate))
+                : format("  %.1f/s", rate);
         }
     }
 
