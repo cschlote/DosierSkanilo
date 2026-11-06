@@ -14,8 +14,13 @@ They represent the functional evolution and are intentionally summarized.
   current path. Terminals get a single rewritten, colored status line sized to
   the terminal; redirected output gets timestamped records every few seconds.
   Verbose mode prints one-second records with rates and keeps the full stack
-  trace for failures. `NO_COLOR`, `TERM=dumb`, and `CLICOLOR_FORCE` control
-  color output.
+  trace for failures. A heartbeat marks long gaps without progress callbacks,
+  so a stalled filesystem or external archive tool is visible instead of
+  silent. `NO_COLOR`, `TERM=dumb`, and `CLICOLOR_FORCE` control color output.
+
+- Missing-file reconciliation now iterates one ordered cursor instead of
+  preparing and executing a query per stored reference. Large repositories no
+  longer spend most of the phase in per-row SQL overhead.
 
 ## Release 26.14.0 - 2026-11-06
 

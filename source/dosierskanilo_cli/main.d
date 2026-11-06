@@ -124,6 +124,7 @@ int main(string[] args)
 			}
 			catch (Exception ex)
 			{
+				clearOperationProgress();
 				errorLine("Operation failed: ", ex.msg);
 				if (isVerboseOutputs())
 					errorLine(ex.toString());

@@ -17,6 +17,9 @@ import std.path;
 import std.process;
 import std.range;
 
+import core.thread : Thread;
+import core.sync.mutex : Mutex;
+
 import dosierskanilo;
 import dosierskanilo_cli.logging : errorFLine, errorLine;
 import dosierskanilo_cli.jsonvalidation : validateJsonOptions;
@@ -787,6 +790,17 @@ private SysTime operationStartedAt;
 private string operationContextLabel;
 private string operationContextDetail;
 private bool operationHeaderPrinted;
+private __gshared Mutex operationStateMutex;
+private bool operationHeartbeatActive;
+private uint operationHeartbeatGeneration;
+private OperationProgress lastOperationEvent;
+private bool haveLastOperationEvent;
+
+shared static this()
+{
+    operationStateMutex = new Mutex;
+}
+
 
 private bool stdoutIsTerminal()
 {
@@ -927,6 +941,80 @@ void prepareOperationOutput(string label, string detail = "")
     lastOperationProgress = SysTime.init;
     lastOperationPhase = "";
     operationProgressLineOpen = false;
+    synchronized (operationStateMutex)
+    {
+        operationHeartbeatGeneration++;
+        operationHeartbeatActive = true;
+        haveLastOperationEvent = false;
+    }
+    startOperationHeartbeat(operationHeartbeatGeneration);
+}
+
+private void startOperationHeartbeat(uint generation)
+{
+    auto thread = new Thread({
+        while (true)
+        {
+            Thread.sleep(dur!"seconds"(2));
+            bool active;
+            synchronized (operationStateMutex)
+                active = operationHeartbeatActive
+                    && operationHeartbeatGeneration == generation;
+            if (!active)
+                return;
+            printOperationHeartbeat(generation);
+        }
+    });
+    thread.isDaemon = true;
+    thread.start();
+}
+
+/** Emit a heartbeat when no progress callback arrived for several seconds. */
+private void printOperationHeartbeat(uint generation)
+{
+    import dosierskanilo.logging : logF, logFLine;
+
+    OperationProgress event;
+    bool haveEvent;
+    SysTime lastEventTime;
+    synchronized (operationStateMutex)
+    {
+        if (!operationHeartbeatActive
+            || operationHeartbeatGeneration != generation)
+            return;
+        event = lastOperationEvent;
+        haveEvent = haveLastOperationEvent;
+        lastEventTime = lastOperationProgress;
+    }
+
+    const auto now = Clock.currTime;
+    if (lastEventTime != SysTime.init
+        && now - lastEventTime < dur!"seconds"(3))
+        return;
+
+    const auto elapsed = operationStartedAt == SysTime.init
+        ? Duration.zero : now - operationStartedAt;
+    const bool tty = stdoutIsTerminal();
+    if (!haveEvent)
+    {
+        auto line = format("waiting for first progress update  %s",
+            formatElapsed(elapsed));
+        if (tty)
+            logF("\r\x1b[K%s", line);
+        else
+            logFLine("%s%s", formatTimestamp(now), line);
+        return;
+    }
+
+    auto line = formatOperationProgressLine(event, terminalColumns(),
+        tty && supportsColor(), elapsed, true);
+    if (lastEventTime != SysTime.init
+        && now - lastEventTime > dur!"seconds"(5))
+        line = "waiting  " ~ line;
+    if (tty)
+        logF("\r\x1b[K%s", line);
+    else
+        logFLine("%s%s", formatTimestamp(now), line);
 }
 
 private void ensureOperationHeader()
@@ -1097,6 +1185,11 @@ void printOperationProgress(string label, OperationProgress event)
     operationProgressLineOpen = tty;
     lastOperationPhase = phase;
     lastOperationProgress = now;
+    synchronized (operationStateMutex)
+    {
+        lastOperationEvent = event;
+        haveLastOperationEvent = true;
+    }
 }
 
 /** Print verbose operation progress as throttled newline records.
@@ -1133,6 +1226,11 @@ void printVerboseOperationProgress(string label, OperationProgress event,
     haveProgress = true;
     lastOperationPhase = phase;
     lastOperationProgress = now;
+    synchronized (operationStateMutex)
+    {
+        lastOperationEvent = event;
+        haveLastOperationEvent = true;
+    }
 }
 
 /** Clear the compact progress line before printing an operation summary. */
@@ -1144,6 +1242,8 @@ void clearOperationProgress()
         logF("\r\x1b[K");
     operationProgressLineOpen = false;
     lastOperationPhase = "";
+    synchronized (operationStateMutex)
+        operationHeartbeatActive = false;
 }
 
 @("formatOperationProgressLine reports phase, counts, timing, and path")

@@ -365,30 +365,34 @@ private bool stageMissingReferences(ref Database db, string rootPath,
     bool pickHidden, OperationControl control, ulong operationId, size_t completed,
     ref size_t observedMissing)
 {
-    long afterId;
-    while (true)
+    /* Iterate one ordered cursor instead of preparing and executing a new
+     * query for every candidate. At millions of references the per-row query
+     * overhead dominates the phase and makes progress look stalled. */
+    long[] missingIds;
     {
-        auto candidate = nextMissingCandidate(db, afterId);
-        if (!candidate.found)
-            break;
-        afterId = candidate.id;
-        if (pickHidden || !hasHiddenComponent(candidate.relativePath))
+        auto candidates = db.execute("SELECT id, relative_path FROM "
+            ~ "temp.scan_missing_candidates ORDER BY id");
+        foreach (row; candidates)
         {
-            const auto physicalRelative = parseArchiveVirtualPath(
-                candidate.relativePath).physicalPath;
-            if (!existsOnDisk(rootPath, physicalRelative))
+            const auto id = row.peek!long(0);
+            const auto relativePath = row.peek!string(1);
+            if (pickHidden || !hasHiddenComponent(relativePath))
             {
-                db.execute("INSERT INTO temp.scan_stage_missing (id) VALUES (?)",
-                    candidate.id);
-                observedMissing++;
+                const auto physicalRelative = parseArchiveVirtualPath(
+                    relativePath).physicalPath;
+                if (!existsOnDisk(rootPath, physicalRelative))
+                    missingIds ~= id;
             }
+            completed++;
+            if (!reportScanProgress(control, operationId,
+                OperationPhase.reconcilingMissingFiles, completed,
+                relativePath))
+                return false;
         }
-        completed++;
-        if (!reportScanProgress(control, operationId,
-            OperationPhase.reconcilingMissingFiles, completed,
-            candidate.relativePath))
-            return false;
     }
+    foreach (id; missingIds)
+        db.execute("INSERT INTO temp.scan_stage_missing (id) VALUES (?)", id);
+    observedMissing += missingIds.length;
     return true;
 }
 
