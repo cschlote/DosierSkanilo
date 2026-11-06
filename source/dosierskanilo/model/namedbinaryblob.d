@@ -30,8 +30,9 @@ import dosierskanilo.logging;
 import dosierskanilo.options;
 import dosierskanilo.progress;
 import dosierskanilo.membercontentcache : MemberContentCache,
-    MemberContentLease, MemberContentNotExtractableException,
-    sharedMemberContentCache;
+    MemberContentCacheClosedException, MemberContentCacheException,
+    MemberContentCancelledException, MemberContentLease,
+    MemberContentNotExtractableException, sharedMemberContentCache;
 import dosierskanilo.metadata.digests;
 import dosierskanilo.metadata.mediainfosig;
 import dosierskanilo.metadata.fileutilsig : getFileUtilityVersion;
@@ -2142,10 +2143,14 @@ void updateArchives(NamedBinaryBlob obj,
 		import std.algorithm.sorting : sort;
 		import std.file : exists;
 
-		if (obj.fileSize) // Empty files surely have no info at all....
+		/* Do not trust the stored size alone: imported catalogs may carry a
+		 * zero size for a file that exists on disk. Only skip the work when
+		 * there is neither a stored size nor an existing physical file. */
+		auto existingFiles = obj.getExistingFiles;
+		if (obj.fileSize || existingFiles.length > 0)
 		{
 			auto filespecs = obj.fileSpecs.sort;
-			foreach (spec; obj.getExistingFiles)
+			foreach (spec; existingFiles)
 			{
 				import std.string : startsWith;
 				import std.algorithm.searching : find;
@@ -2202,6 +2207,7 @@ void updateArchives(NamedBinaryBlob obj,
                         obj.archivePassword = password;
                     logFLineVerbose("  with %d entries", archiveEntries.length);
                     obj.archiveSpecs = [];
+                    size_t membersWithoutFingerprint;
                     if (progressCallBack !is null)
                         progressCallBack.report(0, archiveEntries.length);
 
@@ -2224,7 +2230,20 @@ void updateArchives(NamedBinaryBlob obj,
                             && !archiveObj.supportsEntryOccurrence)
                             logFLineVerbose("Archive adapter cannot select duplicate occurrence %d of '%s'; leaving it without a deep fingerprint.",
                                 descriptor.occurrence, descriptor.relativePath);
-                        if (!descriptor.hasSafePath || descriptor.isDirectory
+                        /* Directory entries are structure, not content. The
+                         * browse tree synthesizes directories from member
+                         * paths, so indexing an explicit directory as a
+                         * member would create a duplicate, non-expandable
+                         * node (and surface empty directories that the tree
+                         * must not show). */
+                        if (descriptor.isDirectory)
+                        {
+                            if (progressCallBack !is null)
+                                progressCallBack.report(idx + 1,
+                                    archiveEntries.length);
+                            continue;
+                        }
+                        if (!descriptor.hasSafePath
                             || (descriptor.hasDuplicateName
                                 && !archiveObj.supportsEntryOccurrence))
                         {
@@ -2246,7 +2265,7 @@ void updateArchives(NamedBinaryBlob obj,
                         {
                             bool exOk;
                             bool extractionPasswordPrompted;
-                            bool occurrenceNotExtractable;
+                            string extractionFailure;
                             size_t extractionPasswordAttempts;
                             while (true)
                             {
@@ -2288,22 +2307,42 @@ void updateArchives(NamedBinaryBlob obj,
                                         passwordCallback, password);
                                     extractionPasswordPrompted = true;
                                 }
-                                catch (MemberContentNotExtractableException failure)
+                                catch (MemberContentCancelledException failure)
+                                {
+                                    throw failure;
+                                }
+                                catch (MemberContentCacheClosedException failure)
+                                {
+                                    throw failure;
+                                }
+                                catch (MemberContentCacheException failure)
                                 {
                                     if (gotCtrlC !is null && atomicLoad(*gotCtrlC))
                                         throw new Exception("Archive scan was cancelled.");
-                                    if (!descriptor.hasDuplicateName)
-                                        throw failure;
-                                    occurrenceNotExtractable = true;
+                                    extractionFailure = oneLineFailure(failure.msg);
+                                    break;
+                                }
+                                catch (Exception failure)
+                                {
+                                    /* A damaged or unsupported member must not
+                                     * discard the complete archive index. Keep
+                                     * the entry metadata and let preview fail
+                                     * for that member only. */
+                                    if (gotCtrlC !is null && atomicLoad(*gotCtrlC))
+                                        throw new Exception("Archive scan was cancelled.");
+                                    extractionFailure = oneLineFailure(failure.msg);
                                     break;
                                 }
                             }
                             if (extractionPasswordPrompted)
                                 obj.archivePassword = password;
-                            if (occurrenceNotExtractable)
+                            if (extractionFailure.length == 0 && !exOk)
+                                extractionFailure = "Archive adapter produced no file.";
+                            if (extractionFailure.length > 0)
                             {
-                                logFLineVerbose("Archive adapter could not select duplicate occurrence %d of '%s'; leaving it without a deep fingerprint.",
-                                    descriptor.occurrence, descriptor.relativePath);
+                                ++membersWithoutFingerprint;
+                                logFLineVerbose("Could not extract archive member '%s' from '%s': %s; storing index metadata only.",
+                                    arcfile, archiveDisplayPath, extractionFailure);
                                 auto unscannedEntry = new ArchiveSpec(arcfile,
                                     descriptor.hasSize
                                         ? descriptor.size : arcFileSize,
@@ -2319,8 +2358,6 @@ void updateArchives(NamedBinaryBlob obj,
                                         archiveEntries.length);
                                 continue;
                             }
-                            enforce(exOk, "Failed to extract archive entry '%s' from archive '%s'".format(arcfile,
-                                spec.fileName));
 
                             import dosierskanilo.metadata.digests;
                             ubyte[] md5sum_s, sha1sum_s, xxh64sum_s;
@@ -2402,11 +2439,32 @@ void updateArchives(NamedBinaryBlob obj,
                         if (progressCallBack !is null)
                             progressCallBack.report(idx + 1, archiveEntries.length);
 					}
+                    if (membersWithoutFingerprint > 0)
+                        logFLineVerbose("Archive '%s': stored %d member(s) without deep fingerprints after extraction failures.",
+                            archiveDisplayPath, membersWithoutFingerprint);
 					break;
 				}
 			}
 		}
+		else if (obj.fileSpecs.length > 0)
+			logFLineVerbose("No existing file for archive scan (stored size %d, %d candidate(s)).",
+				obj.fileSize, obj.fileSpecs.length);
 	}
+}
+
+/** Collapse multi-line archive tool output to its most useful line. */
+private string oneLineFailure(string message)
+{
+	import std.string : splitLines, strip;
+
+	string result = "archive tool failed";
+	foreach (line; message.splitLines)
+	{
+		const trimmed = line.strip;
+		if (trimmed.length > 0)
+			result = trimmed;
+	}
+	return result;
 }
 
 private void requestPassword(string reason, string archivePath,
@@ -2564,6 +2622,139 @@ unittest
 	assert(rejectedPrompts == 2);
 	assert(rejectedBlob.archivePassword.length == 0,
 		"a cancelled wrong-password attempt must not be persisted");
+}
+
+@("damaged archive member keeps the rest of the index")
+unittest
+{
+	import std.algorithm.searching : countUntil;
+	import std.file : exists, getSize, mkdirRecurse, read, rmdirRecurse, tempDir, write;
+	import std.path : buildPath;
+	import std.process : Config, execute, executeShell;
+	import std.uuid : randomUUID;
+
+	if (executeShell("command -v rar").status != 0
+		|| executeShell("command -v unrar").status != 0)
+		return;
+
+	auto root = buildPath(tempDir(), "dosierskanilo-damaged-member-"
+		~ randomUUID().toString());
+	mkdirRecurse(root);
+	scope (exit)
+		if (exists(root))
+			rmdirRecurse(root);
+
+	enum string goodPayload = "GOODMEMBER-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+	enum string brokenPayload = "BROKENMEMBER-BBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+	write(buildPath(root, "good.txt"), goodPayload);
+	write(buildPath(root, "broken.txt"), brokenPayload);
+	auto archivePath = buildPath(root, "bundle.rar");
+	auto create = execute(["rar", "a", "-m0", "-idq", archivePath,
+		"good.txt", "broken.txt"], null, Config.none, size_t.max, root);
+	assert(create.status == 0, create.output);
+
+	/* Stored RAR members keep their bytes verbatim, so flipping one byte in
+	 * the archive makes `unrar` report a checksum error for that member. */
+	auto data = cast(ubyte[]) read(archivePath);
+	const offset = data.countUntil(cast(const(ubyte)[]) brokenPayload);
+	assert(offset >= 0);
+	data[offset + 3] ^= 0xFF;
+	write(archivePath, data);
+
+	auto blob = new NamedBinaryBlob(archivePath, getSize(archivePath),
+		SysTime(1_234_567));
+	auto cache = new MemberContentCache(buildPath(root, "cache"));
+	scope (exit)
+		cache.close();
+	updateArchives(blob, true, true, null, null, null, 0, 8, "", cache);
+
+	assert(blob.archiveSpecs.length == 2);
+	bool sawGood;
+	bool sawBroken;
+	foreach (spec; blob.archiveSpecs)
+	{
+		if (spec.fileName == "good.txt")
+		{
+			sawGood = true;
+			assert(spec.checkSums.hasDigests);
+		}
+		else if (spec.fileName == "broken.txt")
+		{
+			sawBroken = true;
+			assert(!spec.checkSums.hasDigests,
+				"a damaged member must keep index metadata without digests");
+			assert(spec.fileSize == brokenPayload.length);
+		}
+	}
+	assert(sawGood);
+	assert(sawBroken);
+}
+
+@("RAR directory entries are not stored as archive members")
+unittest
+{
+	import std.file : exists, getSize, mkdirRecurse, rmdirRecurse, tempDir, write;
+	import std.path : buildPath;
+	import std.process : Config, execute, executeShell;
+	import std.uuid : randomUUID;
+
+	if (executeShell("command -v rar").status != 0)
+		return;
+
+	auto root = buildPath(tempDir(), "dosierskanilo-rar-directories-"
+		~ randomUUID().toString());
+	mkdirRecurse(buildPath(root, "input", "001", "empty", "deeper"));
+	scope (exit)
+		if (exists(root))
+			rmdirRecurse(root);
+	write(buildPath(root, "input", "001", "a.txt"), "a");
+	auto archivePath = buildPath(root, "bundle.rar");
+	auto create = execute(["rar", "a", "-r", "-idq", archivePath, "001"],
+		null, Config.none, size_t.max, buildPath(root, "input"));
+	assert(create.status == 0, create.output);
+
+	auto blob = new NamedBinaryBlob(archivePath, getSize(archivePath),
+		SysTime(1_234_567));
+	auto cache = new MemberContentCache(buildPath(root, "cache"));
+	scope (exit)
+		cache.close();
+	updateArchives(blob, true, true, null, null, null, 0, 8, "", cache);
+
+	assert(blob.archiveSpecs.length == 1);
+	assert(blob.archiveSpecs[0].fileName == "001/a.txt");
+}
+
+@("archive scanning ignores a stale zero file size")
+unittest
+{
+	import std.file : exists, getSize, mkdirRecurse, rmdirRecurse, tempDir, write;
+	import std.path : buildPath;
+	import std.process : Config, execute;
+	import std.uuid : randomUUID;
+
+	auto root = buildPath(tempDir(), "dosierskanilo-zero-size-archive-"
+		~ randomUUID().toString());
+	mkdirRecurse(root);
+	scope (exit)
+		if (exists(root))
+			rmdirRecurse(root);
+
+	write(buildPath(root, "payload.txt"), "payload");
+	auto archivePath = buildPath(root, "payload.zip");
+	auto create = execute(["zip", "-q", "-j", archivePath,
+		buildPath(root, "payload.txt")]);
+	assert(create.status == 0, create.output);
+
+	/* JSON imports may leave a zero size on a reference whose file exists. */
+	auto blob = new NamedBinaryBlob(archivePath, 0, SysTime(1_234_567));
+	assert(blob.fileSize == 0);
+	auto cache = new MemberContentCache(buildPath(root, "cache"));
+	scope (exit)
+		cache.close();
+	updateArchives(blob, true, true, null, null, null, 0, 8, "", cache);
+
+	assert(blob.archiveSpecs.length == 1);
+	assert(blob.archiveSpecs[0].fileName == "payload.txt");
 }
 
 @("deep archive scan fingerprints selectable duplicate occurrences")

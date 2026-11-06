@@ -15,6 +15,28 @@ They represent the functional evolution and are intentionally summarized.
   marked as directories, so deep scans no longer try to materialize them as
   files and fail on archives with nested empty directories.
 
+- A damaged or unsupported archive member no longer discards the complete
+  archive scan. The member keeps its indexed name, size, and timestamp without
+  a deep fingerprint, and preview fails only for that member instead of making
+  the whole archive appear empty. Cancellation, password failures, and cache
+  shutdown still stop the scan.
+
+- Archive scans no longer skip a file that the catalog stores with size zero.
+  Imported JSON catalogs can leave a stale zero size on an archive that exists
+  on disk; the scanner now checks the physical file and indexes its members
+  instead of reporting zero archive updates. A verbose log explains when no
+  physical file is available for a stored archive reference.
+
+- RAR directory entries are no longer persisted as archive members. The browse
+  tree synthesizes directories from member paths, so storing the explicit
+  directory rows produced a second, non-expandable node for every directory
+  and surfaced empty directories that should stay hidden.
+
+- Partial RAR listings are accepted when `unrar` reports a warning or a
+  truncated/missing volume but still returns entries. Previously the whole
+  archive scan failed and no members were stored. Header-encrypted RARs now
+  report a password request instead of an empty archive-tool error.
+
 - Operation controls observe bound external cancellation flags, so GUI archive
   scans can stop at controlled metadata checkpoints.
 
