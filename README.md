@@ -186,10 +186,11 @@ Help is `--help`; version is `--version`. Normal commands print
 command output and JSON formats. Long-running operations print the operation and
 target once, followed by compact phase, count, elapsed-time, and path updates.
 On a terminal the progress line is rewritten in place and colored; redirected
-output emits timestamped records every few seconds. `--verbose` prints one-second
-records with rates and includes the full error trace on failure. `NO_COLOR` and
-`TERM=dumb` disable color; `CLICOLOR_FORCE=1` forces it. Query commands include
-indexed archive members:
+output emits timestamped records every few seconds, and a heartbeat marks long
+gaps without progress callbacks. `--verbose` prints one-second records with rates
+and includes the full error trace on failure. `NO_COLOR` and `TERM=dumb` disable
+color; `CLICOLOR_FORCE=1` forces it. Query commands include indexed archive
+members:
 `list` reports canonical `container!/member` paths and a separate display name
 without occurrence suffixes. Interrupting a JSON scan with Ctrl-C saves the
 records collected so far unless `--dry-run` is active; press Ctrl-C a second time
