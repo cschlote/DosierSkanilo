@@ -9,6 +9,14 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- CLI progress output is now compact and self-explanatory: the operation and
+  target are printed once, followed by phase, counts, elapsed time, and the
+  current path. Terminals get a single rewritten, colored status line sized to
+  the terminal; redirected output gets timestamped records every few seconds.
+  Verbose mode prints one-second records with rates and keeps the full stack
+  trace for failures. `NO_COLOR`, `TERM=dumb`, and `CLICOLOR_FORCE` control
+  color output.
+
 ## Release 26.14.0 - 2026-11-06
 
 - RAR listings now expose member sizes and timestamps without extracting every

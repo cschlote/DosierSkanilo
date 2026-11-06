@@ -783,17 +783,61 @@ string lastFile;
 private SysTime lastOperationProgress;
 private string lastOperationPhase;
 private bool operationProgressLineOpen;
-private size_t operationSpinnerFrame;
+private SysTime operationStartedAt;
+private string operationContextLabel;
+private string operationContextDetail;
+private bool operationHeaderPrinted;
+
+private bool stdoutIsTerminal()
+{
+    version (Posix)
+    {
+        import core.sys.posix.unistd : isatty;
+        return isatty(STDOUT_FILENO) != 0;
+    }
+    else
+        return false;
+}
+
+/** Whether stdout accepts ANSI color sequences. */
+private bool supportsColor()
+{
+    static int cached = -1;
+    if (cached >= 0)
+        return cached != 0;
+
+    bool enabled = stdoutIsTerminal();
+    const term = environment.get("TERM", "");
+    if (term == "dumb" || !environment.get("NO_COLOR", "").empty)
+        enabled = false;
+    if (environment.get("CLICOLOR_FORCE", "") == "1")
+        enabled = true;
+    cached = enabled ? 1 : 0;
+    return enabled;
+}
 
 private size_t terminalColumns()
 {
+    const configured = environment.get("COLUMNS", "");
+    if (!configured.empty)
+    {
+        try
+        {
+            const columns = configured.to!size_t;
+            if (columns >= 40)
+                return columns;
+        }
+        catch (Exception)
+        {
+        }
+    }
     version (Posix)
     {
         winsize size;
         if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &size) == 0 && size.ws_col > 0)
             return cast(size_t) size.ws_col;
     }
-    return 80;
+    return stdoutIsTerminal() ? 80 : 100;
 }
 
 private string operationPhaseLabel(OperationPhase phase)
@@ -831,121 +875,277 @@ private string formatProgressBytes(ulong bytes)
     return format("%.1f %s", value, units[unit]);
 }
 
-/** Format a useful, width-bounded progress line for a terminal. */
-string formatOperationProgressLine(string label, OperationProgress event,
-    size_t columns)
+/** Format a count with thousands separators. */
+string formatProgressCount(ulong value)
+{
+    const text = value.to!string;
+    string result;
+    foreach (index, character; text)
+    {
+        if (index > 0 && (text.length - index) % 3 == 0)
+            result ~= ',';
+        result ~= character;
+    }
+    return result;
+}
+
+@("formatProgressCount groups thousands")
+unittest
+{
+    assert(formatProgressCount(0) == "0");
+    assert(formatProgressCount(999) == "999");
+    assert(formatProgressCount(1000) == "1,000");
+    assert(formatProgressCount(2600000) == "2,600,000");
+}
+
+private string formatElapsed(Duration elapsed)
+{
+    const seconds = elapsed.total!"seconds";
+    if (seconds < 60)
+        return format("%ds", seconds);
+    if (seconds < 3600)
+        return format("%dm%02ds", seconds / 60, seconds % 60);
+    return format("%dh%02dm", seconds / 3600, seconds % 3600 / 60);
+}
+
+private string formatTimestamp(SysTime now)
+{
+    return format("[%02d:%02d:%02d] ", now.hour, now.minute, now.second);
+}
+
+/** Prepare operation output without writing anything yet.
+ *
+ * The header is printed lazily on the first progress event, so failed
+ * operations that never acquire their target do not pollute stdout.
+ */
+void prepareOperationOutput(string label, string detail = "")
+{
+    operationContextLabel = label;
+    operationContextDetail = detail;
+    operationHeaderPrinted = false;
+    operationStartedAt = Clock.currTime;
+    lastOperationProgress = SysTime.init;
+    lastOperationPhase = "";
+    operationProgressLineOpen = false;
+}
+
+private void ensureOperationHeader()
+{
+    if (operationHeaderPrinted)
+        return;
+    operationHeaderPrinted = true;
+    printOperationStart(operationContextLabel, operationContextDetail);
+}
+
+/** Print the one-line operation header.
+ *
+ * The header names the operation and its target once. Progress lines that
+ * follow intentionally do not repeat that context.
+ */
+void printOperationStart(string label, string detail = "")
+{
+    import dosierskanilo.logging : logFLine;
+
+    if (operationStartedAt == SysTime.init)
+        operationStartedAt = Clock.currTime;
+    lastOperationProgress = SysTime.init;
+    lastOperationPhase = "";
+    operationProgressLineOpen = false;
+
+    if (supportsColor())
+    {
+        auto line = "\x1b[1m" ~ label ~ "\x1b[0m";
+        if (!detail.empty)
+            line ~= "  \x1b[2m" ~ detail ~ "\x1b[0m";
+        logFLine("%s", line);
+    }
+    else
+    {
+        auto line = label;
+        if (!detail.empty)
+            line ~= "  " ~ detail;
+        logFLine("%s", line);
+    }
+}
+
+/** Format one compact, width-bounded progress line.
+ *
+ * The operation label is intentionally absent: it was already printed by
+ * `printOperationStart`. The remaining fields are phase, counts, elapsed time,
+ * optional rate/subtask details, and the current path.
+ */
+string formatOperationProgressLine(OperationProgress event, size_t columns,
+    bool colorize = false, Duration elapsed = Duration.zero,
+    bool detailed = false)
 {
     if (columns == 0)
         columns = 80;
 
     auto phase = operationPhaseLabel(event.phase);
-    if (columns < 76)
-    {
-        if (label == "Catalog metadata" || label == "Repository metadata")
-            label = "Metadata";
-        else if (label == "Catalog scan" || label == "Repository scan")
-            label = "Scan";
-        else if (label == "Catalog analysis" || label == "Repository analysis")
-            label = "Analysis";
-    }
     if (columns < 60 && phase.length > 14)
         phase = shortenMiddle(phase, 14).to!string;
 
     string progress;
     if (event.totalKnown && event.total > 0)
     {
-        auto boundedCompleted = event.completed < event.total
+        const boundedCompleted = event.completed < event.total
             ? event.completed : event.total;
-        auto percent = cast(size_t)(cast(real) boundedCompleted * 100
+        const percent = cast(size_t)(cast(real) boundedCompleted * 100
             / event.total);
-        if (columns >= 76)
+        if (columns >= 72)
         {
-            auto barWidth = columns >= 110 ? 20 : 12;
-            auto filled = percent * barWidth / 100;
+            const barWidth = columns >= 110 ? 16 : 10;
+            const filled = percent * barWidth / 100;
             string bar = "[";
             foreach (index; 0 .. barWidth)
                 bar ~= index < filled ? '=' : ' ';
             bar ~= "]";
             progress = format("%s %3d%% %s/%s", bar, percent,
-                event.completed, event.total);
+                formatProgressCount(boundedCompleted),
+                formatProgressCount(event.total));
         }
         else
-            progress = format("%s/%s %3d%%", event.completed, event.total,
-                percent);
+            progress = format("%s/%s %3d%%",
+                formatProgressCount(boundedCompleted),
+                formatProgressCount(event.total), percent);
     }
     else
-        progress = format("%s items", event.completed);
+        progress = format("%s items", formatProgressCount(event.completed));
 
-    if (event.subtaskTotalKnown && columns >= 76)
+    if (event.subtaskTotalKnown && columns >= 72)
     {
-        auto subtask = event.subtaskUnit == "bytes"
+        const subtask = event.subtaskUnit == "bytes"
             ? format("%s/%s", formatProgressBytes(event.subtaskCompleted),
                 formatProgressBytes(event.subtaskTotal))
-            : format("%s/%s %s", event.subtaskCompleted,
-                event.subtaskTotal, event.subtaskUnit);
+            : format("%s/%s %s",
+                formatProgressCount(event.subtaskCompleted),
+                formatProgressCount(event.subtaskTotal), event.subtaskUnit);
         progress ~= "  " ~ subtask;
     }
 
-    static immutable string[4] spinner = ["|", "/", "-", "\\"];
-    auto prefix = format("%s %s %s %s", spinner[operationSpinnerFrame % spinner.length],
-        label, phase, progress);
-    if (prefix.length > columns)
-        prefix = shortenMiddle(prefix, columns).to!string;
-    auto detail = event.path.length > 0 ? event.path : event.message;
-    auto available = columns > prefix.length + 1
+    string timing;
+    if (elapsed > Duration.zero)
+    {
+        timing = formatElapsed(elapsed);
+        if (detailed && elapsed.total!"seconds" > 0 && event.completed > 0)
+        {
+            const rate = cast(ulong)(event.completed
+                / elapsed.total!"seconds");
+            timing ~= format("  %s/s", formatProgressCount(rate));
+        }
+    }
+
+    string prefix = phase ~ "  " ~ progress;
+    if (!timing.empty)
+        prefix ~= "  " ~ timing;
+
+    const detail = event.path.length > 0 ? event.path : event.message;
+    const available = columns > prefix.length + 1
         ? columns - prefix.length - 1 : 0;
-    if (detail.length > available)
-        detail = shortenMiddle(detail, available).to!string;
-    return detail.length > 0 ? prefix ~ " " ~ detail : prefix;
+    string visibleDetail = detail;
+    if (visibleDetail.length > available)
+        visibleDetail = available > 0
+            ? shortenMiddle(visibleDetail, available).to!string : "";
+
+    const plain = visibleDetail.empty ? prefix : prefix ~ " " ~ visibleDetail;
+    if (plain.length > columns)
+        return shortenMiddle(plain, columns).to!string;
+    if (!colorize)
+        return plain;
+
+    auto colored = "\x1b[36m" ~ phase ~ "\x1b[0m" ~ "  "
+        ~ "\x1b[32m" ~ progress ~ "\x1b[0m";
+    if (!timing.empty)
+        colored ~= "  \x1b[2m" ~ timing ~ "\x1b[0m";
+    if (!visibleDetail.empty)
+        colored ~= "  \x1b[2m" ~ visibleDetail ~ "\x1b[0m";
+    return colored;
 }
 
-/** Render compact shared-operation progress on one throttled terminal line. */
+/** Render compact shared-operation progress on one throttled terminal line.
+ *
+ * On a terminal this is a single rewritten line. When stdout is redirected,
+ * emit periodic newline records instead so logs remain readable.
+ */
 void printOperationProgress(string label, OperationProgress event)
 {
-    import dosierskanilo.logging : logF;
+    import dosierskanilo.logging : logF, logFLine;
 
+    ensureOperationHeader();
     const auto phase = event.phase.to!string;
     const auto now = Clock.currTime;
-    if (operationProgressLineOpen && phase == lastOperationPhase
-        && now - lastOperationProgress <= dur!"msecs"(250))
-        return;
+    const bool phaseChanged = phase != lastOperationPhase;
+    const bool tty = stdoutIsTerminal();
 
-    auto line = formatOperationProgressLine(label, event, terminalColumns());
-    logF("\r\x1b[K%s", line);
-    operationSpinnerFrame++;
-    operationProgressLineOpen = true;
+    if (!phaseChanged && lastOperationProgress != SysTime.init)
+    {
+        const auto interval = tty ? dur!"msecs"(100) : dur!"seconds"(5);
+        if (now - lastOperationProgress < interval)
+            return;
+    }
+
+    const auto elapsed = operationStartedAt == SysTime.init
+        ? Duration.zero : now - operationStartedAt;
+    auto line = formatOperationProgressLine(event, terminalColumns(),
+        tty && supportsColor(), elapsed, false);
+    if (tty)
+        logF("\r\x1b[K%s", line);
+    else
+        logFLine("%s%s", formatTimestamp(now), line);
+
+    operationProgressLineOpen = tty;
     lastOperationPhase = phase;
     lastOperationProgress = now;
 }
 
-/** Print verbose operation progress as throttled newline records. */
+/** Print verbose operation progress as throttled newline records.
+ *
+ * Verbose mode keeps a scrollable history instead of rewriting one line. It
+ * adds rate information and is printed at most once per second, on phase
+ * changes, and whenever the caller explicitly reports an event.
+ */
 void printVerboseOperationProgress(string label, OperationProgress event,
     ref SysTime lastProgress, ref bool haveProgress)
 {
-    import dosierskanilo.logging : logLine;
+    import dosierskanilo.logging : logF, logFLine;
 
+    ensureOperationHeader();
+    const auto phase = event.phase.to!string;
     const auto now = Clock.currTime;
-    if (haveProgress && now - lastProgress <= dur!"seconds"(1))
+    const bool phaseChanged = phase != lastOperationPhase;
+    if (haveProgress && !phaseChanged
+        && now - lastProgress <= dur!"seconds"(1))
         return;
-    logLine(formatOperationProgressLine(label, event, terminalColumns()));
+
+    if (operationProgressLineOpen)
+    {
+        logF("\r\x1b[K");
+        operationProgressLineOpen = false;
+    }
+
+    const auto elapsed = operationStartedAt == SysTime.init
+        ? Duration.zero : now - operationStartedAt;
+    auto line = formatOperationProgressLine(event, terminalColumns(),
+        supportsColor(), elapsed, true);
+    logFLine("%s%s", formatTimestamp(now), line);
     lastProgress = now;
     haveProgress = true;
+    lastOperationPhase = phase;
+    lastOperationProgress = now;
 }
 
 /** Clear the compact progress line before printing an operation summary. */
 void clearOperationProgress()
 {
-    import dosierskanilo.logging : logF, logLine;
+    import dosierskanilo.logging : logF;
 
-    if (!operationProgressLineOpen)
-        return;
-    logF("\r\x1b[K");
-    logLine("");
+    if (operationProgressLineOpen)
+        logF("\r\x1b[K");
     operationProgressLineOpen = false;
     lastOperationPhase = "";
 }
 
-@("formatOperationProgressLine adapts to terminal width and includes file progress")
+@("formatOperationProgressLine reports phase, counts, timing, and path")
 unittest
 {
     OperationProgress event;
@@ -959,18 +1159,23 @@ unittest
     event.subtaskUnit = "bytes";
     event.path = "/library/films/A very long film filename.mkv";
 
-    auto wide = formatOperationProgressLine("Metadata", event, 100);
+    auto wide = formatOperationProgressLine(event, 100, false,
+        dur!"seconds"(12), true);
     assert(wide.length <= 100, wide);
-    assert(wide.canFind("checksums"));
-    assert(wide.canFind("24/100"));
-    assert(wide.canFind("16.0 MiB/32.0 MiB"));
-    assert(wide.canFind("filename.mkv"));
+    assert(wide.canFind("checksums"), wide);
+    assert(wide.canFind("24/100"), wide);
+    assert(wide.canFind("16.0 MiB/32.0 MiB"), wide);
+    assert(wide.canFind("filename.mkv"), wide);
+    assert(wide.canFind("12s"), wide);
+    assert(!wide.canFind("Catalog"), wide);
 
-    auto narrow = formatOperationProgressLine("Metadata", event, 60);
+    auto narrow = formatOperationProgressLine(event, 60, false,
+        dur!"seconds"(12));
     assert(narrow.length <= 60, narrow);
-    assert(narrow.canFind("24/100"));
+    assert(narrow.canFind("24/100"), narrow);
 
-    auto veryNarrow = formatOperationProgressLine("Metadata", event, 35);
+    auto veryNarrow = formatOperationProgressLine(event, 35, false,
+        dur!"seconds"(12));
     assert(veryNarrow.length <= 35, veryNarrow);
 }
 
@@ -979,13 +1184,13 @@ unittest
 {
     OperationProgress event;
     event.phase = OperationPhase.scanning;
-    event.completed = 123;
+    event.completed = 1234567;
     event.path = "/library/films/A very long film filename.mkv";
 
-    auto line = formatOperationProgressLine("Catalog scan", event, 100);
-    assert(line.canFind("123 items"));
-    assert(line.canFind("filename.mkv"));
-    assert(line.length <= 100);
+    auto line = formatOperationProgressLine(event, 100);
+    assert(line.canFind("1,234,567 items"), line);
+    assert(line.canFind("filename.mkv"), line);
+    assert(line.length <= 100, line);
 }
 
 /** Print scan progress on a single console line.
@@ -1001,40 +1206,43 @@ unittest
  */
 void printProgress(size_t idx, size_t totalfiles, string file, string subJob = null)
 {
-    enum EL0 = "\x1b[K"; // Delete to end of line, to clear the line after the progress output
+    import dosierskanilo.logging : logF, logFLine;
 
     lastIdx = idx;
     lastTotalFiles = totalfiles;
     lastFile = file;
 
-    if (file.empty || idx == 0)
+    const auto now = Clock.currTime;
+    const bool tty = stdoutIsTerminal();
+    if (lastProgress != SysTime.init)
     {
-        lastProgress = Clock.currTime;
+        const auto interval = tty ? dur!"seconds"(1) : dur!"seconds"(5);
+        if (idx != 0 && now - lastProgress < interval)
+            return;
     }
-    Duration lastDelta = Clock.currTime - lastProgress;
-    bool itsTime = lastDelta > dur!"seconds"(1);
-    if (file.empty || idx == 0 || itsTime)
+
+    const auto columns = terminalColumns();
+    auto line = format("%s/%s", formatProgressCount(idx),
+        formatProgressCount(totalfiles));
+    if (!subJob.empty)
+        line ~= "  " ~ subJob;
+    if (!file.empty)
     {
-        enum fnfsz = 66;
-        auto fileEclipsed = shortenMiddle(file, fnfsz);
-        assert(fileEclipsed.length <= fnfsz, "clip: " ~ fileEclipsed.length.text);
-        fileEclipsed = padLeft(fileEclipsed, fnfsz);
-        try
+        const available = columns > line.length + 1
+            ? columns - line.length - 1 : 0;
+        if (available > 0)
         {
-            logF("\r%6d/%6d:%10s:%s" ~ EL0, idx, totalfiles, subJob, fileEclipsed[$ - fnfsz .. $]);
+            auto visible = file;
+            if (visible.length > available)
+                visible = shortenMiddle(visible, available).to!string;
+            line ~= " " ~ visible;
         }
-        catch (Exception ex)
-        {
-            logLine("\n");
-            logFLine("Catched exception: %s\nFile: %s", ex.msg, file);
-            //assert(false, ex.msg);
-        }
-        lastProgress = Clock.currTime;
     }
+    if (tty)
+        logF("\r\x1b[K%s", line);
     else
-    {
-        //writeln("Boooh");
-    }
+        logFLine("%s%s", formatTimestamp(now), line);
+    lastProgress = now;
 }
 
 @("printProgress")

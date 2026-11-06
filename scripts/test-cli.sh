@@ -17,23 +17,22 @@ trap cleanup EXIT
 # Render captured progress output (carriage-return frames with ANSI clears)
 # as one line per update and require the phases to appear in this order.
 assert_progress_order() {
-    local label=$1
     local output
-    output=$(printf '%s' "$2" | sed -E 's/\x1b\[[0-9;]*[A-Za-z]//g' \
+    output=$(printf '%s' "$1" | sed -E 's/\x1b\[[0-9;]*[A-Za-z]//g' \
         | tr '\r' '\n')
     local previous=0 phase position
-    shift 2
+    shift
     for phase in "$@"; do
-        position=$(awk -v needle="${label} ${phase} " \
+        position=$(awk -v needle="${phase}  " \
             '{ if (index($0, needle) > 0) { print NR; exit } }' \
             <<<"${output}")
         if [[ -z "${position}" ]]; then
-            printf '%s\n' "Missing progress phase '${label} ${phase}'." >&2
+            printf '%s\n' "Missing progress phase '${phase}'." >&2
             exit 1
         fi
         if (( position <= previous )); then
             printf '%s\n' \
-                "Progress phase '${label} ${phase}' is out of order." >&2
+                "Progress phase '${phase}' is out of order." >&2
             exit 1
         fi
         previous=${position}
@@ -42,20 +41,20 @@ assert_progress_order() {
 
 # Work counts within one phase must never move backwards.
 assert_monotonic_progress() {
-    local label=$1 phase=$2 output=$3
+    local phase=$1 output=$2
     local previous=-1 current
     while read -r current; do
         [[ -z "${current}" ]] && continue
         if (( current < previous )); then
             printf '%s\n' \
-                "Progress count regressed in '${label} ${phase}'." >&2
+                "Progress count regressed in '${phase}'." >&2
             exit 1
         fi
         previous=${current}
     done < <(printf '%s' "${output}" \
         | sed -E 's/\x1b\[[0-9;]*[A-Za-z]//g' | tr '\r' '\n' \
-        | grep -F "${label} ${phase} " \
-        | grep -oE '[0-9]+/[0-9]+' | cut -d/ -f1)
+        | grep -F "${phase}  " \
+        | grep -oE '[0-9,]+/[0-9,]+' | cut -d/ -f1 | tr -d ',')
 }
 
 (cd "${ROOT_DIR}" && dub build --config=cli --compiler="${DC}" >/dev/null)
@@ -73,21 +72,21 @@ cp -a "${fixture_root}" "${synthetic_sqlite_root}"
 sqlite_scan_output=$("${BIN}" scan "${synthetic_sqlite_root}" \
     --recursive --checksums)
 [[ "${sqlite_scan_output}" == *"Catalog scan: 12 files, 12 added"* ]]
-assert_progress_order "Catalog scan" "${sqlite_scan_output}" \
+assert_progress_order "${sqlite_scan_output}" \
     validating discovering checksums
-assert_monotonic_progress "Catalog scan" checksums "${sqlite_scan_output}"
+assert_monotonic_progress checksums "${sqlite_scan_output}"
 sqlite_analysis_output=$("${BIN}" analyze "${synthetic_sqlite_root}")
 [[ "${sqlite_analysis_output}" == *"Catalog analysis: 0 missing, 0 dropped, 1 duplicate groups, 1 merged blobs, 0 orphaned blobs."* ]]
-assert_progress_order "Catalog analysis" "${sqlite_analysis_output}" \
+assert_progress_order "${sqlite_analysis_output}" \
     validating "missing files" duplicates "analysis cleanup"
 
 pushd "${TMP_DIR}" >/dev/null
 synthetic_json_output=$("${BIN}" scan "${fixture_root}" \
     --json "${synthetic_catalog}" --recursive --checksums)
 [[ "${synthetic_json_output}" == *"Catalog scan: 12 files, 12 added"* ]]
-assert_progress_order "Catalog scan" "${synthetic_json_output}" \
+assert_progress_order "${synthetic_json_output}" \
     "reading JSON" discovering checksums "writing JSON"
-assert_monotonic_progress "Catalog scan" checksums "${synthetic_json_output}"
+assert_monotonic_progress checksums "${synthetic_json_output}"
 [[ ! -d "${fixture_root}/.dosierskanilo" ]]
 json_rescan_output=$("${BIN}" scan "${fixture_root}" \
     --json "${synthetic_catalog}" --recursive --checksums)
@@ -95,7 +94,7 @@ json_rescan_output=$("${BIN}" scan "${fixture_root}" \
 json_analysis_output=$("${BIN}" analyze --json "${synthetic_catalog}" \
     --base-dir "${fixture_root}")
 [[ "${json_analysis_output}" == *"Catalog analysis: 0 missing, 0 dropped, 1 duplicate groups, 1 merged blobs, 0 orphaned blobs."* ]]
-assert_progress_order "Catalog analysis" "${json_analysis_output}" \
+assert_progress_order "${json_analysis_output}" \
     "reading JSON" "missing files" duplicates "analysis cleanup" \
     "writing JSON"
 [[ "$(wc -l < "${synthetic_catalog}")" -eq 0 ]]
