@@ -352,6 +352,8 @@ MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
             {
                 persistArchivePassword(db, blobId, blob.archivePassword);
                 setMetadataStatus(db, blobId, "archives", "failed", ex.msg);
+                summary.lastError = ex.msg.length > 0
+                    ? "archives: " ~ ex.msg : "archives failed";
                 summary.failed++;
             }
         }
@@ -851,7 +853,10 @@ private void persistMetadataWork(ref Database db, MetadataWorkItem item,
             if (kind == "archives")
                 persistArchivePassword(db, item.blobId,
                     item.blob.archivePassword);
-            setMetadataStatus(db, item.blobId, kind, "failed", item.errors[kind]);
+            const errorMessage = item.errors[kind];
+            setMetadataStatus(db, item.blobId, kind, "failed", errorMessage);
+            summary.lastError = errorMessage.length > 0
+                ? kind ~ ": " ~ errorMessage : kind ~ " failed";
             summary.failed++;
             return;
         }

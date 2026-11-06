@@ -189,6 +189,8 @@ struct MetadataSummary
     size_t torrentsUpdated;
     /// Number of metadata jobs that failed.
     size_t failed;
+    /// Last job error message, empty when every selected job succeeded.
+    string lastError;
 }
 
 /** Metadata summary plus cooperative-cancellation outcome. */

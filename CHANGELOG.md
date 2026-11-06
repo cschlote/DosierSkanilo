@@ -27,6 +27,16 @@ They represent the functional evolution and are intentionally summarized.
   instead of reporting zero archive updates. A verbose log explains when no
   physical file is available for a stored archive reference.
 
+- RAR directory entries are no longer persisted as archive members. The browse
+  tree synthesizes directories from member paths, so storing the explicit
+  directory rows produced a second, non-expandable node for every directory
+  and surfaced empty directories that should stay hidden.
+
+- Partial RAR listings are accepted when `unrar` reports a warning or a
+  truncated/missing volume but still returns entries. Previously the whole
+  archive scan failed and no members were stored. Header-encrypted RARs now
+  report a password request instead of an empty archive-tool error.
+
 - Operation controls observe bound external cancellation flags, so GUI archive
   scans can stop at controlled metadata checkpoints.
 

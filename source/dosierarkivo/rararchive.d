@@ -6,12 +6,12 @@
  */
 module dosierarkivo.rararchive;
 
-import std.algorithm : filter;
+import std.algorithm : any, filter;
 import std.array : array;
 import std.conv : to;
 import std.file : exists, getcwd, remove;
 import std.path : buildPath;
-import std.process : execute, executeShell;
+import std.process : Config, execute, executeShell;
 import std.string : empty, format, indexOf, replace, split, splitLines,
     startsWith, strip;
 
@@ -45,11 +45,22 @@ class FileArchiveRar : FileArchive
         }
 
         auto passwordOption = password.length > 0 ? "-p" ~ password : "-p-";
-        auto rc = execute(["unrar", "lt", passwordOption, this.fileName]);
-        if (rc.status != 0 && isArchivePasswordFailure(rc.output))
-            throw new ArchivePasswordRequiredException(rc.output);
-        if (rc.status != 0)
-            throw new ArchiveToolException(rc.output);
+        auto rc = execute(["unrar", "lt", passwordOption, this.fileName],
+            null, Config.stderrPassThrough);
+        /* unrar exits with 11 for a wrong password even when the diagnostic
+         * goes to stderr and stdout is empty. */
+        if (isArchivePasswordFailure(rc.output) || rc.status == 11)
+            throw new ArchivePasswordRequiredException(rc.output.length > 0
+                ? rc.output : password.length > 0
+                    ? "incorrect archive password"
+                    : "archive password required");
+        /* A warning or a truncated archive can still provide a useful partial
+         * listing. Accept it when at least one entry was parsed. */
+        if (rc.status != 0 && !rc.output.splitLines.any!(line =>
+                line.strip.startsWith("Name: ")))
+            throw new ArchiveToolException(rc.output.length > 0
+                ? rc.output : format("unrar lt failed with exit code %d",
+                    rc.status));
 
         Metadata[string] metadata;
         Metadata current;
@@ -117,12 +128,19 @@ class FileArchiveRar : FileArchive
     override string[] getEntries(string password = "")
     {
         auto passwordOption = password.length > 0 ? "-p" ~ password : "-p-";
-        auto rc = execute(["unrar", "lb", passwordOption, this.fileName]);
-        if (rc.status != 0 && isArchivePasswordFailure(rc.output))
-            throw new ArchivePasswordRequiredException(rc.output);
-        if (rc.status != 0)
-            throw new ArchiveToolException(rc.output);
-        return rc.output.split("\n").filter!(a => !a.empty).array;
+        auto rc = execute(["unrar", "lb", passwordOption, this.fileName],
+            null, Config.stderrPassThrough);
+        if (isArchivePasswordFailure(rc.output) || rc.status == 11)
+            throw new ArchivePasswordRequiredException(rc.output.length > 0
+                ? rc.output : password.length > 0
+                    ? "incorrect archive password"
+                    : "archive password required");
+        auto names = rc.output.split("\n").filter!(a => !a.empty).array;
+        if (rc.status != 0 && names.length == 0)
+            throw new ArchiveToolException(rc.output.length > 0
+                ? rc.output : format("unrar lb failed with exit code %d",
+                    rc.status));
+        return names;
     }
 
     override bool extractEntry(string filename, string destDir, string password = "")

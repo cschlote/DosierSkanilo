@@ -2230,7 +2230,20 @@ void updateArchives(NamedBinaryBlob obj,
                             && !archiveObj.supportsEntryOccurrence)
                             logFLineVerbose("Archive adapter cannot select duplicate occurrence %d of '%s'; leaving it without a deep fingerprint.",
                                 descriptor.occurrence, descriptor.relativePath);
-                        if (!descriptor.hasSafePath || descriptor.isDirectory
+                        /* Directory entries are structure, not content. The
+                         * browse tree synthesizes directories from member
+                         * paths, so indexing an explicit directory as a
+                         * member would create a duplicate, non-expandable
+                         * node (and surface empty directories that the tree
+                         * must not show). */
+                        if (descriptor.isDirectory)
+                        {
+                            if (progressCallBack !is null)
+                                progressCallBack.report(idx + 1,
+                                    archiveEntries.length);
+                            continue;
+                        }
+                        if (!descriptor.hasSafePath
                             || (descriptor.hasDuplicateName
                                 && !archiveObj.supportsEntryOccurrence))
                         {
@@ -2675,6 +2688,40 @@ unittest
 	}
 	assert(sawGood);
 	assert(sawBroken);
+}
+
+@("RAR directory entries are not stored as archive members")
+unittest
+{
+	import std.file : exists, getSize, mkdirRecurse, rmdirRecurse, tempDir, write;
+	import std.path : buildPath;
+	import std.process : Config, execute, executeShell;
+	import std.uuid : randomUUID;
+
+	if (executeShell("command -v rar").status != 0)
+		return;
+
+	auto root = buildPath(tempDir(), "dosierskanilo-rar-directories-"
+		~ randomUUID().toString());
+	mkdirRecurse(buildPath(root, "input", "001", "empty", "deeper"));
+	scope (exit)
+		if (exists(root))
+			rmdirRecurse(root);
+	write(buildPath(root, "input", "001", "a.txt"), "a");
+	auto archivePath = buildPath(root, "bundle.rar");
+	auto create = execute(["rar", "a", "-r", "-idq", archivePath, "001"],
+		null, Config.none, size_t.max, buildPath(root, "input"));
+	assert(create.status == 0, create.output);
+
+	auto blob = new NamedBinaryBlob(archivePath, getSize(archivePath),
+		SysTime(1_234_567));
+	auto cache = new MemberContentCache(buildPath(root, "cache"));
+	scope (exit)
+		cache.close();
+	updateArchives(blob, true, true, null, null, null, 0, 8, "", cache);
+
+	assert(blob.archiveSpecs.length == 1);
+	assert(blob.archiveSpecs[0].fileName == "001/a.txt");
 }
 
 @("archive scanning ignores a stale zero file size")
