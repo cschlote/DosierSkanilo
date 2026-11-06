@@ -5,27 +5,27 @@ SQLite repository. Historical work-package records remain in
 [`docs/SQLITE-IMPLEMENTATION-PLAN.md`](docs/SQLITE-IMPLEMENTATION-PLAN.md);
 user-visible changes are listed in [`CHANGELOG.md`](CHANGELOG.md).
 
-## Current status (2026-11-02)
+## Current status (2026-11-06)
 
-- Version `26.13.0`; storage-neutral `CatalogBackend`, JSON v5, SQLite schema
+- Version `26.14.0`; storage-neutral `CatalogBackend`, JSON v5, SQLite schema
   v5, explicit JSON `CatalogDocument` sessions, shared operation API, member
   cache, recovery writer, and tag-driven release validation are implemented.
 - WP-09, WP-13, WP-14, and the persistence/document-session work are complete.
-- Backend verification: 199 tests, coverage 89.65 %, CLI checks and
+- Backend verification: 210 tests, coverage 89.69 %, CLI checks and
   `scripts/lint.sh` pass; CI is green on `testing` and `main`.
-- Documentation and Ddoc headers were refreshed on 2026-11-02.
+- Documentation and Ddoc headers were refreshed on 2026-11-06.
 
 ## P0 — Prepare the next backend release
 
 Target: `26.14.0` (minor release for the public catalog/document API additions
 and behavior fixes since `26.13.0`).
 
-- [ ] Confirm that no open item requires an incompatible public API change; if
+- [x] Confirm that no open item requires an incompatible public API change; if
       it does, move it to the next major release instead of this one.
-- [ ] Re-run the release checklist in
+- [x] Re-run the release checklist in
       [`docs/RELEASE-CHECKLIST.md`](docs/RELEASE-CHECKLIST.md), including the
       paired GUI release.
-- [ ] Move `## Unreleased` to `## Release 26.14.0` in `CHANGELOG.md`, update
+- [x] Move `## Unreleased` to `## Release 26.14.0` in `CHANGELOG.md`, update
       `VERSION` and package metadata, and commit the release notes.
 - [ ] Create the annotated `v26.14.0` tag after the paired GUI tag is ready;
       verify that the tag workflow validates tag/VERSION/CHANGELOG and publishes
