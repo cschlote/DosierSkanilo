@@ -27,7 +27,7 @@ and behavior fixes since `26.13.0`).
       paired GUI release.
 - [x] Move `## Unreleased` to `## Release 26.14.0` in `CHANGELOG.md`, update
       `VERSION` and package metadata, and commit the release notes.
-- [ ] Create the annotated `v26.14.0` tag after the paired GUI tag is ready;
+- [x] Create the annotated `v26.14.0` tag after the paired GUI tag is ready;
       verify that the tag workflow validates tag/VERSION/CHANGELOG and publishes
       the GitHub release.
 - [ ] Update packaging metadata (`packaging/debian/changelog`, Arch, Fedora,
