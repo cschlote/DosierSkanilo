@@ -17,6 +17,9 @@ Minimal guidelines for coding AI working in this repository:
 - Merge feature branches into `main` with `--no-ff` so the merge history stays explicit.
 - For release commits, move the `## Unreleased` notes to `## Release X.Y.Z` and keep the summary in simple English.
 - Prefix release tags with `v`, for example `v26.10.2`.
+- Create release tags on the `main` merge commit, then update Flatpak hashes in
+  a follow-up commit on `main`. Source archives embed the tagged commit SHA, so
+  moving a tag changes the archive hash even with an identical tree.
 
 ## D language guide
 
