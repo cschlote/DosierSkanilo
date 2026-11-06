@@ -1009,7 +1009,7 @@ string formatOperationProgressLine(OperationProgress event, size_t columns,
                 formatProgressCount(boundedCompleted),
                 formatProgressCount(event.total), percent);
     }
-    else
+    else if (event.completed > 0)
         progress = format("%s items", formatProgressCount(event.completed));
 
     if (event.subtaskTotalKnown && columns >= 72)
@@ -1035,7 +1035,7 @@ string formatOperationProgressLine(OperationProgress event, size_t columns,
         }
     }
 
-    string prefix = phase ~ "  " ~ progress;
+    string prefix = progress.empty ? phase : phase ~ "  " ~ progress;
     if (!timing.empty)
         prefix ~= "  " ~ timing;
 
@@ -1053,8 +1053,9 @@ string formatOperationProgressLine(OperationProgress event, size_t columns,
     if (!colorize)
         return plain;
 
-    auto colored = "\x1b[36m" ~ phase ~ "\x1b[0m" ~ "  "
-        ~ "\x1b[32m" ~ progress ~ "\x1b[0m";
+    auto colored = "\x1b[36m" ~ phase ~ "\x1b[0m";
+    if (!progress.empty)
+        colored ~= "  \x1b[32m" ~ progress ~ "\x1b[0m";
     if (!timing.empty)
         colored ~= "  \x1b[2m" ~ timing ~ "\x1b[0m";
     if (!visibleDetail.empty)
