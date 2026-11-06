@@ -1,3 +1,10 @@
+dosierskanilo (26.14.0-1) unstable; urgency=medium
+
+  * Package DosierSkanilo 26.14.0 with robust RAR archive scanning,
+    archive-member tree fixes, and large-catalog import improvements.
+
+ -- Carsten Schlote <schlote@vahanus.net>  Fri, 06 Nov 2026 00:00:00 +0000
+
 dosierskanilo (26.13.0-1) unstable; urgency=medium
 
   * Package DosierSkanilo 26.13.0 with the storage-neutral catalog contract,

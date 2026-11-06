@@ -9,6 +9,8 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+## Release 26.14.0 - 2026-11-06
+
 - RAR listings now expose member sizes and timestamps without extracting every
   entry. Shallow archive scans persist those values, so archive rows no longer
   show zero-byte members until a deep scan runs. RAR directory entries are
