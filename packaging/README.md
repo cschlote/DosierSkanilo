@@ -67,13 +67,21 @@ Flatpak build container.
 
 ## Release checklist
 
-1. Create and push an annotated `v<version>` tag. The tag archive must contain
-   the tracked `VERSION` fallback used by git-less builds.
-2. Verify the GitHub release archive and calculate its SHA256 checksum.
-3. Replace checksum placeholders in the AUR, Flatpak, Fedora and Debian files.
-4. Build and test each package in a clean environment, for example with
+1. Merge the release commit to `main` and create the annotated `v<version>` tag
+   on that `main` merge commit. The tag archive must contain the tracked
+   `VERSION` fallback used by git-less builds.
+2. Verify the published source archive and calculate its SHA256 checksum.
+3. Update the Flatpak `sha256` in a follow-up commit on `main`. Never reuse a
+   hash after moving a tag: GitHub and GitLab archives embed the tagged commit
+   SHA, so an identical tree can still produce a different archive hash.
+4. Replace checksum placeholders in the AUR, Flatpak, Fedora and Debian files.
+5. Build and test each package in a clean environment, for example with
    `packaging/debian/build-in-container.sh` for Debian.
-5. Publish AUR updates and attach Debian/Fedora/Flatpak artifacts to the release.
+6. Publish AUR updates and attach Debian/Fedora/Flatpak artifacts to the release.
+
+Do not tag the Flatpak hash-update commit. The source archive cannot contain a
+stable hash of itself; the manifest on `main` is the authoritative package
+input after the tag is published.
 
 The `dosierskanilo-git` AUR package tracks `main` and intentionally uses a
 non-reproducible source snapshot.

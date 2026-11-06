@@ -7,7 +7,8 @@ released from the same integration branch and each tag is prefixed with `v`.
 
 - [ ] Backend and GUI working trees are clean (`git status`).
 - [ ] The integration branch is pushed to every mirror and `main` is merged.
-- [ ] CI on `main` passed, including the GUI Xvfb display job.
+- [ ] CI on `main` passed, including the GUI Xvfb display job, or the same
+      checks were run locally when remote CI is intentionally disabled.
 - [ ] Untracked local review/scratch files are committed or removed.
 
 ## Automated verification
@@ -47,15 +48,33 @@ released from the same integration branch and each tag is prefixed with `v`.
       breaks, GUI minor for features, patch for fixes only.
 - [ ] Update backend `VERSION`, move `## Unreleased` to
       `## Release X.Y.Z` in both changelogs, and update package versions.
-- [ ] After creating the backend tag, download the published source archive and
-      update the Flatpak `sha256`; do the same for the GUI tag/archive.
 - [ ] Refresh generated docs metadata (`public/meta.json`) when docs are built.
+
+## Tag placement and Flatpak hashes
+
+- Create release tags on the `main` merge commit after the release commit has
+  been merged, never on a branch-only release commit.
+- Source archives from GitHub and GitLab include the tagged commit SHA in their
+  archive metadata (`pax_global_header`). Re-pointing or re-creating a tag
+  changes the archive `sha256` even when the source tree is identical. Never
+  reuse a Flatpak hash after moving a tag.
+- The source archive cannot contain the final hash of itself. Tag first,
+  download the published archive, compute its `sha256`, then update the Flatpak
+  manifest in a follow-up commit on `main`.
+- Do not tag that hash-update commit: the resulting archive would change again
+  and invalidate its own pinned hash.
+- If a tag or release must be corrected, download the archive again, update the
+  Flatpak pin, and verify that the manifest on `main` points at the archive of
+  the tag that is actually published.
 
 ## Publish
 
 - [ ] Commit `Release X.Y.Z` in each repository.
-- [ ] Create annotated tags `vX.Y.Z` and push them to every mirror.
-- [ ] Confirm the tag-driven release workflow validated metadata and tests and
-      published the GitHub release (or published it manually if it already
-      existed).
 - [ ] Merge the release commits to `main` and push `main`.
+- [ ] Create annotated tags `vX.Y.Z` on the `main` merge commits and push them
+      to every mirror.
+- [ ] Update the Flatpak `sha256` pins from the published tag archives in a
+      follow-up commit on `main`.
+- [ ] Confirm the tag-driven release workflow validated metadata and tests and
+      published the GitHub release, or publish the release manually when remote
+      CI is disabled.
