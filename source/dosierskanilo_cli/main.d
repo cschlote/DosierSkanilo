@@ -112,13 +112,23 @@ int main(string[] args)
 					signal(SIGINT, oldhandler);
 
 			bool rc;
-			if (parsed.command == CliCommand.recover)
-				rc = executeCatalogRecovery(options);
-			else if (parsed.command == CliCommand.scan
-				|| parsed.command == CliCommand.analyze)
-				rc = executeCatalogOperation(options);
-			else
-				rc = executeRepositoryOperation(options);
+			try
+			{
+				if (parsed.command == CliCommand.recover)
+					rc = executeCatalogRecovery(options);
+				else if (parsed.command == CliCommand.scan
+					|| parsed.command == CliCommand.analyze)
+					rc = executeCatalogOperation(options);
+				else
+					rc = executeRepositoryOperation(options);
+			}
+			catch (Exception ex)
+			{
+				errorLine("Operation failed: ", ex.msg);
+				if (isVerboseOutputs())
+					errorLine(ex.toString());
+				return 1;
+			}
 			return rc ? 0 : 1;
 		}
 	}
@@ -371,7 +381,7 @@ bool executeRepositoryImport(CatalogBackend backend, string repositoryRoot,
 	logLineVerbose("Importing into catalog root: ", repositoryRoot);
 	JsonImportOptions importOptions;
 	importOptions.force = options.argReplaceCatalog;
-	auto control = cliOperationControl("Catalog import");
+	auto control = cliOperationControl("Catalog import", repositoryRoot);
 	const bool imported = backend.importJsonControlled(
 		options.argImportJSON, importOptions, control, 6);
 	clearOperationProgress();
@@ -409,8 +419,13 @@ bool executeCatalogOperation(ArgsArray options)
 	scope (exit)
 		backend.close();
 	auto backendTarget = backend.target();
-	auto control = cliOperationControl(options.argScanFiles
-		? "Catalog scan" : "Catalog analysis");
+	const auto operationLabel = options.argScanFiles
+		? "Catalog scan" : "Catalog analysis";
+	const auto operationDetail = options.argJSONFile.empty
+		? options.argRepositoryPath.empty ? options.argScanPath
+			: options.argRepositoryPath
+		: options.argJSONFile;
+	auto control = cliOperationControl(operationLabel, operationDetail);
 	OperationResult result;
 	if (options.argScanFiles)
 		result = backend.runOperation(scanRequestFromCli(options, backendTarget),
@@ -430,8 +445,9 @@ bool executeCatalogOperation(ArgsArray options)
  */
 private bool executeJsonCatalogOperation(ArgsArray options, OperationTarget target)
 {
-	auto control = cliOperationControl(options.argScanFiles
-		? "Catalog scan" : "Catalog analysis");
+	const auto operationLabel = options.argScanFiles
+		? "Catalog scan" : "Catalog analysis";
+	auto control = cliOperationControl(operationLabel, options.argJSONFile);
 	OperationResult result;
 	if (options.argScanFiles)
 		result = runOperation(scanRequestFromCli(options, target), control);
@@ -640,7 +656,7 @@ bool executeRepositoryExport(CatalogBackend backend, string repositoryRoot,
 	exportOptions.outputPath = exportPath;
 	exportOptions.format = CatalogExportFormat.jsonV5;
 	exportOptions.prettyJson = options.argPrettyJSON;
-	auto control = cliOperationControl("Catalog export");
+	auto control = cliOperationControl("Catalog export", exportPath);
 	CatalogSubsetQuery subset;
 	subset.pathPrefix = options.argExportPath;
 	subset.filter.includeArchiveMembers = true;
@@ -1093,7 +1109,7 @@ bool executeRepositoryMetadata(CatalogBackend backend, string repositoryRoot,
 	request.operationId = 2;
 	request.target = OperationTarget.repositoryTarget(repositoryRoot);
 	request.options = metadataOptions;
-	auto control = cliOperationControl("Catalog metadata");
+	auto control = cliOperationControl("Catalog metadata", repositoryRoot);
 	auto result = backend.runOperation(request, control);
 	clearOperationProgress();
 	if (result.state != OperationState.completed)
@@ -1114,8 +1130,9 @@ bool executeRepositoryMetadata(CatalogBackend backend, string repositoryRoot,
 }
 
 /** Render shared operation progress and translate SIGINT into cooperative cancellation. */
-OperationControl cliOperationControl(string label)
+OperationControl cliOperationControl(string label, string detail = "")
 {
+	prepareOperationOutput(label, detail);
 	OperationControl control;
 	SysTime lastVerboseProgress;
 	bool haveVerboseProgress;
