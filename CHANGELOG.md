@@ -20,7 +20,9 @@ They represent the functional evolution and are intentionally summarized.
 
 - Missing-file reconciliation now iterates one ordered cursor instead of
   preparing and executing a query per stored reference. Large repositories no
-  longer spend most of the phase in per-row SQL overhead.
+  longer spend most of the phase in per-row SQL overhead. A non-recursive scan
+  also leaves references below subdirectories untouched instead of probing and
+  marking them missing, which prevents long stalls on unrelated mounts.
 
 ## Release 26.14.0 - 2026-11-06
 

@@ -87,8 +87,9 @@ ScanExecutionResult scanRepositoryControlled(ref Database db, string rootPath,
             }
         }
 
-        if (!stageMissingReferences(db, rootPath, options.pickHidden, control,
-            operationId, execution.summary.filesFound + execution.summary.directoriesFound,
+        if (!stageMissingReferences(db, rootPath, options.recursive,
+            options.pickHidden, control, operationId,
+            execution.summary.filesFound + execution.summary.directoriesFound,
             execution.summary.filesMissing))
         {
             execution.cancelled = true;
@@ -313,6 +314,38 @@ unittest
         .oneValue!long == 0);
 }
 
+@("non-recursive scans leave nested references untouched")
+unittest
+{
+    import dosierskanilo : Repository;
+    import std.file : exists, mkdirRecurse, remove, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const root = buildPath(tempDir(), "scanner-nonrecursive-"
+        ~ randomUUID().toString());
+    mkdirRecurse(buildPath(root, "sub"));
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    write(buildPath(root, "root.txt"), "root");
+    write(buildPath(root, "sub", "nested.txt"), "nested");
+
+    auto repository = Repository.initialize(root);
+    repository.scan(RepositoryScanOptions(true, false, false));
+    repository.close();
+
+    remove(buildPath(root, "sub", "nested.txt"));
+    rmdirRecurse(buildPath(root, "sub"));
+
+    repository = Repository.open(root);
+    const summary = repository.scan(RepositoryScanOptions(false, false, false));
+    assert(summary.filesMissing == 0);
+    assert(repository.fileReferenceByRelativePath("sub/nested.txt").present,
+        "a non-recursive scan must not probe or mark nested references");
+    repository.close();
+}
+
 private void resetScanStage(ref Database db)
 {
     db.execute("DROP TABLE IF EXISTS temp.scan_stage_directories");
@@ -362,12 +395,14 @@ private MissingCandidate nextMissingCandidate(ref Database db, long afterId)
 }
 
 private bool stageMissingReferences(ref Database db, string rootPath,
-    bool pickHidden, OperationControl control, ulong operationId, size_t completed,
-    ref size_t observedMissing)
+    bool recursive, bool pickHidden, OperationControl control, ulong operationId,
+    size_t completed, ref size_t observedMissing)
 {
     /* Iterate one ordered cursor instead of preparing and executing a new
      * query for every candidate. At millions of references the per-row query
      * overhead dominates the phase and makes progress look stalled. */
+    import std.string : indexOf;
+
     long[] missingIds;
     {
         auto candidates = db.execute("SELECT id, relative_path FROM "
@@ -376,18 +411,25 @@ private bool stageMissingReferences(ref Database db, string rootPath,
         {
             const auto id = row.peek!long(0);
             const auto relativePath = row.peek!string(1);
-            if (pickHidden || !hasHiddenComponent(relativePath))
+            /* A non-recursive scan only owns the root level. References below
+             * a subdirectory are outside its scope and must not be probed or
+             * marked missing; probing them can stall on unrelated mounts. */
+            const bool inScope = recursive
+                || relativePath.indexOf('/') == -1;
+            if (inScope && (pickHidden || !hasHiddenComponent(relativePath)))
             {
                 const auto physicalRelative = parseArchiveVirtualPath(
                     relativePath).physicalPath;
+                /* Report before the filesystem probe so a heartbeat names
+                 * the path that is currently blocking, not the previous one. */
+                if (!reportScanProgress(control, operationId,
+                    OperationPhase.reconcilingMissingFiles, completed + 1,
+                    relativePath))
+                    return false;
                 if (!existsOnDisk(rootPath, physicalRelative))
                     missingIds ~= id;
             }
             completed++;
-            if (!reportScanProgress(control, operationId,
-                OperationPhase.reconcilingMissingFiles, completed,
-                relativePath))
-                return false;
         }
     }
     foreach (id; missingIds)
