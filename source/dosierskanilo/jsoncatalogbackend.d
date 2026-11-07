@@ -18,10 +18,11 @@ import std.string : replace, split, toLower;
 import std.uuid : randomUUID;
 
 import dosierarkivo.archive : appendArchiveVirtualPath,
-    archiveDisplayBaseName, ArchiveVirtualPathLayer, escapeArchiveVirtualPath,
+    archiveDisplayBaseName, archivePathEscapeSequence,
+    archivePathMatchesText, archivePathSeparator,
+    ArchiveVirtualPathLayer, escapeArchiveVirtualPath,
     nativePathToStoragePath, normalizeArchiveEntryPath,
-    parseArchiveVirtualPath,
-    ParsedArchiveVirtualPath;
+    parseArchiveVirtualPath, ParsedArchiveVirtualPath;
 import dosierskanilo.catalogbackend;
 import dosierskanilo.logging : logLineVerbose;
 import dosierskanilo.membercontentcache : MemberContentCancelledException,
@@ -374,14 +375,9 @@ public:
                 continue;
             if (query.filter.pathText.length > 0 && !digestMatch)
             {
-                auto path = displayPaths.get(token, "");
-                auto text = query.filter.pathText;
-                if (!query.filter.caseSensitive)
-                {
-                    path = path.toLower;
-                    text = text.toLower;
-                }
-                if (path.length == 0 || !path.canFind(text))
+                const auto path = displayPaths.get(token, "");
+                if (path.length == 0 || !archivePathMatchesText(path,
+                    query.filter.pathText, query.filter.caseSensitive))
                     continue;
             }
             if (matched >= start && window.length < page.limit)
@@ -1006,18 +1002,9 @@ public:
         {
             if (!matches(file, filter))
                 continue;
-            bool matchedPath = options.text.length == 0;
-            if (!matchedPath)
-            {
-                auto path = file.relativePath;
-                auto text = options.text;
-                if (!options.caseSensitive)
-                {
-                    path = path.toLower;
-                    text = text.toLower;
-                }
-                matchedPath = path.canFind(text);
-            }
+            bool matchedPath = options.text.length == 0
+                || archivePathMatchesText(file.relativePath, options.text,
+                    options.caseSensitive);
             if (!matchedPath)
             {
                 const auto blobIndex = blobIndexByContentToken.get(
@@ -1647,6 +1634,8 @@ private:
             physicalInput = parsed.physicalPath;
             result.isVirtual = parsed.isVirtual;
             result.virtualEntries = parsed.entries;
+            /* Historical JSON writers always used `!`; keep checking that
+             * literal for old files even if the grammar constant changes. */
             if (!parsed.isVirtual && parsed.physicalPath.canFind('!'))
             {
                 /* Older writers stored some archive members with the whole
@@ -2795,18 +2784,10 @@ private:
 
     bool matches(CatalogFile file, CatalogFilter filter) const
     {
-        auto path = file.relativePath;
-        auto text = filter.pathText;
-        if (text.length > 0)
-        {
-            if (!filter.caseSensitive)
-            {
-                path = path.toLower;
-                text = text.toLower;
-            }
-            if (!path.canFind(text))
-                return false;
-        }
+        if (filter.pathText.length > 0
+            && !archivePathMatchesText(file.relativePath, filter.pathText,
+                filter.caseSensitive))
+            return false;
         if (filter.availableOnly
             && file.availability != CatalogReferenceAvailability.available)
             return false;
@@ -2837,7 +2818,8 @@ private:
     bool hasPathPrefix(string path, string prefix) const
     {
         return prefix.length == 0 || path == prefix
-            || path.startsWith(prefix ~ "/") || path.startsWith(prefix ~ "!/");
+            || path.startsWith(prefix ~ "/")
+            || path.startsWith(prefix ~ archivePathSeparator());
     }
 
     string fileQueryToken(CatalogFileQuery query) const
@@ -3815,8 +3797,8 @@ version (unittest)
         const auto directoryPage = backend.listDirectories(directoryQuery,
             request);
         foreach (directory; directoryPage.directories)
-            assert(!directory.relativePath.canFind("!!"),
-                directory.relativePath);
+            assert(!directory.relativePath.canFind(
+                archivePathEscapeSequence()), directory.relativePath);
     }
 
 }

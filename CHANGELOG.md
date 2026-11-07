@@ -30,6 +30,14 @@ They represent the functional evolution and are intentionally summarized.
   contains `!` now return the correct file counts and aggregate sizes. Catalog
   directory and content-row display names decode escaped `!!` back to `!`.
 
+- Path filters now match both the stored canonical spelling and the decoded
+  display spelling. Searching for names containing `!`, including mixed
+  archive separators such as `container.zip!/member!.txt`, works the same in
+  SQLite and JSON catalogs. The archive grammar markers are centralized in
+  `archivePathEscapeChar` and `archivePathOccurrenceChar`; SQL filter and
+  generated-column helpers derive from those constants so a future grammar
+  migration only changes the constant plus the stored paths.
+
 ## Release 26.14.0 - 2026-11-06
 
 - RAR listings now expose member sizes and timestamps without extracting every

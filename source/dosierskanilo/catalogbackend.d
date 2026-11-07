@@ -10,6 +10,7 @@ import std.algorithm.searching : canFind;
 import std.exception : enforce;
 import std.string : split, startsWith;
 
+import dosierarkivo.archive : archivePathMatchesText;
 import dosierskanilo.membercontentcache : MemberContentLease;
 import dosierskanilo.model.filespec : FileSpec;
 import dosierskanilo.model.namedbinaryblob : NamedBinaryBlob;
@@ -1125,18 +1126,10 @@ version (unittest)
 
         private bool matches(CatalogFile file, CatalogFilter filter) const
         {
-            auto path = file.relativePath;
-            auto text = filter.pathText;
-            if (text.length > 0)
-            {
-                if (!filter.caseSensitive)
-                {
-                    path = path.toLower;
-                    text = text.toLower;
-                }
-                if (!path.canFind(text))
-                    return false;
-            }
+            if (filter.pathText.length > 0
+                && !archivePathMatchesText(file.relativePath, filter.pathText,
+                    filter.caseSensitive))
+                return false;
             if (filter.availableOnly
                 && file.availability != CatalogReferenceAvailability.available)
                 return false;

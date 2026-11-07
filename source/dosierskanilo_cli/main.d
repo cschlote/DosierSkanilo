@@ -777,7 +777,7 @@ private bool catalogHasPath(CatalogBackend backend, string prefix)
 	static bool isMatch(string path, string prefix)
 	{
 		return path == prefix || path.startsWith(prefix ~ "/")
-			|| path.startsWith(prefix ~ "!/");
+			|| path.startsWith(prefix ~ archivePathSeparator());
 	}
 
 	/* Walk only directories that are ancestors of the prefix or below it and

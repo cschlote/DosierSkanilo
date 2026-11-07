@@ -13,7 +13,7 @@ import std.file : SpanMode, dirEntries, isFile;
 import std.path : buildNormalizedPath, buildPath, dirName, dirSeparator;
 import std.string : empty, replace, split;
 
-import dosierarkivo.archive : escapeArchiveVirtualPath,
+import dosierarkivo.archive : archivePathSeparator, escapeArchiveVirtualPath,
     nativePathToStoragePath, parseArchiveVirtualPath;
 import dosierskanilo.repository.archiveindex : deleteUnreachableBlobs,
     isVirtualFileReferenceSql;
@@ -245,7 +245,7 @@ private void upsertFileReference(ref Database db, string relativePath,
 private void deleteVirtualDescendants(ref Database db, string containerPath)
 {
     /* The caller passes the canonical (escaped) stored path. */
-    const auto prefix = containerPath ~ "!/";
+    const auto prefix = containerPath ~ archivePathSeparator();
     long[] staleIds;
     foreach (row; db.execute("SELECT id FROM file_refs WHERE "
         ~ "relative_path >= ? AND relative_path < ?",
@@ -259,7 +259,8 @@ private void updateVirtualReferencesAvailability(ref Database db,
     string physicalRelativePath, bool available, string now)
 {
     const auto physical = parseArchiveVirtualPath(physicalRelativePath).physicalPath;
-    const auto prefix = escapeArchiveVirtualPath(physical) ~ "!/";
+    const auto prefix = escapeArchiveVirtualPath(physical)
+        ~ archivePathSeparator();
     long[] memberIds;
     /* Restrict the scan to the escaped container path range before parsing so
      * a scan does not walk every virtual member in the repository. */
@@ -354,6 +355,17 @@ unittest
     }
     assert(found, "escaped directory row is missing");
     assert(repository.fileReferenceByRelativePath("d!!e/f.txt").name == "f.txt");
+
+    /* Filters accept the user-visible name as well as the stored spelling. */
+    const directoryId = repository.directoryIdByRelativePath("d!!e");
+    assert(repository.listFiles(RepositoryFileQuery(directoryId, 0, 10,
+        "d!e")).length == 1);
+    assert(repository.listFiles(RepositoryFileQuery(directoryId, 0, 10,
+        "d!!e")).length == 1);
+    assert(repository.listDirectories(RepositoryDirectoryQuery(0, 0, 10,
+        "d!e")).length == 1);
+    assert(repository.loadCatalogQueryPage(RepositoryQueryOptions(0, 10,
+        "d!e")).length == 1);
 }
 
 @("non-recursive scans leave nested references untouched")

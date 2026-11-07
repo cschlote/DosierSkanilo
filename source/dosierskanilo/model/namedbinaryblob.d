@@ -22,6 +22,7 @@ import jsonizer;
 
 import dosierarkivo;
 import dosierarkivo.archive : appendArchiveVirtualPath,
+    archivePathOccurrenceMarker, archivePathSeparator,
     escapeArchiveVirtualPath, nativePathToStoragePath,
     normalizeArchiveEntryPath, parseArchiveVirtualPath;
 import dosierskanilo.catalogbackend : ArchiveEntryId, ContentId,
@@ -2274,7 +2275,8 @@ void updateArchives(NamedBinaryBlob obj,
                                     const auto occurrence = descriptor.occurrence
                                         .to!string;
                                     const auto fallbackIdentity = containerCacheKey
-                                        ~ "!/" ~ descriptor.relativePath ~ "!~" ~ occurrence;
+                                        ~ archivePathSeparator() ~ descriptor.relativePath
+                                        ~ archivePathOccurrenceMarker() ~ occurrence;
                                     const auto cacheContainer = ReferenceId(
                                         "scanner-container:" ~ containerCacheKey);
                                     const auto cacheEntry = ArchiveEntryId(

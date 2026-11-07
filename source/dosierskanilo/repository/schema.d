@@ -13,7 +13,8 @@ import std.exception : enforce;
 import std.typecons : Nullable;
 
 import dosierarkivo.archive : appendArchiveVirtualPath, archiveIndexVersion,
-    escapeArchiveVirtualPath, normalizeArchiveEntryPath;
+    archiveVirtualColumnSql, escapeArchiveVirtualPath,
+    normalizeArchiveEntryPath;
 import dosierskanilo.repository.archiveindex : ensureArchiveMemberBlob,
     resolveArchiveMemberBlobLinks;
 import dosierskanilo.repository.errors;
@@ -255,8 +256,8 @@ void migrate(ref Database db, string now)
         if (!hasVirtualColumn)
         {
             db.execute("ALTER TABLE file_refs ADD COLUMN is_virtual INTEGER "
-                ~ "GENERATED ALWAYS AS (instr(replace(relative_path, '!!', '')"
-                ~ ", '!/') > 0) VIRTUAL");
+                ~ "GENERATED ALWAYS AS ("
+                ~ archiveVirtualColumnSql() ~ ") VIRTUAL");
         }
     }
 
