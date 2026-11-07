@@ -11,7 +11,7 @@ argument/dialog mapping, progress presentation, and source refresh.
 | --- | --- | --- | --- | --- |
 | Scan | `ScanOperationRequest` with scan and optional metadata options | `ScanOperationRequest` with explicit catalog and filesystem root, optional metadata; rejects `dropMissing` | `scan --json` | Scan dialog; JSON asks for the filesystem root |
 | Metadata | `MetadataOperationRequest`, one or more extractors required | Unsupported as a standalone request | `metadata` | Metadata dialog enabled for repository documents |
-| Analyze | `AnalysisOperationRequest`, drop-missing and duplicate merge | `AnalysisOperationRequest`; optional metadata runs before analysis | `analyze --json` | Analyze dialog; JSON offers optional metadata first |
+| Analyze | `AnalysisOperationRequest`; optional metadata runs before drop-missing and duplicate merge | `AnalysisOperationRequest`; optional metadata runs before analysis | `analyze` / `analyze --json` | Analyze dialog; JSON offers optional metadata first |
 
 Targets are not inferred or converted. JSON operations do not create a SQLite
 repository; repository operations do not write a JSON catalog implicitly.

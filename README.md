@@ -175,10 +175,14 @@ dosierskanilo duplicates [ROOT] --json CATALOG.json
 ```
 
 Common options use kebab-case: `--recursive`, `--checksums`, `--file-types`,
-`--media-info`, `--scan-archives`, `--scan-torrents`, `--drop-missing`,
+`--media-info`, `--scan-archives`, `--scan-torrents`, `--all`, `--drop-missing`,
 `--pick-hidden`, `--threads`, `--verbose`, `--pretty`, and `--format=table|json`
-for query commands. Saved JSON catalogs are compact by default; `--pretty`
-indents them for human reading. Archive scans and metadata extraction accept
+for query commands. `--all` enables checksums, file types, media info, one
+shallow archive scan, and torrent scanning; repeating `--scan-archives` still
+selects a deep archive scan. On `analyze`, requested metadata runs before the
+duplicate and missing-file analysis. Saved JSON catalogs are compact by
+default; `--pretty` indents them for human reading. Archive scans and metadata
+extraction accept
 `--archive-cache-dir` and `--archive-cache-size` (MiB) to control the temporary
 member cache; each run uses an owned session directory and removes it on exit.
 Help is `--help`; version is `--version`. Normal commands print
@@ -206,9 +210,9 @@ Initialize and scan a SQLite repository:
 
 ```bash
 ./build/bin/dosierskanilo init /data/library
-./build/bin/dosierskanilo scan /data/library --recursive
+./build/bin/dosierskanilo scan /data/library --recursive --all
 ./build/bin/dosierskanilo metadata /data/library --checksums --media-info
-./build/bin/dosierskanilo analyze /data/library --drop-missing
+./build/bin/dosierskanilo analyze /data/library --all
 ```
 
 Scan and analyze a direct JSON catalog:

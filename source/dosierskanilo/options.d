@@ -59,6 +59,7 @@ struct ArgsArray
 	bool argMergeDuplicates; ///< Merge duplicate records after a scan.
 	bool argPickHidden; ///< Include hidden files and directories.
 	bool argVerboseOutputs; ///< Enable verbose logging.
+	bool argAll; ///< Enable every standard metadata extractor.
 	bool argVersion; ///< Show the application version.
 }
 

@@ -186,10 +186,23 @@ OperationResult runOperation(AnalysisOperationRequest request,
         "Catalog analysis completed.",
         "Catalog analysis cancelled; staged changes were discarded.",
         (ref OperationResult result, Repository repository) {
+            if (requestsMetadata(request.metadataOptions))
+            {
+                auto metadata = repository.updateMetadataControlled(
+                    request.metadataOptions, control, request.operationId, lease);
+                result.metadataSummary = metadata.summary;
+                result.changesCommitted = metadata.committed;
+                if (metadata.cancelled)
+                {
+                    result.state = OperationState.cancelled;
+                    return;
+                }
+            }
             auto execution = repository.analyzeControlled(request.options,
                 control, request.operationId, lease);
             result.analysisSummary = execution.summary;
-            result.changesCommitted = execution.committed;
+            result.changesCommitted = result.changesCommitted
+                || execution.committed;
             result.state = execution.cancelled ? OperationState.cancelled
                 : OperationState.completed;
         });
@@ -1518,6 +1531,16 @@ unittest
     jsonAnalyze.target = OperationTarget.jsonTarget(catalogPath);
     auto jsonAnalyzed = runOperation(jsonAnalyze, new OperationControl());
     assert(sqliteAnalyzed.state == OperationState.completed, sqliteAnalyzed.error);
+    AnalysisOperationRequest sqliteAnalyzeMetadata;
+    sqliteAnalyzeMetadata.operationId = 805;
+    sqliteAnalyzeMetadata.target = OperationTarget.repositoryTarget(root);
+    sqliteAnalyzeMetadata.metadataOptions.calculateChecksums = true;
+    auto sqliteMetadataAnalyzed = runOperation(sqliteAnalyzeMetadata,
+        new OperationControl());
+    assert(sqliteMetadataAnalyzed.state == OperationState.completed,
+        sqliteMetadataAnalyzed.error);
+    assert(sqliteMetadataAnalyzed.metadataSummary.blobsVisited > 0,
+        "repository analyze must run requested metadata jobs first");
     assert(jsonAnalyzed.state == OperationState.completed,
         format("JSON state %s, error '%s'.", jsonAnalyzed.state,
             jsonAnalyzed.error));

@@ -38,6 +38,12 @@ They represent the functional evolution and are intentionally summarized.
   generated-column helpers derive from those constants so a future grammar
   migration only changes the constant plus the stored paths.
 
+- New `--all` shortcut for scan, metadata, and analyze enables checksums, file
+  types, media info, one shallow archive scan, and torrent scanning. An explicit
+  repeated `--scan-archives` still selects a deep scan. Repository analyze now
+  runs explicitly requested metadata extractors before duplicate and missing
+  file analysis, matching the existing JSON analyze behavior.
+
 ## Release 26.14.0 - 2026-11-06
 
 - RAR listings now expose member sizes and timestamps without extracting every

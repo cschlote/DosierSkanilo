@@ -564,10 +564,9 @@ OperationRequestValidation validateOperationRequest(AnalysisOperationRequest req
     if (!targetValidation.valid)
         return targetValidation;
     if (request.target.mode == OperationStorageMode.repository
-        && (requestsMetadata(request.metadataOptions)
-            || request.metadataOptions.rescan || request.dryRun))
+        && request.dryRun)
         return validationError(OperationRequestError.unsupportedOptionCombination,
-            "Repository analyze cannot include metadata extraction options or dry-run.");
+            "Repository analyze does not support dry-run.");
     if (request.target.mode == OperationStorageMode.jsonCatalog
         && !request.options.mergeDuplicates)
         return validationError(OperationRequestError.unsupportedOptionCombination,
@@ -639,8 +638,8 @@ unittest
         == OperationRequestError.unsupportedOptionCombination);
     repositoryAnalysis.dryRun = false;
     repositoryAnalysis.metadataOptions.scanTorrents = true;
-    assert(validateOperationRequest(repositoryAnalysis).error
-        == OperationRequestError.unsupportedOptionCombination);
+    assert(validateOperationRequest(repositoryAnalysis).valid,
+        "repository analyze may run metadata before analysis");
 
     auto jsonAnalysis = AnalysisOperationRequest(
         7, OperationTarget.jsonTarget("/catalog.json"));

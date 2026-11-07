@@ -43,9 +43,13 @@ Map these flags to typed request fields:
 - `--recursive`, `--pick-hidden` map to scan options for SQLite/JSON scan.
 - `--drop-missing` maps to repository scan or analysis options and JSON analysis;
   JSON scan rejects it.
+- `--all` is a shortcut that selects checksums, file types, media info, one
+  shallow archive scan, and torrent scanning. It is available on scan, metadata,
+  and analyze, including repository analyze where metadata jobs run before the
+  analysis. An explicit repeated `--scan-archives` still enables a deep scan.
 - `--checksums`, `--file-types`, `--media-info`, `--rescan-media-info`,
   `--scan-torrents`, and `--threads` map to metadata options. They are available
-  on SQLite scan/metadata and JSON scan/analyze as currently supported.
+  on SQLite scan/metadata/analyze and JSON scan/analyze as currently supported.
 - One `--scan-archives` maps to `metadataOptions.scanArchives = true` and
   `metadataOptions.deepArchiveScan = false`. Repeating the flag enables deep
   archive scanning (`deepArchiveScan = true`).

@@ -72,6 +72,9 @@ JSON target options:
 Metadata options (at least one is required for `metadata`):
 
     --checksums --file-types --media-info --scan-archives --scan-torrents
+    --all enables the standard set: checksums, file types, media info, one
+    archive scan, and torrent scanning. Repeating --scan-archives still
+    selects a deep archive scan.
     --rescan-media-info forces media metadata extraction again
 
 Archive member cache options (scan and metadata):
@@ -111,8 +114,10 @@ checksums. Add `--merge-duplicates` to a JSON scan to analyze and merge directly
 Examples:
 
     dosierskanilo metadata /data/library --checksums --file-types
-    dosierskanilo metadata /data/library --media-info --scan-archives --scan-torrents
+    dosierskanilo metadata /data/library --all
     dosierskanilo metadata --checksums --file-types --media-info --scan-archives --scan-torrents --verbose
+    dosierskanilo scan /data/library --recursive --all
+    dosierskanilo analyze /data/library --all
     dosierskanilo scan --json CATALOG.json --checksums --merge-duplicates --dry-run
     dosierskanilo analyze --json CATALOG.json --dry-run
 
@@ -234,6 +239,7 @@ ParsedCommandLine parseCommandLine(string[] args)
             "rescan-media-info", "SAM------ Rescan all files for media signature", &argsarray.argRescanMediaSig,
             "scan-archives+", "SAM------ Get the contents of archives (repeat for deep scanning)", &argsarray.argScanArchives,
             "scan-torrents", "SAM------ Get the contents of torrent files", &argsarray.argScanTorrents,
+            "all", "SAM------ Enable checksums, file types, media info, and shallow archive/torrent scans", &argsarray.argAll,
             "archive-cache-dir", "S-M------ Root directory for archive member extraction", &argsarray.argArchiveCacheDir,
             "archive-cache-size", "S-M------ Archive member cache size in MiB", &argsarray.argArchiveCacheMiB,
             "drop-missing", "SA------- Drop missing files from database", &argsarray.argDropMissing,
@@ -300,6 +306,17 @@ ParsedCommandLine parseCommandLine(string[] args)
     default:
         break;
     }
+    if (argsarray.argAll)
+    {
+        /* --all is a convenience shortcut for the standard extractor set.
+         * Explicitly repeated --scan-archives still selects deep scanning. */
+        argsarray.argDoChecksums = true;
+        argsarray.argDoFileTypes = true;
+        argsarray.argDoMediaSig = true;
+        if (argsarray.argScanArchives == 0)
+            argsarray.argScanArchives = 1;
+        argsarray.argScanTorrents = true;
+    }
 	argsarray.argScanArchivesOption = argsarray.argScanArchives > 0;
 
     if (helpInformation.helpWanted)
@@ -352,6 +369,12 @@ ParsedCommandLine parseCommandLine(string[] args)
     if (command.empty)
     {
         errorLine("Choose a command. Use --help to see available commands.");
+        return ParsedCommandLine(ParseStatus.error, CliCommand.noCommand, argsarray);
+    }
+    if (argsarray.argAll && command != "scan" && command != "metadata"
+        && command != "analyze")
+    {
+        errorLine("--all is available only with scan, metadata, or analyze.");
         return ParsedCommandLine(ParseStatus.error, CliCommand.noCommand, argsarray);
     }
 
@@ -451,6 +474,31 @@ unittest
     assert(allMetadataOptions.options.argScanArchives == 1);
     assert(allMetadataOptions.options.argScanArchivesOption);
     assert(allMetadataOptions.options.argScanTorrents);
+    auto allShortcut = parseCommandLine(["program", "scan", "./test", "--all"]);
+    assert(allShortcut.status == ParseStatus.run);
+    assert(allShortcut.options.argAll);
+    assert(allShortcut.options.argDoChecksums);
+    assert(allShortcut.options.argDoFileTypes);
+    assert(allShortcut.options.argDoMediaSig);
+    assert(allShortcut.options.argScanArchives == 1);
+    assert(allShortcut.options.argScanArchivesOption);
+    assert(allShortcut.options.argScanTorrents);
+    auto allDeepArchive = parseCommandLine(["program", "scan", "./test",
+        "--all", "--scan-archives", "--scan-archives"]);
+    assert(allDeepArchive.status == ParseStatus.run);
+    assert(allDeepArchive.options.argScanArchives == 2);
+    assert(allDeepArchive.options.argScanArchivesOption);
+    assert(helpText.canFind("--all"));
+    auto allInfo = parseCommandLine(["program", "info", "./test", "--all"]);
+    assert(allInfo.status == ParseStatus.error);
+    auto allJsonAnalyze = parseCommandLine(["program", "analyze",
+        "--json", "./test/json_file_v2.json", "--all"]);
+    assert(allJsonAnalyze.status == ParseStatus.run);
+    assert(allJsonAnalyze.options.argDoChecksums);
+    assert(allJsonAnalyze.options.argDoFileTypes);
+    assert(allJsonAnalyze.options.argDoMediaSig);
+    assert(allJsonAnalyze.options.argScanArchives == 1);
+    assert(allJsonAnalyze.options.argScanTorrents);
     auto deepArchive = parseCommandLine(["program", "metadata", "./test",
         "--scan-archives", "--scan-archives"]);
     assert(deepArchive.status == ParseStatus.run);
