@@ -5,10 +5,10 @@ SQLite repository. Historical work-package records remain in
 [`docs/SQLITE-IMPLEMENTATION-PLAN.md`](docs/SQLITE-IMPLEMENTATION-PLAN.md);
 user-visible changes are listed in [`CHANGELOG.md`](CHANGELOG.md).
 
-## Current status (2026-11-06)
+## Current status (2026-11-07)
 
-- Version `26.14.0`; storage-neutral `CatalogBackend`, JSON v5, SQLite schema
-  v5, explicit JSON `CatalogDocument` sessions, shared operation API, member
+- Version `26.15.0`; storage-neutral `CatalogBackend`, JSON v5, SQLite schema
+  v6, explicit JSON `CatalogDocument` sessions, shared operation API, member
   cache, recovery writer, and tag-driven release validation are implemented.
 - WP-09, WP-13, WP-14, and the persistence/document-session work are complete.
 - Backend verification: 216 tests, coverage 89.14 %, CLI checks and
@@ -17,8 +17,8 @@ user-visible changes are listed in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## P0 — Prepare the next backend release
 
-Target: `26.14.0` (minor release for the public catalog/document API additions
-and behavior fixes since `26.13.0`).
+Target: `26.15.0` (minor release for archive path handling, filters, repository
+directory escaping, and CLI diagnostics since `26.14.0`).
 
 - [x] Confirm that no open item requires an incompatible public API change; if
       it does, move it to the next major release instead of this one.

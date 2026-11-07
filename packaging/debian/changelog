@@ -1,3 +1,11 @@
+dosierskanilo (26.15.0-1) unstable; urgency=medium
+
+  * Package DosierSkanilo 26.15.0 with escaped archive path handling,
+    decoded path filters, schema 6 directory migration, the --all metadata
+    shortcut, and compact CLI startup settings.
+
+ -- Carsten Schlote <schlote@vahanus.net>  Sat, 07 Nov 2026 00:00:00 +0000
+
 dosierskanilo (26.14.0-1) unstable; urgency=medium
 
   * Package DosierSkanilo 26.14.0 with robust RAR archive scanning,
