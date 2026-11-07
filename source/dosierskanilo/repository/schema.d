@@ -1,4 +1,4 @@
-/** Internal SQLite schema (currently version 5) and idempotent migrations.
+/** Internal SQLite schema (currently version 6) and idempotent migrations.
  *
  * Authors: Carsten Schlote, schlote@vahanus.net
  * Copyright: Carsten Schlote, licensed under GPL-3.0-only
@@ -247,7 +247,9 @@ void migrate(ref Database db, string now)
     if (schemaVersion >= 2 && schemaVersion < currentRepositorySchemaVersion)
     {
         bool hasVirtualColumn;
-        foreach (row; db.execute("PRAGMA table_info(file_refs)"))
+        /* Generated VIRTUAL columns are omitted by table_info but present in
+         * table_xinfo, so use the latter to keep the migration idempotent. */
+        foreach (row; db.execute("PRAGMA table_xinfo(file_refs)"))
             if (row.peek!string(1) == "is_virtual")
                 hasVirtualColumn = true;
         if (!hasVirtualColumn)
@@ -350,6 +352,52 @@ void migrate(ref Database db, string now)
             db.execute("UPDATE repository SET schema_version = 5 WHERE id = 1");
             db.commit();
             schemaVersion = 5;
+        }
+        catch (Exception ex)
+        {
+            try
+                db.rollback();
+            catch (Exception)
+            {
+            }
+            throw ex;
+        }
+    }
+
+    if (schemaVersion == 5)
+    {
+        try
+        {
+            db.begin();
+            /* Directory paths share the canonical escaped namespace with file
+             * references. Older scans stored them raw, which broke prefix
+             * queries below names containing a literal exclamation mark. */
+            struct DirectoryPath
+            {
+                long id;
+                string relativePath;
+            }
+            DirectoryPath[] directoryPaths;
+            /* Escaping only grows a path. Updating the longest paths first
+             * frees a raw value such as `a!!b` before the shorter `a!b`
+             * escapes to that same value in the unique index. */
+            foreach (row; db.execute("SELECT id, relative_path FROM directories "
+                ~ "ORDER BY length(relative_path) DESC, relative_path DESC, id DESC"))
+                directoryPaths ~= DirectoryPath(row.peek!long(0),
+                    row.peek!string(1).idup);
+            foreach (directory; directoryPaths)
+            {
+                const canonical = escapeArchiveVirtualPath(
+                    directory.relativePath);
+                if (canonical != directory.relativePath)
+                    db.execute("UPDATE directories SET relative_path = ? "
+                        ~ "WHERE id = ?", canonical, directory.id);
+            }
+            db.execute("INSERT INTO schema_migrations (version, applied_at) "
+                ~ "VALUES (6, ?)", now);
+            db.execute("UPDATE repository SET schema_version = 6 WHERE id = 1");
+            db.commit();
+            schemaVersion = 6;
         }
         catch (Exception ex)
         {
@@ -755,7 +803,10 @@ unittest
         ~ "deep_scanned INTEGER NOT NULL)");
     db.execute("INSERT INTO repository (id, schema_version) VALUES (1, 3)");
     db.execute("INSERT INTO directories (id, parent_id, relative_path, name) "
-        ~ "VALUES (4, NULL, 'archives', 'archives')");
+        ~ "VALUES (4, NULL, 'archives', 'archives'), "
+        ~ "(5, NULL, 'd!e', 'd!e'), "
+        ~ "(6, NULL, 'a!b', 'a!b'), "
+        ~ "(7, NULL, 'a!!b', 'a!!b')");
     db.execute("INSERT INTO blobs (id, file_size) VALUES (7, 128), (8, 11), "
         ~ "(9, 64), (10, 5), (11, 0), (12, 32), (13, 3)");
     db.execute("INSERT INTO file_refs (id, blob_id, directory_id, relative_path, "
@@ -792,6 +843,14 @@ unittest
     assert(db.execute("SELECT count(*) FROM file_refs").oneValue!long == 6);
     assert(db.execute("SELECT relative_path FROM file_refs WHERE id = 101")
         .oneValue!string == "archives/empty!!.zip");
+    assert(db.execute("SELECT relative_path FROM directories WHERE id = 5")
+        .oneValue!string == "d!!e");
+    assert(db.execute("SELECT name FROM directories WHERE id = 5")
+        .oneValue!string == "d!e");
+    assert(db.execute("SELECT relative_path FROM directories WHERE id = 6")
+        .oneValue!string == "a!!b");
+    assert(db.execute("SELECT relative_path FROM directories WHERE id = 7")
+        .oneValue!string == "a!!!!b");
     assert(db.execute("SELECT count(*) FROM file_refs WHERE relative_path = ? "
         ~ "AND directory_id = 4 AND blob_id = 8",
         "archives/container!!.zip!/nested/readme.txt!~0").oneValue!long == 1);

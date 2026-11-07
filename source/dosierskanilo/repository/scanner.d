@@ -314,6 +314,48 @@ unittest
         .oneValue!long == 0);
 }
 
+@("scans escape directory paths like file references")
+unittest
+{
+    import dosierskanilo : Repository;
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const root = buildPath(tempDir(), "scanner-directory-escape-"
+        ~ randomUUID().toString());
+    mkdirRecurse(buildPath(root, "d!e"));
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    write(buildPath(root, "d!e", "f.txt"), "payload");
+
+    auto repository = Repository.initialize(root);
+    scope (exit)
+        if (repository !is null)
+            repository.close();
+    repository.scan(RepositoryScanOptions(true, false, false));
+
+    assert(repository.directoryIdByRelativePath("d!!e") > 0,
+        "directory identities must use the escaped namespace");
+    assert(repository.directoryIdByRelativePath("d!e") == 0,
+        "raw directory names must not leak into the catalog");
+
+    bool found;
+    foreach (directory; repository.listDirectories(
+        RepositoryDirectoryQuery(0, 0, 10)))
+    {
+        if (directory.relativePath != "d!!e")
+            continue;
+        found = true;
+        assert(directory.name == "d!e");
+        assert(directory.fileCount == 1);
+        assert(directory.aggregateSize == "payload".length);
+    }
+    assert(found, "escaped directory row is missing");
+    assert(repository.fileReferenceByRelativePath("d!!e/f.txt").name == "f.txt");
+}
+
 @("non-recursive scans leave nested references untouched")
 unittest
 {
@@ -522,21 +564,26 @@ private long ensureDirectory(ref Database db, string relativeDirectory)
     auto normalized = nativePathToStoragePath(relativeDirectory);
     long parentId;
     string current;
+    string canonical;
     foreach (part; normalized.split("/"))
     {
         if (part.empty || part == ".")
             continue;
         current = current.empty ? part : current ~ "/" ~ part;
+        /* Directory identities share the escaped namespace with file
+         * references. Keeping the raw path here would break prefix queries
+         * below a directory whose name contains an exclamation mark. */
+        canonical = escapeArchiveVirtualPath(current);
         if (parentId == 0)
             db.execute("INSERT OR IGNORE INTO directories "
                 ~ "(parent_id, relative_path, name) VALUES (NULL, ?, ?)",
-                current, part);
+                canonical, part);
         else
             db.execute("INSERT OR IGNORE INTO directories "
                 ~ "(parent_id, relative_path, name) VALUES (?, ?, ?)",
-                parentId, current, part);
+                parentId, canonical, part);
         parentId = db.execute("SELECT id FROM directories "
-            ~ "WHERE relative_path = ?", current).oneValue!long;
+            ~ "WHERE relative_path = ?", canonical).oneValue!long;
     }
     return parentId;
 }
