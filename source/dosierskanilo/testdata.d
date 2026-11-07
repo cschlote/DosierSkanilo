@@ -29,6 +29,8 @@ import std.string : split, startsWith;
 import std.uuid : randomUUID;
 import std.zip : ArchiveMember, CompressionMethod, ZipArchive;
 
+import dosierarkivo.archive : archivePathSeparator;
+
 enum syntheticFixtureGeneratorVersion = 1;
 enum long syntheticSourceDateEpoch = 1_577_934_246; // 2020-01-02T03:04:06Z
 
@@ -639,7 +641,7 @@ private JSONValue buildManifest(FileDefinition[] files, string[] directories,
         archiveValues ~= jsonArchive(archive);
         foreach (member; archive.members)
             locationsByChecksum[sha256Hex(member.data)] ~= "archive:"
-                ~ archive.path ~ "!/" ~ member.path;
+                ~ archive.path ~ archivePathSeparator() ~ member.path;
     }
 
     string[] checksums;

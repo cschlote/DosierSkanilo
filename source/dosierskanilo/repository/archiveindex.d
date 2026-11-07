@@ -10,6 +10,8 @@ import d2sqlite3;
 
 import std.typecons : Nullable;
 
+import dosierarkivo.archive : archiveVirtualColumnSql;
+
 /** SQL predicate selecting virtual file references through the stored column. */
 string isVirtualFileReferenceSql(string columnExpression)
 {
@@ -34,8 +36,8 @@ unittest
 
     auto db = Database(":memory:");
     db.execute("CREATE TABLE file_refs (relative_path TEXT NOT NULL, "
-        ~ "is_virtual INTEGER GENERATED ALWAYS AS (instr(replace("
-        ~ "relative_path, '!!', ''), '!/') > 0) VIRTUAL)");
+        ~ "is_virtual INTEGER GENERATED ALWAYS AS ("
+        ~ archiveVirtualColumnSql() ~ ") VIRTUAL)");
     db.execute("INSERT INTO file_refs (relative_path) VALUES (?)",
         "plain!!/physical.txt");
     db.execute("INSERT INTO file_refs (relative_path) VALUES (?)",

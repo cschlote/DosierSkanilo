@@ -22,8 +22,9 @@ import std.typecons : Nullable;
 
 import dosierskanilo.logging : logLine, logLineVerbose;
 import dosierarkivo.archive : appendArchiveVirtualPath, archiveIndexVersion,
-    escapeArchiveVirtualPath, nativePathToStoragePath,
-    parseArchiveVirtualPath, ParsedArchiveVirtualPath;
+    archivePathFilterSql, archivePathSeparator, escapeArchiveVirtualPath,
+    nativePathToStoragePath, parseArchiveVirtualPath,
+    ParsedArchiveVirtualPath;
 import dosierskanilo.metadata.mediainfosig;
 import dosierskanilo.operations : OperationControl, OperationKind,
     OperationPhase, OperationProgress, OperationState;
@@ -425,10 +426,8 @@ private string directoryFileFilterSql(RepositoryDirectoryQuery options,
     if (!options.includeArchiveMembers)
         sql ~= " AND NOT (" ~ isVirtualFileReferenceSql(fileAlias ~ ".relative_path") ~ ")";
     if (!options.text.empty)
-        sql ~= options.caseSensitive
-            ? " AND instr(" ~ fileAlias ~ ".relative_path, :directory_text) > 0"
-            : " AND instr(lower(" ~ fileAlias ~ ".relative_path), "
-                ~ "lower(:directory_text)) > 0";
+        sql ~= " AND " ~ archivePathFilterSql(fileAlias ~ ".relative_path",
+            ":directory_text", options.caseSensitive);
     if (options.availableOnly)
         sql ~= " AND " ~ fileAlias ~ ".exists_on_disk = 1";
 
@@ -468,9 +467,8 @@ private string directoryFilterSql(RepositoryDirectoryQuery options)
     if (!options.includeArchiveMembers)
         sql ~= " AND NOT (" ~ isVirtualFileReferenceSql("f.relative_path") ~ ")";
     if (!options.text.empty)
-        sql ~= options.caseSensitive
-            ? " AND instr(f.relative_path, :directory_text) > 0"
-            : " AND instr(lower(f.relative_path), lower(:directory_text)) > 0";
+        sql ~= " AND " ~ archivePathFilterSql("f.relative_path",
+            ":directory_text", options.caseSensitive);
     if (options.availableOnly)
         sql ~= " AND f.exists_on_disk = 1";
 
@@ -540,8 +538,8 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
     if (!options.includeArchiveMembers)
         sql ~= " AND NOT (" ~ isVirtualFileReferenceSql("f.relative_path") ~ ")";
     if (!options.text.empty)
-        sql ~= options.caseSensitive ? " AND instr(f.relative_path, :text) > 0"
-            : " AND instr(lower(f.relative_path), lower(:text)) > 0";
+        sql ~= " AND " ~ archivePathFilterSql("f.relative_path", ":text",
+            options.caseSensitive);
     if (options.availableOnly)
         sql ~= " AND f.exists_on_disk = 1";
     string[] mediaConditions;
@@ -761,7 +759,7 @@ RepositoryArchiveEntry[] listArchiveEntriesFromDatabase(ref Database db,
         catch (Exception)
             continue;
         /* Stored reference paths are already in canonical display grammar. */
-        const prefix = containerPath ~ "!/";
+        const prefix = containerPath ~ archivePathSeparator();
         const startName = ":member_start_" ~ index.to!string;
         const endName = ":member_end_" ~ index.to!string;
         rangeConditions ~= "(f.relative_path >= " ~ startName
@@ -960,8 +958,8 @@ private Statement prepareCatalogQuery(ref Database db, string selectSql,
     if (!options.text.empty)
     {
         sql ~= " AND (EXISTS (SELECT 1 FROM file_refs f WHERE f.blob_id = b.id "
-            ~ (options.caseSensitive ? "AND instr(f.relative_path, :text) > 0)"
-                : "AND instr(lower(f.relative_path), lower(:text)) > 0)");
+            ~ "AND " ~ archivePathFilterSql("f.relative_path", ":text",
+                options.caseSensitive) ~ ")";
         if (sha1Search.length == 20)
             sql ~= " OR b.sha1 = :sha1";
         sql ~= ")";
@@ -1558,7 +1556,8 @@ private long insertBlobRecord(ref Database db, NamedBinaryBlob blob)
 private ParsedArchiveVirtualPath parseImportPath(string rootPath, string path)
 {
     auto parsed = parseArchiveVirtualPath(path);
-    if (parsed.isVirtual || !parsed.physicalPath.canFind("!/"))
+    if (parsed.isVirtual
+        || !parsed.physicalPath.canFind(archivePathSeparator()))
         return parsed;
     const auto literal = isAbsolute(parsed.physicalPath)
         ? buildNormalizedPath(parsed.physicalPath)
@@ -2269,4 +2268,28 @@ unittest
     assert(db.execute("SELECT b.file_size FROM file_refs f JOIN blobs b "
         ~ "ON b.id = f.blob_id WHERE f.relative_path = ?",
         "archive.zip!/member.txt").oneValue!long == 5);
+}
+
+@("archive path SQL filters accept display and canonical spelling")
+unittest
+{
+    auto db = Database(":memory:");
+    db.execute("CREATE TABLE paths (path TEXT NOT NULL)");
+    db.execute("INSERT INTO paths (path) VALUES (?)", "dir!!/clip!!.mp4");
+    db.execute("INSERT INTO paths (path) VALUES (?)", "dir/clip.mp4");
+    db.execute("INSERT INTO paths (path) VALUES (?)",
+        "container.zip!/member!!.txt");
+    auto statement = db.prepare("SELECT count(*) FROM paths WHERE "
+        ~ archivePathFilterSql("path", ":text", false));
+    statement.bind(":text", "dir!/clip!.mp4");
+    assert(statement.execute().oneValue!long == 1);
+    statement.reset();
+    statement.bind(":text", "dir!!/clip!!.mp4");
+    assert(statement.execute().oneValue!long == 1);
+    statement.reset();
+    statement.bind(":text", "container.zip!/member!.txt");
+    assert(statement.execute().oneValue!long == 1);
+    statement.reset();
+    statement.bind(":text", "missing");
+    assert(statement.execute().oneValue!long == 0);
 }

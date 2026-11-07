@@ -10,6 +10,21 @@ import std.algorithm.searching : canFind, startsWith;
 import std.array : join;
 import std.string : toLower;
 
+/** Character that escapes itself and introduces archive path markers.
+ *
+ * Changing this value requires a catalog migration that rewrites every stored
+ * relative path and regenerates the `is_virtual` column. All grammar and
+ * filter helpers derive their markers from this constant.
+ */
+enum char archivePathEscapeChar = '!';
+
+/** Character that introduces a duplicate-occurrence suffix. */
+enum char archivePathOccurrenceChar = '~';
+
+static assert(archivePathEscapeChar != '\'', "SQL helpers quote this character");
+static assert(archivePathEscapeChar != '/', "The path separator cannot escape itself");
+static assert(archivePathEscapeChar != '\0', "NUL cannot appear in a path");
+
 /** Raised when an archive operation needs a password or rejects the supplied one. */
 class ArchivePasswordRequiredException : Exception
 {
@@ -132,12 +147,39 @@ string normalizeArchiveEntryPath(string name, out bool safe, out bool isDirector
     return components.join("/");
 }
 
-/** Escape literal exclamation marks in a path used in archive display paths. */
+/** Canonical doubled form of the archive path escape character. */
+string archivePathEscapeSequence() @safe
+{
+    import std.conv : to;
+
+    const marker = archivePathEscapeChar.to!string;
+    return marker ~ marker;
+}
+
+/** Escape literal marker characters in a path used in archive display paths. */
 string escapeArchiveVirtualPath(string path) @safe
 {
+    import std.conv : to;
     import std.string : replace;
 
-    return path.replace("!", "!!");
+    const marker = archivePathEscapeChar.to!string;
+    return path.replace(marker, archivePathEscapeSequence());
+}
+
+/** Canonical separator between a container path and its member path. */
+string archivePathSeparator() @safe
+{
+    import std.conv : to;
+
+    return archivePathEscapeChar.to!string ~ "/";
+}
+
+/** Canonical marker before a duplicate-occurrence number. */
+string archivePathOccurrenceMarker() @safe
+{
+    import std.conv : to;
+
+    return archivePathEscapeChar.to!string ~ archivePathOccurrenceChar.to!string;
 }
 
 /** Append one archive-entry path to an already display-encoded container path.
@@ -150,10 +192,80 @@ string appendArchiveVirtualPath(string containerPath, string entryPath,
 {
     import std.conv : to;
 
-    auto result = containerPath ~ "!/" ~ escapeArchiveVirtualPath(entryPath);
+    auto result = containerPath ~ archivePathSeparator()
+        ~ escapeArchiveVirtualPath(entryPath);
     if (occurrence != size_t.max)
-        result ~= "!~" ~ occurrence.to!string;
+        result ~= archivePathOccurrenceMarker() ~ occurrence.to!string;
     return result;
+}
+
+/** Decode doubled escape markers for display and text matching. */
+string archiveDisplayPath(string path) @safe
+{
+    import std.conv : to;
+    import std.string : replace;
+
+    return path.replace(archivePathEscapeSequence(),
+        archivePathEscapeChar.to!string);
+}
+
+/** SQL expression that decodes a canonical path for text matching. */
+string archivePathDisplaySql(string expression)
+{
+    import std.conv : to;
+    import std.format : format;
+
+    return format("replace(%s, '%s', '%s')", expression,
+        archivePathEscapeSequence(), archivePathEscapeChar.to!string);
+}
+
+/** SQL expression for the generated `is_virtual` file-reference column.
+ *
+ * Literal escape characters are removed in their doubled form; a remaining
+ * single escape character followed by `/` marks an archive layer.
+ */
+string archiveVirtualColumnSql(string column = "relative_path")
+{
+    import std.conv : to;
+    import std.format : format;
+
+    const marker = archivePathEscapeChar.to!string;
+    return format("instr(replace(%s, '%s', ''), '%s') > 0", column,
+        marker ~ marker, marker ~ "/");
+}
+
+/** SQL predicate matching display or canonical text against a canonical path.
+ *
+ * Both the stored spelling and its decoded display form are searched so a
+ * filter works for user-visible names containing the escape character as well
+ * as for archive separator searches.
+ */
+string archivePathFilterSql(string column, string parameter,
+    bool caseSensitive)
+{
+    import std.format : format;
+
+    const pathExpression = caseSensitive ? column : "lower(" ~ column ~ ")";
+    const displayExpression = caseSensitive
+        ? archivePathDisplaySql(column)
+        : "lower(" ~ archivePathDisplaySql(column) ~ ")";
+    const textExpression = caseSensitive ? parameter
+        : "lower(" ~ parameter ~ ")";
+    return format("(instr(%s, %s) > 0 OR instr(%s, %s) > 0)",
+        pathExpression, textExpression, displayExpression, textExpression);
+}
+
+/** Match display or canonical text against a canonical path in memory. */
+bool archivePathMatchesText(string path, string text,
+    bool caseSensitive = false)
+{
+    import std.string : toLower;
+
+    const candidate = caseSensitive ? path : path.toLower;
+    const display = caseSensitive
+        ? archiveDisplayPath(path) : archiveDisplayPath(path).toLower;
+    const needle = caseSensitive ? text : text.toLower;
+    return candidate.canFind(needle) || display.canFind(needle);
 }
 
 /** One archive layer decoded from a canonical virtual path. */
@@ -176,8 +288,10 @@ struct ParsedArchiveVirtualPath
     }
 }
 
-/** Decode a physical or archive virtual path using the canonical `!/`, `!!`,
- * and `!~N` grammar.
+/** Decode a physical or archive virtual path using the canonical grammar.
+ *
+ * The escape character doubles itself, `<escape>/` separates a container from
+ * its member path, and `<escape>~N` disambiguates duplicate member names.
  *
  * Throws: Exception when a literal marker is not escaped or an occurrence
  * suffix is malformed.
@@ -219,14 +333,15 @@ ParsedArchiveVirtualPath parseArchiveVirtualPath(string path) @safe
 
     for (size_t index; index < path.length; ++index)
     {
-        if (path[index] != '!')
+        if (path[index] != archivePathEscapeChar)
         {
             current ~= path[index];
             continue;
         }
-        if (index + 1 < path.length && path[index + 1] == '!')
+        if (index + 1 < path.length
+            && path[index + 1] == archivePathEscapeChar)
         {
-            current ~= '!';
+            current ~= archivePathEscapeChar;
             ++index;
             continue;
         }
@@ -236,7 +351,8 @@ ParsedArchiveVirtualPath parseArchiveVirtualPath(string path) @safe
             ++index;
             continue;
         }
-        if (index + 1 < path.length && path[index + 1] == '~')
+        if (index + 1 < path.length
+            && path[index + 1] == archivePathOccurrenceChar)
         {
             if (!hasContainer || hasOccurrence)
                 throw new Exception("Occurrence suffix is not valid in this path layer.");
@@ -248,7 +364,8 @@ ParsedArchiveVirtualPath parseArchiveVirtualPath(string path) @safe
             if (digitsEnd == digitsStart
                 || (digitsEnd < path.length
                     && !(digitsEnd + 1 < path.length
-                        && path[digitsEnd] == '!' && path[digitsEnd + 1] == '/')))
+                        && path[digitsEnd] == archivePathEscapeChar
+                        && path[digitsEnd + 1] == '/')))
                 throw new Exception("Malformed archive occurrence suffix.");
             try
                 occurrence = to!size_t(path[digitsStart .. digitsEnd]);
@@ -258,7 +375,7 @@ ParsedArchiveVirtualPath parseArchiveVirtualPath(string path) @safe
             index = digitsEnd - 1;
             continue;
         }
-        throw new Exception("Literal exclamation marks must be escaped as '!!'.");
+        throw new Exception("Literal archive path markers must be escaped.");
     }
 
     if (current.length == 0)
@@ -281,8 +398,8 @@ ParsedArchiveVirtualPath parseArchiveVirtualPath(string path) @safe
 
 /** Split an archive display path into its physical/member path layers.
  *
- * A literal `!` is encoded as `!!`; `!/` separates a container from its
- * member path. The returned layers have literal exclamation marks restored.
+ * A literal escape character is doubled; `<escape>/` separates a container
+ * from its member path. The returned layers have literal markers restored.
  */
 string[] splitArchiveVirtualPath(string path)
 {
@@ -539,4 +656,15 @@ unittest
         "container!!.zip!/nested/readme!!.txt") == "readme!.txt");
     /* Legacy literal names do not parse and stay unchanged. */
     assert(archiveDisplayBaseName("literal!.mp4") == "literal!.mp4");
+}
+
+@("archive path filters accept display and canonical spelling")
+unittest
+{
+    assert(archivePathMatchesText("dir!!/clip!!.mp4", "dir!/clip!.mp4"));
+    assert(archivePathMatchesText("dir!!/clip!!.mp4", "dir!!/clip!!.mp4"));
+    assert(archivePathMatchesText("Archive!!/CLIP.mp4", "archive!/clip.mp4"));
+    assert(archivePathMatchesText("container.zip!/member!!.txt",
+        "container.zip!/member!.txt"));
+    assert(!archivePathMatchesText("dir!!/clip!!.mp4", "clip!.exe"));
 }

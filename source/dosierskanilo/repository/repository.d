@@ -20,8 +20,8 @@ import std.string : empty, replace, startsWith, toLower;
 import std.stdio : File;
 import std.typecons : Nullable;
 
-import dosierarkivo.archive : escapeArchiveVirtualPath,
-    nativePathToStoragePath;
+import dosierarkivo.archive : archivePathSeparator,
+    escapeArchiveVirtualPath, nativePathToStoragePath;
 import dosierskanilo.model.namedbinaryblob : NamedBinaryBlob;
 import dosierskanilo.operations : OperationControl, OperationTarget;
 import dosierskanilo.operationlease : TargetWriteLease;
@@ -1628,7 +1628,7 @@ unittest
         if (blob.archivePassword == "repository-secret")
             foundArchive = true;
         foreach (spec; blob.fileSpecs)
-            if (spec.fileName.canFind("!/"))
+            if (spec.fileName.canFind(archivePathSeparator()))
                 foundVirtualMember = true;
         if (blob.torrentInfo !is null)
             foundTorrent = true;

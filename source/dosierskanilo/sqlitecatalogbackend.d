@@ -15,7 +15,8 @@ import std.path : absolutePath, baseName, buildNormalizedPath, buildPath;
 import std.string : split;
 import std.uuid : randomUUID;
 
-import dosierarkivo.archive : archiveDisplayBaseName, parseArchiveVirtualPath;
+import dosierarkivo.archive : archiveDisplayBaseName, archivePathSeparator,
+    parseArchiveVirtualPath;
 import dosierskanilo.catalogbackend;
 import dosierskanilo.membercontentcache : MemberContentLease;
 import dosierskanilo.membercontentcache : MemberContentCancelledException;
@@ -934,7 +935,8 @@ public:
                     memberQuery.includeArchiveMembers = true;
                     memberQuery.limit = size_t.max;
                     memberQuery.caseSensitive = true;
-                    const auto memberPrefix = container.relativePath ~ "!/";
+                    const auto memberPrefix = container.relativePath
+                        ~ archivePathSeparator();
                     memberQuery.text = memberPrefix;
                     foreach (member; repository.listFiles(memberQuery))
                         if (member.archiveMember
@@ -1724,7 +1726,8 @@ private:
     bool withinPathPrefix(string path, string prefix) const
     {
         return prefix.length == 0 || path == prefix
-            || path.startsWith(prefix ~ "/") || path.startsWith(prefix ~ "!/");
+            || path.startsWith(prefix ~ "/")
+            || path.startsWith(prefix ~ archivePathSeparator());
     }
 
     string archiveEntryToken(long blobId, long entryId) const

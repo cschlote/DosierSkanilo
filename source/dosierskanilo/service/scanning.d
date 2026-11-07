@@ -21,7 +21,7 @@ import std.uuid;
 
 import dosierskanilo.logging;
 import dosierarkivo.archive : ArchivePasswordCallback,
-    escapeArchiveVirtualPath;
+    archivePathSeparator, escapeArchiveVirtualPath;
 import dosierskanilo.model.namedbinaryblob;
 import dosierskanilo.membercontentcache : MemberContentCache;
 import dosierskanilo.options;
@@ -217,7 +217,7 @@ FileSpec[] canonicalizeFileSpecs(bool usesArchiveVirtualGrammar, FileSpec[] spec
     {
         /* Virtual member references already use the full grammar and must
          * not be re-escaped. */
-        if (spec.fileName.canFind("!/"))
+        if (spec.fileName.canFind(archivePathSeparator()))
         {
             result ~= spec;
             continue;

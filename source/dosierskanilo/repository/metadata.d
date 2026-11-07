@@ -18,7 +18,7 @@ import std.string : empty, endsWith, replace, startsWith;
 import std.typecons : Nullable;
 
 import dosierarkivo.archive : archiveIndexVersion,
-    appendArchiveVirtualPath, escapeArchiveVirtualPath,
+    appendArchiveVirtualPath, archivePathSeparator, escapeArchiveVirtualPath,
     nativePathToStoragePath, normalizeArchiveEntryPath,
     parseArchiveVirtualPath;
 import dosierskanilo.metadata.mediainfosig : MediaInfoSig;
@@ -1067,7 +1067,7 @@ private void persistArchives(ref Database db, long blobId, ArchiveSpec[] entries
             containerPaths ~= row.peek!string(0).idup;
         foreach (path; containerPaths)
         {
-            const auto prefix = path ~ "!/";
+            const auto prefix = path ~ archivePathSeparator();
             long[] staleIds;
             foreach (row; db.execute("SELECT id FROM file_refs WHERE "
                 ~ "substr(relative_path, 1, ?) = ?",
@@ -1250,7 +1250,8 @@ private void persistArchives(ref Database db, long blobId, ArchiveSpec[] entries
             }
             else if (preserveContainerDeep || preserveMemberDeep)
             {
-                const auto descendantPrefix = memberPath ~ "!/";
+                const auto descendantPrefix = memberPath
+                    ~ archivePathSeparator();
                 foreach (row; db.execute("SELECT relative_path FROM file_refs "
                     ~ "WHERE substr(relative_path, 1, ?) = ?",
                     cast(long) descendantPrefix.length, descendantPrefix))
@@ -1264,7 +1265,8 @@ private void persistArchives(ref Database db, long blobId, ArchiveSpec[] entries
 
     foreach (container; containers)
     {
-        const auto descendantPrefix = container.relativePath ~ "!/";
+        const auto descendantPrefix = container.relativePath
+            ~ archivePathSeparator();
         long[] staleIds;
         foreach (row; db.execute("SELECT id, relative_path FROM file_refs "
             ~ "WHERE substr(relative_path, 1, ?) = ?",
