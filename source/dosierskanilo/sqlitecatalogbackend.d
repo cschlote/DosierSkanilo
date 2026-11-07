@@ -15,7 +15,7 @@ import std.path : absolutePath, baseName, buildNormalizedPath, buildPath;
 import std.string : split;
 import std.uuid : randomUUID;
 
-import dosierarkivo.archive : parseArchiveVirtualPath;
+import dosierarkivo.archive : archiveDisplayBaseName, parseArchiveVirtualPath;
 import dosierskanilo.catalogbackend;
 import dosierskanilo.membercontentcache : MemberContentLease;
 import dosierskanilo.membercontentcache : MemberContentCancelledException;
@@ -335,7 +335,7 @@ public:
                         || spec.fileName < row.displayPath)
                         row.displayPath = spec.fileName;
                 if (row.displayPath.length > 0)
-                    row.displayName = baseName(row.displayPath);
+                    row.displayName = archiveDisplayBaseName(row.displayPath);
                 row.size = blob.fileSize;
                 row.referenceCount = blob.fileSpecs.length;
                 row.fingerprint = fingerprintFor(blob.fileSize, blob.checkSums);

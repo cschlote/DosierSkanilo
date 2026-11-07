@@ -294,6 +294,25 @@ string[] splitArchiveVirtualPath(string path)
     return layers;
 }
 
+/** Return the human-facing final name of a canonical path.
+ *
+ * Physical paths and archive member paths decode literal `!!` escapes. A path
+ * that does not follow the canonical grammar falls back to its raw final
+ * component so legacy literal names remain visible unchanged.
+ */
+string archiveDisplayBaseName(string path)
+{
+    import std.path : baseName;
+
+    try
+    {
+        const layers = splitArchiveVirtualPath(path);
+        return layers.length > 0 ? baseName(layers[$ - 1]) : "";
+    }
+    catch (Exception)
+        return baseName(path);
+}
+
 /** Top-level representation of an archive file.
  *
  * The idea is to have a baseclass with the common interface and then have implementations
@@ -510,4 +529,14 @@ unittest
     assertThrown!Exception(parseArchiveVirtualPath("archive.zip!/bad!~x.txt"));
     assertThrown!Exception(parseArchiveVirtualPath("archive!.zip!/member.txt"));
     assertThrown!Exception(parseArchiveVirtualPath("archive.zip!/../escape.txt"));
+}
+
+@("archive display names decode canonical escape sequences")
+unittest
+{
+    assert(archiveDisplayBaseName("dir!!/clip!!.mp4") == "clip!.mp4");
+    assert(archiveDisplayBaseName(
+        "container!!.zip!/nested/readme!!.txt") == "readme!.txt");
+    /* Legacy literal names do not parse and stay unchanged. */
+    assert(archiveDisplayBaseName("literal!.mp4") == "literal!.mp4");
 }

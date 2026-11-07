@@ -14,11 +14,11 @@ import std.file : exists;
 import std.path : absolutePath, baseName, buildNormalizedPath, buildPath,
     isAbsolute,
     dirName, isAbsolute;
-import std.string : lastIndexOf, replace, split, toLower;
+import std.string : replace, split, toLower;
 import std.uuid : randomUUID;
 
 import dosierarkivo.archive : appendArchiveVirtualPath,
-    ArchiveVirtualPathLayer, escapeArchiveVirtualPath,
+    archiveDisplayBaseName, ArchiveVirtualPathLayer, escapeArchiveVirtualPath,
     nativePathToStoragePath, normalizeArchiveEntryPath,
     parseArchiveVirtualPath,
     ParsedArchiveVirtualPath;
@@ -391,9 +391,7 @@ public:
                 row.size = blob.fileSize;
                 row.referenceCount = referenceCount;
                 row.displayPath = displayPaths.get(token, "");
-                const slash = row.displayPath.lastIndexOf('/');
-                row.displayName = slash >= 0
-                    ? row.displayPath[slash + 1 .. $] : row.displayPath;
+                row.displayName = archiveDisplayBaseName(row.displayPath);
                 row.fingerprint = fingerprintFor(blob.fileSize, blob.checkSums);
                 row.availability = CatalogReferenceAvailability.notChecked;
                 if (auto content = token in contentByToken)
@@ -2376,7 +2374,7 @@ private:
                 CatalogDirectory directory;
                 directory.id = DirectoryId(sourceToken ~ ":directory:" ~ current);
                 directory.parentId = parent;
-                directory.name = part;
+                directory.name = archiveDisplayBaseName(part);
                 directory.relativePath = current;
                 index = directoryRows.length;
                 directoryRows ~= directory;
