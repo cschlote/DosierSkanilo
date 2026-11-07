@@ -186,8 +186,10 @@ extraction accept
 `--archive-cache-dir` and `--archive-cache-size` (MiB) to control the temporary
 member cache; each run uses an owned session directory and removes it on exit.
 Help is `--help`; version is `--version`. Normal commands print
-`DosierSkanilo <version>` to stderr at startup so stdout stays usable for
-command output and JSON formats. Long-running operations print the operation and
+`DosierSkanilo <version>` and a compact one-line `Settings:` summary to stderr at
+startup so stdout stays usable for command output and JSON formats. `--verbose`
+expands the settings into command, target, storage, scope, metadata, worker,
+cache, and flag details. Long-running operations print the operation and
 target once, followed by compact phase, count, elapsed-time, and path updates.
 On a terminal the progress line is rewritten in place and colored; redirected
 output emits timestamped records every few seconds, and a heartbeat marks long

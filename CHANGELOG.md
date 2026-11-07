@@ -44,6 +44,12 @@ They represent the functional evolution and are intentionally summarized.
   runs explicitly requested metadata extractors before duplicate and missing
   file analysis, matching the existing JSON analyze behavior.
 
+- Startup output now prints a compact one-line `Settings:` summary after the
+  version banner and before the optional MediaInfo version line. `--verbose`
+  expands it into command, target, storage, scope, metadata, worker, cache, and
+  flag details. The verbose MediaInfo version line now uses stderr with the
+  other startup diagnostics so stdout stays clean.
+
 ## Release 26.14.0 - 2026-11-06
 
 - RAR listings now expose member sizes and timestamps without extracting every
