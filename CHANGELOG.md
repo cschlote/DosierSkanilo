@@ -9,6 +9,8 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+## Release 26.15.0 - 2026-11-07
+
 - CLI progress output is now compact and self-explanatory: the operation and
   target are printed once, followed by phase, counts, elapsed time, and the
   current path. Terminals get a single rewritten, colored status line sized to
