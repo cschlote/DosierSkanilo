@@ -1687,25 +1687,30 @@ private long ensureDirectory(ref Database db, string relativeDirectory)
     auto normalized = repositoryRelativePath("", relativeDirectory);
     long parentId;
     string current;
+    string canonical;
     foreach (part; normalized.split("/"))
     {
         if (part.empty || part == ".")
             continue;
         current = current.empty ? part : current ~ "/" ~ part;
+        /* Directory identities share the escaped namespace with file
+         * references. Keeping the raw path here would break prefix queries
+         * below a directory whose name contains an exclamation mark. */
+        canonical = escapeArchiveVirtualPath(current);
         if (parentId == 0)
         {
             db.execute("INSERT OR IGNORE INTO directories "
                 ~ "(parent_id, relative_path, name) VALUES (NULL, ?, ?)",
-                current, part);
+                canonical, part);
         }
         else
         {
             db.execute("INSERT OR IGNORE INTO directories "
                 ~ "(parent_id, relative_path, name) VALUES (?, ?, ?)",
-                parentId, current, part);
+                parentId, canonical, part);
         }
         parentId = db.execute("SELECT id FROM directories "
-            ~ "WHERE relative_path = ?", current).oneValue!long;
+            ~ "WHERE relative_path = ?", canonical).oneValue!long;
     }
     return parentId;
 }

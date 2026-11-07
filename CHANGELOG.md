@@ -24,6 +24,11 @@ They represent the functional evolution and are intentionally summarized.
   also leaves references below subdirectories untouched instead of probing and
   marking them missing, which prevents long stalls on unrelated mounts.
 
+- Directory references now use the same escaped namespace as file references.
+  Scans and imports escape literal `!` in directory paths, and schema version 6
+  migrates existing repositories. Prefix queries below a directory whose name
+  contains `!` now return the correct file counts and aggregate sizes.
+
 ## Release 26.14.0 - 2026-11-06
 
 - RAR listings now expose member sizes and timestamps without extracting every
