@@ -9,6 +9,12 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- A SQLite repository can be opened from a different mount or directory.
+  Stored references are root-relative already; the advisory `root_path` is now
+  refreshed on open instead of rejecting the repository with
+  `Repository root mismatch`. This supports copying repositories or opening
+  them through sshfs.
+
 ## Release 26.15.0 - 2026-11-07
 
 - CLI progress output is now compact and self-explanatory: the operation and

@@ -119,8 +119,19 @@ private:
         {
             auto storedRoot = result.front.peek!string(0);
             if (storedRoot != rootPath)
-                throw new RepositoryException("Repository root mismatch: "
-                    ~ storedRoot ~ " != " ~ rootPath);
+            {
+                /* All catalog paths are relative to this directory. The
+                 * stored root is advisory metadata, so a copied, moved, or
+                 * sshfs-mounted repository is opened at its current path
+                 * instead of being rejected. Keep the old value if the
+                 * database happens to be read-only. */
+                try
+                    db.execute("UPDATE repository SET root_path = ? WHERE id = 1",
+                        rootPath);
+                catch (Exception)
+                {
+                }
+            }
             return;
         }
 
@@ -769,6 +780,42 @@ unittest
     steady.close();
     assert(timeLastModified(databasePath) == stamp,
         "Opening an initialized repository must not write to the database.");
+}
+
+@("repository opens at a new mount path and rebinds the advisory root")
+unittest
+{
+    import std.file : exists, mkdirRecurse, rename, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const root = buildPath(tempDir(), "repository-move-"
+        ~ randomUUID().toString());
+    const moved = buildPath(tempDir(), "repository-moved-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+    {
+        if (exists(root))
+            rmdirRecurse(root);
+        if (exists(moved))
+            rmdirRecurse(moved);
+    }
+    write(buildPath(root, "sample.txt"), "payload");
+
+    auto repository = Repository.initialize(root);
+    repository.scan(RepositoryScanOptions(true, false, false));
+    repository.close();
+
+    rename(root, moved);
+    auto reopened = Repository.open(moved);
+    scope (exit)
+        reopened.close();
+    assert(reopened.rootPath == buildNormalizedPath(moved));
+    assert(reopened.info.rootPath == buildNormalizedPath(moved),
+        "opening at another path must refresh the advisory root");
+    assert(reopened.fileReferenceByRelativePath("sample.txt").present,
+        "stored references stay valid because they are root-relative");
 }
 
 @("repository import cancellation keeps the previous catalog")
