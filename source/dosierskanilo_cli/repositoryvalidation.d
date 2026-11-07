@@ -141,6 +141,11 @@ unittest
     cachedScan.argArchiveCacheMiB = 64;
     assert(validateRepositoryOptions("scan", cachedScan));
 
+    auto metadataAnalyze = ArgsArray();
+    metadataAnalyze.argRunAnalysis = true;
+    metadataAnalyze.argDoChecksums = true;
+    assert(validateRepositoryOptions("analyze", metadataAnalyze));
+
     auto invalidCachedList = ArgsArray();
     invalidCachedList.argArchiveCacheMiB = 64;
     assert(!validateRepositoryOptions("list", invalidCachedList));
@@ -206,7 +211,7 @@ private bool validateRepositoryCommand(string command, ArgsArray options)
         break;
     case "analyze", "analyse":
         if (options.argInitRepository || options.argScanFiles
-            || options.argRunMetadata || hasMetadataAction
+            || options.argRunMetadata
             || !options.argImportJSON.empty || !options.argExportJSON.empty
             || options.argWriteJSON || options.argReplaceCatalog
             || hasRepositoryQueryOptions(options))

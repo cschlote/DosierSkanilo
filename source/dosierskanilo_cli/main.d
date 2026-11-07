@@ -617,6 +617,19 @@ private bool reportCatalogOperationResult(string backendName, ArgsArray options,
 	}
 	else
 	{
+		const bool ranMetadata = options.argDoChecksums
+			|| options.argDoFileTypes || options.argDoMediaSig
+			|| options.argScanArchives != 0 || options.argScanTorrents;
+		if (ranMetadata)
+			logFLine("%s metadata: %d blobs, %d checksum, %d file type, "
+				~ "%d media, %d archive, %d torrent updates, %d failures.",
+				backendName, result.metadataSummary.blobsVisited,
+				result.metadataSummary.checksumsUpdated,
+				result.metadataSummary.fileTypesUpdated,
+				result.metadataSummary.mediaInfoUpdated,
+				result.metadataSummary.archivesUpdated,
+				result.metadataSummary.torrentsUpdated,
+				result.metadataSummary.failed);
 		logFLine("%s analysis: %d missing, %d dropped, %d duplicate groups, "
 			~ "%d merged blobs, %d orphaned blobs.", backendName,
 			result.analysisSummary.missingFiles,
