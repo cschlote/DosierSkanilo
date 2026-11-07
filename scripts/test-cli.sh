@@ -399,8 +399,7 @@ grep -q "cancelled" "${TMP_DIR}/analyze-cancel-stdout"
     >"${TMP_DIR}/lease-first-stdout" 2>"${TMP_DIR}/lease-first-stderr" &
 lease_first_pid=$!
 for _ in $(seq 1 500); do
-    if [[ -s "${TMP_DIR}/lease-first-stdout" \
-        || -s "${TMP_DIR}/lease-first-stderr" ]]; then
+    if grep -q "validating" "${TMP_DIR}/lease-first-stdout" 2>/dev/null; then
         break
     fi
     sleep 0.01
@@ -496,6 +495,10 @@ fi
 "${BIN}" --version >/dev/null
 startup_banner=$("${BIN}" info "${sqlite_root}" 2>&1 >/dev/null)
 [[ "${startup_banner}" == *"DosierSkanilo v"* ]]
+[[ "${startup_banner}" == *"Settings: info"* ]]
+verbose_settings=$("${BIN}" info "${sqlite_root}" --verbose 2>&1 >/dev/null)
+[[ "${verbose_settings}" == *"  command: info"* ]]
+[[ "${verbose_settings}" == *"  metadata: none"* ]]
 if "${BIN}" info "${TMP_DIR}" > "${TMP_DIR}/stdout" 2> "${TMP_DIR}/stderr"; then
     printf '%s\n' "Expected info without a repository to fail." >&2
     exit 1

@@ -99,10 +99,11 @@ int main(string[] args)
 			if (!configureArchiveCache(options))
 				return 1;
 			noticeFLine("%s %s", appName, appVersion);
-			if (options.argDoMediaSig)
+			printRunSettings(options, parsed.command);
+			if (options.argDoMediaSig && options.argVerboseOutputs)
 			{
 				auto miv = getMediaInfoVersion();
-				logLineVerbose("Using ", miv);
+				noticeFLine("Using %s", miv);
 			}
 			const auto oldhandler = signal(SIGINT, &signalHandler);
 			if (oldhandler == SIG_ERR)
@@ -133,6 +134,221 @@ int main(string[] args)
 			return rc ? 0 : 1;
 		}
 	}
+}
+
+/** Human-readable command name for startup diagnostics. */
+private string commandDisplayName(CliCommand command)
+{
+	final switch (command)
+	{
+	case CliCommand.noCommand:
+		return "";
+	case CliCommand.init:
+		return "init";
+	case CliCommand.scan:
+		return "scan";
+	case CliCommand.metadata:
+		return "metadata";
+	case CliCommand.analyze:
+		return "analyze";
+	case CliCommand.info:
+		return "info";
+	case CliCommand.list:
+		return "list";
+	case CliCommand.duplicates:
+		return "duplicates";
+	case CliCommand.importJson:
+		return "import";
+	case CliCommand.exportJson:
+		return "export";
+	case CliCommand.recover:
+		return "recover";
+	}
+}
+
+/** Primary path shown in startup diagnostics. */
+private string settingsTarget(ArgsArray options, CliCommand command)
+{
+	const auto repository = options.argRepositoryPath.empty
+		? options.argScanPath : options.argRepositoryPath;
+	final switch (command)
+	{
+	case CliCommand.importJson:
+		return (options.argImportJSON.empty ? "(missing)"
+			: options.argImportJSON) ~ " -> "
+			~ (repository.empty ? "." : repository);
+	case CliCommand.exportJson:
+		return (repository.empty ? "." : repository) ~ " -> "
+			~ (options.argExportJSON.empty ? "(missing)"
+				: options.argExportJSON);
+	case CliCommand.recover:
+		return options.argJSONFile.empty ? "(missing)" : options.argJSONFile;
+	case CliCommand.noCommand, CliCommand.init, CliCommand.scan,
+		CliCommand.metadata, CliCommand.analyze, CliCommand.info,
+		CliCommand.list, CliCommand.duplicates:
+		break;
+	}
+	if (!options.argJSONFile.empty)
+		return options.argBaseDir.empty || options.argBaseDir == "."
+			? options.argJSONFile
+			: options.argJSONFile ~ " (base " ~ options.argBaseDir ~ ")";
+	if (!options.argRepositoryPath.empty)
+		return options.argRepositoryPath;
+	if (!options.argScanPath.empty)
+		return options.argScanPath;
+	return ".";
+}
+
+/** Storage mode shown in startup diagnostics. */
+private string settingsStorage(ArgsArray options, CliCommand command)
+{
+	if (command == CliCommand.importJson)
+		return "repository";
+	if (command == CliCommand.exportJson || command == CliCommand.recover)
+		return "JSON";
+	return options.argJSONFile.empty ? "repository" : "JSON";
+}
+
+/** Active metadata extractor labels for startup diagnostics. */
+private string[] metadataSettings(ArgsArray options)
+{
+	string[] labels;
+	if (options.argDoChecksums)
+		labels ~= "checksums";
+	if (options.argDoFileTypes)
+		labels ~= "file types";
+	if (options.argDoMediaSig)
+		labels ~= "media info";
+	if (options.argRescanMediaSig)
+		labels ~= "media rescan";
+	if (options.argScanArchives == 1)
+		labels ~= "archives shallow";
+	else if (options.argScanArchives > 1)
+		labels ~= "archives deep";
+	if (options.argScanTorrents)
+		labels ~= "torrents";
+	return labels;
+}
+
+/** Active scan/analysis/runtime labels for startup diagnostics. */
+private string[] scopeSettings(ArgsArray options, CliCommand command)
+{
+	string[] labels;
+	if (command == CliCommand.scan)
+	{
+		labels ~= options.argRecursive ? "recursive" : "top-level";
+		if (options.argPickHidden)
+			labels ~= "hidden included";
+	}
+	if ((command == CliCommand.scan || command == CliCommand.analyze)
+		&& options.argDropMissing)
+		labels ~= "drop missing";
+	if (options.argNumberOfThreads > 1)
+		labels ~= options.argNumberOfThreads.to!string ~ " threads";
+	return labels;
+}
+
+/** Active output/JSON flags for startup diagnostics. */
+private string[] flagSettings(ArgsArray options)
+{
+	string[] labels;
+	if (options.argDryRun)
+		labels ~= "dry-run";
+	if (options.argMergeDuplicates)
+		labels ~= "merge duplicates";
+	if (options.argPrettyJSON)
+		labels ~= "pretty";
+	if (options.argReplaceCatalog)
+		labels ~= "replace";
+	if (options.argNoInput)
+		labels ~= "no input";
+	return labels;
+}
+
+/** Active query settings for list/duplicate commands. */
+private string[] querySettings(ArgsArray options, CliCommand command)
+{
+	if (command != CliCommand.list && command != CliCommand.duplicates)
+		return [];
+	string[] labels;
+	if (!options.argQueryText.empty)
+		labels ~= "text=" ~ options.argQueryText;
+	if (options.argQueryLimit != 50)
+		labels ~= "limit=" ~ options.argQueryLimit.to!string;
+	if (options.argQueryOffset != 0)
+		labels ~= "offset=" ~ options.argQueryOffset.to!string;
+	string[] media;
+	if (options.argQueryVideo) media ~= "video";
+	if (options.argQueryAudio) media ~= "audio";
+	if (options.argQueryImage) media ~= "image";
+	if (options.argQueryTextStream) media ~= "text";
+	if (options.argQueryFileType) media ~= "file-type";
+	if (options.argQueryArchive) media ~= "archive";
+	if (options.argQueryTorrent) media ~= "torrent";
+	if (media.length > 0)
+		labels ~= "require " ~ media.join(",");
+	labels ~= "format=" ~ options.argOutputFormat;
+	return labels;
+}
+
+/** Describe the archive cache for verbose startup diagnostics. */
+private string archiveCacheSetting(ArgsArray options)
+{
+	if (!options.argArchiveCacheDir.empty)
+		return options.argArchiveCacheDir
+			~ (options.argArchiveCacheMiB > 0
+				? " (" ~ options.argArchiveCacheMiB.to!string ~ " MiB)"
+				: "");
+	if (options.argArchiveCacheMiB > 0)
+		return "default directory (" ~ options.argArchiveCacheMiB.to!string
+			~ " MiB)";
+	return "default";
+}
+
+/** Print the active settings before any MediaInfo version banner.
+ *
+ * Compact mode emits one line so redirected logs stay small. Verbose mode
+ * expands the same values into labelled lines.
+ */
+private void printRunSettings(ArgsArray options, CliCommand command)
+{
+	const auto name = commandDisplayName(command);
+	const auto target = settingsTarget(options, command);
+	const auto storage = settingsStorage(options, command);
+	const auto metadata = metadataSettings(options);
+	const auto scopeLabels = scopeSettings(options, command);
+	const auto flags = flagSettings(options);
+	const auto query = querySettings(options, command);
+
+	if (!options.argVerboseOutputs)
+	{
+		string[] parts = [name ~ " " ~ target ~ " (" ~ storage ~ ")"];
+		if (scopeLabels.length > 0)
+			parts ~= scopeLabels.join(", ");
+		parts ~= (metadata.length > 0
+			? "metadata: " ~ metadata.join(", ") : "metadata: none");
+		if (flags.length > 0)
+			parts ~= flags.join(", ");
+		if (query.length > 0)
+			parts ~= query.join(", ");
+		noticeFLine("Settings: %s", parts.join("; "));
+		return;
+	}
+
+	noticeFLine("Settings:");
+	noticeFLine("  command: %s", name);
+	noticeFLine("  target: %s", target);
+	noticeFLine("  storage: %s", storage);
+	noticeFLine("  scope: %s", scopeLabels.length > 0
+		? scopeLabels.join(", ") : "default");
+	noticeFLine("  metadata: %s",
+		metadata.length > 0 ? metadata.join(", ") : "none");
+	noticeFLine("  workers: %d", options.argNumberOfThreads);
+	noticeFLine("  archive cache: %s", archiveCacheSetting(options));
+	if (flags.length > 0)
+		noticeFLine("  flags: %s", flags.join(", "));
+	if (query.length > 0)
+		noticeFLine("  query: %s", query.join(", "));
 }
 
 /** List backups/recovery files for one catalog and optionally restore one. */
