@@ -1,3 +1,10 @@
+dosierskanilo (26.15.1-1) unstable; urgency=medium
+
+  * Release DosierSkanilo 26.15.1 with advisory repository roots,
+    package dependency metadata, and current documentation.
+
+ -- Carsten Schlote <schlote@vahanus.net>  Sun, 08 Nov 2026 00:00:00 +0000
+
 dosierskanilo (26.15.0-1) unstable; urgency=medium
 
   * Package DosierSkanilo 26.15.0 with escaped archive path handling,
