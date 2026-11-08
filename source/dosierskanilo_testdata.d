@@ -14,6 +14,7 @@ import std.stdio : stderr, writeln;
 
 import dosierskanilo.testdata : generateSyntheticCatalog;
 
+/** Help text describing the synthetic test-catalog generator and its options. */
 immutable string generatorHelp = q"EOS
 
 Create the deterministic DosierSkanilo synthetic backend/archive test catalog.
@@ -32,6 +33,13 @@ write binary fixtures into the source tree unless --output explicitly points the
 
 EOS";
 
+/** Parse generator options and write the synthetic catalog bundle.
+ *
+ * Params:
+ *     args = Command-line arguments including the program name.
+ * Returns: `0` on success or when help was printed, `1` when generation fails,
+ *     and `2` for invalid arguments.
+ */
 int main(string[] args)
 {
     string outputPath = buildPath("build", "test-data", "synthetic-catalog");

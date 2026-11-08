@@ -39,7 +39,13 @@ struct RepositoryPaths
     /// Structured operational log file.
     string logFilePath;
 
-    /** Construct repository paths from an absolute root directory. */
+    /** Construct repository paths from an absolute root directory.
+     *
+     * Params:
+     *     rootPath = Repository root directory; stored unchanged as
+     *         `rootPath`.
+     * Returns: Paths with every metadata location derived below `rootPath`.
+     */
     static RepositoryPaths fromRoot(string rootPath)
     {
         auto metadataPath = buildPath(rootPath, repositoryDirectoryName);

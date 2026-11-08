@@ -24,35 +24,61 @@ import dosierskanilo.repository.types : JsonImportOptions, RepositoryBlobPage,
 /** Opaque identity of one content record in one catalog source. */
 struct ContentId
 {
+    /// Opaque adapter-issued token; non-empty for every valid identity.
     private string token;
 
+    /** Wrap a non-empty adapter token as a content identity.
+     *
+     * Params:
+     *     token = Opaque adapter token; must not be empty.
+     * Throws: `Exception` when the token is empty.
+     */
     package(dosierskanilo) this(string token)
     {
         enforce(token.length > 0, "ContentId token cannot be empty.");
         this.token = token;
     }
 
+    /** Expose the opaque token to catalog adapters in this package.
+     *
+     * Returns: The stored adapter token; empty for a default/invalid identity.
+     */
     package(dosierskanilo) @property string adapterToken() const { return token; }
 
-    /// Whether an adapter-issued identifier has been assigned.
+    /** Whether an adapter-issued identifier has been assigned.
+     *
+     * Returns: `true` when the opaque token is non-empty.
+     */
     @property bool isValid() const
     {
         return token.length > 0;
     }
 
-    /// Compare identifiers within their catalog-source scope.
+    /** Compare identifiers within their catalog-source scope.
+     *
+     * Params:
+     *     other = Identifier to compare against.
+     * Returns: `true` when both identifiers carry the same opaque token.
+     */
     bool opEquals(const ContentId other) const
     {
         return token == other.token;
     }
 
-    /// Stable hash within this identifier's source scope.
+    /** Stable hash within this identifier's source scope.
+     *
+     * Returns: The hash of the opaque token.
+     */
     size_t toHash() const nothrow @safe
     {
         return token.hashOf;
     }
 
-    /// Redacted display value that does not expose the opaque token.
+    /** Redacted display value that does not expose the opaque token.
+     *
+     * Returns: A constant description that reveals only the identifier kind
+     *     and whether it is valid.
+     */
     string toString() const
     {
         return isValid ? "ContentId(<opaque>)" : "ContentId(<invalid>)";
@@ -62,35 +88,61 @@ struct ContentId
 /** Opaque identity of one reference/location in one catalog source. */
 struct ReferenceId
 {
+    /// Opaque adapter-issued token; non-empty for every valid identity.
     private string token;
 
+    /** Wrap a non-empty adapter token as a reference identity.
+     *
+     * Params:
+     *     token = Opaque adapter token; must not be empty.
+     * Throws: `Exception` when the token is empty.
+     */
     package(dosierskanilo) this(string token)
     {
         enforce(token.length > 0, "ReferenceId token cannot be empty.");
         this.token = token;
     }
 
+    /** Expose the opaque token to catalog adapters in this package.
+     *
+     * Returns: The stored adapter token; empty for a default/invalid identity.
+     */
     package(dosierskanilo) @property string adapterToken() const { return token; }
 
-    /// Whether an adapter-issued identifier has been assigned.
+    /** Whether an adapter-issued identifier has been assigned.
+     *
+     * Returns: `true` when the opaque token is non-empty.
+     */
     @property bool isValid() const
     {
         return token.length > 0;
     }
 
-    /// Compare identifiers within their catalog-source scope.
+    /** Compare identifiers within their catalog-source scope.
+     *
+     * Params:
+     *     other = Identifier to compare against.
+     * Returns: `true` when both identifiers carry the same opaque token.
+     */
     bool opEquals(const ReferenceId other) const
     {
         return token == other.token;
     }
 
-    /// Stable hash within this identifier's source scope.
+    /** Stable hash within this identifier's source scope.
+     *
+     * Returns: The hash of the opaque token.
+     */
     size_t toHash() const nothrow @safe
     {
         return token.hashOf;
     }
 
-    /// Redacted display value that does not expose the opaque token.
+    /** Redacted display value that does not expose the opaque token.
+     *
+     * Returns: A constant description that reveals only the identifier kind
+     *     and whether it is valid.
+     */
     string toString() const
     {
         return isValid ? "ReferenceId(<opaque>)" : "ReferenceId(<invalid>)";
@@ -100,35 +152,61 @@ struct ReferenceId
 /** Opaque identity of a directory projection in one catalog source. */
 struct DirectoryId
 {
+    /// Opaque adapter-issued token; non-empty for every valid identity.
     private string token;
 
+    /** Wrap a non-empty adapter token as a directory identity.
+     *
+     * Params:
+     *     token = Opaque adapter token; must not be empty.
+     * Throws: `Exception` when the token is empty.
+     */
     package(dosierskanilo) this(string token)
     {
         enforce(token.length > 0, "DirectoryId token cannot be empty.");
         this.token = token;
     }
 
+    /** Expose the opaque token to catalog adapters in this package.
+     *
+     * Returns: The stored adapter token; empty for a default/invalid identity.
+     */
     package(dosierskanilo) @property string adapterToken() const { return token; }
 
-    /// Whether an adapter-issued identifier has been assigned.
+    /** Whether an adapter-issued identifier has been assigned.
+     *
+     * Returns: `true` when the opaque token is non-empty.
+     */
     @property bool isValid() const
     {
         return token.length > 0;
     }
 
-    /// Compare identifiers within their catalog-source scope.
+    /** Compare identifiers within their catalog-source scope.
+     *
+     * Params:
+     *     other = Identifier to compare against.
+     * Returns: `true` when both identifiers carry the same opaque token.
+     */
     bool opEquals(const DirectoryId other) const
     {
         return token == other.token;
     }
 
-    /// Stable hash within this identifier's source scope.
+    /** Stable hash within this identifier's source scope.
+     *
+     * Returns: The hash of the opaque token.
+     */
     size_t toHash() const nothrow @safe
     {
         return token.hashOf;
     }
 
-    /// Redacted display value that does not expose the opaque token.
+    /** Redacted display value that does not expose the opaque token.
+     *
+     * Returns: A constant description that reveals only the identifier kind
+     *     and whether it is valid.
+     */
     string toString() const
     {
         return isValid ? "DirectoryId(<opaque>)" : "DirectoryId(<invalid>)";
@@ -138,35 +216,61 @@ struct DirectoryId
 /** Opaque entry identity scoped to a container content/index version. */
 struct ArchiveEntryId
 {
+    /// Opaque adapter-issued token; non-empty for every valid identity.
     private string token;
 
+    /** Wrap a non-empty adapter token as an archive-entry identity.
+     *
+     * Params:
+     *     token = Opaque adapter token; must not be empty.
+     * Throws: `Exception` when the token is empty.
+     */
     package(dosierskanilo) this(string token)
     {
         enforce(token.length > 0, "ArchiveEntryId token cannot be empty.");
         this.token = token;
     }
 
+    /** Expose the opaque token to catalog adapters in this package.
+     *
+     * Returns: The stored adapter token; empty for a default/invalid identity.
+     */
     package(dosierskanilo) @property string adapterToken() const { return token; }
 
-    /// Whether an adapter-issued identifier has been assigned.
+    /** Whether an adapter-issued identifier has been assigned.
+     *
+     * Returns: `true` when the opaque token is non-empty.
+     */
     @property bool isValid() const
     {
         return token.length > 0;
     }
 
-    /// Compare identifiers within their container-index scope.
+    /** Compare identifiers within their container-index scope.
+     *
+     * Params:
+     *     other = Identifier to compare against.
+     * Returns: `true` when both identifiers carry the same opaque token.
+     */
     bool opEquals(const ArchiveEntryId other) const
     {
         return token == other.token;
     }
 
-    /// Stable hash within this identifier's container-index scope.
+    /** Stable hash within this identifier's container-index scope.
+     *
+     * Returns: The hash of the opaque token.
+     */
     size_t toHash() const nothrow @safe
     {
         return token.hashOf;
     }
 
-    /// Redacted display value that does not expose the opaque token.
+    /** Redacted display value that does not expose the opaque token.
+     *
+     * Returns: A constant description that reveals only the identifier kind
+     *     and whether it is valid.
+     */
     string toString() const
     {
         return isValid ? "ArchiveEntryId(<opaque>)" : "ArchiveEntryId(<invalid>)";
@@ -176,11 +280,23 @@ struct ArchiveEntryId
 /** Opaque position in one source/query/sort result sequence. */
 struct CatalogPageCursor
 {
+    /// Zero-based offset of the first row described by this cursor.
     private size_t index;
+    /// Page size this cursor was issued for; later requests must match it.
     private size_t pageSize;
+    /// Source/query/sort binding used to reject foreign cursors.
     package(dosierskanilo) string queryToken;
+    /// True only for continuation cursors returned by a backend.
     private bool valid;
 
+    /** Create a validated continuation cursor.
+     *
+     * Params:
+     *     index = Zero-based offset of the first row on the next page.
+     *     pageSize = Page size the cursor is bound to; must be positive.
+     *     queryToken = Source/query/sort binding; must not be empty.
+     * Throws: `Exception` when the page size or query token is invalid.
+     */
     package(dosierskanilo) this(size_t index, size_t pageSize,
         string queryToken)
     {
@@ -192,30 +308,56 @@ struct CatalogPageCursor
         this.valid = true;
     }
 
+    /** Expose the row offset to catalog adapters in this package.
+     *
+     * Returns: The zero-based offset of the first row described by the cursor.
+     */
     package(dosierskanilo) @property size_t adapterIndex() const { return index; }
+    /** Expose the bound page size to catalog adapters in this package.
+     *
+     * Returns: The page size this cursor was issued for.
+     */
     package(dosierskanilo) @property size_t adapterPageSize() const { return pageSize; }
+    /** Expose the query binding token to catalog adapters in this package.
+     *
+     * Returns: The source/query/sort binding token.
+     */
     package(dosierskanilo) @property string adapterQueryToken() const { return queryToken; }
 
-    /// Whether this is a continuation cursor rather than the first-page marker.
+    /** Whether this is a continuation cursor rather than the first-page marker.
+     *
+     * Returns: `true` only for cursors issued by a backend.
+     */
     @property bool isValid() const
     {
         return valid;
     }
 
-    /// Compare opaque continuation values.
+    /** Compare opaque continuation values.
+     *
+     * Params:
+     *     other = Cursor to compare against.
+     * Returns: `true` when index, page size, query token, and validity match.
+     */
     bool opEquals(const CatalogPageCursor other) const
     {
         return index == other.index && pageSize == other.pageSize
             && queryToken == other.queryToken && valid == other.valid;
     }
 
-    /// Stable hash without revealing the query/source-bound cursor token.
+    /** Stable hash without revealing the query/source-bound cursor token.
+     *
+     * Returns: A hash derived from the query token, row offset, and page size.
+     */
     size_t toHash() const nothrow @safe
     {
         return queryToken.hashOf ^ index ^ pageSize;
     }
 
-    /// Redacted display value that does not expose source/query state.
+    /** Redacted display value that does not expose source/query state.
+     *
+     * Returns: `<opaque>` for a continuation cursor, `<initial>` otherwise.
+     */
     string toString() const
     {
         return isValid ? "CatalogPageCursor(<opaque>)"
@@ -251,7 +393,16 @@ struct ContentLocator
     FilesystemLocator filesystem; /// Payload for `Kind.filesystem`.
     ArchiveEntryLocator archiveEntry; /// Payload for `Kind.archiveEntry`.
 
-    /// Construct a validated source-root-relative filesystem locator.
+    /** Construct a validated source-root-relative filesystem locator.
+     *
+     * Params:
+     *     relativePath = Normalized path from the source root; must not be
+     *         absolute, contain backslashes or a drive prefix, or contain
+     *         empty, `.` or `..` components.
+     * Returns: A locator with `Kind.filesystem` populated.
+     * Throws: `CatalogBackendException` with `invalidLocator` when the path is
+     *     not a normalized source-relative path.
+     */
     static ContentLocator file(string relativePath)
     {
         bool valid = relativePath.length > 0
@@ -275,7 +426,15 @@ struct ContentLocator
         return locator;
     }
 
-    /// Construct a validated archive-entry locator chain element.
+    /** Construct a validated archive-entry locator chain element.
+     *
+     * Params:
+     *     container = Reference that owns the container; must be valid.
+     *     entryId = Entry identity within that container; must be valid.
+     * Returns: A locator with `Kind.archiveEntry` populated.
+     * Throws: `CatalogBackendException` with `invalidIdentifier` when either
+     *     identity is invalid.
+     */
     static ContentLocator entry(ReferenceId container, ArchiveEntryId entryId)
     {
         if (!container.isValid || !entryId.isValid)
@@ -292,19 +451,19 @@ struct ContentLocator
 /** Whether a referenced source is currently resolvable. */
 enum CatalogReferenceAvailability
 {
-    notChecked,
-    available,
-    unavailable
+    notChecked, /// Availability has not been probed.
+    available, /// The source resolves on disk and can be read.
+    unavailable /// The source is known but cannot currently be resolved.
 }
 
 /** Lifecycle of one independently extracted metadata family. */
 enum CatalogExtractorState
 {
-    notRequested,
-    pending,
-    completed,
-    empty,
-    failed
+    notRequested, /// Extraction was not requested for this content.
+    pending, /// Extraction was requested but has not finished.
+    completed, /// Extraction finished with at least one result.
+    empty, /// Extraction finished without findings.
+    failed /// Extraction failed; see `CatalogExtractorStatus.error`.
 }
 
 /** Metadata extractor status without storage-specific status columns. */
@@ -333,10 +492,10 @@ struct CatalogContentFingerprint
 /** Media stream category exposed by a content snapshot. */
 enum CatalogMediaKind
 {
-    image,
-    video,
-    audio,
-    text
+    image, /// Still-image stream.
+    video, /// Video stream.
+    audio, /// Audio stream.
+    text /// Text or subtitle stream.
 }
 
 /** Storage-neutral projection of one parsed media stream. */
@@ -415,10 +574,10 @@ struct CatalogFilter
 /** Stable user-visible file order; path breaks ties for size sorts. */
 enum CatalogSortOrder
 {
-    pathAscending,
-    pathDescending,
-    sizeAscending,
-    sizeDescending
+    pathAscending, /// Root-relative paths in ascending order.
+    pathDescending, /// Root-relative paths in descending order.
+    sizeAscending, /// Content size ascending, path ascending to break ties.
+    sizeDescending /// Content size descending, path ascending to break ties.
 }
 
 /** Query/page boundary. A cursor is bound to source, query, sort, and page size. */
@@ -689,7 +848,12 @@ struct CatalogBackendCapabilities
     bool supportsFirstClassArchiveReferences; /// Members are normal content references.
     CatalogPersistence persistence = CatalogPersistence.transactionalStore; ///< Mutation model.
 
-    /// Whether this backend accepts the specified operation kind.
+    /** Whether this backend accepts the specified operation kind.
+     *
+     * Params:
+     *     operation = Operation kind to look up.
+     * Returns: `true` when `operation` appears in `operations`.
+     */
     bool supports(OperationKind operation) const
     {
         foreach (supported; operations)
@@ -740,23 +904,48 @@ class CatalogBackendException : Exception
  */
 interface CatalogDocument
 {
-    /// Whether the document buffer differs from its last loaded/saved state.
+    /** Whether the document buffer differs from its last loaded/saved state.
+     *
+     * Returns: `true` when unsaved changes are present.
+     */
     bool modified() const;
 
-    /// Adapter fingerprint captured at load time for conflict detection.
+    /** Adapter fingerprint captured at load time for conflict detection.
+     *
+     * Returns: The opaque fingerprint of the stored catalog.
+     */
     string fingerprint() const;
 
-    /// Suggested filesystem root for rooted tree queries over this document.
+    /** Suggested filesystem root for rooted tree queries over this document.
+     *
+     * Returns: A suggested root path; empty when none is known.
+     */
     string suggestedFilesystemRoot();
 
-    /// Bind or clear the filesystem root used by tree queries.
+    /** Bind or clear the filesystem root used by tree queries.
+     *
+     * Params:
+     *     root = Root path to bind; empty clears the binding.
+     */
     void bindFilesystemRoot(string root);
 
-    /// Apply a scan and optional metadata/duplicate phase to the document buffer.
+    /** Apply a scan and optional metadata/duplicate phase to the document buffer.
+     *
+     * Params:
+     *     request = Scan request describing the source and phases.
+     *     control = Cooperative operation control handle.
+     * Returns: The operation result for the buffered scan.
+     */
     OperationResult applyScan(ScanOperationRequest request,
         OperationControl control);
 
-    /// Apply an analysis and optional metadata phase to the document buffer.
+    /** Apply an analysis and optional metadata phase to the document buffer.
+     *
+     * Params:
+     *     request = Analysis request describing the source and phases.
+     *     control = Cooperative operation control handle.
+     * Returns: The operation result for the buffered analysis.
+     */
     OperationResult applyAnalysis(AnalysisOperationRequest request,
         OperationControl control);
 
@@ -795,41 +984,83 @@ interface CatalogDocument
  */
 interface CatalogBackend
 {
-    /** The explicit target accepted by the factory that opened this backend. */
+    /** The explicit target accepted by the factory that opened this backend.
+     *
+     * Returns: The source-bound operation target.
+     */
     OperationTarget target();
 
-    /** Storage-neutral source label and kind. */
+    /** Storage-neutral source label and kind.
+     *
+     * Returns: The storage mode and a human-facing display label.
+     */
     CatalogSourceInfo sourceInfo();
 
-    /** Repository-style metadata for CLI info output. */
+    /** Repository-style metadata for CLI info output.
+     *
+     * Returns: Repository root and schema metadata.
+     */
     RepositoryInfo repositoryInfo();
 
-    /** Supported operations/features; unsupported behavior is never inferred. */
+    /** Supported operations/features; unsupported behavior is never inferred.
+     *
+     * Returns: The capability set advertised by this source.
+     */
     CatalogBackendCapabilities capabilities();
 
     /**
      * Open the in-memory document view.
      *
+     * Returns: A save/discard session over the document buffer.
      * Throws: `CatalogBackendException` with `unsupportedFeature` for
      *     transactional stores or when the adapter has no document session.
      */
     CatalogDocument document();
 
-    /** Return bounded aggregates for the source root under the shared filter. */
+    /** Return bounded aggregates for the source root under the shared filter.
+     *
+     * Params:
+     *     filter = Source-neutral filters applied to the aggregates.
+     * Returns: Directory, reference, and aggregate-size totals.
+     */
     CatalogRootSummary rootSummary(CatalogFilter filter = CatalogFilter.init);
 
-    /** List immediate child directories under the requested parent. */
+    /** List immediate child directories under the requested parent.
+     *
+     * Params:
+     *     query = Parent directory and source-neutral filters.
+     *     page = Requested limit and optional continuation cursor.
+     * Returns: The bounded directory page with continuation state.
+     */
     CatalogDirectoryPage listDirectories(CatalogDirectoryQuery query,
         CatalogPageRequest page = CatalogPageRequest.init);
 
-    /** List matching immediate file references in the selected stable order. */
+    /** List matching immediate file references in the selected stable order.
+     *
+     * Params:
+     *     query = Directory scope, filters, and sort order.
+     *     page = Requested limit and optional continuation cursor.
+     * Returns: The requested file page.
+     */
     CatalogFilePage listFiles(CatalogFileQuery query,
         CatalogPageRequest page = CatalogPageRequest.init);
 
-    /** Continue forward using a cursor issued for this source and query. */
+    /** Continue forward using a cursor issued for this source and query.
+     *
+     * Params:
+     *     query = Directory scope, filters, and sort order.
+     *     cursor = Forward continuation cursor returned for the same query.
+     * Returns: The next file page.
+     */
     CatalogFilePage nextFilesPage(CatalogFileQuery query, CatalogPageCursor cursor);
 
-    /** Continue backward and return rows in the query's display order. */
+    /** Continue backward and return rows in the query's display order.
+     *
+     * Params:
+     *     query = Directory scope, filters, and sort order.
+     *     cursor = Backward continuation cursor returned for the same query.
+     * Returns: The preceding file page.
+     */
     CatalogFilePage previousFilesPage(CatalogFileQuery query, CatalogPageCursor cursor);
 
     /**
@@ -841,11 +1072,25 @@ interface CatalogBackend
      * anchor starts at the first file for forward requests and yields an empty
      * page otherwise. Unknown anchors yield an empty page so callers can drop
      * stale UI state instead of guessing a position.
+     *
+     * Params:
+     *     query = Directory scope, filters, and sort order.
+     *     anchorRelativePath = Reference path to position next to; empty starts
+     *         at the first file for forward requests.
+     *     forward = Select rows after the anchor instead of before it.
+     *     limit = Maximum rows to return; must be greater than zero.
+     * Returns: The adjacent page, or an empty page for an unknown anchor.
      */
     CatalogFilePage listFilesFrom(CatalogFileQuery query, string anchorRelativePath,
         bool forward, size_t limit = 250);
 
-    /** List deduplicated content rows for table-oriented projections. */
+    /** List deduplicated content rows for table-oriented projections.
+     *
+     * Params:
+     *     query = Content filters applied by the backend.
+     *     page = Requested limit and optional continuation cursor.
+     * Returns: The bounded content page with total row count.
+     */
     CatalogContentPage listContents(CatalogContentQuery query,
         CatalogPageRequest page = CatalogPageRequest.init);
 
@@ -856,22 +1101,50 @@ interface CatalogBackend
      * accepted. An empty password clears the stored value. Unknown or ambiguous
      * paths raise `invalidIdentifier`, unsupported stores raise
      * `unsupportedFeature`.
+     *
+     * Params:
+     *     relativePath = Reference path or unique basename to update.
+     *     password = Password to store; empty clears the stored value.
      */
     void setArchivePassword(string relativePath, string password);
 
-    /** Load one detached content snapshot, including only requested details. */
+    /** Load one detached content snapshot, including only requested details.
+     *
+     * Params:
+     *     contentId = Content identity to load.
+     *     details = Detail families to include in the snapshot.
+     * Returns: The requested content snapshot.
+     */
     CatalogContentSnapshot loadContent(ContentId contentId,
         CatalogDetailMask details = CatalogDetailMask.init);
 
-    /** Page through the current archive index for one content record. */
+    /** Page through the current archive index for one content record.
+     *
+     * Params:
+     *     contentId = Content identity of an indexed archive.
+     *     page = Requested limit and optional continuation cursor.
+     * Returns: The bounded archive-entry page.
+     */
     CatalogArchiveEntryPage listArchiveEntries(ContentId contentId,
         CatalogPageRequest page = CatalogPageRequest.init);
 
-    /** List bounded, structured member references for one selected container reference. */
+    /** List bounded, structured member references for one selected container reference.
+     *
+     * Params:
+     *     containerReferenceId = Reference identity of the container.
+     *     page = Requested limit and optional continuation cursor.
+     * Returns: The bounded archive-member page.
+     */
     CatalogArchiveMemberPage listArchiveMembers(ReferenceId containerReferenceId,
         CatalogPageRequest page = CatalogPageRequest.init);
 
-    /** Page through torrent manifest descriptors for one content record. */
+    /** Page through torrent manifest descriptors for one content record.
+     *
+     * Params:
+     *     contentId = Content identity of an indexed torrent.
+     *     page = Requested limit and optional continuation cursor.
+     * Returns: The bounded torrent-entry page.
+     */
     CatalogTorrentEntryPage listTorrentEntries(ContentId contentId,
         CatalogPageRequest page = CatalogPageRequest.init);
 
@@ -881,6 +1154,10 @@ interface CatalogBackend
      * An empty path (or ".") denotes the source root and returns an invalid ID.
      * An unknown path also returns an invalid ID; callers must not treat
      * unresolved paths as errors during state restoration.
+     *
+     * Params:
+     *     relativePath = Normalized source-relative directory path.
+     * Returns: The matching identity, or an invalid ID when unresolved.
      */
     DirectoryId resolveDirectory(string relativePath);
 
@@ -889,12 +1166,19 @@ interface CatalogBackend
      *
      * Canonical virtual member paths (`container!/member`) are accepted. An
      * unknown path returns an invalid ID.
+     *
+     * Params:
+     *     relativePath = Normalized reference path.
+     * Returns: The matching identity, or an invalid ID when unresolved.
      */
     ReferenceId resolveReference(string relativePath);
 
     /**
      * Load one reference row by typed identity.
      *
+     * Params:
+     *     referenceId = Reference identity to load.
+     * Returns: The detached reference row.
      * Throws: `CatalogBackendException` with `invalidIdentifier` when the
      *     reference is unknown or belongs to another source.
      */
@@ -907,6 +1191,11 @@ interface CatalogBackend
      * passwords, and returns a lease the caller must release. Extraction
      * failures surface as typed backend errors; cache capacity and close
      * failures are reported by the cache.
+     *
+     * Params:
+     *     memberReferenceId = Reference identity of the archive member.
+     *     cancellation = Optional cooperative cancellation flag.
+     * Returns: A lease over the extracted member content.
      */
     MemberContentLease acquireMemberContent(ReferenceId memberReferenceId,
         shared(bool)* cancellation = null);
@@ -917,6 +1206,10 @@ interface CatalogBackend
      * The value is stable while this backend instance is open, differs between
      * identifier kinds, and must never be parsed or persisted. Use
      * `resolveDirectory`/`resolveReference` to restore UI state by path.
+     *
+     * Params:
+     *     id = Directory identity to encode.
+     * Returns: An opaque, kind-prefixed handle.
      */
     final string uiHandle(DirectoryId id)
     {
@@ -927,7 +1220,12 @@ interface CatalogBackend
         return "dir:" ~ id.adapterToken;
     }
 
-    /// Opaque reference key for UI models; see the directory overload.
+    /** Opaque reference key for UI models; see the directory overload.
+     *
+     * Params:
+     *     id = Reference identity to encode.
+     * Returns: An opaque, kind-prefixed handle.
+     */
     final string uiHandle(ReferenceId id)
     {
         if (!id.isValid)
@@ -937,7 +1235,12 @@ interface CatalogBackend
         return "ref:" ~ id.adapterToken;
     }
 
-    /// Opaque content key for UI models; see the directory overload.
+    /** Opaque content key for UI models; see the directory overload.
+     *
+     * Params:
+     *     id = Content identity to encode.
+     * Returns: An opaque, kind-prefixed handle.
+     */
     final string uiHandle(ContentId id)
     {
         if (!id.isValid)
@@ -947,45 +1250,98 @@ interface CatalogBackend
         return "content:" ~ id.adapterToken;
     }
 
-    /** Page through repository-style blob query results. */
+    /** Page through repository-style blob query results.
+     *
+     * Params:
+     *     options = Query offsets, limits, filters, and sort options.
+     * Returns: The repository blob page with ids and flags.
+     */
     RepositoryBlobPage queryBlobs(RepositoryQueryOptions options);
 
-    /** Return duplicate groups without mutating the source. */
+    /** Return duplicate groups without mutating the source.
+     *
+     * Params:
+     *     limit = Maximum groups requested; must be greater than zero.
+     * Returns: The duplicate groups, or an empty array when none exist.
+     */
     RepositoryDuplicateGroup[] queryDuplicateGroups(size_t limit = 100);
 
-    /** Export a selected relationship-closed subset to an explicit destination. */
+    /** Export a selected relationship-closed subset to an explicit destination.
+     *
+     * Params:
+     *     query = Selected path prefix and filters.
+     *     options = Output format, destination, and detail flags.
+     * Returns: Counts and publication state of the export.
+     */
     CatalogExportResult exportSubset(CatalogSubsetQuery query,
         CatalogExportOptions options);
 
     /**
      * Export a subset with cooperative cancellation. Implementations stop at
      * safe checkpoints and leave `committed` false when cancelled.
+     *
+     * Params:
+     *     query = Selected path prefix and filters.
+     *     options = Output format, destination, and detail flags.
+     *     control = Cooperative control used for progress and cancellation.
+     *     operationId = Identifier reported with progress events.
+     * Returns: Counts and publication state; `committed` is false when
+     *     cancelled.
      */
     CatalogExportResult exportSubsetControlled(CatalogSubsetQuery query,
         CatalogExportOptions options, OperationControl control,
         ulong operationId);
 
-    /** Import a JSON catalog into the bound repository source. */
+    /** Import a JSON catalog into the bound repository source.
+     *
+     * Params:
+     *     jsonPath = Path of the JSON catalog to import.
+     *     options = Import options controlling merge behavior.
+     */
     void importJson(string jsonPath, JsonImportOptions options = JsonImportOptions.init);
 
     /**
      * Import a JSON catalog with cooperative cancellation. Returns `false` when
      * the import was cancelled before commit.
+     *
+     * Params:
+     *     jsonPath = Path of the JSON catalog to import.
+     *     options = Import options controlling merge behavior.
+     *     control = Cooperative control used for progress and cancellation.
+     *     operationId = Identifier reported with progress events.
+     * Returns: `true` when committed, `false` when cancelled before commit.
      */
     bool importJsonControlled(string jsonPath, JsonImportOptions options,
         OperationControl control, ulong operationId);
 
-    /** Run scan synchronously and require its explicit root to match this source. */
+    /** Run scan synchronously and require its explicit root to match this source.
+     *
+     * Params:
+     *     request = Scan request including target and scan options.
+     *     control = Cooperative operation control handle.
+     * Returns: The operation result.
+     */
     OperationResult runOperation(ScanOperationRequest request,
         OperationControl control);
 
-    /** Run metadata synchronously when supported and bound to this source. */
+    /** Run metadata synchronously when supported and bound to this source.
+     *
+     * Params:
+     *     request = Metadata request including target and options.
+     *     control = Cooperative operation control handle.
+     * Returns: The operation result.
+     */
     OperationResult runOperation(MetadataOperationRequest request,
         OperationControl control);
 
     /**
      * Run analysis synchronously when supported. JSON analysis may omit its
      * filesystem root; a supplied root must match the opened source.
+     *
+     * Params:
+     *     request = Analysis request including target and options.
+     *     control = Cooperative operation control handle.
+     * Returns: The operation result.
      */
     OperationResult runOperation(AnalysisOperationRequest request,
         OperationControl control);
@@ -1006,6 +1362,12 @@ interface CatalogBackendFactory
      * JSON targets may omit the filesystem root for analysis-only use. Rooted
      * tree queries and scans require a root at open time or a later call to
      * `CatalogDocument.bindFilesystemRoot`.
+     *
+     * Params:
+     *     target = Operation target to open.
+     * Returns: A backend bound to the requested source.
+     * Throws: `CatalogBackendException` when the target shape or source cannot
+     *     be opened.
      */
     CatalogBackend open(OperationTarget target);
 }
@@ -1020,18 +1382,37 @@ version (unittest)
     import std.string : startsWith, toLower;
     import std.uuid : randomUUID;
 
+    /** In-memory catalog backend used by the contract unittests.
+     *
+     * It exposes a small fixed tree and two content identities so query,
+     * paging, and cursor behavior can be exercised without storage.
+     */
     private class FakeCatalogBackend : CatalogBackend
     {
+        /// Operation target this fake was opened with.
         private OperationTarget sourceTarget;
+        /// Random per-instance token that scopes generated identities and cursors.
         private string instanceToken;
+        /// Whether `close` has been called on this fake.
         private bool closed;
+        /// Identity of the first fake content, shared by three file references.
         private ContentId contentOne;
+        /// Identity of the second fake content, used by the image file.
         private ContentId contentTwo;
+        /// Identity of fake directory `a`.
         private DirectoryId directoryA;
+        /// Identity of fake directory `b`.
         private DirectoryId directoryB;
+        /// Fixed file rows served by this fake.
         private CatalogFile[] files;
+        /// Fixed directory rows served by this fake.
         private CatalogDirectory[] directories;
 
+        /** Create the fixed fake data set for one operation target.
+         *
+         * Params:
+         *     target = Operation target this fake reports and validates against.
+         */
         this(OperationTarget target)
         {
             sourceTarget = target;
@@ -1069,6 +1450,10 @@ version (unittest)
             directories = [a, b];
         }
 
+        /** Reject calls made after this fake backend was closed.
+         *
+         * Throws: `CatalogBackendException` with `closed` when already closed.
+         */
         private void requireOpen() const
         {
             if (closed)
@@ -1076,6 +1461,11 @@ version (unittest)
                     "Catalog backend is closed.");
         }
 
+        /** Require an open backend that can serve rooted tree queries.
+         *
+         * Throws: `CatalogBackendException` with `closed` when closed, or
+         *     `unsupportedFeature` for an unrooted JSON target.
+         */
         private void requireTreeQueries() const
         {
             requireOpen();
@@ -1086,6 +1476,13 @@ version (unittest)
                     "JSON tree queries require an explicit filesystem root.");
         }
 
+        /** Validate that an operation target names this fake's source.
+         *
+         * Params:
+         *     requestTarget = Target supplied by the operation request.
+         *     operation = Operation kind; scan additionally requires a root.
+         * Throws: `CatalogBackendException` with `closed` or `invalidTarget`.
+         */
         private void requireTarget(OperationTarget requestTarget,
             OperationKind operation) const
         {
@@ -1109,6 +1506,18 @@ version (unittest)
                     "Operation target does not match the opened catalog source.");
         }
 
+        /** Build one fake file row with a source-scoped reference identity.
+         *
+         * Params:
+         *     path = Normalized source-relative file path.
+         *     referenceToken = Per-instance suffix for the reference identity.
+         *     contentId = Content identity shared by the row.
+         *     parent = Parent directory identity.
+         *     size = Content size in bytes.
+         * Returns: The populated file row.
+         * Throws: `CatalogBackendException` with `invalidLocator` for an
+         *     unsafe path.
+         */
         private CatalogFile makeFile(string path, string referenceToken,
             ContentId contentId, DirectoryId parent, ulong size)
         {
@@ -1124,6 +1533,13 @@ version (unittest)
             return file;
         }
 
+        /** Return whether a fake file row satisfies all filter groups.
+         *
+         * Params:
+         *     file = Row to test.
+         *     filter = Source-neutral filters to apply.
+         * Returns: `true` when the row matches.
+         */
         private bool matches(CatalogFile file, CatalogFilter filter) const
         {
             if (filter.pathText.length > 0
@@ -1154,6 +1570,12 @@ version (unittest)
             return true;
         }
 
+        /** Return query matches in the requested stable sort order.
+         *
+         * Params:
+         *     query = Directory scope, filters, and sort order.
+         * Returns: Matching file rows, including archive members when asked.
+         */
         private CatalogFile[] filteredFiles(CatalogFileQuery query) const
         {
             CatalogFile[] result;
@@ -1181,6 +1603,10 @@ version (unittest)
             return result;
         }
 
+        /** Build the source binding token embedded in issued cursors.
+         *
+         * Returns: A token encoding the instance and opened target.
+         */
         private string sourceToken() const
         {
             return instanceToken ~ "\0" ~ (cast(int) sourceTarget.mode).to!string ~ "\0"
@@ -1188,6 +1614,12 @@ version (unittest)
                 ~ "\0" ~ sourceTarget.filesystemRoot;
         }
 
+        /** Serialize filter flags into a stable cursor-binding token.
+         *
+         * Params:
+         *     filter = Filters to encode.
+         * Returns: A delimiter-joined token that changes with every flag.
+         */
         private string filterToken(CatalogFilter filter) const
         {
             return filter.pathText ~ "\0" ~ (filter.caseSensitive ? "1" : "0")
@@ -1199,6 +1631,12 @@ version (unittest)
                 ~ (filter.includeArchiveMembers ? "1" : "0");
         }
 
+        /** Build the single fake archive member row for a container.
+         *
+         * Params:
+         *     container = Archive reference that owns the member.
+         * Returns: A one-element array holding the member row.
+         */
         private CatalogFile[] archiveMembersFor(CatalogFile container) const
         {
             auto entryId = ArchiveEntryId(instanceToken ~ ":archive-entry-one");
@@ -1216,6 +1654,12 @@ version (unittest)
             return [member];
         }
 
+        /** Build the cursor query binding for a file query.
+         *
+         * Params:
+         *     query = Query whose directory, filter, and sort are encoded.
+         * Returns: A token bound to this fake source and query.
+         */
         private string fileQueryToken(CatalogFileQuery query) const
         {
             return sourceToken() ~ "\0file\0" ~ query.directoryId.token ~ "\0"
@@ -1223,12 +1667,28 @@ version (unittest)
                 ~ (cast(int) query.sortOrder).to!string;
         }
 
+        /** Build the cursor query binding for a directory query.
+         *
+         * Params:
+         *     query = Query whose parent and filter are encoded.
+         * Returns: A token bound to this fake source and query.
+         */
         private string directoryQueryToken(CatalogDirectoryQuery query) const
         {
             return sourceToken() ~ "\0directory\0" ~ query.parentId.token
                 ~ "\0" ~ filterToken(query.filter);
         }
 
+        /** Load one file page and its continuation cursors from the fake data.
+         *
+         * Params:
+         *     query = Directory scope, filters, and sort order.
+         *     page = Requested limit and optional continuation cursor.
+         * Returns: The detached page with forward/backward cursors.
+         * Throws: `CatalogBackendException` with `unsupportedFeature`,
+         *     `invalidCursor` for a zero limit, or a cursor bound to another
+         *     source/query/page size.
+         */
         private CatalogFilePage filePage(CatalogFileQuery query,
             CatalogPageRequest page)
         {
@@ -1269,6 +1729,15 @@ version (unittest)
             return result;
         }
 
+        /** Collapse fake file rows into deduplicated content rows.
+         *
+         * Params:
+         *     query = Content filters; matching references select a row.
+         *     page = Requested limit and optional continuation cursor.
+         * Returns: The bounded content page with continuation state.
+         * Throws: `CatalogBackendException` with `unsupportedFeature` or
+         *     `invalidCursor`.
+         */
         override CatalogContentPage listContents(CatalogContentQuery query,
             CatalogPageRequest page = CatalogPageRequest.init)
         {
@@ -1368,8 +1837,17 @@ version (unittest)
             return result;
         }
 
+        /// Stored archive passwords keyed by reference path.
         private string[string] archivePasswords;
 
+        /** Store or clear a fake archive password by reference path.
+         *
+         * Params:
+         *     relativePath = Exact path or unique basename of the reference.
+         *     password = Password to store; empty clears the stored value.
+         * Throws: `CatalogBackendException` with `closed`, `invalidIdentifier`
+         *     for an unknown or ambiguous path.
+         */
         override void setArchivePassword(string relativePath, string password)
         {
             requireOpen();
@@ -1396,6 +1874,11 @@ version (unittest)
                 archivePasswords[files[matches[0]].relativePath] = password;
         }
 
+        /** Reject the document view; the fake is a transactional store.
+         *
+         * Returns: Never returns; this fake always throws.
+         * Throws: `CatalogBackendException` with `unsupportedFeature`.
+         */
         override CatalogDocument document()
         {
             throw new CatalogBackendException(
@@ -1403,12 +1886,22 @@ version (unittest)
                 "The contract fake has no in-memory document view.");
         }
 
+        /** Return the target this fake was opened with.
+         *
+         * Returns: The stored operation target.
+         * Throws: `CatalogBackendException` with `closed`.
+         */
         override OperationTarget target()
         {
             requireOpen();
             return sourceTarget;
         }
 
+        /** Return the fake source label and storage mode.
+         *
+         * Returns: Storage mode from the target and a display label.
+         * Throws: `CatalogBackendException` with `closed`.
+         */
         override CatalogSourceInfo sourceInfo()
         {
             requireOpen();
@@ -1419,6 +1912,11 @@ version (unittest)
             return result;
         }
 
+        /** Return minimal repository-style metadata for the fake source.
+         *
+         * Returns: A synthetic repository root and schema version.
+         * Throws: `CatalogBackendException` with `closed`.
+         */
         override RepositoryInfo repositoryInfo()
         {
             requireOpen();
@@ -1429,6 +1927,12 @@ version (unittest)
             return result;
         }
 
+        /** Return the capabilities advertised by the fake backend.
+         *
+         * Returns: Tree-query, export, archive, and torrent features for the
+         *     fixed data set.
+         * Throws: `CatalogBackendException` with `closed`.
+         */
         override CatalogBackendCapabilities capabilities()
         {
             requireOpen();
@@ -1448,6 +1952,14 @@ version (unittest)
             return result;
         }
 
+        /** Aggregate fake root rows under the given filter.
+         *
+         * Params:
+         *     filter = Source-neutral filters; archive members may be included.
+         * Returns: Directory, reference, and aggregate-size totals.
+         * Throws: `CatalogBackendException` with `unsupportedFeature` or
+         *     `closed`.
+         */
         override CatalogRootSummary rootSummary(CatalogFilter filter = CatalogFilter.init)
         {
             requireTreeQueries();
@@ -1471,6 +1983,15 @@ version (unittest)
             return result;
         }
 
+        /** Page through the fixed fake directory rows.
+         *
+         * Params:
+         *     query = Parent directory whose immediate children are requested.
+         *     page = Requested limit and optional continuation cursor.
+         * Returns: The bounded directory page with continuation state.
+         * Throws: `CatalogBackendException` with `unsupportedFeature` or
+         *     `invalidCursor`.
+         */
         override CatalogDirectoryPage listDirectories(CatalogDirectoryQuery query,
             CatalogPageRequest page = CatalogPageRequest.init)
         {
@@ -1514,24 +2035,62 @@ version (unittest)
             return result;
         }
 
+        /** Page through fake file references from the first page.
+         *
+         * Params:
+         *     query = Directory scope, filters, and sort order.
+         *     page = Requested limit and optional continuation cursor.
+         * Returns: The requested file page.
+         * Throws: `CatalogBackendException` with `unsupportedFeature` or
+         *     `invalidCursor`.
+         */
         override CatalogFilePage listFiles(CatalogFileQuery query,
             CatalogPageRequest page = CatalogPageRequest.init)
         {
             return filePage(query, page);
         }
 
+        /** Continue forward from a fake file cursor.
+         *
+         * Params:
+         *     query = Directory scope, filters, and sort order.
+         *     cursor = Cursor returned by this fake for the same query.
+         * Returns: The next file page.
+         * Throws: `CatalogBackendException` with `unsupportedFeature` or
+         *     `invalidCursor`.
+         */
         override CatalogFilePage nextFilesPage(CatalogFileQuery query,
             CatalogPageCursor cursor)
         {
             return filePage(query, CatalogPageRequest(cursor.pageSize, cursor));
         }
 
+        /** Return the fake page before a file cursor.
+         *
+         * Params:
+         *     query = Directory scope, filters, and sort order.
+         *     cursor = Cursor returned by this fake for the same query.
+         * Returns: The preceding file page in display order.
+         * Throws: `CatalogBackendException` with `unsupportedFeature` or
+         *     `invalidCursor`.
+         */
         override CatalogFilePage previousFilesPage(CatalogFileQuery query,
             CatalogPageCursor cursor)
         {
             return filePage(query, CatalogPageRequest(cursor.pageSize, cursor));
         }
 
+        /** Load a fake page adjacent to an anchor file path.
+         *
+         * Params:
+         *     query = Directory scope, filters, and sort order.
+         *     anchorRelativePath = Anchor path; empty starts at the first file.
+         *     forward = Select rows after the anchor instead of before it.
+         *     limit = Maximum rows to return; must be greater than zero.
+         * Returns: The adjacent page, or an empty page for an unknown anchor.
+         * Throws: `CatalogBackendException` with `unsupportedFeature` or
+         *     `invalidCursor` for a zero limit.
+         */
         override CatalogFilePage listFilesFrom(CatalogFileQuery query,
             string anchorRelativePath, bool forward, size_t limit = 250)
         {
@@ -1581,6 +2140,14 @@ version (unittest)
             return result;
         }
 
+        /** Load a fake content snapshot for one of the two known contents.
+         *
+         * Params:
+         *     contentId = Content identity issued by this fake.
+         *     details = Detail families to include in the snapshot.
+         * Returns: The requested content snapshot.
+         * Throws: `CatalogBackendException` with `closed` or `invalidIdentifier`.
+         */
         override CatalogContentSnapshot loadContent(ContentId contentId,
             CatalogDetailMask details = CatalogDetailMask.init)
         {
@@ -1609,6 +2176,14 @@ version (unittest)
             return result;
         }
 
+        /** Page through fake archive entries for the archive content.
+         *
+         * Params:
+         *     contentId = Content identity; only the archive content is accepted.
+         *     page = Requested limit and optional continuation cursor.
+         * Returns: One entry on the first page, otherwise an empty page.
+         * Throws: `CatalogBackendException` with `closed` or `invalidIdentifier`.
+         */
         override CatalogArchiveEntryPage listArchiveEntries(ContentId contentId,
             CatalogPageRequest page = CatalogPageRequest.init)
         {
@@ -1629,6 +2204,15 @@ version (unittest)
             return result;
         }
 
+        /** Return fake member references for an archive container.
+         *
+         * Params:
+         *     containerReferenceId = Reference identity of an archive container.
+         *     page = Requested limit and optional continuation cursor.
+         * Returns: One member on the first page, otherwise an empty page.
+         * Throws: `CatalogBackendException` with `unsupportedFeature`,
+         *     `invalidIdentifier`, or `invalidCursor`.
+         */
         override CatalogArchiveMemberPage listArchiveMembers(
             ReferenceId containerReferenceId, CatalogPageRequest page = CatalogPageRequest.init)
         {
@@ -1680,6 +2264,14 @@ version (unittest)
             return result;
         }
 
+        /** Return fake torrent manifest rows for the torrent content.
+         *
+         * Params:
+         *     contentId = Content identity; only the torrent content is accepted.
+         *     page = Requested limit and optional continuation cursor.
+         * Returns: One manifest entry on the first page.
+         * Throws: `CatalogBackendException` with `closed` or `invalidIdentifier`.
+         */
         override CatalogTorrentEntryPage listTorrentEntries(ContentId contentId,
             CatalogPageRequest page = CatalogPageRequest.init)
         {
@@ -1694,6 +2286,14 @@ version (unittest)
             return result;
         }
 
+        /** Resolve a fake directory path to its identity.
+         *
+         * Params:
+         *     relativePath = Normalized path; empty or "." denotes the root.
+         * Returns: The matching identity, or an invalid ID when unresolved.
+         * Throws: `CatalogBackendException` with `unsupportedFeature` or
+         *     `closed`.
+         */
         override DirectoryId resolveDirectory(string relativePath)
         {
             requireTreeQueries();
@@ -1705,6 +2305,15 @@ version (unittest)
             return DirectoryId.init;
         }
 
+        /** Resolve a fake file or archive-member path to its identity.
+         *
+         * Params:
+         *     relativePath = Normalized reference path, including virtual
+         *         member paths.
+         * Returns: The matching identity, or an invalid ID when unresolved.
+         * Throws: `CatalogBackendException` with `unsupportedFeature` or
+         *     `closed`.
+         */
         override ReferenceId resolveReference(string relativePath)
         {
             requireTreeQueries();
@@ -1719,6 +2328,14 @@ version (unittest)
             return ReferenceId.init;
         }
 
+        /** Load a fake file or archive-member reference row.
+         *
+         * Params:
+         *     referenceId = Reference identity issued by this fake.
+         * Returns: The matching detached reference row.
+         * Throws: `CatalogBackendException` with `unsupportedFeature`,
+         *     `closed`, or `invalidIdentifier` for an unknown identity.
+         */
         override CatalogFile loadReference(ReferenceId referenceId)
         {
             requireTreeQueries();
@@ -1735,6 +2352,14 @@ version (unittest)
                 "Unknown reference identity.");
         }
 
+        /** Reject member extraction; the fake has no physical content.
+         *
+         * Params:
+         *     memberReferenceId = Identity whose content is requested.
+         *     cancellation = Optional cooperative cancellation flag.
+         * Returns: Never returns; this fake always throws.
+         * Throws: `CatalogBackendException` with `unsupportedFeature`.
+         */
         override MemberContentLease acquireMemberContent(
             ReferenceId memberReferenceId, shared(bool)* cancellation = null)
         {
@@ -1744,6 +2369,13 @@ version (unittest)
                 "The in-memory contract test backend cannot extract members.");
         }
 
+        /** Return one synthetic repository blob page.
+         *
+         * Params:
+         *     options = Query options; `limit` must be greater than zero.
+         * Returns: A page with one blob and its flags.
+         * Throws: `Exception` when `options.limit` is not positive.
+         */
         override RepositoryBlobPage queryBlobs(RepositoryQueryOptions options)
         {
             enforce(options.limit > 0);
@@ -1756,12 +2388,28 @@ version (unittest)
             return result;
         }
 
+        /** Return one synthetic duplicate group.
+         *
+         * Params:
+         *     limit = Maximum groups requested; must be greater than zero.
+         * Returns: A single group with a fixed size and blob list.
+         * Throws: `Exception` when `limit` is zero.
+         */
         override RepositoryDuplicateGroup[] queryDuplicateGroups(size_t limit = 100)
         {
             enforce(limit > 0);
             return [RepositoryDuplicateGroup(10, [1])];
         }
 
+        /** Acknowledge a fake subset export request.
+         *
+         * Params:
+         *     query = Selected path prefix and filters.
+         *     options = Output format and destination details.
+         *     control = Unused cooperative control handle.
+         *     operationId = Unused operation identifier.
+         * Returns: The counted export result from `exportSubset`.
+         */
         override CatalogExportResult exportSubsetControlled(CatalogSubsetQuery query,
             CatalogExportOptions options, OperationControl control,
             ulong operationId)
@@ -1769,6 +2417,15 @@ version (unittest)
             return exportSubset(query, options);
         }
 
+        /** Count fake subset matches without writing an output file.
+         *
+         * Params:
+         *     query = Selected path prefix and filters.
+         *     options = Output options; `outputPath` must not be empty.
+         * Returns: Counts for the matching references and contents.
+         * Throws: `CatalogBackendException` with `closed`,
+         *     `unsupportedFeature`, or `invalidTarget`.
+         */
         override CatalogExportResult exportSubset(CatalogSubsetQuery query,
             CatalogExportOptions options)
         {
@@ -1799,6 +2456,14 @@ version (unittest)
             return result;
         }
 
+        /** Accept and ignore a JSON import request.
+         *
+         * Params:
+         *     jsonPath = Source path; must not be empty (asserted).
+         *     options = Import options, intentionally unused.
+         * Throws: `CatalogBackendException` with `closed`; `AssertError` for an
+         *     empty path.
+         */
         override void importJson(string jsonPath, JsonImportOptions options = JsonImportOptions.init)
         {
             requireOpen();
@@ -1806,6 +2471,17 @@ version (unittest)
             cast(void) options;
         }
 
+        /** Delegate a controlled JSON import to `importJson`.
+         *
+         * Params:
+         *     jsonPath = Source path forwarded to `importJson`.
+         *     options = Import options forwarded to `importJson`.
+         *     control = Unused cooperative control handle.
+         *     operationId = Unused operation identifier.
+         * Returns: Always `true`; the fake cannot be cancelled.
+         * Throws: `CatalogBackendException` with `closed`; `AssertError` for an
+         *     empty path.
+         */
         override bool importJsonControlled(string jsonPath,
             JsonImportOptions options, OperationControl control,
             ulong operationId)
@@ -1814,6 +2490,15 @@ version (unittest)
             return true;
         }
 
+        /** Return a completed fake scan result for a matching target.
+         *
+         * Params:
+         *     request = Scan request; its target must match this fake.
+         *     control = Unused operation control handle.
+         * Returns: A completed result reporting all fake files as added.
+         * Throws: `CatalogBackendException` with `closed`, `invalidTarget`, or
+         *     `unsupportedOperation`.
+         */
         override OperationResult runOperation(ScanOperationRequest request,
             OperationControl control)
         {
@@ -1829,6 +2514,15 @@ version (unittest)
             return result;
         }
 
+        /** Return a completed fake metadata result for a matching target.
+         *
+         * Params:
+         *     request = Metadata request; its target must match this fake.
+         *     control = Unused operation control handle.
+         * Returns: A completed result without summary changes.
+         * Throws: `CatalogBackendException` with `closed`, `invalidTarget`, or
+         *     `unsupportedOperation`.
+         */
         override OperationResult runOperation(MetadataOperationRequest request,
             OperationControl control)
         {
@@ -1841,6 +2535,15 @@ version (unittest)
             return result;
         }
 
+        /** Return a completed fake analysis result for a matching target.
+         *
+         * Params:
+         *     request = Analysis request; its target must match this fake.
+         *     control = Unused operation control handle.
+         * Returns: A completed result that reports committed changes.
+         * Throws: `CatalogBackendException` with `closed`, `invalidTarget`, or
+         *     `unsupportedOperation`.
+         */
         override OperationResult runOperation(AnalysisOperationRequest request,
             OperationControl control)
         {
@@ -1854,11 +2557,18 @@ version (unittest)
             return result;
         }
 
+        /// Mark this fake backend closed; repeated calls have no effect.
         override void close()
         {
             closed = true;
         }
 
+        /** Reject operations not advertised by `capabilities`.
+         *
+         * Params:
+         *     operation = Operation kind to check.
+         * Throws: `CatalogBackendException` with `unsupportedOperation`.
+         */
         private void requireSupported(OperationKind operation)
         {
             if (!capabilities().supports(operation))
@@ -1868,8 +2578,18 @@ version (unittest)
         }
     }
 
+    /** Factory that opens `FakeCatalogBackend` instances for valid targets. */
     private class FakeCatalogBackendFactory : CatalogBackendFactory
     {
+        /** Validate and open a fake backend for the requested target.
+         *
+         * Params:
+         *     target = Repository or JSON target; the relevant root/path must
+         *         not be empty.
+         * Returns: A new fake backend bound to `target`.
+         * Throws: `CatalogBackendException` with `invalidTarget` for an empty
+         *     repository root or catalog path.
+         */
         override CatalogBackend open(OperationTarget target)
         {
             final switch (target.mode)

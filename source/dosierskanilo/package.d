@@ -30,5 +30,8 @@ public import dosierskanilo.service.scanning;
 public import dosierskanilo.service.storageio;
 public import dosierskanilo.sqlitecatalogbackend;
 
-/* Legacy name */
+/** Legacy alias kept for source compatibility.
+ *
+ * Prefer `NamedBinaryBlobCatalog` in new code.
+ */
 alias NamedBinaryBlobWrapper = NamedBinaryBlobCatalog;

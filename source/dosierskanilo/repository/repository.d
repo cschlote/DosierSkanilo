@@ -48,10 +48,14 @@ import dosierskanilo.repository.types;
 class Repository
 {
 private:
+    /// Open SQLite connection owned by this handle.
     Database database;
+    /// Paths derived from the repository root.
     RepositoryPaths repositoryPaths;
+    /// Whether this handle is still open and usable.
     bool openState;
 
+    /** Construct a handle from an already opened database and its paths. */
     this(Database database, RepositoryPaths repositoryPaths)
     {
         this.database = database;
@@ -59,6 +63,17 @@ private:
         this.openState = true;
     }
 
+    /** Open an existing repository at `rootPath`.
+     *
+     * Enables the requested SQLite settings, migrates the schema, and ensures
+     * the singleton repository row exists.
+     *
+     * Params:
+     *     rootPath = Repository root containing the metadata directory.
+     *     options = Database and schema options.
+     * Returns: An open repository handle.
+     * Throws: `RepositoryException` when the path is not a repository.
+     */
     static Repository openRoot(string rootPath, RepositoryOptions options)
     {
         auto paths = RepositoryPaths.fromRoot(rootPath);
@@ -85,6 +100,15 @@ private:
         }
     }
 
+    /** Apply the SQLite connection settings used by repository handles.
+     *
+     * Enables foreign keys, sets a busy timeout, optionally switches to WAL
+     * journaling, and selects normal synchronous mode.
+     *
+     * Params:
+     *     db = Open database connection to configure.
+     *     options = Repository options controlling WAL mode.
+     */
     static void configure(ref Database db, RepositoryOptions options)
     {
         db.execute("PRAGMA foreign_keys = ON");
@@ -107,11 +131,24 @@ private:
         db.execute("PRAGMA synchronous = NORMAL");
     }
 
+    /** Return the current time for repository database columns.
+     *
+     * Returns: Timestamp in ISO extended string form.
+     */
     static string currentTimestamp()
     {
         return Clock.currTime.toISOExtString;
     }
 
+    /** Ensure the singleton repository row exists and records `rootPath`.
+     *
+     * A differing stored root is replaced with `rootPath`; the update is
+     * best-effort so read-only databases keep their old value.
+     *
+     * Params:
+     *     db = Open repository database.
+     *     rootPath = Root path to store for this repository.
+     */
     static void ensureRepositoryRow(ref Database db, string rootPath)
     {
         auto result = db.execute("SELECT root_path FROM repository WHERE id = 1");
@@ -142,6 +179,7 @@ private:
             cast(long) currentRepositorySchemaVersion, now, now);
     }
 
+    /** Throw when this handle has been closed. */
     void requireOpen() const
     {
         if (!openState)
@@ -175,7 +213,16 @@ public:
         return openRoot(rootPath, options);
     }
 
-    /** Open the repository containing `startPath`. */
+    /** Open the repository containing `startPath`.
+     *
+     * Params:
+     *     startPath = Directory or file path used to locate the nearest
+     *         repository root.
+     *     options = Database and schema options.
+     * Returns: An open repository handle.
+     * Throws: `RepositoryException` when no repository root is found or the
+     *     starting path does not exist.
+     */
     static Repository open(string startPath, RepositoryOptions options = RepositoryOptions())
     {
         auto rootPath = findRoot(startPath);
@@ -185,7 +232,14 @@ public:
         return openRoot(rootPath, options);
     }
 
-    /** Find the nearest repository root or return an empty string. */
+    /** Find the nearest repository root or return an empty string.
+     *
+     * Params:
+     *     startPath = Directory or file path to start searching from.
+     * Returns: The canonical repository root, or an empty string when no
+     *     `.dosierskanilo` directory exists on the path to the filesystem root.
+     * Throws: `RepositoryException` when `startPath` does not exist.
+     */
     static string findRoot(string startPath)
     {
         if (startPath.empty)
@@ -205,28 +259,42 @@ public:
         }
     }
 
-    /** Return the canonical repository root. */
+    /** Return the canonical repository root.
+     *
+     * Returns: Absolute path of the repository root.
+     */
     @property string rootPath()
     {
         requireOpen();
         return repositoryPaths.rootPath;
     }
 
-    /** Return the SQLite database path. */
+    /** Return the SQLite database path.
+     *
+     * Returns: Path of the repository's SQLite catalog file.
+     */
     @property string databasePath()
     {
         requireOpen();
         return repositoryPaths.databasePath;
     }
 
-    /** Return the structured repository operation log path. */
+    /** Return the structured repository operation log path.
+     *
+     * Returns: Path of the JSON-lines operation log.
+     */
     @property string logFilePath()
     {
         requireOpen();
         return repositoryPaths.logFilePath;
     }
 
-    /** Append one structured operation record to the repository log. */
+    /** Append one structured operation record to the repository log.
+     *
+     * Params:
+     *     eventName = Short event identifier stored in the `event` field.
+     *     message = Detail text stored in the `message` field.
+     */
     void appendLog(string eventName, string message)
     {
         requireOpen();
@@ -236,6 +304,12 @@ public:
             "\",\"message\":\"", escapeLogValue(message), "\"}");
     }
 
+    /** Write a consistent database snapshot to the backup directory.
+     *
+     * The backup name combines a second-resolution timestamp, the process ID,
+     * and a per-process serial so repeated backups do not collide. The created
+     * path is appended to the operation log.
+     */
     private void backupDatabase()
     {
         import core.atomic : atomicFetchAdd;
@@ -256,7 +330,12 @@ public:
         appendLog("repository.backup", backupPath);
     }
 
-    /** Return repository metadata. */
+    /** Return repository metadata.
+     *
+     * Returns: The repository's stored root, schema version, and timestamps.
+     * Throws: `RepositoryException` when the repository metadata row is
+     *     missing.
+     */
     RepositoryInfo info()
     {
         requireOpen();
@@ -278,7 +357,12 @@ public:
                 ? "" : row.peek!(Nullable!string)(5).get);
     }
 
-    /** Replace the repository catalog with data from a JSON file. */
+    /** Replace the repository catalog with data from a JSON file.
+     *
+     * Params:
+     *     jsonFile = JSON catalog file to import.
+     *     options = Import behavior, including force and backup flags.
+     */
     void importJson(string jsonFile, JsonImportOptions options = JsonImportOptions())
     {
         importJsonControlled(jsonFile, options, null, 0);
@@ -287,8 +371,13 @@ public:
     /**
      * Replace the repository catalog with cooperative cancellation.
      *
-     * Returns `false` when cancelled before commit; the previous catalog is
-     * unchanged.
+     * Params:
+     *     jsonFile = JSON catalog file to import.
+     *     options = Import behavior, including force and backup flags.
+     *     control = Operation control for progress and cancellation, or null.
+     *     operationId = ID included in reported progress events.
+     * Returns: `true` when the import committed, or `false` when cancelled
+     *     before commit; the previous catalog is unchanged when cancelled.
      */
     bool importJsonControlled(string jsonFile, JsonImportOptions options,
         OperationControl control, ulong operationId)
@@ -314,13 +403,26 @@ public:
             jsonFile, options, control, operationId);
     }
 
-    /** Export repository data to a JSON file. */
+    /** Export repository data to a JSON file.
+     *
+     * Params:
+     *     jsonFile = Destination JSON catalog file.
+     *     options = Export formatting and selection options.
+     */
     void exportJson(string jsonFile, JsonExportOptions options = JsonExportOptions())
     {
         exportJsonControlled(jsonFile, options, null, 0);
     }
 
-    /** Export repository data with cooperative cancellation. */
+    /** Export repository data with cooperative cancellation.
+     *
+     * Params:
+     *     jsonFile = Destination JSON catalog file.
+     *     options = Export formatting and selection options.
+     *     control = Operation control for progress and cancellation, or null.
+     *     operationId = ID included in reported progress events.
+     * Returns: `true` when the export completed, or `false` when cancelled.
+     */
     bool exportJsonControlled(string jsonFile, JsonExportOptions options,
         OperationControl control, ulong operationId)
     {
@@ -335,14 +437,22 @@ public:
             jsonFile, options, control, operationId);
     }
 
-    /** Load repository blobs using the shared domain model for consumers. */
+    /** Load repository blobs using the shared domain model for consumers.
+     *
+     * Params:
+     *     options = Options controlling which related data is loaded.
+     * Returns: All catalog blobs; empty when the repository has no blobs.
+     */
     NamedBinaryBlob[] loadCatalog(JsonExportOptions options = JsonExportOptions())
     {
         requireOpen();
         return loadCatalogFromDatabase(database, repositoryPaths.rootPath, options);
     }
 
-    /** Return the number of blobs currently stored in the repository. */
+    /** Return the number of blobs currently stored in the repository.
+     *
+     * Returns: Total blob row count.
+     */
     size_t blobCount()
     {
         requireOpen();
@@ -350,7 +460,14 @@ public:
             "SELECT count(*) FROM blobs").oneValue!long;
     }
 
-    /** Load a bounded page of repository blobs for UI consumers. */
+    /** Load a bounded page of repository blobs for UI consumers.
+     *
+     * Params:
+     *     offset = Number of blobs to skip, ordered by blob ID.
+     *     limit = Maximum number of blobs to return; must be greater than zero.
+     *     options = Options controlling which related data is loaded.
+     * Returns: The requested page of blobs.
+     */
     NamedBinaryBlob[] loadCatalogPage(size_t offset, size_t limit = 100,
         JsonExportOptions options = JsonExportOptions())
     {
@@ -360,7 +477,13 @@ public:
             offset, limit, options);
     }
 
-    /** Load a bounded page using repository-side filters. */
+    /** Load a bounded page using repository-side filters.
+     *
+     * Params:
+     *     options = Filters, ordering, and page size for the query.
+     *     exportOptions = Options controlling which related data is loaded.
+     * Returns: Matching blobs for the requested page.
+     */
     NamedBinaryBlob[] loadCatalogQueryPage(RepositoryQueryOptions options,
         JsonExportOptions exportOptions = JsonExportOptions())
     {
@@ -371,7 +494,13 @@ public:
             options, exportOptions);
     }
 
-    /** Load a bounded filtered page while retaining stable blob IDs. */
+    /** Load a bounded filtered page while retaining stable blob IDs.
+     *
+     * Params:
+     *     options = Filters, ordering, and page size for the query.
+     *     exportOptions = Options controlling which related data is loaded.
+     * Returns: The matching page with stable blob IDs and the total match count.
+     */
     RepositoryBlobPage loadCatalogQueryPageWithIds(RepositoryQueryOptions options,
         JsonExportOptions exportOptions = JsonExportOptions())
     {
@@ -384,7 +513,13 @@ public:
         return page;
     }
 
-    /** Iterate the filtered catalog by stable blob ID using internal chunks. */
+    /** Iterate the filtered catalog by stable blob ID using internal chunks.
+     *
+     * Params:
+     *     options = Filters, ordering, and chunk size for the query.
+     *     exportOptions = Options controlling which related data is loaded.
+     * Returns: One cursor page with stable blob IDs and the total match count.
+     */
     RepositoryBlobPage loadCatalogQueryCursorPage(RepositoryQueryOptions options,
         JsonExportOptions exportOptions = JsonExportOptions())
     {
@@ -398,14 +533,26 @@ public:
         return page;
     }
 
-    /** Load only the size and digests of one blob by stable repository ID. */
+    /** Load only the size and digests of one blob by stable repository ID.
+     *
+     * Params:
+     *     blobId = Stable repository ID of the blob.
+     * Returns: A blob populated with size and checksums only, or `null` when
+     *     the ID does not exist.
+     */
     NamedBinaryBlob loadBlobFingerprint(long blobId)
     {
         requireOpen();
         return loadBlobFingerprintFromDatabase(database, blobId);
     }
 
-    /** Load one blob and its related details by stable repository ID. */
+    /** Load one blob and its related details by stable repository ID.
+     *
+     * Params:
+     *     blobId = Stable repository ID of the blob.
+     *     options = Options controlling which related data is loaded.
+     * Returns: The detailed blob, or `null` when the ID does not exist.
+     */
     NamedBinaryBlob loadBlobDetails(long blobId,
         JsonExportOptions options = JsonExportOptions())
     {
@@ -414,7 +561,13 @@ public:
             blobId, options);
     }
 
-    /** Set or remove the password associated with a blob identity. */
+    /** Set or remove the password associated with a blob identity.
+     *
+     * Params:
+     *     blobId = Stable repository ID of the blob.
+     *     password = Password to store, or an empty string to remove it.
+     * Throws: `RepositoryException` when the blob ID is unknown.
+     */
     void setArchivePasswordForBlob(long blobId, string password)
     {
         requireOpen();
@@ -425,6 +578,15 @@ public:
         setArchivePasswordForBlobUnleased(blobId, password);
     }
 
+    /** Set or remove a blob password without acquiring the write lease.
+     *
+     * The caller must already hold the repository write lease.
+     *
+     * Params:
+     *     blobId = Stable repository ID of the blob.
+     *     password = Password to store, or an empty string to remove it.
+     * Throws: `RepositoryException` when the blob ID is unknown.
+     */
     private void setArchivePasswordForBlobUnleased(long blobId, string password)
     {
         if (database.execute("SELECT 1 FROM blobs WHERE id = ?", blobId).empty)
@@ -454,7 +616,14 @@ public:
         }
     }
 
-    /** Resolve a repository filename to its blob and set or remove its password. */
+    /** Resolve a repository filename to its blob and set or remove its password.
+     *
+     * Params:
+     *     fileName = Absolute or repository-relative file name to resolve.
+     *     password = Password to store, or an empty string to remove it.
+     * Throws: `RepositoryException` when no matching file exists or the name
+     *     matches more than one blob.
+     */
     void setArchivePasswordForPath(string fileName, string password)
     {
         requireOpen();
@@ -480,14 +649,25 @@ public:
         setArchivePasswordForBlobUnleased(matches[0], password);
     }
 
-    /** Count blobs matching repository-side query filters. */
+    /** Count blobs matching repository-side query filters.
+     *
+     * Params:
+     *     options = Filters to apply to the blob count.
+     * Returns: Number of matching blobs.
+     */
     size_t countCatalogQuery(RepositoryQueryOptions options)
     {
         requireOpen();
         return cast(size_t) countCatalogQueryFromDatabase(database, options);
     }
 
-    /** List immediate child directories using bounded SQL queries. */
+    /** List immediate child directories using bounded SQL queries.
+     *
+     * Params:
+     *     options = Parent selection and page size; `limit` must be greater
+     *         than zero.
+     * Returns: Child directories for the requested page.
+     */
     RepositoryDirectory[] listDirectories(RepositoryDirectoryQuery options = RepositoryDirectoryQuery())
     {
         requireOpen();
@@ -495,21 +675,34 @@ public:
         return listDirectoriesFromDatabase(database, options);
     }
 
-    /** Return bounded aggregate values for the repository's root node. */
+    /** Return bounded aggregate values for the repository's root node.
+     *
+     * Returns: Aggregate directory and file values for the root node.
+     */
     RepositoryRootSummary rootSummary()
     {
         requireOpen();
         return loadRootSummaryFromDatabase(database);
     }
 
-    /** Count all non-virtual file references in one SQL query. */
+    /** Count all non-virtual file references in one SQL query.
+     *
+     * Returns: Number of file references that are not archive or torrent
+     *     members.
+     */
     size_t physicalFileReferenceCount()
     {
         requireOpen();
         return countPhysicalFileReferences(database);
     }
 
-    /** List immediate file references using bounded SQL queries. */
+    /** List immediate file references using bounded SQL queries.
+     *
+     * Params:
+     *     options = Parent selection and page size; `limit` must be greater
+     *         than zero.
+     * Returns: File references for the requested page.
+     */
     RepositoryFile[] listFiles(RepositoryFileQuery options = RepositoryFileQuery())
     {
         requireOpen();
@@ -517,7 +710,13 @@ public:
         return listFilesFromDatabase(database, options);
     }
 
-    /** List one keyset-paged file chunk without exposing SQL pagination details. */
+    /** List one keyset-paged file chunk without exposing SQL pagination details.
+     *
+     * Params:
+     *     options = Filters, ordering, and page size; `limit` must be greater
+     *         than zero.
+     * Returns: One page with cursor data for forward and backward navigation.
+     */
     RepositoryFilePage listFilesPage(RepositoryFileQuery options = RepositoryFileQuery())
     {
         requireOpen();
@@ -525,14 +724,24 @@ public:
         return listFilesPageFromDatabase(database, options);
     }
 
-    /** Load one physical file reference by its stable repository ID. */
+    /** Load one physical file reference by its stable repository ID.
+     *
+     * Params:
+     *     fileReferenceId = Stable ID of the file reference.
+     * Returns: The file reference, or `RepositoryFile.init` when no row exists.
+     */
     RepositoryFile fileReference(long fileReferenceId)
     {
         requireOpen();
         return loadFileReferenceFromDatabase(database, fileReferenceId);
     }
 
-    /** Load one file reference by its exact repository-relative path. */
+    /** Load one file reference by its exact repository-relative path.
+     *
+     * Params:
+     *     relativePath = Exact stored relative path to look up.
+     * Returns: The file reference, or `RepositoryFile.init` when not found.
+     */
     RepositoryFile fileReferenceByRelativePath(string relativePath)
     {
         requireOpen();
@@ -543,7 +752,12 @@ public:
         return loadFileReferenceFromDatabase(database, rows.front.peek!long(0));
     }
 
-    /** Return the directory ID at an exact repository-relative path, or zero. */
+    /** Return the directory ID at an exact repository-relative path, or zero.
+     *
+     * Params:
+     *     relativePath = Exact stored relative directory path to look up.
+     * Returns: The directory row ID, or zero when no row exists.
+     */
     long directoryIdByRelativePath(string relativePath)
     {
         requireOpen();
@@ -552,7 +766,13 @@ public:
         return rows.empty ? 0 : rows.front.peek!long(0);
     }
 
-    /** Continue forward from a stable file cursor in the query's sorted result. */
+    /** Continue forward from a stable file cursor in the query's sorted result.
+     *
+     * Params:
+     *     options = Filters, ordering, and page size.
+     *     cursor = Cursor returned by a previous page.
+     * Returns: The next page in sorted order.
+     */
     RepositoryFilePage nextFilesPage(RepositoryFileQuery options,
         RepositoryFileCursor cursor)
     {
@@ -563,7 +783,13 @@ public:
         return listFilesPage(options);
     }
 
-    /** Continue backward from a stable file cursor, returning rows in display order. */
+    /** Continue backward from a stable file cursor, returning rows in display order.
+     *
+     * Params:
+     *     options = Filters, ordering, and page size.
+     *     cursor = Cursor returned by a previous page.
+     * Returns: The previous page, with rows in display order.
+     */
     RepositoryFilePage previousFilesPage(RepositoryFileQuery options,
         RepositoryFileCursor cursor)
     {
@@ -574,7 +800,13 @@ public:
         return listFilesPage(options);
     }
 
-    /** List archive entries for one blob using bounded SQL queries. */
+    /** List archive entries for one blob using bounded SQL queries.
+     *
+     * Params:
+     *     options = Container blob selection and page size; `limit` must be
+     *         greater than zero.
+     * Returns: Archive entries matching the query.
+     */
     RepositoryArchiveEntry[] listArchiveEntries(RepositoryArchiveQuery options)
     {
         requireOpen();
@@ -582,14 +814,25 @@ public:
         return listArchiveEntriesFromDatabase(database, options);
     }
 
-    /** Load one archive index row by stable entry ID. */
+    /** Load one archive index row by stable entry ID.
+     *
+     * Params:
+     *     entryId = Stable file-reference ID of the archive entry.
+     * Returns: The archive entry, or `RepositoryArchiveEntry.init` when the
+     *     row is missing or is not an archive member.
+     */
     RepositoryArchiveEntry archiveEntry(long entryId)
     {
         requireOpen();
         return loadArchiveEntryFromDatabase(database, entryId);
     }
 
-    /** Whether a blob has an archive index, including a known empty index. */
+    /** Whether a blob has an archive index, including a known empty index.
+     *
+     * Params:
+     *     blobId = Stable repository ID of the container blob.
+     * Returns: `true` when an archive index completed for the blob.
+     */
     bool hasArchiveIndex(long blobId)
     {
         requireOpen();
@@ -598,7 +841,13 @@ public:
             blobId).empty;
     }
 
-    /** List torrent files for one blob using bounded SQL queries. */
+    /** List torrent files for one blob using bounded SQL queries.
+     *
+     * Params:
+     *     options = Torrent blob selection and page size; `limit` must be
+     *         greater than zero.
+     * Returns: Torrent file entries matching the query.
+     */
     RepositoryTorrentFile[] listTorrentFiles(RepositoryTorrentQuery options)
     {
         requireOpen();
@@ -606,14 +855,28 @@ public:
         return listTorrentFilesFromDatabase(database, options);
     }
 
-    /** Scan the repository root and update its filesystem references. */
+    /** Scan the repository root and update its filesystem references.
+     *
+     * Params:
+     *     options = Scan behavior and selection options.
+     * Returns: Counters collected during the scan.
+     */
     ScanSummary scan(RepositoryScanOptions options = RepositoryScanOptions())
     {
         requireOpen();
         return scanControlled(options, null, 0).summary;
     }
 
-    /** Run a staged scan with operation progress, cancellation, and safe pauses. */
+    /** Run a staged scan with operation progress, cancellation, and safe pauses.
+     *
+     * Params:
+     *     options = Scan behavior and selection options.
+     *     control = Operation control for progress and cancellation, or null.
+     *     operationId = ID included in reported progress events.
+     *     targetLease = Existing repository write lease, or null to acquire one.
+     * Returns: Scan counters plus cancellation and commit flags.
+     * Throws: `Exception` when a supplied lease belongs to another target.
+     */
     package(dosierskanilo) ScanExecutionResult scanControlled(RepositoryScanOptions options,
         OperationControl control, ulong operationId,
         TargetWriteLease targetLease = null)
@@ -633,7 +896,12 @@ public:
             options, control, operationId);
     }
 
-    /** Run selected metadata extraction jobs for stored file references. */
+    /** Run selected metadata extraction jobs for stored file references.
+     *
+     * Params:
+     *     options = Metadata jobs and worker settings.
+     * Returns: Counters collected during the metadata run.
+     */
     MetadataSummary updateMetadata(
         MetadataScanOptions options = MetadataScanOptions())
     {
@@ -641,7 +909,16 @@ public:
         return updateMetadataControlled(options, null, 0).summary;
     }
 
-    /** Run metadata extraction with worker draining, blob transactions, and control. */
+    /** Run metadata extraction with worker draining, blob transactions, and control.
+     *
+     * Params:
+     *     options = Metadata jobs and worker settings.
+     *     control = Operation control for progress and cancellation, or null.
+     *     operationId = ID included in reported progress events.
+     *     targetLease = Existing repository write lease, or null to acquire one.
+     * Returns: Metadata counters plus cancellation and commit flags.
+     * Throws: `Exception` when a supplied lease belongs to another target.
+     */
     package(dosierskanilo) MetadataExecutionResult updateMetadataControlled(MetadataScanOptions options,
         OperationControl control, ulong operationId,
         TargetWriteLease targetLease = null)
@@ -661,7 +938,12 @@ public:
             repositoryPaths.rootPath, options, control, operationId);
     }
 
-    /** Analyze missing references and duplicate blobs in SQL. */
+    /** Analyze missing references and duplicate blobs in SQL.
+     *
+     * Params:
+     *     options = Analysis behavior and cleanup options.
+     * Returns: Counters and results of the analysis.
+     */
     AnalysisSummary analyze(
         RepositoryAnalysisOptions options = RepositoryAnalysisOptions())
     {
@@ -669,7 +951,16 @@ public:
         return analyzeControlled(options, null, 0).summary;
     }
 
-    /** Analyze the repository with staged plans and cooperative run control. */
+    /** Analyze the repository with staged plans and cooperative run control.
+     *
+     * Params:
+     *     options = Analysis behavior and cleanup options.
+     *     control = Operation control for progress and cancellation, or null.
+     *     operationId = ID included in reported progress events.
+     *     targetLease = Existing repository write lease, or null to acquire one.
+     * Returns: Analysis counters plus cancellation and commit flags.
+     * Throws: `Exception` when a supplied lease belongs to another target.
+     */
     package(dosierskanilo) AnalysisExecutionResult analyzeControlled(RepositoryAnalysisOptions options,
         OperationControl control, ulong operationId,
         TargetWriteLease targetLease = null)
@@ -688,7 +979,12 @@ public:
         return analyzeRepositoryControlled(database, options, control, operationId);
     }
 
-    /** Return duplicate groups without changing repository data. */
+    /** Return duplicate groups without changing repository data.
+     *
+     * Params:
+     *     limit = Maximum number of duplicate groups; must be greater than zero.
+     * Returns: Duplicate blob groups in the order returned by the query.
+     */
     RepositoryDuplicateGroup[] queryDuplicates(size_t limit = 100)
     {
         requireOpen();
@@ -707,6 +1003,18 @@ public:
     }
 }
 
+/** Convert a repository filename to its stored, escaped relative path.
+ *
+ * Absolute paths must lie below `rootPath`. Relative paths are normalized
+ * relative to the repository root.
+ *
+ * Params:
+ *     fileName = File name to convert, absolute or repository-relative.
+ *     rootPath = Canonical repository root.
+ * Returns: Escaped storage path used by file references.
+ * Throws: `RepositoryException` when the path escapes the repository root or
+ *     is invalid.
+ */
 private string passwordRelativePath(string fileName, string rootPath)
 {
     auto normalized = nativePathToStoragePath(buildNormalizedPath(fileName));
@@ -726,6 +1034,15 @@ private string passwordRelativePath(string fileName, string rootPath)
     return escapeArchiveVirtualPath(normalized);
 }
 
+/** Resolve a path to an absolute, normalized directory.
+ *
+ * When `path` names an existing file, its parent directory is returned.
+ *
+ * Params:
+ *     path = Directory or file path to resolve.
+ * Returns: Absolute normalized directory path.
+ * Throws: `RepositoryException` when the path does not exist.
+ */
 private string canonicalDirectory(string path)
 {
     auto resolved = buildNormalizedPath(absolutePath(path));
@@ -736,6 +1053,12 @@ private string canonicalDirectory(string path)
     return resolved;
 }
 
+/** Escape a value for inclusion in a JSON log line.
+ *
+ * Params:
+ *     value = Raw text to escape.
+ * Returns: Text with backslashes, quotes, and control characters escaped.
+ */
 private string escapeLogValue(string value)
 {
     import std.string : replace;

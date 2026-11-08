@@ -23,7 +23,10 @@ void setVerboseOutputs(bool enabled) nothrow
 	verboseEnabled = enabled;
 }
 
-/** Return the current verbose-output state. */
+/** Return the current verbose-output state.
+ *
+ * Returns: `true` while verbose logging is enabled.
+ */
 bool isVerboseOutputs() nothrow
 {
 	return verboseEnabled;

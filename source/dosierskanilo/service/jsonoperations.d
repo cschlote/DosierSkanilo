@@ -80,7 +80,23 @@ struct JsonAnalysisApplication
     bool cancelled; ///< True when cooperative cancellation stopped the run.
 }
 
-/** Scan a filesystem into an already loaded catalog without writing it. */
+/** Scan a filesystem into an already loaded catalog without writing it.
+ *
+ * Stored paths are made absolute for the scan and normalized back to the scan
+ * root afterwards. Metadata extraction and optional duplicate merging update
+ * the catalog in place.
+ *
+ * Params:
+ *     catalog = Loaded catalog updated in place.
+ *     filesystemRoot = Root directory to scan and base for stored paths.
+ *     scanOptions = Filesystem traversal options.
+ *     metadataOptions = Metadata extraction options.
+ *     mergeDuplicates = Merge duplicate content after metadata extraction.
+ *     control = Optional operation control for progress and cancellation.
+ *     operationId = Identifier reported with progress events.
+ * Returns: The scan, metadata and analysis summaries plus the cancellation
+ *     state. On cancellation the catalog may already be partially updated.
+ */
 JsonScanApplication scanJsonCatalogInto(ref NamedBinaryBlobCatalog catalog,
     string filesystemRoot, RepositoryScanOptions scanOptions,
     MetadataScanOptions metadataOptions, bool mergeDuplicates,
@@ -115,7 +131,21 @@ JsonScanApplication scanJsonCatalogInto(ref NamedBinaryBlobCatalog catalog,
     return application;
 }
 
-/** Enrich an already loaded catalog with metadata and analysis, without writing. */
+/** Enrich an already loaded catalog with metadata and analysis, without writing.
+ *
+ * Stored paths are made absolute for the operation and normalized back to the
+ * scan root afterwards.
+ *
+ * Params:
+ *     catalog = Loaded catalog updated in place.
+ *     filesystemRoot = Base directory used to resolve stored paths.
+ *     metadataOptions = Metadata extraction options.
+ *     analysisOptions = Missing-file and duplicate analysis options.
+ *     control = Optional operation control for progress and cancellation.
+ *     operationId = Identifier reported with progress events.
+ * Returns: The metadata and analysis summaries plus the cancellation state. On
+ *     cancellation the catalog may already be partially updated.
+ */
 JsonAnalysisApplication analyzeJsonCatalogInto(ref NamedBinaryBlobCatalog catalog,
     string filesystemRoot, MetadataScanOptions metadataOptions,
     RepositoryAnalysisOptions analysisOptions, OperationControl control,
@@ -144,7 +174,23 @@ JsonAnalysisApplication analyzeJsonCatalogInto(ref NamedBinaryBlobCatalog catalo
     return application;
 }
 
-/** Load a JSON catalog, scan its filesystem root, and run selected extractors. */
+/** Load a JSON catalog, scan its filesystem root, and run selected extractors.
+ *
+ * Params:
+ *     catalogPath = Path of the JSON catalog to load.
+ *     filesystemRoot = Root directory to scan.
+ *     forceOverwrite = Replace an unreadable or format-incompatible catalog
+ *         with an empty one.
+ *     scanOptions = Filesystem traversal options.
+ *     metadataOptions = Metadata extraction options.
+ *     mergeDuplicates = Merge duplicate content after metadata extraction.
+ *     control = Optional operation control for progress and cancellation.
+ *     operationId = Identifier reported with progress events.
+ * Returns: The loaded and updated catalog together with the scan, metadata and
+ *     analysis summaries and the cancellation state.
+ * Throws: `Exception` for catalog read or parse failures that `forceOverwrite`
+ *     must not mask.
+ */
 JsonScanExecutionResult scanJsonCatalog(string catalogPath, string filesystemRoot,
     bool forceOverwrite, RepositoryScanOptions scanOptions,
     MetadataScanOptions metadataOptions, bool mergeDuplicates,
@@ -162,7 +208,26 @@ JsonScanExecutionResult scanJsonCatalog(string catalogPath, string filesystemRoo
     return execution;
 }
 
-/** Load and enrich a JSON catalog for an explicit JSON analysis operation. */
+/** Load and enrich a JSON catalog for an explicit JSON analysis operation.
+ *
+ * When `filesystemRoot` is empty, the catalog file's directory is used as the
+ * path base.
+ *
+ * Params:
+ *     catalogPath = Path of the JSON catalog to load.
+ *     filesystemRoot = Base directory for stored paths; empty selects the
+ *         catalog directory.
+ *     forceOverwrite = Replace an unreadable or format-incompatible catalog
+ *         with an empty one.
+ *     metadataOptions = Metadata extraction options.
+ *     analysisOptions = Missing-file and duplicate analysis options.
+ *     control = Optional operation control for progress and cancellation.
+ *     operationId = Identifier reported with progress events.
+ * Returns: The loaded and updated catalog together with the metadata and
+ *     analysis summaries and the cancellation state.
+ * Throws: `Exception` for catalog read or parse failures that `forceOverwrite`
+ *     must not mask.
+ */
 JsonAnalysisExecutionResult analyzeJsonCatalog(string catalogPath,
     string filesystemRoot, bool forceOverwrite, MetadataScanOptions metadataOptions,
     RepositoryAnalysisOptions analysisOptions, OperationControl control,
@@ -181,14 +246,35 @@ JsonAnalysisExecutionResult analyzeJsonCatalog(string catalogPath,
     return execution;
 }
 
-/** Persist a computed JSON catalog after the final safe cancellation checkpoint. */
+/** Persist a computed JSON catalog after the final safe cancellation checkpoint.
+ *
+ * Params:
+ *     catalogPath = Destination path of the JSON catalog.
+ *     catalog = Catalog data to serialize.
+ *     pretty = Pretty-print the JSON output when true.
+ * Returns: `true` when the canonical catalog file was written.
+ * Throws: `CatalogWriteException` when the write produced only a recovery
+ *     file or otherwise failed.
+ */
 bool commitJsonCatalog(string catalogPath, ref NamedBinaryBlobCatalog catalog,
     bool pretty = false)
 {
     return commitJsonCatalog(catalogPath, catalog, null, pretty);
 }
 
-/** Persist a JSON catalog while honoring cancellation during serialization. */
+/** Persist a JSON catalog while honoring cancellation during serialization.
+ *
+ * Params:
+ *     catalogPath = Destination path of the JSON catalog.
+ *     catalog = Catalog data to serialize.
+ *     cancelCheck = Predicate polled during serialization; returning `true`
+ *         requests cancellation.
+ *     pretty = Pretty-print the JSON output when true.
+ * Returns: `true` when the canonical catalog file was written; `false` when
+ *     cancellation prevented the write.
+ * Throws: `CatalogWriteException` when the write produced only a recovery
+ *     file or otherwise failed.
+ */
 bool commitJsonCatalog(string catalogPath, ref NamedBinaryBlobCatalog catalog,
     bool delegate() cancelCheck, bool pretty = false)
 {
@@ -205,6 +291,23 @@ bool commitJsonCatalog(string catalogPath, ref NamedBinaryBlobCatalog catalog,
     throw new CatalogWriteException(result);
 }
 
+/** Load a JSON catalog for a controlled operation.
+ *
+ * A missing catalog file, or a format-incompatible catalog when
+ * `forceOverwrite` is set, yields an empty version-5 catalog.
+ *
+ * Params:
+ *     catalogPath = Path of the JSON catalog to read.
+ *     forceOverwrite = Replace an unreadable or format-incompatible catalog
+ *         with an empty one instead of propagating the error.
+ *     control = Optional operation control used for progress and cancellation.
+ *     operation = Operation kind reported in progress events.
+ *     operationId = Identifier reported with progress events.
+ * Returns: The loaded catalog, or an empty version-5 catalog when the file is
+ *     absent or may be replaced.
+ * Throws: `Exception` for read or parse failures that `forceOverwrite` must
+ *     not mask.
+ */
 private NamedBinaryBlobCatalog loadJsonCatalog(string catalogPath,
     bool forceOverwrite, OperationControl control, OperationKind operation,
     ulong operationId)
@@ -235,7 +338,12 @@ private NamedBinaryBlobCatalog loadJsonCatalog(string catalogPath,
     }
 }
 
-/// Add all primary file paths of one blob to the scan lookup index.
+/** Add all primary file paths of one blob to the scan lookup index.
+ *
+ * Params:
+ *     byPath = Lookup map updated in place; existing keys are kept.
+ *     blob = Catalog record whose file paths are indexed; null is ignored.
+ */
 private void indexBlobPaths(ref NamedBinaryBlob[string] byPath,
     NamedBinaryBlob blob)
 {
@@ -247,6 +355,22 @@ private void indexBlobPaths(ref NamedBinaryBlob[string] byPath,
             byPath[spec.fileName] = blob;
 }
 
+/** Add or refresh filesystem entries in an in-memory catalog.
+ *
+ * Existing blobs are matched by stored path. A changed file is either split
+ * out of a merged blob into a fresh record or updated in place with its
+ * derived metadata cleared.
+ *
+ * Params:
+ *     root = Filesystem directory to scan.
+ *     options = Recursion and hidden-file selection options.
+ *     pathsUseV5Grammar = Store paths using the escaped v5 archive grammar.
+ *     blobs = Catalog blob array updated in place.
+ *     control = Optional operation control for progress and cancellation.
+ *     operationId = Identifier reported with progress events.
+ *     summary = Scan counters updated in place.
+ * Returns: `true` when the scan completed; `false` when it was cancelled.
+ */
 private bool scanJsonDirectory(string root, RepositoryScanOptions options,
     bool pathsUseV5Grammar, ref NamedBinaryBlob[] blobs,
     OperationControl control, ulong operationId, ref ScanSummary summary)
@@ -335,6 +459,14 @@ private bool scanJsonDirectory(string root, RepositoryScanOptions options,
     return !cancellationRequested(control);
 }
 
+/** Convert a stored path into a path relative to `root` in storage grammar.
+ *
+ * Params:
+ *     root = Base directory that bounds the result.
+ *     path = Stored path, either absolute or relative to `root`.
+ * Returns: The storage-form relative path, or an empty string when the path
+ *     equals the root or lies outside it.
+ */
 private string storedPathRelativeTo(string root, string path)
 {
     const auto base = buildNormalizedPath(absolutePath(root));
@@ -346,6 +478,18 @@ private string storedPathRelativeTo(string root, string path)
     return nativePathToStoragePath(full[prefix.length .. $]);
 }
 
+/** Rewrite catalog paths to absolute storage paths for an operation.
+ *
+ * References that cannot be parsed or that lie outside `root` are dropped, as
+ * are duplicate references within one blob. Blobs left without references are
+ * removed from the array.
+ *
+ * Params:
+ *     blobs = Catalog blob array rewritten in place.
+ *     root = Base directory used to resolve relative paths.
+ *     pathsUseV5Grammar = Emit escaped v5 archive grammar and preserve entry
+ *         layers carried by virtual paths.
+ */
 private void absolutizeJsonStoredPaths(ref NamedBinaryBlob[] blobs,
     string root, bool pathsUseV5Grammar)
 {
@@ -395,6 +539,18 @@ private void absolutizeJsonStoredPaths(ref NamedBinaryBlob[] blobs,
     blobs = kept;
 }
 
+/** Rewrite absolute catalog paths back to paths relative to the scan root.
+ *
+ * References that cannot be parsed or that lie outside `root` are dropped, as
+ * are duplicate references within one blob. Blobs left without references are
+ * removed from the array.
+ *
+ * Params:
+ *     blobs = Catalog blob array rewritten in place.
+ *     root = Base directory the relative paths are formed against.
+ *     pathsUseV5Grammar = Emit escaped v5 archive grammar and preserve entry
+ *         layers carried by virtual paths.
+ */
 package(dosierskanilo) void normalizeJsonCatalogPaths(ref NamedBinaryBlob[] blobs,
     string root, bool pathsUseV5Grammar)
 {
@@ -440,6 +596,12 @@ package(dosierskanilo) void normalizeJsonCatalogPaths(ref NamedBinaryBlob[] blob
     blobs = kept;
 }
 
+/** Clear all derived metadata after a file changed on disk.
+ *
+ * Params:
+ *     blob = Catalog record whose checksums, file type, media, archive and
+ *         torrent data are reset.
+ */
 private void clearJsonDerivedMetadata(NamedBinaryBlob blob)
 {
     blob.checkSums = CheckSums();
@@ -452,6 +614,14 @@ private void clearJsonDerivedMetadata(NamedBinaryBlob blob)
     blob.torrentInfo = null;
 }
 
+/** Test whether a path below `root` contains a dot-prefixed component.
+ *
+ * Params:
+ *     root = Base directory that defines the inspected path suffix.
+ *     path = Path to test.
+ * Returns: `true` when any component below `root` starts with a dot, or when
+ *     the path lies outside `root` and its base name is hidden.
+ */
 private bool hasHiddenPathComponent(string root, string path)
 {
     auto normalizedRoot = buildNormalizedPath(absolutePath(root));
@@ -715,25 +885,53 @@ unittest
     assert(loaded[0].fileSpecs[0].fileName.endsWith(fileName));
 }
 
+/** One unit of JSON metadata extraction queued for a worker.
+ *
+ * The item snapshots the selected job kinds so a worker does not need to
+ * re-evaluate catalog options, and records the first failure per job kind.
+ */
 private struct JsonMetadataWork
 {
+    /// Catalog record whose metadata is updated in place.
     NamedBinaryBlob blob;
+    /// Metadata extraction options captured when the job was prepared.
     MetadataScanOptions options;
+    /// Optional operation control used for progress and cancellation.
     OperationControl control;
+    /// Operation kind reported in progress events.
     OperationKind operation;
+    /// Identifier reported with progress events.
     ulong operationId;
+    /// Number of blobs finished before this item, reported as overall progress.
     ulong progressCompleted;
+    /// Total number of blobs in the batch, reported as overall progress.
     ulong progressTotal;
+    /// Optional shared cancellation flag mirrored from the operation control.
     shared(bool)* cancellationFlag;
+    /// True when checksums still need to be computed.
     bool doChecksums;
+    /// True when the file type still needs to be detected.
     bool doFileType;
+    /// True when media information still needs to be extracted.
     bool doMediaInfo;
+    /// True when archive contents still need to be indexed.
     bool doArchives;
+    /// True when torrent metadata still needs to be read.
     bool doTorrents;
     /** First per-job failure message; keyed by the job kind that failed. */
     string[string] errors;
 }
 
+/** Report metadata work progress unless the operation was cancelled.
+ *
+ * Params:
+ *     item = Work item supplying the blob path and overall progress counters.
+ *     phase = Operation phase reported for this job kind.
+ *     subtaskCompleted = Completed units within the current phase.
+ *     subtaskTotal = Total units within the current phase, when known.
+ *     subtaskTotalKnown = Whether `subtaskTotal` is meaningful.
+ *     subtaskUnit = Unit name for the subtask counters, such as "bytes".
+ */
 private void reportJsonMetadataWorkProgress(JsonMetadataWork item,
     OperationPhase phase, ulong subtaskCompleted = 0,
     ulong subtaskTotal = 0, bool subtaskTotalKnown = false,
@@ -758,6 +956,15 @@ private void reportJsonMetadataWorkProgress(JsonMetadataWork item,
     item.control.report(progress);
 }
 
+/** Run one metadata job and record ordinary failures on the work item.
+ *
+ * Params:
+ *     item = Work item that receives the failure message under `kind`.
+ *     kind = Job kind key used in `item.errors`, such as "checksums".
+ *     action = Job body to run.
+ * Throws: `OperationCallbackException` immediately, so an interrupted
+ *     operation is not downgraded to a per-item failure.
+ */
 private void attemptJsonMetadataWork(JsonMetadataWork* item, string kind,
     void delegate() action)
 {
@@ -769,6 +976,13 @@ private void attemptJsonMetadataWork(JsonMetadataWork* item, string kind,
         item.errors[kind] = ex.msg;
 }
 
+/** Query the work item's shared cancellation flag.
+ *
+ * Params:
+ *     item = Work item whose optional flag is read atomically.
+ * Returns: `true` when a cancellation flag is present and set; otherwise
+ *     `false`.
+ */
 private bool jsonWorkCancelled(JsonMetadataWork* item)
 {
     if (item.cancellationFlag is null)
@@ -777,6 +991,16 @@ private bool jsonWorkCancelled(JsonMetadataWork* item)
     return atomicLoad(*item.cancellationFlag);
 }
 
+/** Run the metadata jobs selected on one work item.
+ *
+ * Jobs run in a fixed order (checksums, file type, media info, archives,
+ * torrents) and stop early at cancellation checkpoints between them. Failures
+ * are recorded per job kind and do not prevent later jobs from running.
+ *
+ * Params:
+ *     item = Work item whose blob is updated in place and whose `errors` map
+ *         collects failures.
+ */
 private void runJsonMetadataWork(JsonMetadataWork* item)
 {
     if (jsonWorkCancelled(item))
@@ -845,6 +1069,15 @@ private void runJsonMetadataWork(JsonMetadataWork* item)
     }
 }
 
+/** Build a work item that selects only the metadata still missing on a blob.
+ *
+ * Params:
+ *     blob = Catalog record to inspect and later update.
+ *     options = Metadata extraction options controlling the selected jobs.
+ *     cancellationFlag = Optional shared cancellation flag for the worker.
+ * Returns: A work item with the job-selection flags set; progress and operation
+ *     fields remain for the caller to fill in.
+ */
 private JsonMetadataWork prepareJsonMetadataWork(NamedBinaryBlob blob,
     MetadataScanOptions options, shared(bool)* cancellationFlag)
 {
@@ -864,12 +1097,25 @@ private JsonMetadataWork prepareJsonMetadataWork(NamedBinaryBlob blob,
     return item;
 }
 
+/** Test whether a work item has any job left to run.
+ *
+ * Params:
+ *     item = Work item whose job-selection flags are inspected.
+ * Returns: `true` when at least one extraction job is selected.
+ */
 private bool hasJsonMetadataWork(JsonMetadataWork item)
 {
     return item.doChecksums || item.doFileType || item.doMediaInfo
         || item.doArchives || item.doTorrents;
 }
 
+/** Run a batch of metadata work items, optionally on a worker pool.
+ *
+ * Params:
+ *     items = Work items updated in place; the loop stops early at
+ *         cancellation checkpoints.
+ *     threads = Worker count; values less than or equal to one run serially.
+ */
 private void runJsonMetadataBatch(JsonMetadataWork[] items, size_t threads)
 {
     if (threads <= 1)
@@ -903,6 +1149,13 @@ private void runJsonMetadataBatch(JsonMetadataWork[] items, size_t threads)
     }
 }
 
+/** List the operation phases enabled by a metadata option set.
+ *
+ * Params:
+ *     options = Metadata extraction options to translate.
+ * Returns: Enabled phases in processing order; empty when no extraction is
+ *     enabled.
+ */
 private OperationPhase[] jsonMetadataPhases(MetadataScanOptions options)
 {
     OperationPhase[] phases;
@@ -914,6 +1167,21 @@ private OperationPhase[] jsonMetadataPhases(MetadataScanOptions options)
     return phases;
 }
 
+/** Run selected metadata extractions over an in-memory catalog.
+ *
+ * Blobs are processed in bounded batches, either serially or on a worker pool,
+ * and each blob keeps its already valid metadata. Cancellation is checked
+ * between batches and before each job kind.
+ *
+ * Params:
+ *     blobs = Catalog blob array updated in place.
+ *     options = Metadata extraction options and worker count.
+ *     operation = Operation kind reported in progress events.
+ *     control = Optional operation control for progress and cancellation.
+ *     operationId = Identifier reported with progress events.
+ * Returns: A result carrying the updated counters and a cancellation flag;
+ *     summary counters stay zero when no extraction was requested.
+ */
 private JsonMetadataExecutionResult updateJsonMetadata(ref NamedBinaryBlob[] blobs,
     MetadataScanOptions options, OperationKind operation, OperationControl control,
     ulong operationId)
@@ -1011,6 +1279,14 @@ private JsonMetadataExecutionResult updateJsonMetadata(ref NamedBinaryBlob[] blo
     return execution;
 }
 
+/** Count archive entries that carry a detected file type.
+ *
+ * Nested archive entries are counted recursively.
+ *
+ * Params:
+ *     entries = Archive entries to inspect; null entries are skipped.
+ * Returns: Number of non-empty file types across the whole tree.
+ */
 private size_t countArchiveFileTypes(ArchiveSpec[] entries)
 {
     size_t result;
@@ -1025,6 +1301,14 @@ private size_t countArchiveFileTypes(ArchiveSpec[] entries)
     return result;
 }
 
+/** Count archive entries that carry media information.
+ *
+ * Nested archive entries are counted recursively.
+ *
+ * Params:
+ *     entries = Archive entries to inspect; null entries are skipped.
+ * Returns: Number of non-empty media signatures across the whole tree.
+ */
 private size_t countArchiveMediaInfo(ArchiveSpec[] entries)
 {
     size_t result;
@@ -1039,6 +1323,22 @@ private size_t countArchiveMediaInfo(ArchiveSpec[] entries)
     return result;
 }
 
+/** Count missing files, optionally drop them, and merge duplicate content.
+ *
+ * Duplicate candidates are grouped by size first and then by SHA-1 digest; each
+ * digest group with more than one record is merged. A group that cannot be
+ * merged is skipped without affecting other groups.
+ *
+ * Params:
+ *     blobs = Catalog blob array updated in place.
+ *     options = Analysis options; `dropMissing` removes orphaned records.
+ *     sourceIsV5 = Whether stored paths use the v5 archive grammar.
+ *     operation = Operation kind reported in progress events.
+ *     control = Optional operation control for progress and cancellation.
+ *     operationId = Identifier reported with progress events.
+ *     summary = Analysis counters updated in place.
+ * Returns: `true` when the analysis completed; `false` when it was cancelled.
+ */
 private bool analyzeJsonRecords(ref NamedBinaryBlob[] blobs,
     RepositoryAnalysisOptions options, bool sourceIsV5,
     OperationKind operation, OperationControl control, ulong operationId,
@@ -1128,6 +1428,17 @@ private bool analyzeJsonRecords(ref NamedBinaryBlob[] blobs,
         "JSON analysis completed.", "");
 }
 
+/** Decide whether a catalog record has lost all of its files.
+ *
+ * For v5 paths, virtual archive references count as present even when their
+ * container cannot be checked, so only records that reference filesystem paths
+ * exclusively and have no existing file are treated as orphaned.
+ *
+ * Params:
+ *     blob = Catalog record to test.
+ *     sourceIsV5 = Whether stored paths use the v5 archive grammar.
+ * Returns: `true` when the record should be considered missing.
+ */
 private bool jsonBlobIsOrphaned(NamedBinaryBlob blob, bool sourceIsV5)
 {
     if (!sourceIsV5 || blob.fileSpecs.length == 0)
@@ -1157,6 +1468,21 @@ private bool jsonBlobIsOrphaned(NamedBinaryBlob blob, bool sourceIsV5)
     return hasFilesystemReference && !hasVirtualReference;
 }
 
+/** Report operation progress and process pause/cancel requests.
+ *
+ * Params:
+ *     control = Optional operation control; a null control reports success.
+ *     operationId = Identifier carried by the progress event.
+ *     operation = Operation kind carried by the progress event.
+ *     phase = Operation phase carried by the progress event.
+ *     completed = Completed work units.
+ *     total = Total work units, when known.
+ *     totalKnown = Whether `total` is meaningful.
+ *     message = Human-readable progress message.
+ *     path = Path associated with the event, or an empty string.
+ * Returns: `true` when the caller may continue; `false` when cancellation was
+ *     requested before or after the checkpoint.
+ */
 private bool reportJsonProgress(OperationControl control, ulong operationId,
     OperationKind operation, OperationPhase phase, size_t completed, size_t total,
     bool totalKnown, string message, string path)
@@ -1181,7 +1507,19 @@ private bool reportJsonProgress(OperationControl control, ulong operationId,
         && !control.cancellationRequested;
 }
 
-/** Honor pause/cancel requests after JSON metadata workers have drained. */
+/** Honor pause/cancel requests after JSON metadata workers have drained.
+ *
+ * Params:
+ *     control = Optional operation control; a null control reports success.
+ *     operationId = Identifier carried by the progress event.
+ *     operation = Operation kind carried by the progress event.
+ *     phase = Operation phase carried by the progress event.
+ *     completed = Completed work units.
+ *     total = Total work units.
+ *     path = Path associated with the event, or an empty string.
+ * Returns: `true` when processing may continue; `false` when cancellation was
+ *     requested before or after the checkpoint.
+ */
 private bool checkpointJsonProgress(OperationControl control, ulong operationId,
     OperationKind operation, OperationPhase phase, size_t completed,
     size_t total, string path)
@@ -1205,6 +1543,13 @@ private bool checkpointJsonProgress(OperationControl control, ulong operationId,
         && !control.cancellationRequested;
 }
 
+/** Query whether an operation control requested cancellation.
+ *
+ * Params:
+ *     control = Optional operation control.
+ * Returns: `true` when a control is present and cancellation was requested;
+ *     otherwise `false`.
+ */
 private bool cancellationRequested(OperationControl control)
 {
     return control !is null && control.cancellationRequested;

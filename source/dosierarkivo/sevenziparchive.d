@@ -19,13 +19,32 @@ version (unittest)
     import dosierarkivo.testsupport;
 }
 
+/** 7z archive adapter backed by the `7z` command-line tool. */
 class FileArchive7z : FileArchive
 {
+    /** Create a wrapper for one 7z file.
+     *
+     * Params:
+     *     filename = Path to the 7z archive on disk; stored unchanged.
+     */
     this(string filename)
     {
         super(ArchiveType._7z, filename);
     }
 
+    /** List file members using `7z l -ba`.
+     *
+     * Directory rows (attribute starting with `D`) are omitted. A non-password
+     * failure is treated as an empty listing.
+     *
+     * Params:
+     *     password = Archive password; empty passes a sentinel that suppresses
+     *         interactive prompting.
+     * Returns: Member names in archive order, or an empty array when the
+     *     listing fails or no file row matches the expected columns.
+     * Throws: `ArchivePasswordRequiredException` when the tool reports a
+     *     password or encryption problem.
+     */
     override string[] getEntries(string password = "")
     {
         auto passwordOption = password.length > 0
@@ -56,6 +75,17 @@ class FileArchive7z : FileArchive
         return entries;
     }
 
+    /** Extract one member into `destDir` using `7z x`.
+     *
+     * Params:
+     *     filename = Member name exactly as reported by the archive listing.
+     *     destDir = Directory that receives the extracted member.
+     *     password = Archive password; empty passes a sentinel that suppresses
+     *         interactive prompting.
+     * Returns: `true` on success.
+     * Throws: `ArchivePasswordRequiredException` when a password is missing or
+     *     rejected, `ArchiveToolException` for any other tool failure.
+     */
     override bool extractEntry(string filename, string destDir, string password = "")
     {
         auto tarPath = buildPath(getcwd(), this.fileName);
@@ -72,8 +102,10 @@ class FileArchive7z : FileArchive
 
     version (unittest)
     {
+        /** Test archive file name produced by the unittest fixture. */
         enum string fn = _7zFileName;
 
+        /** Build the 7z fixture from `expectedEntries`, replacing any old file. */
         static void createTestArchive()
         {
             deleteTestArchive;
@@ -81,6 +113,7 @@ class FileArchive7z : FileArchive
             assert(rc.status == 0, rc.output);
         }
 
+        /** Remove the 7z fixture if it exists. */
         static void deleteTestArchive()
         {
             if (fn.exists)

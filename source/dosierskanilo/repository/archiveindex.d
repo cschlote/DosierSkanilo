@@ -12,7 +12,15 @@ import std.typecons : Nullable;
 
 import dosierarkivo.archive : archiveVirtualColumnSql;
 
-/** SQL predicate selecting virtual file references through the stored column. */
+/** Build the SQL predicate that selects virtual file references.
+ *
+ * The table alias is taken from the part before the last dot in
+ * `columnExpression`, falling back to `file_refs` when no alias is present.
+ *
+ * Params:
+ *     columnExpression = SQL column expression such as `f.relative_path`.
+ * Returns: A predicate of the form `(alias.is_virtual = 1)`.
+ */
 string isVirtualFileReferenceSql(string columnExpression)
 {
     import std.string : lastIndexOf;
@@ -52,6 +60,15 @@ unittest
 /**
  * Reuse an existing blob for a fully fingerprinted archive member, or create a
  * content row for it. A zero result means deep checksums are incomplete.
+ *
+ * Params:
+ *     db = Open repository database.
+ *     size = Uncompressed member size in bytes.
+ *     md5 = Complete MD5 digest, or `Nullable.init` when unavailable.
+ *     sha1 = Complete SHA-1 digest, or `Nullable.init` when unavailable.
+ *     xxh64 = Complete xxh64 digest, or `Nullable.init` when unavailable.
+ * Returns: The matching or newly inserted blob ID, or `0` when any digest is
+ *     missing or has the wrong length.
  */
 long ensureArchiveMemberBlob(ref Database db, long size, Nullable!Blob md5,
     Nullable!Blob sha1, Nullable!Blob xxh64)
@@ -71,7 +88,12 @@ long ensureArchiveMemberBlob(ref Database db, long size, Nullable!Blob md5,
     return db.lastInsertRowid;
 }
 
-/** Count content rows that have no ordinary file reference. */
+/** Count content rows that have no ordinary file reference.
+ *
+ * Params:
+ *     db = Open repository database.
+ * Returns: Number of unreferenced blob rows.
+ */
 size_t countUnreachableBlobs(ref Database db)
 {
     return cast(size_t) db.execute("SELECT count(*) FROM blobs "
@@ -79,7 +101,12 @@ size_t countUnreachableBlobs(ref Database db)
         .oneValue!long;
 }
 
-/** Remove content rows that no physical or virtual reference points to. */
+/** Remove content rows that no physical or virtual reference points to.
+ *
+ * Params:
+ *     db = Open repository database.
+ * Returns: Number of blob rows deleted.
+ */
 size_t deleteUnreachableBlobs(ref Database db)
 {
     db.execute("DELETE FROM blobs WHERE NOT EXISTS ("
@@ -87,7 +114,11 @@ size_t deleteUnreachableBlobs(ref Database db)
     return cast(size_t) db.changes;
 }
 
-/** Prefer an existing content blob when references have complete equal digests. */
+/** Prefer an existing content blob when references have complete equal digests.
+ *
+ * Params:
+ *     db = Open repository database.
+ */
 void resolveArchiveMemberBlobLinks(ref Database db)
 {
     if (db.execute("SELECT 1 FROM file_refs WHERE "

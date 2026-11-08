@@ -75,7 +75,11 @@ class TorrentInfo
         ulong piecesCount; /// Number of pieces
     }
 
-    /** Check whether the torrent info contains any meaningful data. */
+    /** Check whether the torrent info contains any meaningful data.
+     *
+     * Returns: `true` when the name, magnet URI, and total size are all empty
+     *     or zero.
+     */
     bool empty() const
     {
         return
@@ -90,6 +94,11 @@ class TorrentInfo
             ;
     }
 
+    /** Render a short human-readable summary of the torrent.
+     *
+     * Returns: The torrent name with an optional size suffix and a
+     *     `[multi-file]` marker.
+     */
     override string toString() const
     {
         string result = name;
@@ -100,7 +109,11 @@ class TorrentInfo
         return result;
     }
 
-    /** Create a deep-ish copy of the torrent info object. */
+    /** Create a deep-ish copy of the torrent info object.
+     *
+     * Returns: A new `TorrentInfo` with copied scalar fields and a duplicated
+     *     file array. File entries themselves are shared.
+     */
     TorrentInfo dup()
     {
         auto copy = new TorrentInfo();
@@ -270,6 +283,7 @@ TorrentInfo getTorrentInfo(string filePath)
  */
 /*private*/ struct BNode
 {
+    /// Bencoded value stored at this node.
     BValue value;
     size_t startPos; /// Byte offset of the value in the original stream.
     size_t endPos; /// One past the last byte of the value.
@@ -284,7 +298,11 @@ private alias BList = BNode[];
 /// Bencoded dictionary
 private alias BDict = BNode[string];
 
-/** some workaround for CI toolchains that fail to emit SumType equality for recursive types */
+/** Force emission of recursive `BNode` equality support in older toolchains.
+ *
+ * This works around CI toolchains that fail to emit `SumType` equality for
+ * recursive types.
+ */
 static this()
 {
     import core.internal.array.equality : __equals;
@@ -308,6 +326,13 @@ static this()
  * simplified back to the compact `has/get` form.
  */
 
+/** Extract an integer from a bencoded value when it has the integer type.
+ *
+ * Params:
+ *     value = Bencoded value to inspect.
+ *     result = Receives the integer on success; otherwise left unchanged.
+ * Returns: `true` when `value` holds an integer.
+ */
 private bool tryGetLong(BValue value, out long result)
 {
     bool ok = false;
@@ -323,6 +348,13 @@ private bool tryGetLong(BValue value, out long result)
     return ok;
 }
 
+/** Extract a byte string from a bencoded value when it has the string type.
+ *
+ * Params:
+ *     value = Bencoded value to inspect.
+ *     result = Receives the string on success; otherwise left unchanged.
+ * Returns: `true` when `value` holds a string.
+ */
 private bool tryGetString(BValue value, out string result)
 {
     bool ok = false;
@@ -338,6 +370,13 @@ private bool tryGetString(BValue value, out string result)
     return ok;
 }
 
+/** Extract a bencoded list when the value has the list type.
+ *
+ * Params:
+ *     value = Bencoded value to inspect.
+ *     result = Receives the list on success; otherwise left unchanged.
+ * Returns: `true` when `value` holds a list.
+ */
 private bool tryGetBList(BValue value, out BList result)
 {
     bool ok = false;
@@ -353,6 +392,13 @@ private bool tryGetBList(BValue value, out BList result)
     return ok;
 }
 
+/** Extract a bencoded dictionary when the value has the dictionary type.
+ *
+ * Params:
+ *     value = Bencoded value to inspect.
+ *     result = Receives the dictionary on success; otherwise left unchanged.
+ * Returns: `true` when `value` holds a dictionary.
+ */
 private bool tryGetBDict(BValue value, out BDict result)
 {
     bool ok = false;
@@ -373,19 +419,40 @@ private bool tryGetBDict(BValue value, out BDict result)
  * ============================================================
  */
 
+/** Recursive-descent parser for bencoded torrent data.
+ *
+ * The parser reads from an in-memory buffer and never copies string payloads;
+ * returned string values alias the original data.
+ */
 private class BencodeParser
 {
+    /// Original bencoded bytes being parsed.
     private const(ubyte)[] data;
+    /// Current read offset into `data`.
     private size_t pos;
+    /// Current nesting level used to reject excessively deep input.
     private size_t depth;
+    /// Maximum allowed nesting depth.
     private enum size_t maxNestingDepth = 128;
 
+    /** Create a parser over the supplied bencoded bytes.
+     *
+     * Params:
+     *     data = Buffer to parse; the caller must keep it alive for the
+     *         lifetime of the parser and any returned string values.
+     */
     this(const(ubyte)[] data)
     {
         this.data = data;
         this.pos = 0;
     }
 
+    /** Parse the top-level bencoded value and require a dictionary.
+     *
+     * Returns: The top-level dictionary.
+     * Throws: `Exception` when the root value is not a dictionary or parsing
+     *     fails.
+     */
     BDict parseRoot()
     {
         auto node = parseValue();
@@ -394,6 +461,12 @@ private class BencodeParser
         return root;
     }
 
+    /** Parse one bencoded value at the current position.
+     *
+     * Returns: The parsed node with its start and end byte offsets.
+     * Throws: `Exception` when the input ends unexpectedly, exceeds the
+     *     nesting limit, or contains an invalid type marker.
+     */
     BNode parseValue()
     {
         enforce(pos < data.length, "Unexpected end of file");
@@ -428,6 +501,11 @@ private class BencodeParser
         return node;
     }
 
+    /** Parse a bencoded integer terminated by `e`.
+     *
+     * Returns: The parsed integer node.
+     * Throws: `Exception` when the integer is unterminated or not numeric.
+     */
     BNode parseInt()
     {
         pos++;
@@ -440,6 +518,12 @@ private class BencodeParser
         return BNode(BValue(value));
     }
 
+    /** Parse a length-prefixed bencoded string.
+     *
+     * Returns: The parsed string node; its value aliases the parser buffer.
+     * Throws: `Exception` when the length is invalid or the payload is
+     *     truncated.
+     */
     BNode parseString()
     {
         auto start = pos;
@@ -460,6 +544,12 @@ private class BencodeParser
         return BNode(BValue(s));
     }
 
+    /** Parse a bencoded list terminated by `e`.
+     *
+     * Returns: The parsed list node.
+     * Throws: `Exception` when the list is unterminated or a member is
+     *     invalid.
+     */
     BNode parseList()
     {
         pos++;
@@ -471,6 +561,13 @@ private class BencodeParser
         return BNode(BValue(list));
     }
 
+    /** Parse a bencoded dictionary terminated by `e`.
+     *
+     * Returns: The parsed dictionary node. Duplicate keys overwrite earlier
+     *     entries.
+     * Throws: `Exception` when the dictionary is unterminated, a key is not a
+     *     string, or a key or value is invalid.
+     */
     BNode parseDict()
     {
         pos++;
@@ -489,7 +586,13 @@ private class BencodeParser
 }
 
 
-/** Convert bytes to a lowercase hexadecimal string. */
+/** Convert bytes to a lowercase hexadecimal string.
+ *
+ * Params:
+ *     data = Bytes to encode.
+ * Returns: Two lowercase hexadecimal characters per input byte; empty for an
+ *     empty input.
+ */
 private string toHex(const ubyte[] data)
 {
     string result;

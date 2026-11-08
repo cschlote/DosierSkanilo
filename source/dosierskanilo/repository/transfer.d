@@ -38,13 +38,27 @@ import dosierskanilo.repository.errors;
 import dosierskanilo.repository.schema : migrate;
 import dosierskanilo.repository.types;
 
+/** Archive index state queued for import, keyed by the inserted blob ID. */
 private struct ImportedArchiveIndex
 {
+    /// Database ID of the blob whose archive index was scanned.
     long blobId;
+    /// True when the stored index came from a deep scan.
     bool deep;
 }
 
-/** Import a JSON catalog into an open repository database. */
+/** Import a JSON catalog into an open repository database.
+ *
+ * Existing catalog rows are replaced; appending is not implemented.
+ *
+ * Params:
+ *     db = Open repository database that receives the imported data.
+ *     rootPath = Repository root used to make catalog paths relative.
+ *     jsonFile = Path of the JSON catalog to import.
+ *     options = Import options, including the existing-data replacement mode.
+ * Throws: `RepositoryException` when append mode is requested; catalog read,
+ *     parse and database write failures propagate.
+ */
 void importCatalogJson(ref Database db, string rootPath, string jsonFile,
     JsonImportOptions options)
 {
@@ -54,8 +68,18 @@ void importCatalogJson(ref Database db, string rootPath, string jsonFile,
 /**
  * Import a JSON catalog with cooperative cancellation.
  *
- * Returns `false` when cancellation was requested; the transaction is rolled
- * back, so no imported row is visible.
+ * Params:
+ *     db = Open repository database that receives the imported data.
+ *     rootPath = Repository root used to make catalog paths relative.
+ *     jsonFile = Path of the JSON catalog to import.
+ *     options = Import options, including the existing-data replacement mode.
+ *     control = Optional operation control for progress and cancellation.
+ *     operationId = Identifier reported with progress events.
+ * Returns: `true` when the import committed; `false` when cancellation was
+ *     requested, in which case the transaction is rolled back and no imported
+ *     row is visible.
+ * Throws: `RepositoryException` when append mode is requested; catalog read,
+ *     parse and database write failures propagate.
  */
 bool importCatalogJsonControlled(ref Database db, string rootPath,
     string jsonFile, JsonImportOptions options, OperationControl control,
@@ -248,6 +272,16 @@ bool importCatalogJsonControlled(ref Database db, string rootPath,
     }
 }
 
+/** Report catalog-import progress when a control is attached.
+ *
+ * Params:
+ *     control = Optional operation control; a null control reports nothing.
+ *     operationId = Identifier carried by the progress event.
+ *     phase = Import phase carried by the progress event.
+ *     completed = Completed work units.
+ *     total = Total work units.
+ *     message = Human-readable progress message.
+ */
 private void reportImportProgress(OperationControl control, ulong operationId,
     OperationPhase phase, size_t completed, size_t total, string message)
 {
@@ -265,7 +299,16 @@ private void reportImportProgress(OperationControl control, ulong operationId,
     control.report(progress);
 }
 
-/** Export repository data as the current JSON catalog format. */
+/** Export repository data as the current JSON catalog format.
+ *
+ * Params:
+ *     db = Open repository database to read.
+ *     rootPath = Repository root used to resolve physical paths.
+ *     jsonFile = Destination path of the JSON catalog.
+ *     options = Export options such as pretty-printing and path form.
+ * Throws: `CatalogWriteException` when the canonical catalog cannot be
+ *     written and only a recovery file is produced.
+ */
 void exportCatalogJson(ref Database db, string rootPath, string jsonFile,
     JsonExportOptions options)
 {
@@ -274,6 +317,13 @@ void exportCatalogJson(ref Database db, string rootPath, string jsonFile,
 
 /** Export repository data with cooperative cancellation.
  *
+ * Params:
+ *     db = Open repository database to read.
+ *     rootPath = Repository root used to resolve physical paths.
+ *     jsonFile = Destination path of the JSON catalog.
+ *     options = Export options such as pretty-printing and path form.
+ *     control = Optional operation control for progress and cancellation.
+ *     operationId = Identifier reported with progress events.
  * Returns: `false` when cancellation was requested or the canonical catalog
  *     could not be written (for example a recovery-only write). The detailed
  *     write outcome is available through the storage layer logs.
@@ -298,6 +348,15 @@ bool exportCatalogJsonControlled(ref Database db, string rootPath,
         }, options.prettyJson);
 }
 
+/** Report catalog-export progress when a control is attached.
+ *
+ * Params:
+ *     control = Optional operation control; a null control reports nothing.
+ *     operationId = Identifier carried by the progress event.
+ *     completed = Completed work units.
+ *     total = Total work units.
+ *     message = Human-readable progress message.
+ */
 private void reportExportProgress(OperationControl control, ulong operationId,
     size_t completed, size_t total, string message)
 {
@@ -315,7 +374,15 @@ private void reportExportProgress(OperationControl control, ulong operationId,
     control.report(progress);
 }
 
-/** Load repository data into the existing domain model for library consumers. */
+/** Load repository data into the existing domain model for library consumers.
+ *
+ * Params:
+ *     db = Open repository database to read.
+ *     rootPath = Repository root used to resolve physical paths.
+ *     options = Export options controlling which details are loaded.
+ * Returns: One record per loadable blob, ordered by database ID; blobs without
+ *     usable references are omitted unless unreferenced content is allowed.
+ */
 NamedBinaryBlob[] loadCatalogFromDatabase(ref Database db, string rootPath,
     JsonExportOptions options)
 {
@@ -333,7 +400,17 @@ NamedBinaryBlob[] loadCatalogFromDatabase(ref Database db, string rootPath,
     return blobs;
 }
 
-/** Load a bounded page of repository blobs for UI consumers. */
+/** Load a bounded page of repository blobs for UI consumers.
+ *
+ * Params:
+ *     db = Open repository database to read.
+ *     rootPath = Repository root used to resolve physical paths.
+ *     offset = Number of blobs to skip, ordered by database ID.
+ *     limit = Maximum number of blobs to return.
+ *     options = Export options controlling which details are loaded.
+ * Returns: The requested blob records, ordered by database ID; empty when the
+ *     page lies beyond the available rows.
+ */
 NamedBinaryBlob[] loadCatalogPageFromDatabase(ref Database db, string rootPath,
     size_t offset, size_t limit, JsonExportOptions options)
 {
@@ -352,7 +429,16 @@ NamedBinaryBlob[] loadCatalogPageFromDatabase(ref Database db, string rootPath,
     return blobs;
 }
 
-/** Load a bounded page using repository-side text and metadata filters. */
+/** Load a bounded page using repository-side text and metadata filters.
+ *
+ * Params:
+ *     db = Open repository database to read.
+ *     rootPath = Repository root used to resolve physical paths.
+ *     options = Query filters, cursor state and page size.
+ *     exportOptions = Export options controlling which details are loaded.
+ * Returns: The matching blob records in query order; empty when nothing
+ *     matches.
+ */
 NamedBinaryBlob[] loadCatalogQueryPageFromDatabase(ref Database db, string rootPath,
     RepositoryQueryOptions options, JsonExportOptions exportOptions)
 {
@@ -360,7 +446,14 @@ NamedBinaryBlob[] loadCatalogQueryPageFromDatabase(ref Database db, string rootP
         exportOptions).blobs;
 }
 
-/** List immediate child directories without materializing the catalog. */
+/** List immediate child directories without materializing the catalog.
+ *
+ * Params:
+ *     db = Open repository database to read.
+ *     options = Parent selection, filters and page bounds.
+ * Returns: Matching directories ordered by relative path; empty when the parent
+ *     has no matching children.
+ */
 RepositoryDirectory[] listDirectoriesFromDatabase(ref Database db,
     RepositoryDirectoryQuery options)
 {
@@ -396,7 +489,14 @@ RepositoryDirectory[] listDirectoriesFromDatabase(ref Database db,
     return result;
 }
 
-/** Count all physical file references in the repository. */
+/** Count all physical file references in the repository.
+ *
+ * Archive members are excluded.
+ *
+ * Params:
+ *     db = Open repository database to read.
+ * Returns: The number of stored physical file references.
+ */
 size_t countPhysicalFileReferences(ref Database db)
 {
     auto result = db.execute("SELECT count(*) FROM file_refs WHERE "
@@ -404,7 +504,13 @@ size_t countPhysicalFileReferences(ref Database db)
     return cast(size_t) result.front.peek!long(0);
 }
 
-/** Count root children and aggregate repository size without loading file rows. */
+/** Count root children and aggregate repository size without loading file rows.
+ *
+ * Params:
+ *     db = Open repository database to read.
+ * Returns: Root directory count, physical root-file count and aggregate size
+ *     across all physical file references.
+ */
 RepositoryRootSummary loadRootSummaryFromDatabase(ref Database db)
 {
     auto result = db.execute("SELECT "
@@ -419,6 +525,15 @@ RepositoryRootSummary loadRootSummaryFromDatabase(ref Database db)
         cast(size_t) row.peek!long(1), cast(ulong) row.peek!long(2));
 }
 
+/** Build the SQL fragment that filters file references for directory listings.
+ *
+ * Params:
+ *     options = Directory query filters to translate.
+ *     fileAlias = SQL alias of the `file_refs` table.
+ *     blobAlias = SQL alias of the joined `blobs` table.
+ * Returns: A fragment starting with " AND" for each active filter, or an empty
+ *     string when no file-level filter is active.
+ */
 private string directoryFileFilterSql(RepositoryDirectoryQuery options,
     string fileAlias = "f", string blobAlias = "b")
 {
@@ -453,6 +568,13 @@ private string directoryFileFilterSql(RepositoryDirectoryQuery options,
     return sql;
 }
 
+/** Build the SQL fragment that keeps only directories with matching descendants.
+ *
+ * Params:
+ *     options = Directory query filters to translate.
+ * Returns: A recursive `EXISTS` fragment starting with " AND", or an empty
+ *     string when no descendant filter is active.
+ */
 private string directoryFilterSql(RepositoryDirectoryQuery options)
 {
     if (options.text.empty && !options.video && !options.audio && !options.image
@@ -492,19 +614,38 @@ private string directoryFilterSql(RepositoryDirectoryQuery options)
     return sql ~ ")";
 }
 
+/** Bind the text parameter used by the directory filter fragments.
+ *
+ * Params:
+ *     statement = Prepared directory query statement.
+ *     options = Directory query filters whose text is bound when non-empty.
+ */
 private void bindDirectoryFilter(ref Statement statement, RepositoryDirectoryQuery options)
 {
     if (!options.text.empty)
         statement.bind(":directory_text", options.text);
 }
 
-/** List immediate file references without materializing blob details. */
+/** List immediate file references without materializing blob details.
+ *
+ * Params:
+ *     db = Open repository database to read.
+ *     options = Directory selection, filters and page bounds.
+ * Returns: The matching file references in query order; empty when nothing
+ *     matches.
+ */
 RepositoryFile[] listFilesFromDatabase(ref Database db, RepositoryFileQuery options)
 {
     return listFilesPageFromDatabase(db, options).files;
 }
 
-/** Convert a page size to a SQLite LIMIT value; -1 means "all rows". */
+/** Convert a page size to a SQLite LIMIT value; -1 means "all rows".
+ *
+ * Params:
+ *     limit = Requested page size.
+ *     fetchExtra = Reserve room for one look-ahead row when true.
+ * Returns: The LIMIT value, or -1 when `limit` is effectively unbounded.
+ */
 private long pageLimitSql(size_t limit, bool fetchExtra = false)
 {
     if (limit >= cast(size_t) long.max)
@@ -513,7 +654,14 @@ private long pageLimitSql(size_t limit, bool fetchExtra = false)
     return fetchExtra ? value + 1 : value;
 }
 
-/** List one keyset-paged file chunk and report continuation state. */
+/** List one keyset-paged file chunk and report continuation state.
+ *
+ * Params:
+ *     db = Open repository database to read.
+ *     options = Directory selection, filters, sort order and cursor state.
+ * Returns: The page of file references with `hasMore` and, when a further page
+ *     exists, an opaque `nextCursor`; empty when nothing matches.
+ */
 RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuery options)
 {
     auto sql = "SELECT f.id, COALESCE(f.directory_id, 0), f.blob_id, "
@@ -665,6 +813,17 @@ RepositoryFilePage listFilesPageFromDatabase(ref Database db, RepositoryFileQuer
     return page;
 }
 
+/** Populate display fields for a file reference, resolving archive members.
+ *
+ * Every reference gets a display name. A virtual archive member additionally
+ * receives its container reference, blob ID and stable identity, looked up from
+ * the parent path.
+ *
+ * Params:
+ *     db = Open repository database.
+ *     file = File reference with at least its path populated.
+ * Returns: The same reference with its display and archive fields filled in.
+ */
 private RepositoryFile hydrateVirtualFileReference(ref Database db,
     RepositoryFile file)
 {
@@ -693,6 +852,19 @@ private RepositoryFile hydrateVirtualFileReference(ref Database db,
     return file;
 }
 
+/** Build the stable identity of the reference stored at `path`.
+ *
+ * Physical references use a "p" prefix followed by their row ID; virtual
+ * references prefix their parent identity and append their own row ID.
+ *
+ * Params:
+ *     db = Open repository database.
+ *     path = Stored reference path to resolve.
+ *     depth = Current recursion depth used as a guard.
+ * Returns: The identity string, or an empty string when no reference exists at
+ *     `path`.
+ * Throws: `Exception` when nesting exceeds the supported depth of 32.
+ */
 private string archiveReferenceIdentityForPath(ref Database db, string path,
     size_t depth = 0)
 {
@@ -709,7 +881,14 @@ private string archiveReferenceIdentityForPath(ref Database db, string path,
     return parentIdentity ~ ":" ~ result.front.peek!long(0).to!string;
 }
 
-/** Load one physical reference by its stable repository ID. */
+/** Load one physical reference by its stable repository ID.
+ *
+ * Params:
+ *     db = Open repository database to read.
+ *     fileReferenceId = Stable `file_refs.id` value to load.
+ * Returns: The populated reference, or `RepositoryFile.init` when no such row
+ *     exists.
+ */
 RepositoryFile loadFileReferenceFromDatabase(ref Database db, long fileReferenceId)
 {
     auto result = db.execute("SELECT f.id, COALESCE(f.directory_id, 0), f.blob_id, "
@@ -740,7 +919,14 @@ RepositoryFile loadFileReferenceFromDatabase(ref Database db, long fileReference
     return hydrateVirtualFileReference(db, file);
 }
 
-/** List archive entries for one blob without loading the complete blob. */
+/** List archive entries for one blob without loading the complete blob.
+ *
+ * Params:
+ *     db = Open repository database to read.
+ *     options = Container blob ID plus page offset and limit.
+ * Returns: Deduplicated archive entries ordered by stored path; empty when the
+ *     blob has no virtual members or the page is beyond them.
+ */
 RepositoryArchiveEntry[] listArchiveEntriesFromDatabase(ref Database db,
     RepositoryArchiveQuery options)
 {
@@ -821,7 +1007,14 @@ RepositoryArchiveEntry[] listArchiveEntriesFromDatabase(ref Database db,
     return result;
 }
 
-/** Load one stable archive-index row without knowing its container blob first. */
+/** Load one stable archive-index row without knowing its container blob first.
+ *
+ * Params:
+ *     db = Open repository database to read.
+ *     archiveEntryId = Stable `file_refs.id` value of the archive entry.
+ * Returns: The populated entry, or `RepositoryArchiveEntry.init` when the row
+ *     is missing or is not a virtual archive reference.
+ */
 RepositoryArchiveEntry loadArchiveEntryFromDatabase(ref Database db,
     long archiveEntryId)
 {
@@ -862,7 +1055,14 @@ RepositoryArchiveEntry loadArchiveEntryFromDatabase(ref Database db,
     return entry;
 }
 
-/** List torrent files for one blob without loading torrent metadata. */
+/** List torrent files for one blob without loading torrent metadata.
+ *
+ * Params:
+ *     db = Open repository database to read.
+ *     options = Torrent blob ID plus page offset and limit.
+ * Returns: The requested torrent file entries in file-index order; empty when
+ *     the torrent has no files or the page is beyond them.
+ */
 RepositoryTorrentFile[] listTorrentFilesFromDatabase(ref Database db,
     RepositoryTorrentQuery options)
 {
@@ -879,7 +1079,18 @@ RepositoryTorrentFile[] listTorrentFilesFromDatabase(ref Database db,
     return result;
 }
 
-/** Load a bounded filtered page and retain its blob IDs. */
+/** Load a bounded filtered page and retain its blob IDs.
+ *
+ * Params:
+ *     db = Open repository database to read.
+ *     rootPath = Repository root used to resolve physical paths.
+ *     options = Query filters, cursor state and page size; the limit must be
+ *         greater than zero.
+ *     exportOptions = Export options controlling which details are loaded.
+ * Returns: The page with blob records, retained IDs, UI flags and continuation
+ *     state. Blobs that cannot be loaded are omitted from the parallel arrays.
+ * Throws: `RepositoryException` when `options.limit` is zero.
+ */
 RepositoryBlobPage loadCatalogQueryPageWithIdsFromDatabase(ref Database db,
     string rootPath, RepositoryQueryOptions options, JsonExportOptions exportOptions)
 {
@@ -916,7 +1127,14 @@ RepositoryBlobPage loadCatalogQueryPageWithIdsFromDatabase(ref Database db,
     return page;
 }
 
-/** Count rows matching repository query filters. */
+/** Count rows matching repository query filters.
+ *
+ * Params:
+ *     db = Open repository database to read.
+ *     options = Query filters to apply.
+ * Returns: The number of matching blob rows; the total blob count when no
+ *     filter is active.
+ */
 long countCatalogQueryFromDatabase(ref Database db, RepositoryQueryOptions options)
 {
     if (options.text.empty && !options.video && !options.audio && !options.image
@@ -929,6 +1147,19 @@ long countCatalogQueryFromDatabase(ref Database db, RepositoryQueryOptions optio
     return statement.execute().oneValue!long;
 }
 
+/** Build and bind the SQL statement behind a catalog query.
+ *
+ * The fragment adds the requested blob filters, optional pagination, and the
+ * text filter, which also matches a literal 20-byte SHA-1 digest when the text
+ * is valid base64.
+ *
+ * Params:
+ *     db = Open repository database.
+ *     selectSql = SELECT clause ending before the WHERE condition.
+ *     options = Catalog query filters and cursor state.
+ *     paged = Add ordering, limit and offset clauses when true.
+ * Returns: A prepared statement with all filter parameters bound.
+ */
 private Statement prepareCatalogQuery(ref Database db, string selectSql,
     RepositoryQueryOptions options, bool paged)
 {
@@ -1048,6 +1279,12 @@ private Statement prepareCatalogQuery(ref Database db, string selectSql,
  *
  * This avoids the reference, media, archive and torrent statements of a full
  * detail load when callers only need a fingerprint.
+ *
+ * Params:
+ *     db = Open repository database to read.
+ *     blobId = Stable database ID of the blob.
+ * Returns: A blob carrying only size and digests, or `null` when no such blob
+ *     exists.
  */
 NamedBinaryBlob loadBlobFingerprintFromDatabase(ref Database db, long blobId)
 {
@@ -1064,7 +1301,16 @@ NamedBinaryBlob loadBlobFingerprintFromDatabase(ref Database db, long blobId)
     return blob;
 }
 
-/** Load one blob and all related details by stable database ID. */
+/** Load one blob and all related details by stable database ID.
+ *
+ * Params:
+ *     db = Open repository database to read.
+ *     rootPath = Repository root used to resolve physical paths.
+ *     blobId = Stable database ID of the blob.
+ *     options = Export options controlling details and unreferenced content.
+ * Returns: The populated blob, or `null` when the blob does not exist or has no
+ *     references while unreferenced content is disallowed.
+ */
 NamedBinaryBlob loadBlobDetailsFromDatabase(ref Database db, string rootPath,
     long blobId, JsonExportOptions options)
 {
@@ -1114,6 +1360,15 @@ NamedBinaryBlob loadBlobDetailsFromDatabase(ref Database db, string rootPath,
     return blob;
 }
 
+/** Create a FileSpec from a stored reference path.
+ *
+ * Params:
+ *     fileName = Stored file or virtual archive path.
+ *     modified = Last-modified timestamp text, or an empty string.
+ *     rootPath = Repository root used when absolute paths are requested.
+ *     options = Export options; `absolutePaths` rewrites the physical path.
+ * Returns: A new FileSpec for the reference.
+ */
 private FileSpec fileSpecFromStoredPath(string fileName, string modified,
     string rootPath, JsonExportOptions options)
 {
@@ -1132,7 +1387,17 @@ private FileSpec fileSpecFromStoredPath(string fileName, string modified,
     return new FileSpec(fileName, modified);
 }
 
-/** Load page details with a bounded number of set queries instead of per row. */
+/** Load page details with a bounded number of set queries instead of per row.
+ *
+ * Params:
+ *     db = Open repository database to read.
+ *     rootPath = Repository root used to resolve physical paths.
+ *     blobIds = Blob IDs whose details are loaded.
+ *     options = Export options controlling details, prefix filtering and
+ *         unreferenced content.
+ * Returns: Details in the same order as `blobIds`; entries that are missing or
+ *     have no allowed references remain `null`. Empty when `blobIds` is empty.
+ */
 private NamedBinaryBlob[] loadBlobDetailsBatchFromDatabase(ref Database db,
     string rootPath, long[] blobIds, JsonExportOptions options)
 {
@@ -1416,6 +1681,14 @@ private NamedBinaryBlob[] loadBlobDetailsBatchFromDatabase(ref Database db,
     return result;
 }
 
+/** Load UI flags for several blobs with one query.
+ *
+ * Params:
+ *     db = Open repository database.
+ *     blobIds = Blob IDs whose flags are requested.
+ * Returns: Flags in the same order as `blobIds`; entries without a row get
+ *     `RepositoryBlobFlags.init`. Empty when `blobIds` is empty.
+ */
 private RepositoryBlobFlags[] loadBlobFlagsBatch(ref Database db,
     long[] blobIds)
 {
@@ -1462,6 +1735,14 @@ private RepositoryBlobFlags[] loadBlobFlagsBatch(ref Database db,
     return result;
 }
 
+/** Delete all catalog rows from the repository.
+ *
+ * Removes file references, directories and blobs, but leaves repository-level
+ * settings such as the schema version untouched.
+ *
+ * Params:
+ *     db = Open repository database inside the import transaction.
+ */
 private void clearCatalog(ref Database db)
 {
     db.execute("DELETE FROM file_refs");
@@ -1469,6 +1750,16 @@ private void clearCatalog(ref Database db)
     db.execute("DELETE FROM blobs");
 }
 
+/** Write archive-index metadata rows for imported containers.
+ *
+ * A container is marked "completed" when any imported virtual reference names
+ * it as its parent, and "empty" otherwise. The extractor version records
+ * whether the index came from a shallow or deep scan.
+ *
+ * Params:
+ *     db = Open repository database inside the import transaction.
+ *     archiveIndexes = Imported containers whose state is persisted.
+ */
 private void persistImportedArchiveStatuses(ref Database db,
     ImportedArchiveIndex[] archiveIndexes)
 {
@@ -1509,6 +1800,13 @@ private void persistImportedArchiveStatuses(ref Database db,
     }
 }
 
+/** Return the container path that holds a virtual archive reference.
+ *
+ * Params:
+ *     path = Stored archive path, possibly virtual.
+ * Returns: The parent container path, or an empty string when `path` is not a
+ *     parseable virtual path or has no parent layer.
+ */
 private string parentArchivePath(string path)
 {
     ParsedArchiveVirtualPath parsed;
@@ -1525,14 +1823,26 @@ private string parentArchivePath(string path)
     return result;
 }
 
+/** Reference-conflict counters collected during one catalog import. */
 private struct ImportReferenceStats
 {
+    /// References skipped because an identical reference already existed.
     size_t identicalSkipped;
+    /// Existing references replaced by a richer reference.
     size_t richerReplaced;
+    /// References skipped because an incompatible reference kept its place.
     size_t conflictSkipped;
+    /// References skipped because they lay outside the repository root.
     size_t outsideSkipped;
 }
 
+/** Insert one blob and its optional password, media and torrent metadata.
+ *
+ * Params:
+ *     db = Open repository database inside the import transaction.
+ *     blob = Catalog record to store.
+ * Returns: The database ID assigned to the inserted blob row.
+ */
 private long insertBlobRecord(ref Database db, NamedBinaryBlob blob)
 {
     auto md5 = encodeBase64(blob.checkSums.md5sum_b64);
@@ -1552,7 +1862,15 @@ private long insertBlobRecord(ref Database db, NamedBinaryBlob blob)
 }
 
 /** Decode a stored path and fold double-escaped archive members back into
- * their container when no literal `!` directory exists below the root. */
+ * their container when no literal `!` directory exists below the root.
+ *
+ * Params:
+ *     rootPath = Repository root used to test the literal physical path.
+ *     path = Stored path to parse.
+ * Returns: The parsed path, re-parsed without the extra escape when that
+ *     recovers an archive member; the original parse is kept when the literal
+ *     path exists or re-parsing fails.
+ */
 private ParsedArchiveVirtualPath parseImportPath(string rootPath, string path)
 {
     auto parsed = parseArchiveVirtualPath(path);
@@ -1576,6 +1894,24 @@ private ParsedArchiveVirtualPath parseImportPath(string rootPath, string path)
         return parsed;
 }
 
+/** Insert or reconcile one file reference during import.
+ *
+ * A new path is inserted once; an existing path is compared by size and
+ * digests. The richer reference replaces a stale or incomplete one, while an
+ * incompatible duplicate keeps the existing reference and increments the
+ * conflict counter. Paths outside the repository root are skipped.
+ *
+ * Params:
+ *     db = Open repository database inside the import transaction.
+ *     rootPath = Repository root used to make physical paths relative.
+ *     id = Blob ID that owns the reference.
+ *     blob = Catalog record supplying size and digests.
+ *     spec = Reference metadata, including its stored path.
+ *     parsed = Parsed form of the reference path.
+ *     stats = Import counters updated in place.
+ * Throws: `Exception` when a virtual member has no physical container
+ *     reference in the catalog.
+ */
 private void insertFileReference(ref Database db, string rootPath, long id,
     NamedBinaryBlob blob, FileSpec spec, ParsedArchiveVirtualPath parsed,
     ref ImportReferenceStats stats)
@@ -1678,6 +2014,15 @@ private void insertFileReference(ref Database db, string rootPath, long id,
     ++stats.conflictSkipped;
 }
 
+/** Ensure all directory rows for a relative path exist.
+ *
+ * Directory paths share the escaped namespace with file references.
+ *
+ * Params:
+ *     db = Open repository database inside the import transaction.
+ *     relativeDirectory = Relative directory path to create.
+ * Returns: ID of the deepest directory, or 0 for the root/empty path.
+ */
 private long ensureDirectory(ref Database db, string relativeDirectory)
 {
     if (relativeDirectory.empty || relativeDirectory == ".")
@@ -1714,6 +2059,15 @@ private long ensureDirectory(ref Database db, string relativeDirectory)
     return parentId;
 }
 
+/** Convert a path to repository-relative form when it lies inside the root.
+ *
+ * Params:
+ *     rootPath = Repository root; an empty root rejects absolute paths.
+ *     path = Path to convert, in native or absolute form.
+ *     relative = Receives the storage-form relative path on success.
+ * Returns: `true` when `path` is relative or lies below `rootPath`; `false`
+ *     when it equals or lies outside the root.
+ */
 private bool tryRepositoryRelativePath(string rootPath, string path,
     out string relative)
 {
@@ -1737,6 +2091,15 @@ private bool tryRepositoryRelativePath(string rootPath, string path,
     return true;
 }
 
+/** Convert a path to repository-relative form, rejecting paths outside the root.
+ *
+ * Params:
+ *     rootPath = Repository root; an empty root keeps relative paths as-is.
+ *     path = Path to convert.
+ * Returns: The storage-form path relative to the root.
+ * Throws: `RepositoryException` when the path equals the root or lies outside
+ *     it.
+ */
 private string repositoryRelativePath(string rootPath, string path)
 {
     auto normalized = nativePathToStoragePath(buildNormalizedPath(path));
@@ -1753,6 +2116,13 @@ private string repositoryRelativePath(string rootPath, string path)
     return normalized[prefix.length .. $];
 }
 
+/** Insert media signature and stream rows for one blob.
+ *
+ * Params:
+ *     db = Open repository database inside the import transaction.
+ *     blobId = Blob the media data belongs to.
+ *     info = Media information to store; null or empty data inserts nothing.
+ */
 private void insertMediaInfo(ref Database db, long blobId, MediaInfoSig info)
 {
     if (info is null || info.empty)
@@ -1785,6 +2155,14 @@ private void insertMediaInfo(ref Database db, long blobId, MediaInfoSig info)
             cast(long) stream.bitRate, stream.duration);
 }
 
+/** Insert torrent info and file rows for one blob.
+ *
+ * Params:
+ *     db = Open repository database inside the import transaction.
+ *     blobId = Blob the torrent data belongs to.
+ *     info = Torrent metadata to store; null or empty data inserts nothing.
+ *         Null file entries are skipped.
+ */
 private void insertTorrentInfo(ref Database db, long blobId, TorrentInfo info)
 {
     if (info is null || info.empty)
@@ -1807,6 +2185,15 @@ private void insertTorrentInfo(ref Database db, long blobId, TorrentInfo info)
     }
 }
 
+/** Load the file references of one blob as FileSpec values.
+ *
+ * Params:
+ *     db = Open repository database.
+ *     blobId = Blob whose references are loaded.
+ *     rootPath = Repository root used when absolute paths are requested.
+ *     options = Export options controlling prefix filtering and path form.
+ * Returns: References ordered by stored path; empty when the blob has none.
+ */
 private FileSpec[] loadFileSpecs(ref Database db, long blobId, string rootPath,
     JsonExportOptions options)
 {
@@ -1839,6 +2226,14 @@ private FileSpec[] loadFileSpecs(ref Database db, long blobId, string rootPath,
     return specs;
 }
 
+/** Load media signature and stream data into a blob.
+ *
+ * Params:
+ *     db = Open repository database.
+ *     blobId = Blob whose media data is loaded.
+ *     blob = Catalog record updated in place; left untouched when no media
+ *         signature exists.
+ */
 private void loadMediaInfo(ref Database db, long blobId, ref NamedBinaryBlob blob)
 {
     bool hasSignature;
@@ -1876,6 +2271,17 @@ private void loadMediaInfo(ref Database db, long blobId, ref NamedBinaryBlob blo
     blob.mediaInfoSig = info;
 }
 
+/** Load archive index state into a blob.
+ *
+ * Only `completed` and `empty` archive rows count as a known index. The
+ * extractor version suffix determines whether the index was deep.
+ *
+ * Params:
+ *     db = Open repository database.
+ *     blobId = Blob whose archive state is loaded.
+ *     blob = Catalog record updated in place; left untouched when no usable
+ *         state row exists.
+ */
 private void loadArchiveIndexState(ref Database db, long blobId,
     ref NamedBinaryBlob blob)
 {
@@ -1893,6 +2299,15 @@ private void loadArchiveIndexState(ref Database db, long blobId,
         blob.archiveIndexDeep = extractorVersion.get.endsWith(":deep");
 }
 
+/** Load torrent metadata into a blob.
+ *
+ * Params:
+ *     db = Open repository database.
+ *     blobId = Blob whose torrent data is loaded.
+ *     blob = Catalog record updated in place; left untouched when no torrent
+ *         row exists.
+ *     includeFiles = Also load the per-file list when true.
+ */
 private void loadTorrentInfo(ref Database db, long blobId, ref NamedBinaryBlob blob,
     bool includeFiles = true)
 {
@@ -1925,6 +2340,16 @@ private void loadTorrentInfo(ref Database db, long blobId, ref NamedBinaryBlob b
     blob.torrentInfo = info;
 }
 
+/** Decode a base64 text digest into binary form for storage.
+ *
+ * Despite its name, the function decodes text into a `Blob`. Invalid base64 is
+ * tolerated to preserve legacy placeholder digests.
+ *
+ * Params:
+ *     value = Base64-encoded digest text.
+ * Returns: The decoded bytes, or a null `Nullable` when `value` is empty or
+ *     not valid base64.
+ */
 private Nullable!Blob encodeBase64(string value)
 {
     Nullable!Blob result;
@@ -1939,6 +2364,12 @@ private Nullable!Blob encodeBase64(string value)
     return result;
 }
 
+/** Encode a stored binary digest as base64 text.
+ *
+ * Params:
+ *     value = Binary digest to encode.
+ * Returns: The base64 text, or an empty string when `value` is null or empty.
+ */
 private string decodeBase64(Nullable!Blob value)
 {
     if (value.isNull || value.get.length == 0)
@@ -1946,6 +2377,12 @@ private string decodeBase64(Nullable!Blob value)
     return Base64.encode(value.get);
 }
 
+/** Unwrap an optional database string.
+ *
+ * Params:
+ *     value = Nullable string read from the database.
+ * Returns: The stored value, or an empty string when the value is null.
+ */
 private string decodeNullableString(Nullable!string value)
 {
     return value.isNull ? "" : value.get;
@@ -2071,6 +2508,10 @@ unittest
     assert(statements <= 14, "page issued " ~ statements.to!string ~ " statements");
 }
 
+/** Return the current local time as an ISO extended timestamp.
+ *
+ * Returns: The current clock value formatted for storage in timestamp columns.
+ */
 private string currentTimestamp()
 {
     import std.datetime.systime : Clock;

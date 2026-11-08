@@ -35,6 +35,11 @@ enum ulong defaultMemberCacheByteLimit = 1_073_741_824;
 /** Base class for member cache failures. */
 class MemberContentCacheException : Exception
 {
+    /** Construct the exception with a human-readable message.
+     *
+     * Params:
+     *     message = Description of the cache failure.
+     */
     this(string message)
     {
         super(message);
@@ -44,6 +49,11 @@ class MemberContentCacheException : Exception
 /** Raised when an archive adapter cannot select the requested entry occurrence. */
 class MemberContentNotExtractableException : MemberContentCacheException
 {
+    /** Construct the exception with a human-readable message.
+     *
+     * Params:
+     *     message = Why the archive adapter could not select the entry.
+     */
     this(string message)
     {
         super(message);
@@ -53,6 +63,11 @@ class MemberContentNotExtractableException : MemberContentCacheException
 /** Raised when the cache session is already closed. */
 class MemberContentCacheClosedException : MemberContentCacheException
 {
+    /** Construct the exception with a human-readable message.
+     *
+     * Params:
+     *     message = Description of the attempted operation on a closed cache.
+     */
     this(string message)
     {
         super(message);
@@ -62,6 +77,11 @@ class MemberContentCacheClosedException : MemberContentCacheException
 /** Raised when the cache cannot honor its byte limit. */
 class MemberContentCacheCapacityException : MemberContentCacheException
 {
+    /** Construct the exception with a human-readable message.
+     *
+     * Params:
+     *     message = Description of the exceeded capacity limit.
+     */
     this(string message)
     {
         super(message);
@@ -71,19 +91,31 @@ class MemberContentCacheCapacityException : MemberContentCacheException
 /** Raised when extraction is cancelled through the shared flag. */
 class MemberContentCancelledException : MemberContentCacheException
 {
+    /** Construct the exception with a human-readable message.
+     *
+     * Params:
+     *     message = Description of the cancellation point that was hit.
+     */
     this(string message)
     {
         super(message);
     }
 }
 
+/** One cache entry tracking one materialized archive member and its pins. */
 private class CachedMember
 {
+    /// Session directory reserved for this entry; empty once it was disposed.
     string directory;
+    /// Absolute path of the materialized member file.
     string filePath;
+    /// Size of the materialized file in bytes; zero while unknown or disposed.
     ulong size;
+    /// Number of outstanding leases that pin this entry.
     size_t leaseCount;
+    /// Monotonic access tick used to choose the least recently used entry.
     size_t lastUse;
+    /// True while a materialization for this key is still in flight.
     bool materializing;
 }
 
@@ -95,12 +127,25 @@ private class CachedMember
 final class MemberContentLease
 {
 private:
+    /// Cache that owns this lease and must outlive it.
     MemberContentCache owner;
+    /// Cache key used to find the pinned entry when releasing.
     string key;
+    /// Entry pinned by this lease, or null after release.
     CachedMember cachedEntry;
+    /// Materialized path returned to the caller until release.
     string cachedPath;
+    /// True once `release()` has run, guarding against double release.
     bool released;
 
+    /** Construct a lease that pins one cache entry.
+     *
+     * Params:
+     *     cache = Owning cache, which must outlive this lease.
+     *     cacheKey = Key of the pinned entry inside the cache.
+     *     entry = Cache entry whose file is borrowed.
+     *     path = Materialized path exposed to the caller.
+     */
     this(MemberContentCache cache, string cacheKey, CachedMember entry,
         string path)
     {
@@ -111,7 +156,11 @@ private:
     }
 
 public:
-    /// Filesystem path to the pinned materialized file, valid until `release()`.
+    /** Filesystem path to the pinned materialized file.
+     *
+     * Returns: The absolute path, valid until `release()` is called on this
+     *     lease.
+     */
     @property string path() const
     {
         return cachedPath;
@@ -130,6 +179,7 @@ public:
         cachedEntry = null;
     }
 
+    /** Release the pin if the caller did not release it explicitly. */
     ~this()
     {
         release();
@@ -146,15 +196,25 @@ public:
 final class MemberContentCache
 {
 private:
+    /// Guards all mutable cache state.
     Mutex mutex;
+    /// Signals waiters when a materialization finishes or state changes.
     Condition changed;
+    /// Bounds the number of concurrent materializations.
     Semaphore extractionSlots;
+    /// Directory of this cache session.
     string sessionRoot;
+    /// Exclusive lock that keeps stale-session cleanup from removing this session.
     TargetWriteLease sessionLease;
+    /// Hard limit for the bytes retained by this session.
     ulong maximumBytes;
+    /// Bytes currently retained in this session.
     ulong cachedBytes;
+    /// Monotonic counter used to make session entry directories unique.
     size_t serial;
+    /// Monotonic tick counter used for least-recently-used ordering.
     size_t accessClock;
+    /// Entries keyed by the identity produced by `cacheKey`.
     CachedMember[string] membersByKey;
     /** Leases handed out whose holds were not yet released.
      *
@@ -163,6 +223,7 @@ private:
      * count) while its lease is still outstanding; close() must still honor
      * those paths. */
     size_t outstandingLeases;
+    /// True once `close()` has disposed the session.
     bool closed;
 
 public:
@@ -356,13 +417,21 @@ public:
         }
     }
 
-    /** Current cache directory. It is session scratch, never a FileSpec path. */
+    /** Current cache session directory.
+     *
+     * It is session scratch space, never a FileSpec path.
+     *
+     * Returns: The absolute session root path.
+     */
     @property string rootPath() const
     {
         return sessionRoot;
     }
 
-    /** Bytes currently retained in the cache. */
+    /** Bytes currently retained in the cache.
+     *
+     * Returns: The sum of the sizes of materialized, non-disposed entries.
+     */
     @property ulong bytesUsed()
     {
         synchronized (mutex)
@@ -392,6 +461,14 @@ public:
     }
 
 private:
+    /** Release one pin and adjust the cache accounting.
+     *
+     * Params:
+     *     key = Cache key under which the entry was stored; informational, as
+     *         the entry object itself is matched by identity.
+     *     entry = Entry to unpin, or `null` when only the outstanding-lease
+     *         counter needs adjusting.
+     */
     void release(string key, CachedMember entry)
     {
         synchronized (mutex)
@@ -410,6 +487,14 @@ private:
         }
     }
 
+    /** Remove the oldest unpinned entry other than `exceptKey`.
+     *
+     * Params:
+     *     exceptKey = Key of the entry currently being materialized and
+     *         therefore not eligible for eviction.
+     * Returns: `true` when an unpinned entry was removed; `false` when no
+     *     entry could be evicted.
+     */
     bool evictLeastRecentlyUsed(string exceptKey)
     {
         string victimKey;
@@ -430,6 +515,23 @@ private:
         return true;
     }
 
+    /** Build the stable single-flight identity for one member request.
+     *
+     * The key prefers the content identity, then the archive locator, and only
+     * falls back to `fallbackIdentity` for other locator kinds. The member path
+     * and its lower-cased extension are appended so the same content in
+     * different file types occupies separate entries.
+     *
+     * Params:
+     *     locator = Structured container/entry location to identify.
+     *     contentId = Known content identity, or an invalid ID when unknown.
+     *     fallbackIdentity = Stable identity used when no other identity exists.
+     *     memberPath = Normalized safe member path used as part of the key.
+     * Returns: A key suitable for `membersByKey`; at least a valid identity
+     *     prefix followed by the member path.
+     * Throws: `Exception` when neither a valid content identity nor a usable
+     *     archive locator/fallback identity is supplied.
+     */
     string cacheKey(ContentLocator locator, ContentId contentId,
         string fallbackIdentity, string memberPath) const
     {
@@ -447,6 +549,12 @@ private:
             ~ extension(memberPath).toLower;
     }
 
+    /** Read a shared cancellation flag atomically.
+     *
+     * Params:
+     *     cancellation = Optional cooperative cancellation flag.
+     * Returns: `true` when the flag is non-null and set; `false` otherwise.
+     */
     bool cancellationRequested(shared(bool)* cancellation) const
     {
         if (cancellation is null)
@@ -454,6 +562,14 @@ private:
         return atomicLoad(*cancellation);
     }
 
+    /** Recursively remove an entry directory, ignoring removal failures.
+     *
+     * Missing paths are treated as success, and filesystem errors are swallowed
+     * so cleanup cannot mask the operation that triggered it.
+     *
+     * Params:
+     *     path = Directory to remove; an empty path is ignored.
+     */
     void removeDirectory(string path)
     {
         try
@@ -464,6 +580,14 @@ private:
         }
     }
 
+    /** Remove session directories left behind by exited processes.
+     *
+     * A session directory is removed unless another process still holds its
+     * write lease. Entries that cannot be inspected or locked are left alone.
+     *
+     * Params:
+     *     root = Cache parent directory scanned one level deep.
+     */
     void cleanupStaleSessions(string root)
     {
         import std.file : DirEntry, SpanMode, dirEntries, isDir;
@@ -486,14 +610,18 @@ private:
     }
 }
 
+/// Guards access to the process-wide cache pointer.
 private __gshared Object sharedCacheGuard;
+/// Process-wide cache instance, or `null` when none is configured.
 private __gshared MemberContentCache processMemberContentCache;
 
+/** Create the guard object during module initialization. */
 shared static this()
 {
     sharedCacheGuard = new Object();
 }
 
+/** Close and forget the process-wide cache during module shutdown. */
 shared static ~this()
 {
     synchronized (sharedCacheGuard)
@@ -508,7 +636,11 @@ shared static ~this()
         }
 }
 
-/** Process-wide cache shared by repository and JSON operation workers. */
+/** Process-wide cache shared by repository and JSON operation workers.
+ *
+ * Returns: The existing shared cache, or a newly created default-configured
+ *     cache when none exists yet.
+ */
 MemberContentCache sharedMemberContentCache()
 {
     synchronized (sharedCacheGuard)
@@ -526,6 +658,11 @@ MemberContentCache sharedMemberContentCache()
  * the swap only serializes configuration changes, and closing the old cache
  * while another thread still holds leases would fail (or, once a close is
  * refused, leave the configured root unused).
+ *
+ * Params:
+ *     root = Parent directory for the new session; an empty string selects the
+ *         system temporary directory.
+ *     byteLimit = Maximum number of bytes the session may retain.
  */
 void configureSharedMemberContentCache(string root, ulong byteLimit)
 {

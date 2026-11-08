@@ -13,7 +13,19 @@ import std.string : empty, endsWith;
 import dosierskanilo;
 import dosierskanilo_cli.logging : errorFLine, errorLine;
 
-/** Validate a JSON-target scan, analysis, list, or duplicate command. */
+/** Validate a JSON-target scan, analysis, list, or duplicate command.
+ *
+ * Checks that the JSON catalog path is usable, fills in a default base
+ * directory, and rejects repository-only options that the command does not
+ * support. Diagnostics are written through the CLI logging helpers.
+ *
+ * Params:
+ *     command = Command name to validate (`scan`, `analyze`, `list`, or
+ *         `duplicates`).
+ *     options = Parsed command-line options; `argBaseDir` may be defaulted.
+ * Returns: `true` when the options are valid for the command, `false` after
+ *     reporting a validation error.
+ */
 bool validateJsonOptions(string command, ref ArgsArray options)
 {
     if (options.argJSONFile.empty || !options.argJSONFile.endsWith(jsonFileExtension))

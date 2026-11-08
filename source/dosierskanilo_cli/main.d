@@ -59,7 +59,9 @@ version (ldc)
 shared bool gotCtrlC; /// Set in handler
 
 /* Some constants */
+/** User-facing application name used in help text and log messages. */
 immutable string appName = "DosierSkanilo";
+/** Build version embedded from the generated `build-version.txt` at compile time. */
 immutable string appVersion = import("build/bin/build-version.txt").strip;
 
 /** Main Entry
@@ -136,7 +138,13 @@ int main(string[] args)
 	}
 }
 
-/** Human-readable command name for startup diagnostics. */
+/** Human-readable command name for startup diagnostics.
+ *
+ * Params:
+ *     command = Parsed CLI command.
+ * Returns: The lowercase command word, or an empty string for
+ *     `CliCommand.noCommand`.
+ */
 private string commandDisplayName(CliCommand command)
 {
 	final switch (command)
@@ -166,7 +174,14 @@ private string commandDisplayName(CliCommand command)
 	}
 }
 
-/** Primary path shown in startup diagnostics. */
+/** Primary path shown in startup diagnostics.
+ *
+ * Params:
+ *     options = Parsed command-line options.
+ *     command = Command whose direction of transfer or target should be shown.
+ * Returns: A display path or `source -> destination` description; `"."` is
+ *     used when no path was supplied.
+ */
 private string settingsTarget(ArgsArray options, CliCommand command)
 {
 	const auto repository = options.argRepositoryPath.empty
@@ -199,7 +214,13 @@ private string settingsTarget(ArgsArray options, CliCommand command)
 	return ".";
 }
 
-/** Storage mode shown in startup diagnostics. */
+/** Storage mode shown in startup diagnostics.
+ *
+ * Params:
+ *     options = Parsed command-line options.
+ *     command = Command being executed.
+ * Returns: `"repository"` or `"JSON"`.
+ */
 private string settingsStorage(ArgsArray options, CliCommand command)
 {
 	if (command == CliCommand.importJson)
@@ -209,7 +230,13 @@ private string settingsStorage(ArgsArray options, CliCommand command)
 	return options.argJSONFile.empty ? "repository" : "JSON";
 }
 
-/** Active metadata extractor labels for startup diagnostics. */
+/** Active metadata extractor labels for startup diagnostics.
+ *
+ * Params:
+ *     options = Parsed command-line options.
+ * Returns: Labels for the enabled extractors in display order; empty when no
+ *     metadata option is enabled.
+ */
 private string[] metadataSettings(ArgsArray options)
 {
 	string[] labels;
@@ -230,7 +257,15 @@ private string[] metadataSettings(ArgsArray options)
 	return labels;
 }
 
-/** Active scan/analysis/runtime labels for startup diagnostics. */
+/** Active scan/analysis/runtime labels for startup diagnostics.
+ *
+ * Params:
+ *     options = Parsed command-line options.
+ *     command = Command being executed; scan-specific labels are omitted for
+ *         other commands.
+ * Returns: Labels such as recursion mode, hidden-file handling, drop-missing
+ *     and thread count; empty when nothing applies.
+ */
 private string[] scopeSettings(ArgsArray options, CliCommand command)
 {
 	string[] labels;
@@ -248,7 +283,12 @@ private string[] scopeSettings(ArgsArray options, CliCommand command)
 	return labels;
 }
 
-/** Active output/JSON flags for startup diagnostics. */
+/** Active output/JSON flags for startup diagnostics.
+ *
+ * Params:
+ *     options = Parsed command-line options.
+ * Returns: Labels for enabled flags in display order; empty when none apply.
+ */
 private string[] flagSettings(ArgsArray options)
 {
 	string[] labels;
@@ -265,7 +305,14 @@ private string[] flagSettings(ArgsArray options)
 	return labels;
 }
 
-/** Active query settings for list/duplicate commands. */
+/** Active query settings for list/duplicate commands.
+ *
+ * Params:
+ *     options = Parsed command-line options.
+ *     command = Command being executed; other commands yield no labels.
+ * Returns: Query labels such as text, limit, offset, media requirements and
+ *     output format; empty for commands without query settings.
+ */
 private string[] querySettings(ArgsArray options, CliCommand command)
 {
 	if (command != CliCommand.list && command != CliCommand.duplicates)
@@ -291,7 +338,13 @@ private string[] querySettings(ArgsArray options, CliCommand command)
 	return labels;
 }
 
-/** Describe the archive cache for verbose startup diagnostics. */
+/** Describe the archive cache for verbose startup diagnostics.
+ *
+ * Params:
+ *     options = Parsed command-line options.
+ * Returns: The configured directory and optional MiB limit, or `"default"`
+ *     when no cache option was supplied.
+ */
 private string archiveCacheSetting(ArgsArray options)
 {
 	if (!options.argArchiveCacheDir.empty)
@@ -309,6 +362,10 @@ private string archiveCacheSetting(ArgsArray options)
  *
  * Compact mode emits one line so redirected logs stay small. Verbose mode
  * expands the same values into labelled lines.
+ *
+ * Params:
+ *     options = Parsed command-line options.
+ *     command = Command being executed.
  */
 private void printRunSettings(ArgsArray options, CliCommand command)
 {
@@ -351,7 +408,19 @@ private void printRunSettings(ArgsArray options, CliCommand command)
 		noticeFLine("  query: %s", query.join(", "));
 }
 
-/** List backups/recovery files for one catalog and optionally restore one. */
+/** List backups/recovery files for one catalog and optionally restore one.
+ *
+ * Backup and recovery files are searched next to the catalog, in the XDG state
+ * directory and in the system temporary directory. With `--restore-from`, the
+ * current catalog is backed up before the selected file is copied into place.
+ *
+ * Params:
+ *     options = Parsed command-line options providing the catalog path and the
+ *         optional restore source.
+ * Returns: `true` on success (including a listing-only invocation); `false`
+ *     after logging an error when the catalog path is missing, the restore
+ *     source is invalid, or the restore fails.
+ */
 bool executeCatalogRecovery(ArgsArray options)
 {
 	import dosierskanilo.model.namedbinaryblob :
@@ -478,6 +547,17 @@ bool executeCatalogRecovery(ArgsArray options)
 	return true;
 }
 
+/** Configure the shared archive member cache from CLI options.
+ *
+ * Does nothing when neither a cache directory nor a size limit was requested.
+ * A requested size limit is converted from MiB to bytes; zero keeps the default
+ * byte limit.
+ *
+ * Params:
+ *     options = Parsed command-line options.
+ * Returns: `true` when the cache is configured or no cache was requested;
+ *     `false` after logging an error when configuration fails.
+ */
 private bool configureArchiveCache(ArgsArray options)
 {
 	import dosierskanilo.membercontentcache :
@@ -500,7 +580,16 @@ private bool configureArchiveCache(ArgsArray options)
 	}
 }
 
-/** Execute a SQLite repository operation selected by the CLI options. */
+/** Execute a SQLite repository operation selected by the CLI options.
+ *
+ * Opens either the repository or a JSON-backed catalog and then dispatches to
+ * info, list, duplicates, import, metadata and export steps as requested.
+ *
+ * Params:
+ *     options = Parsed command-line options.
+ * Returns: `true` when every requested step succeeded; `false` after logging
+ *     an error when a step fails.
+ */
 bool executeRepositoryOperation(ArgsArray options)
 {
 	Repository repository;
@@ -590,7 +679,15 @@ bool executeRepositoryOperation(ArgsArray options)
 	}
 }
 
-/** Import a JSON catalog into a repository. */
+/** Import a JSON catalog into a repository.
+ *
+ * Params:
+ *     backend = Open catalog backend that receives the import.
+ *     repositoryRoot = Repository root used for log output.
+ *     options = Parsed command-line options providing the import path and
+ *         replace flag.
+ * Returns: `true` on success; `false` when the import is cancelled or fails.
+ */
 bool executeRepositoryImport(CatalogBackend backend, string repositoryRoot,
 	ArgsArray options)
 {
@@ -611,7 +708,14 @@ bool executeRepositoryImport(CatalogBackend backend, string repositoryRoot,
 	return true;
 }
 
-/** Execute a scan or analysis through the shared backend contract. */
+/** Execute a scan or analysis through the shared backend contract.
+ *
+ * Params:
+ *     options = Parsed command-line options; a JSON catalog path selects the
+ *         direct JSON operation path and a repository path selects the backend.
+ * Returns: The result reported by `reportCatalogOperationResult`; `true` when
+ *     the operation completed or a recovery copy was saved.
+ */
 bool executeCatalogOperation(ArgsArray options)
 {
 	OperationTarget target;
@@ -659,6 +763,12 @@ bool executeCatalogOperation(ArgsArray options)
  * The operation runner owns the single catalog load and committed replacement.
  * Avoiding the query backend here also avoids rebuilding its read index for a
  * process that exits immediately after the operation.
+ *
+ * Params:
+ *     options = Parsed command-line options selecting scan or analysis.
+ *     target = JSON storage target to operate on.
+ * Returns: The result reported by `reportCatalogOperationResult`; `true` when
+ *     the operation completed or a recovery copy was saved.
  */
 private bool executeJsonCatalogOperation(ArgsArray options, OperationTarget target)
 {
@@ -674,6 +784,13 @@ private bool executeJsonCatalogOperation(ArgsArray options, OperationTarget targ
 	return reportCatalogOperationResult("Catalog", options, result);
 }
 
+/** Build a scan request from parsed command-line options.
+ *
+ * Params:
+ *     options = Parsed command-line options.
+ *     target = Storage target selected by the caller.
+ * Returns: The populated request; `operationId` is fixed at 4 for CLI scans.
+ */
 private ScanOperationRequest scanRequestFromCli(ArgsArray options,
 	OperationTarget target)
 {
@@ -692,6 +809,14 @@ private ScanOperationRequest scanRequestFromCli(ArgsArray options,
 	return request;
 }
 
+/** Build an analysis request from parsed command-line options.
+ *
+ * Params:
+ *     options = Parsed command-line options.
+ *     target = Storage target selected by the caller.
+ * Returns: The populated request; `operationId` is fixed at 5 for CLI
+ *     analyses.
+ */
 private AnalysisOperationRequest analysisRequestFromCli(ArgsArray options,
 	OperationTarget target)
 {
@@ -706,7 +831,11 @@ private AnalysisOperationRequest analysisRequestFromCli(ArgsArray options,
 	return request;
 }
 
-/** Whether standard input is attached to a terminal. */
+/** Whether standard input is attached to a terminal.
+ *
+ * Returns: `true` on POSIX when `isatty(0)` reports a terminal; always `false`
+ *     on other platforms.
+ */
 private bool stdinIsInteractive()
 {
 	version (Posix)
@@ -718,6 +847,17 @@ private bool stdinIsInteractive()
 		return false;
 }
 
+/** Copy a recovery catalog to a destination through a temporary staging file.
+ *
+ * The copy is written to a randomly named sibling of `destination` and renamed
+ * into place, so an interrupted copy does not truncate an existing catalog.
+ *
+ * Params:
+ *     source = Existing recovery catalog path.
+ *     destination = Final catalog path chosen by the user.
+ * Returns: `true` on success; `false` after logging an error and removing the
+ *     staging file when the copy fails.
+ */
 private bool copyRecoveryCatalog(string source, string destination)
 {
 	import std.file : copy, exists, remove, rename;
@@ -750,7 +890,16 @@ private bool copyRecoveryCatalog(string source, string destination)
 	}
 }
 
-/** Offer to copy a recovery catalog to a user-chosen path. */
+/** Offer to copy a recovery catalog to a user-chosen path.
+ *
+ * Params:
+ *     options = Parsed command-line options providing the default destination
+ *         and the no-input flag.
+ *     result = Failed operation result carrying the recovery path.
+ * Returns: `true` when the user supplied a destination and the copy succeeded;
+ *     `false` when there is no recovery file, input is not interactive, the
+ *     user cancels, or all copy attempts fail.
+ */
 private bool offerCatalogRecovery(ArgsArray options, OperationResult result)
 {
 	import std.file : exists;
@@ -793,6 +942,15 @@ private bool offerCatalogRecovery(ArgsArray options, OperationResult result)
 	return false;
 }
 
+/** Log the outcome of a JSON-catalog operation and offer recovery on failure.
+ *
+ * Params:
+ *     backendName = Label used in log messages, for example `"Catalog"`.
+ *     options = Parsed command-line options that control the summary detail.
+ *     result = Operation result to report.
+ * Returns: `true` when the operation completed, or when a failed operation's
+ *     recovery catalog was successfully copied; `false` otherwise.
+ */
 private bool reportCatalogOperationResult(string backendName, ArgsArray options,
 	OperationResult result)
 {
@@ -861,7 +1019,16 @@ private bool reportCatalogOperationResult(string backendName, ArgsArray options,
 	return result.state == OperationState.completed;
 }
 
-/** Export the repository catalog when requested. */
+/** Export the repository catalog when requested.
+ *
+ * Params:
+ *     backend = Open catalog backend to export from.
+ *     repositoryRoot = Repository root used for log output.
+ *     options = Parsed command-line options providing the export path, subset
+ *         prefix and JSON formatting.
+ * Returns: `true` when no export was requested or the export was committed;
+ *     `false` when the prefix matches nothing or the export is cancelled.
+ */
 bool executeRepositoryExport(CatalogBackend backend, string repositoryRoot,
 	ArgsArray options)
 {
@@ -902,7 +1069,13 @@ bool executeRepositoryExport(CatalogBackend backend, string repositoryRoot,
 	return true;
 }
 
-/** Print catalog metadata and current content counts. */
+/** Print catalog metadata and current content counts.
+ *
+ * Params:
+ *     backend = Open catalog backend to query.
+ *     repositoryRoot = Repository root used to derive the database path.
+ *     options = Parsed command-line options selecting table or JSON output.
+ */
 void executeRepositoryInfo(CatalogBackend backend, string repositoryRoot,
 	ArgsArray options)
 {
@@ -935,7 +1108,13 @@ void executeRepositoryInfo(CatalogBackend backend, string repositoryRoot,
 	logFLine("References: %d", references);
 }
 
-/** Build the shared catalog filter from query command-line options. */
+/** Build the shared catalog filter from query command-line options.
+ *
+ * Params:
+ *     options = Parsed command-line options carrying text and media filters.
+ * Returns: A filter with all supplied criteria set and archive members
+ *     included.
+ */
 private CatalogFilter catalogFilterFromCli(ArgsArray options)
 {
 	CatalogFilter filter;
@@ -951,7 +1130,14 @@ private CatalogFilter catalogFilterFromCli(ArgsArray options)
 	return filter;
 }
 
-/** Collect all matching file references, including indexed archive members. */
+/** Collect all matching file references, including indexed archive members.
+ *
+ * Params:
+ *     backend = Open catalog backend to walk.
+ *     filter = Filter applied to directory and file queries.
+ * Returns: All matching files sorted by relative path; empty when nothing
+ *     matches.
+ */
 private CatalogFile[] collectCatalogFiles(CatalogBackend backend,
 	CatalogFilter filter)
 {
@@ -995,7 +1181,13 @@ private CatalogFile[] collectCatalogFiles(CatalogBackend backend,
 	return files;
 }
 
-/** Report whether one canonical path or descendant prefix has references. */
+/** Report whether one canonical path or descendant prefix has references.
+ *
+ * Params:
+ *     backend = Open catalog backend to search.
+ *     prefix = Canonical path or virtual archive path prefix.
+ * Returns: `true` when an exact reference or any descendant matches.
+ */
 private bool catalogHasPath(CatalogBackend backend, string prefix)
 {
 	CatalogFilter filter;
@@ -1053,7 +1245,13 @@ private bool catalogHasPath(CatalogBackend backend, string prefix)
 	return walk(DirectoryId.init);
 }
 
-/** Original member name without the canonical occurrence suffix. */
+/** Original member name without the canonical occurrence suffix.
+ *
+ * Params:
+ *     path = Canonical path, with or without archive layers.
+ * Returns: The final name of the deepest layer, or the raw path's base name
+ *     when the path does not follow the canonical grammar.
+ */
 private string displayNameForPath(string path)
 {
 	try
@@ -1067,7 +1265,13 @@ private string displayNameForPath(string path)
 		return baseName(path);
 }
 
-/** Print a blob page for JSON catalogs without a bound filesystem root. */
+/** Print a blob page for JSON catalogs without a bound filesystem root.
+ *
+ * Params:
+ *     backend = Open catalog backend to query.
+ *     options = Parsed command-line options providing filters, paging and
+ *         output format.
+ */
 private void executeRepositoryListLegacy(CatalogBackend backend,
 	ArgsArray options)
 {
@@ -1111,7 +1315,14 @@ private void executeRepositoryListLegacy(CatalogBackend backend,
 	}
 }
 
-/** Print one bounded, catalog-side filtered page of file references. */
+/** Print one bounded, catalog-side filtered page of file references.
+ *
+ * Params:
+ *     backend = Open catalog backend to query.
+ *     repositoryRoot = Repository root used for verbose log output.
+ *     options = Parsed command-line options providing filters, paging and
+ *         output format.
+ */
 void executeRepositoryList(CatalogBackend backend, string repositoryRoot,
 	ArgsArray options)
 {
@@ -1154,7 +1365,13 @@ void executeRepositoryList(CatalogBackend backend, string repositoryRoot,
 			file.name, file.relativePath);
 }
 
-/** Print duplicate groups for JSON catalogs without a bound root. */
+/** Print duplicate groups for JSON catalogs without a bound root.
+ *
+ * Params:
+ *     backend = Open catalog backend to query.
+ *     options = Parsed command-line options providing the duplicate limit and
+ *         output format.
+ */
 private void executeRepositoryDuplicatesLegacy(CatalogBackend backend,
 	ArgsArray options)
 {
@@ -1210,7 +1427,15 @@ private void executeRepositoryDuplicatesLegacy(CatalogBackend backend,
 	}
 }
 
-/** Print duplicate groups without modifying catalog contents. */
+/** Print duplicate groups without modifying catalog contents.
+ *
+ * Params:
+ *     backend = Open catalog backend to query.
+ *     repositoryRoot = Repository root used for verbose log output.
+ *     options = Parsed command-line options providing the duplicate limit and
+ *         output format.
+ * Throws: `CatalogBackendException` when the duplicate limit is zero.
+ */
 void executeRepositoryDuplicates(CatalogBackend backend, string repositoryRoot,
 	ArgsArray options)
 {
@@ -1285,7 +1510,13 @@ void executeRepositoryDuplicates(CatalogBackend backend, string repositoryRoot,
 	}
 }
 
-/** Quote a string for the small, stable CLI JSON result objects. */
+/** Quote a string for the small, stable CLI JSON result objects.
+ *
+ * Params:
+ *     value = Raw string to encode.
+ * Returns: The string enclosed in double quotes with control characters and
+ *     quotes escaped.
+ */
 string jsonQuote(string value)
 {
 	import std.format : format;
@@ -1321,7 +1552,17 @@ string jsonQuote(string value)
 	return result ~ "\"";
 }
 
-/** Execute the selected metadata extractors against a repository. */
+/** Execute the selected metadata extractors against a repository.
+ *
+ * Params:
+ *     backend = Open catalog backend that runs the metadata operation.
+ *     repositoryRoot = Repository root used as the operation target and log
+ *         label.
+ *     options = Parsed command-line options selecting extractors and thread
+ *         count.
+ * Returns: `true` when the operation completed; `false` after logging the
+ *     cancellation or failure.
+ */
 bool executeRepositoryMetadata(CatalogBackend backend, string repositoryRoot,
 	ArgsArray options)
 {
@@ -1359,7 +1600,13 @@ bool executeRepositoryMetadata(CatalogBackend backend, string repositoryRoot,
 	return true;
 }
 
-/** Render shared operation progress and translate SIGINT into cooperative cancellation. */
+/** Render shared operation progress and translate SIGINT into cooperative cancellation.
+ *
+ * Params:
+ *     label = Operation label shown in progress output.
+ *     detail = Optional detail such as the target path.
+ * Returns: A control object whose progress callback writes to the CLI.
+ */
 OperationControl cliOperationControl(string label, string detail = "")
 {
 	prepareOperationOutput(label, detail);
@@ -1432,7 +1679,12 @@ extern (C) nothrow @nogc @system void signalHandler(int sig)
 		abort();
 }
 
-/** Map shared scanner CLI flags to frontend-neutral library options. */
+/** Map shared scanner CLI flags to frontend-neutral library options.
+ *
+ * Params:
+ *     options = Parsed command-line options.
+ * Returns: Metadata options mirroring the enabled scanner flags.
+ */
 MetadataScanOptions metadataOptionsFromCli(ArgsArray options)
 {
 	MetadataScanOptions metadata;

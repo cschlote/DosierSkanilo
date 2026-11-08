@@ -28,50 +28,82 @@ struct CheckSums
 		string xxh64sum_b64; ///< base 64 of xxh64 hash
 	}
 
-	/** the file md5sum as a property */
+	/** the file md5sum as a property
+	 *
+	 * Returns: Decoded MD5 digest bytes, or `null` when no digest is stored.
+	 */
 	ubyte[] get_md5sum() const @property pure @safe
 	{
 		return (md5sum_b64 is null) ? null : Base64.decode(md5sum_b64);
 	}
 
-	/** setter - the file md5sum as a property */
+	/** setter - the file md5sum as a property
+	 *
+	 * Params:
+	 *     data = Raw MD5 digest bytes; `null` clears the stored digest.
+	 */
 	void set_md5sum(ubyte[] data) @property @safe
 	{
 		md5sum_b64 = (data is null) ? null : Base64.encode(data);
 	}
 
-	/** getter - the file sha1sum as a property */
+	/** getter - the file sha1sum as a property
+	 *
+	 * Returns: Decoded SHA-1 digest bytes, or `null` when no digest is stored.
+	 */
 	ubyte[] get_sha1sum() const @property pure @safe
 	{
 		return (sha1sum_b64 is null) ? null : Base64.decode(sha1sum_b64);
 	}
 
-	/** setter - the file sha1sum as a property */
+	/** setter - the file sha1sum as a property
+	 *
+	 * Params:
+	 *     data = Raw SHA-1 digest bytes; `null` clears the stored digest.
+	 */
 	void set_sha1sum(ubyte[] data) @property @safe
 	{
 		sha1sum_b64 = (data is null) ? null : Base64.encode(data);
 	}
 
-	/** getter - the file xxh64 as a property */
+	/** getter - the file xxh64 as a property
+	 *
+	 * Returns: Decoded xxh64 digest bytes, or `null` when no digest is stored.
+	 */
 	ubyte[] get_xxh64() const @property pure @safe
 	{
 		return (xxh64sum_b64 is null) ? null : Base64.decode(xxh64sum_b64);
 	}
 
-	/** setter - the file xxh64 as a property */
+	/** setter - the file xxh64 as a property
+	 *
+	 * Params:
+	 *     data = Raw xxh64 digest bytes; `null` clears the stored digest.
+	 */
 	void set_xxh64(ubyte[] data) @property @safe
 	{
 		xxh64sum_b64 = (data is null) ? null : Base64.encode(data);
 	}
 
-	/** Check if all three digests are present */
+	/** Check if all three digests are present.
+	 *
+	 * Returns: `true` when the MD5, SHA-1, and xxh64 base64 strings are all
+	 *     non-empty.
+	 */
 	bool hasDigests() @safe pure nothrow const
 	{
 		return !this.md5sum_b64.empty && !this.sha1sum_b64.empty && !this.xxh64sum_b64.empty;
 	}
 
 	/** equality operator
-	*/
+	 *
+	 * Two checksums are equal only when both have all three digests and their
+	 * encoded digest strings match.
+	 *
+	 * Params:
+	 *     other = Checksums to compare with.
+	 * Returns: `true` when both objects carry the same complete digest set.
+	 */
 	bool opEquals(const CheckSums other) const @safe
 	{
 		return this.hasDigests && other.hasDigests &&
@@ -80,6 +112,14 @@ struct CheckSums
 			this.xxh64sum_b64 == other.xxh64sum_b64;
 	}
 
+	/** Compute a hash over the encoded digest strings for use in hash containers.
+	 *
+	 * The hash covers the base64 text of the MD5, SHA-1 and xxh64 digests in
+	 * that order.
+	 *
+	 * Returns: A deterministic `size_t` hash, or `0` when any digest is
+	 *     missing (see `hasDigests`).
+	 */
 	size_t toHash() const nothrow @safe
 	{
 		if (!this.hasDigests)

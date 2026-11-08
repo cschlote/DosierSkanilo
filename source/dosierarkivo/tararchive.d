@@ -23,13 +23,27 @@ version (unittest)
     import dosierarkivo.testsupport;
 }
 
+/** TAR archive adapter backed by the `tar` command-line tool. */
 class FileArchiveTar : FileArchive
 {
+    /** Create a wrapper for one TAR file.
+     *
+     * Params:
+     *     filename = Path to the TAR archive on disk; stored unchanged.
+     */
     this(string filename)
     {
         super(ArchiveType.tar, filename);
     }
 
+    /** List member names using `tar -tf`.
+     *
+     * Params:
+     *     password = Accepted for interface compatibility; TAR listing does not
+     *         use it.
+     * Returns: Member names in archive order; empty lines are dropped.
+     * Throws: `ArchiveToolException` when `tar` exits unsuccessfully.
+     */
     override string[] getEntries(string password = "")
     {
         auto rc = execute(["tar", "-tf", this.fileName]);
@@ -38,6 +52,16 @@ class FileArchiveTar : FileArchive
         return rc.output.split("\n").filter!(a => !a.empty).array;
     }
 
+    /** Extract one member into `destDir` using `tar`.
+     *
+     * Params:
+     *     filename = Member name exactly as reported by the archive listing.
+     *     destDir = Directory that receives the extracted member.
+     *     password = Accepted for interface compatibility; TAR extraction does
+     *         not use it.
+     * Returns: `true` on success.
+     * Throws: `ArchiveToolException` when `tar` exits unsuccessfully.
+     */
     override bool extractEntry(string filename, string destDir, string password = "")
     {
         auto tarPath = buildPath(getcwd(), this.fileName);
@@ -47,11 +71,28 @@ class FileArchiveTar : FileArchive
         return true;
     }
 
+    /** Report whether the local `tar` supports `--occurrence`.
+     *
+     * Returns: `true` when `tar --help` advertises the occurrence option.
+     */
     override @property bool supportsEntryOccurrence() const
     {
         return executeShell("tar --help").output.canFind("--occurrence");
     }
 
+    /** Extract the exact occurrence identified by a descriptor.
+     *
+     * Unique names are delegated to the name-based overload; duplicates are
+     * selected with `--occurrence=<n>` where `<n>` is one-based.
+     *
+     * Params:
+     *     descriptor = Entry identity returned by `getEntryDescriptors`.
+     *     destDir = Directory that receives the extracted member.
+     *     password = Accepted for interface compatibility; TAR extraction does
+     *         not use it.
+     * Returns: `true` on success, `false` when duplicate selection is needed
+     *     but the local `tar` lacks `--occurrence`.
+     */
     override bool extractEntry(ArchiveEntryDescriptor descriptor, string destDir,
         string password = "")
     {
@@ -69,8 +110,10 @@ class FileArchiveTar : FileArchive
 
     version (unittest)
     {
+        /** Test archive file name produced by the unittest fixture. */
         enum string fn = tarFileName;
 
+        /** Build the TAR fixture from `expectedEntries`, replacing any old file. */
         static void createTestArchive()
         {
             deleteTestArchive;
@@ -79,6 +122,7 @@ class FileArchiveTar : FileArchive
             assert(rc.status == 0, rc.output);
         }
 
+        /** Remove the TAR fixture if it exists. */
         static void deleteTestArchive()
         {
             if (fn.exists)

@@ -92,6 +92,15 @@ class ArchiveSpec
 		archivePassword = "";
 	}
 
+	/** Order entries by their stored file name.
+	 *
+	 * Only `fileName` participates; size, timestamp and checksums are ignored.
+	 *
+	 * Params:
+	 *     rhs = Entry to compare against.
+	 * Returns: A negative number when this name sorts first, zero when both
+	 *     names are equal, and a positive number otherwise.
+	 */
 	int opCmp(ArchiveSpec rhs) const pure @safe
 	{
 		if (this.fileName > rhs.fileName)
@@ -102,7 +111,11 @@ class ArchiveSpec
 			return 0;
 	}
 
-	/** Deep-copy this entry, including nested archive member metadata. */
+	/** Deep-copy this entry, including nested archive member metadata.
+	 *
+	 * Returns: A new entry with copied scalar fields and recursively duplicated
+	 *     nested entries; `null` nested entries stay `null`.
+	 */
 	ArchiveSpec dup()
 	{
 		auto result = new ArchiveSpec(fileName, fileSize, timeLastModified,
@@ -125,6 +138,10 @@ class ArchiveSpec
 		return result;
 	}
 
+	/** Return a debug representation of the entry's core fields.
+	 *
+	 * Returns: `ArchiveSpec('<name>', <size>, '<timestamp>', <checksums>)`.
+	 */
 	override string toString() const pure
 	{
 		return format("ArchiveSpec('%s', %d, '%s', %s)", fileName, fileSize, timeLastModified, checkSums);

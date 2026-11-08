@@ -31,6 +31,7 @@ version (Posix)
     import core.sys.posix.unistd : STDOUT_FILENO;
 }
 
+/** Full usage text printed for `--help`, describing commands and options. */
 immutable string helpText = q"EOS
 
 Usage:
@@ -126,33 +127,51 @@ EOS";
 /** Top-level action selected by the command-line parser. */
 enum CliCommand
 {
+    /// No command was recognized; the parser falls back to help output.
     noCommand,
+    /// Initialize or open a `.dosierskanilo` repository.
     init,
+    /// Scan a repository or JSON catalog for files.
     scan,
+    /// Extract checksums, file types, media info, archive and torrent metadata.
     metadata,
+    /// Analyze missing file references and duplicate blobs.
     analyze,
+    /// Show repository or catalog information.
     info,
+    /// List catalog content references, including archive and torrent members.
     list,
+    /// List groups of blobs with duplicate content.
     duplicates,
+    /// Import a JSON catalog into the repository.
     importJson,
+    /// Export a repository catalog as JSON.
     exportJson,
+    /// List recovery backups and optionally restore one.
     recover
 }
 
 /** Result state of command-line parsing. */
 enum ParseStatus
 {
+    /// Parsing succeeded; the selected command should run.
     run,
+    /// Help text should be printed instead of running a command.
     help,
+    /// Version information should be printed instead of running a command.
     showVersion,
+    /// Parsing failed; diagnostics have already been reported.
     error
 }
 
 /** Parsed command-line state passed from the CLI entry point to its handlers. */
 struct ParsedCommandLine
 {
+    /// Outcome of parsing, indicating whether a command may run.
     ParseStatus status;
+    /// Selected top-level action.
     CliCommand command;
+    /// Parsed option values for the selected command.
     ArgsArray options;
 }
 
@@ -390,7 +409,12 @@ ParsedCommandLine parseCommandLine(string[] args)
     return ParsedCommandLine(ParseStatus.run, commandToCliCommand(command), argsarray);
 }
 
-/** Map a recognized command token to its typed action. */
+/** Map a recognized command token to its typed action.
+ *
+ * Params:
+ *   command = Command token accepted by the parser.
+ * Returns: The matching `CliCommand`; `noCommand` for an empty token.
+ */
 private CliCommand commandToCliCommand(string command)
 {
     final switch (command)
@@ -773,6 +797,7 @@ unittest
 /** Wrapper around a progress callback function pointer. */
 struct ProgressCallBack
 {
+    /// Callback receiving the completed count and total count.
     void function(size_t i, size_t m) fp;
 }
 
@@ -827,29 +852,52 @@ void progressCallBack(size_t i, size_t m)
 
 import std.datetime;
 
+/// Timestamp of the last main progress line, used for throttling.
 private __gshared SysTime lastProgress;
+/// Most recent completed item count passed to `printProgress`.
 private __gshared size_t lastIdx;
+/// Most recent total item count passed to `printProgress`.
 private __gshared size_t lastTotalFiles;
+/// Most recent file path passed to `printProgress`.
 private __gshared string lastFile;
+/// Timestamp of the last emitted operation progress event.
 private __gshared SysTime lastOperationProgress;
+/// Text form of the most recently reported operation phase.
 private __gshared string lastOperationPhase;
+/// True while a compact progress line is open on the terminal.
 private __gshared bool operationProgressLineOpen;
+/// Start time of the current operation, or `SysTime.init` when unknown.
 private __gshared SysTime operationStartedAt;
+/// Label shown in the operation header.
 private __gshared string operationContextLabel;
+/// Optional secondary detail shown in the operation header.
 private __gshared string operationContextDetail;
+/// True after the operation header has been printed.
 private __gshared bool operationHeaderPrinted;
+/// Mutex guarding the cross-thread operation heartbeat state.
 private __gshared Mutex operationStateMutex;
+/// True while the heartbeat thread should keep running.
 private __gshared bool operationHeartbeatActive;
+/// Generation counter that invalidates earlier heartbeat threads.
 private __gshared uint operationHeartbeatGeneration;
+/// Most recent operation progress event, kept for heartbeat output.
 private __gshared OperationProgress lastOperationEvent;
+/// True when `lastOperationEvent` holds a valid event.
 private __gshared bool haveLastOperationEvent;
 
+/** Initialize the shared operation-state mutex. */
 shared static this()
 {
     operationStateMutex = new Mutex;
 }
 
 
+/** Return whether stdout is attached to a terminal.
+ *
+ * On non-POSIX targets this always returns `false`.
+ *
+ * Returns: `true` when stdout is an interactive terminal.
+ */
 private bool stdoutIsTerminal()
 {
     version (Posix)
@@ -861,7 +909,13 @@ private bool stdoutIsTerminal()
         return false;
 }
 
-/** Whether stdout accepts ANSI color sequences. */
+/** Whether stdout accepts ANSI color sequences.
+ *
+ * Honors `NO_COLOR` and `CLICOLOR_FORCE`; the result is cached for the
+ * process lifetime.
+ *
+ * Returns: `true` when ANSI color output should be emitted.
+ */
 private bool supportsColor()
 {
     static int cached = -1;
@@ -878,6 +932,13 @@ private bool supportsColor()
     return enabled;
 }
 
+/** Return the usable terminal width in columns.
+ *
+ * Uses `$COLUMNS` when it holds a value of at least 40, then the POSIX window
+ * size, and otherwise a conservative default.
+ *
+ * Returns: Positive column count suitable for bounding progress lines.
+ */
 private size_t terminalColumns()
 {
     const configured = environment.get("COLUMNS", "");
@@ -902,6 +963,12 @@ private size_t terminalColumns()
     return stdoutIsTerminal() ? 80 : 100;
 }
 
+/** Return the human-readable label for an operation phase.
+ *
+ * Params:
+ *   phase = phase to translate.
+ * Returns: Short English label used in progress output.
+ */
 private string operationPhaseLabel(OperationPhase phase)
 {
     final switch (phase)
@@ -924,6 +991,12 @@ private string operationPhaseLabel(OperationPhase phase)
     }
 }
 
+/** Format a byte count using binary units.
+ *
+ * Params:
+ *   bytes = raw byte count.
+ * Returns: Value with one decimal place and a unit from `B` through `TiB`.
+ */
 private string formatProgressBytes(ulong bytes)
 {
     immutable string[] units = ["B", "KiB", "MiB", "GiB", "TiB"];
@@ -937,7 +1010,12 @@ private string formatProgressBytes(ulong bytes)
     return format("%.1f %s", value, units[unit]);
 }
 
-/** Format a count with thousands separators. */
+/** Format a count with thousands separators.
+ *
+ * Params:
+ *   value = Count to format.
+ * Returns: Decimal text with `,` between each group of three digits.
+ */
 string formatProgressCount(ulong value)
 {
     const text = value.to!string;
@@ -960,6 +1038,12 @@ unittest
     assert(formatProgressCount(2600000) == "2,600,000");
 }
 
+/** Format an elapsed duration compactly.
+ *
+ * Params:
+ *   elapsed = duration to format.
+ * Returns: `Ns`, `NmSSs`, or `NhMMm`, depending on magnitude.
+ */
 private string formatElapsed(Duration elapsed)
 {
     const seconds = elapsed.total!"seconds";
@@ -970,6 +1054,12 @@ private string formatElapsed(Duration elapsed)
     return format("%dh%02dm", seconds / 3600, seconds % 3600 / 60);
 }
 
+/** Format a wall-clock time as a log-line prefix.
+ *
+ * Params:
+ *   now = time to format.
+ * Returns: `[HH:MM:SS] ` including the trailing space.
+ */
 private string formatTimestamp(SysTime now)
 {
     return format("[%02d:%02d:%02d] ", now.hour, now.minute, now.second);
@@ -979,6 +1069,10 @@ private string formatTimestamp(SysTime now)
  *
  * The header is printed lazily on the first progress event, so failed
  * operations that never acquire their target do not pollute stdout.
+ *
+ * Params:
+ *   label = Primary operation label shown in the header.
+ *   detail = Optional secondary context shown in the header.
  */
 void prepareOperationOutput(string label, string detail = "")
 {
@@ -998,6 +1092,14 @@ void prepareOperationOutput(string label, string detail = "")
     startOperationHeartbeat(operationHeartbeatGeneration);
 }
 
+/** Start the daemon thread that emits periodic heartbeat output.
+ *
+ * The thread exits once the generation counter or the active flag shows that
+ * its operation has been superseded.
+ *
+ * Params:
+ *   generation = heartbeat generation identifying the current operation.
+ */
 private void startOperationHeartbeat(uint generation)
 {
     auto thread = new Thread({
@@ -1017,7 +1119,11 @@ private void startOperationHeartbeat(uint generation)
     thread.start();
 }
 
-/** Emit a heartbeat when no progress callback arrived for several seconds. */
+/** Emit a heartbeat when no progress callback arrived for several seconds.
+ *
+ * Params:
+ *   generation = Heartbeat generation that must still be current.
+ */
 private void printOperationHeartbeat(uint generation)
 {
     import dosierskanilo.logging : logF, logFLine;
@@ -1065,6 +1171,11 @@ private void printOperationHeartbeat(uint generation)
         logFLine("%s%s", formatTimestamp(now), line);
 }
 
+/** Print the operation header at most once for the current operation.
+ *
+ * The first caller prints `operationContextLabel` and
+ * `operationContextDetail`; later callers do nothing.
+ */
 private void ensureOperationHeader()
 {
     synchronized (operationStateMutex)
@@ -1080,6 +1191,10 @@ private void ensureOperationHeader()
  *
  * The header names the operation and its target once. Progress lines that
  * follow intentionally do not repeat that context.
+ *
+ * Params:
+ *   label = Primary operation label.
+ *   detail = Optional secondary context appended to the label.
  */
 void printOperationStart(string label, string detail = "")
 {
@@ -1112,6 +1227,14 @@ void printOperationStart(string label, string detail = "")
  * The operation label is intentionally absent: it was already printed by
  * `printOperationStart`. The remaining fields are phase, counts, elapsed time,
  * optional rate/subtask details, and the current path.
+ *
+ * Params:
+ *   event = Operation progress event to render.
+ *   columns = Maximum line width; zero selects 80 columns.
+ *   colorize = Whether to wrap fields in ANSI color sequences.
+ *   elapsed = Elapsed operation time, or zero to omit timing.
+ *   detailed = Whether to include the completion rate in detailed mode.
+ * Returns: A progress line no longer than `columns` characters.
  */
 string formatOperationProgressLine(OperationProgress event, size_t columns,
     bool colorize = false, Duration elapsed = Duration.zero,
@@ -1208,6 +1331,10 @@ string formatOperationProgressLine(OperationProgress event, size_t columns,
  *
  * On a terminal this is a single rewritten line. When stdout is redirected,
  * emit periodic newline records instead so logs remain readable.
+ *
+ * Params:
+ *   label = Ignored operation label; the header already printed it.
+ *   event = Operation progress event to render.
  */
 void printOperationProgress(string label, OperationProgress event)
 {
@@ -1250,6 +1377,12 @@ void printOperationProgress(string label, OperationProgress event)
  * Verbose mode keeps a scrollable history instead of rewriting one line. It
  * adds rate information and is printed at most once per second, on phase
  * changes, and whenever the caller explicitly reports an event.
+ *
+ * Params:
+ *   label = Ignored operation label; the header already printed it.
+ *   event = Operation progress event to render.
+ *   lastProgress = Timestamp of the previous verbose line; updated on output.
+ *   haveProgress = Whether `lastProgress` holds a previous timestamp.
  */
 void printVerboseOperationProgress(string label, OperationProgress event,
     ref SysTime lastProgress, ref bool haveProgress)

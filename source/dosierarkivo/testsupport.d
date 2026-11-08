@@ -15,17 +15,27 @@ version (unittest)
 
     import dosierarkivo.archive;
 
+    /** Build a temporary directory path unique to the current process and thread.
+     *
+     * Returns: Absolute path below `tempDir` that does not include a trailing
+     *     separator.
+     */
     string getTmpDirPrefix()
     {
         return buildPath(
             tempDir, "dosierskanilo-" ~ thisProcessID.to!string ~ "-" ~ thisThreadID.to!string);
     }
 
+    /// File name of the ZIP archive used by the shared archive tests.
     enum zipFileName = "test.zip";
+    /// File name of the TAR archive used by the shared archive tests.
     enum tarFileName = "test.tar";
+    /// File name of the RAR archive used by the shared archive tests.
     enum rarFileName = "test.rar";
+    /// File name of the 7z archive used by the shared archive tests.
     enum _7zFileName = "test.7z";
 
+    /// Archive entry names that `testAbstractImpl` expects in every test archive.
     string[] expectedEntries = [
         "test/dummy-audio-file.mp3", "test/dummy-picture-file.jpg",
         "test/dummy-subtitle-file-copy.srt", "test/dummy-subtitle-file.srt",

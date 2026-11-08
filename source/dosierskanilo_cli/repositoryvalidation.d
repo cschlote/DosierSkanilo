@@ -13,7 +13,18 @@ import std.string : empty, endsWith;
 import dosierskanilo;
 import dosierskanilo_cli.logging : errorFLine, errorLine;
 
-/** Validate repository target, command options, and transfer filenames. */
+/** Validate repository target, command options, and transfer filenames.
+ *
+ * The repository path may be defaulted from the legacy scan path or to the
+ * current directory, so `options` is updated during validation.
+ *
+ * Params:
+ *     command = Repository subcommand name, for example `"scan"` or `"list"`.
+ *     options = Parsed command-line options; repository path fields may be
+ *         filled in as a side effect.
+ * Returns: `true` when the options are valid, `false` after logging a usage
+ *     error otherwise.
+ */
 bool validateRepositoryOptions(string command, ref ArgsArray options)
 {
     if (!options.argJSONFile.empty && command != "import" && command != "export")
@@ -151,6 +162,13 @@ unittest
     assert(!validateRepositoryOptions("list", invalidCachedList));
 }
 
+/** Whether any list/query filter differs from its default value.
+ *
+ * Params:
+ *     options = Parsed command-line options.
+ * Returns: `true` when query text, offset, limit, media filters or type filters
+ *     were supplied.
+ */
 private bool hasRepositoryListFilters(ArgsArray options)
 {
     return !options.argQueryText.empty || options.argQueryOffset != 0
@@ -160,12 +178,26 @@ private bool hasRepositoryListFilters(ArgsArray options)
         || options.argQueryArchive || options.argQueryTorrent;
 }
 
+/** Whether any query-oriented option differs from its default.
+ *
+ * Params:
+ *     options = Parsed command-line options.
+ * Returns: `true` when list filters, a non-default duplicate limit or a
+ *     non-default output format were supplied.
+ */
 private bool hasRepositoryQueryOptions(ArgsArray options)
 {
     return hasRepositoryListFilters(options) || options.argDuplicateLimit != 100
         || options.argOutputFormat != "table";
 }
 
+/** Whether any metadata-enrichment option was requested.
+ *
+ * Params:
+ *     options = Parsed command-line options.
+ * Returns: `true` when checksums, file types, media info, archive scanning or
+ *     torrent scanning was requested.
+ */
 private bool hasMetadataOptions(ArgsArray options)
 {
     return options.argDoChecksums || options.argDoFileTypes
@@ -173,6 +205,18 @@ private bool hasMetadataOptions(ArgsArray options)
         || options.argScanTorrents;
 }
 
+/** Validate that the options are allowed for a repository subcommand.
+ *
+ * Each subcommand accepts a specific subset of storage and metadata actions;
+ * combining an unsupported option with a command reports a usage error.
+ *
+ * Params:
+ *     command = Repository subcommand name such as `"scan"` or `"export"`; an
+ *         empty string is accepted without further checks.
+ *     options = Parsed command-line options to validate.
+ * Returns: `true` when the option combination is valid, `false` after logging a
+ *     usage error otherwise.
+ */
 private bool validateRepositoryCommand(string command, ArgsArray options)
 {
     bool hasStorageAction = options.argInitRepository || options.argScanFiles
@@ -252,6 +296,12 @@ private bool validateRepositoryCommand(string command, ArgsArray options)
     return true;
 }
 
+/** Log the standard usage error for options that a command does not accept.
+ *
+ * Params:
+ *     command = Repository subcommand that received the invalid options.
+ * Returns: Always `false`, so callers can `return invalidCommandOptions(...)`.
+ */
 private bool invalidCommandOptions(string command)
 {
     errorFLine("Options are not valid for the '%s' command.", command);

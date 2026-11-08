@@ -31,64 +31,105 @@ import std.zip : ArchiveMember, CompressionMethod, ZipArchive;
 
 import dosierarkivo.archive : archivePathSeparator;
 
+/// Layout version written into generated fixture manifests.
 enum syntheticFixtureGeneratorVersion = 1;
+/// Fixed POSIX timestamp in seconds used for all generated fixture timestamps.
 enum long syntheticSourceDateEpoch = 1_577_934_246; // 2020-01-02T03:04:06Z
 
 /** One completed generation bundle; `catalogRoot` contains only scan inputs. */
 struct SyntheticCatalogFixture
 {
+    /// Absolute path of the generated bundle root.
     string bundlePath;
+    /// Path of the `catalog` directory holding only scan inputs.
     string catalogRoot;
+    /// Path of the sibling `manifest.json` describing the expected contents.
     string manifestPath;
+    /// Parsed manifest value; callers treat it as a read-only description.
     JSONValue manifest;
 }
 
+/** Description of one regular file to create inside the catalog tree. */
 private struct FileDefinition
 {
+    /// Path relative to the catalog root, using `/` separators.
     string path;
+    /// Descriptive role recorded in the manifest.
     string role;
+    /// Exact file content.
     ubyte[] data;
 }
 
+/** Description of one member stored inside a generated archive. */
 private struct ArchiveMemberDefinition
 {
+    /// Member path as stored in the archive.
     string path;
+    /// Descriptive role recorded in the manifest.
     string role;
+    /// Exact uncompressed member content.
     ubyte[] data;
 }
 
+/** Description of one archive to generate, including its encoded bytes. */
 private struct ArchiveDefinition
 {
+    /// Path relative to the catalog root, using `/` separators.
     string path;
+    /// Archive format identifier, for example `zip` or `tar`.
     string format;
+    /// Members the archive is expected to contain.
     ArchiveMemberDefinition[] members;
+    /// Encoded archive file content.
     ubyte[] data;
 }
 
+/** Lifecycle of the single-flight fixture builder. */
 private enum FixtureSetupState
 {
+    /// No build has been attempted yet.
     uninitialized,
+    /// A builder is running; other callers wait for it to finish.
     building,
+    /// A fixture was published and can be shared.
     ready,
+    /// The builder failed and its error is retained.
     failed
 }
 
 /** Thread-safe single-flight initializer shared by the helper and its tests. */
 private class FixtureGate
 {
+    /// Protects the setup state, published fixture, and counters.
     private Mutex mutex;
+    /// Signals waiting callers when the state changes.
     private Condition condition;
+    /// Current single-flight setup state.
     private FixtureSetupState state;
+    /// Published fixture value once the state is `ready`.
     private SyntheticCatalogFixture fixture;
+    /// Message retained from a failed build.
     private string failureMessage;
+    /// Number of successful builder invocations.
     private size_t buildCount;
 
+    /** Create an empty gate with no fixture built yet. */
     this()
     {
         mutex = new Mutex();
         condition = new Condition(mutex);
     }
 
+    /** Return the shared fixture, building it once on first use.
+     *
+     * Concurrent callers block until the first builder finishes and then share
+     * its result. A failed build is retained and rethrown to later callers.
+     *
+     * Params:
+     *     builder = Generator invoked at most once to create the fixture.
+     * Returns: The published fixture value.
+     * Throws: `Exception` when the builder throws or a previous build failed.
+     */
     SyntheticCatalogFixture get(SyntheticCatalogFixture delegate() builder)
     {
         bool shouldBuild;
@@ -138,6 +179,10 @@ private class FixtureGate
         }
     }
 
+    /** Report how many builders have completed successfully.
+     *
+     * Returns: The number of successful builds; zero before the first one.
+     */
     size_t successfulBuildCount()
     {
         synchronized (mutex)
@@ -145,8 +190,10 @@ private class FixtureGate
     }
 }
 
+/// Process-wide gate coordinating the immutable test fixture build.
 private __gshared FixtureGate fixtureGate;
 
+/** Initialize the process-wide fixture gate without touching the filesystem. */
 shared static this()
 {
     fixtureGate = new FixtureGate();
@@ -157,6 +204,16 @@ shared static this()
  * The bundle contains `catalog/` and a sibling `manifest.json`. Existing output
  * is reused only when its manifest and generated filesystem contents validate;
  * replacement of an invalid or unrelated directory requires `replaceExisting`.
+ *
+ * Params:
+ *     outputPath = Bundle directory to generate or reuse.
+ *     replaceExisting = Replace an existing output directory that does not
+ *         match the generated fixture.
+ *     updateExpectedManifest = Skip comparison against the checked-in golden
+ *         manifest, for intentional generator changes.
+ * Returns: The generated or reused fixture describing the bundle.
+ * Throws: `Exception` when the golden manifest is missing or differs, the
+ *     existing output cannot be reused, or generation/verification fails.
  */
 SyntheticCatalogFixture generateSyntheticCatalog(string outputPath,
     bool replaceExisting = false, bool updateExpectedManifest = false)
@@ -247,6 +304,10 @@ SyntheticCatalogFixture generateSyntheticCatalog(string outputPath,
  * Lazily generate the immutable test seed exactly once in this process.
  * Calls from concurrent `silly` workers wait for the first generator and share
  * its published catalog path; no filesystem work happens in the static ctor.
+ *
+ * Returns: The shared fixture with a freshly parsed manifest.
+ * Throws: `Exception` when generation fails or the result differs from the
+ *     checked-in golden manifest.
  */
 SyntheticCatalogFixture ensureSyntheticTestCatalog()
 {
@@ -267,7 +328,13 @@ SyntheticCatalogFixture ensureSyntheticTestCatalog()
     return fixture;
 }
 
-/** Copy the immutable generated catalog into a private mutable test directory. */
+/** Copy the immutable generated catalog into a private mutable test directory.
+ *
+ * Params:
+ *     destination = Directory to create and populate; it must not exist yet.
+ * Returns: The normalized absolute path of the populated destination.
+ * Throws: `Exception` when the destination already exists or the copy fails.
+ */
 string copySyntheticCatalogForTest(string destination)
 {
     auto fixture = ensureSyntheticTestCatalog();
@@ -305,13 +372,21 @@ string copySyntheticCatalogForTest(string destination)
     }
 }
 
-/** Number of fixture builds performed by the process-local single-flight helper. */
+/** Number of fixture builds performed by the process-local single-flight helper.
+ *
+ * Returns: The count of successful builds; zero before the first build.
+ */
 size_t syntheticFixtureBuildCount()
 {
     return fixtureGate.successfulBuildCount();
 }
 
-/** A test-source SHA1 in lower-case hex, matching the backend's identity digest. */
+/** A test-source SHA1 in lower-case hex, matching the backend's identity digest.
+ *
+ * Params:
+ *     data = Bytes to hash.
+ * Returns: 40 lower-case hexadecimal characters.
+ */
 string syntheticSha1Hex(const(ubyte)[] data)
 {
     auto digest = new SHA1();
@@ -320,27 +395,54 @@ string syntheticSha1Hex(const(ubyte)[] data)
     return result.idup;
 }
 
+/** Return the fixed UTC timestamp assigned to every generated file.
+ *
+ * Returns: 2020-01-02T03:04:06Z as a `SysTime`, keeping fixtures reproducible.
+ */
 private SysTime fixedFixtureTime()
 {
     return SysTime(DateTime(2020, 1, 2, 3, 4, 6), UTC());
 }
 
+/** Copy a string's UTF-8 bytes into a mutable byte array.
+ *
+ * Params:
+ *     value = Text whose bytes are copied.
+ * Returns: A newly allocated byte array containing the string's code units.
+ */
 private ubyte[] bytes(string value)
 {
     return cast(ubyte[]) value.dup;
 }
 
+/** Append a string's UTF-8 bytes to a byte buffer.
+ *
+ * Params:
+ *     data = Buffer that is extended in place.
+ *     value = Text appended to the buffer.
+ */
 private void appendText(ref ubyte[] data, string value)
 {
     data ~= bytes(value);
 }
 
+/** Append the low bytes of an integer in little-endian order.
+ *
+ * Params:
+ *     data = Buffer that is extended in place.
+ *     value = Value whose bytes are appended.
+ *     count = Number of low-order bytes to append; must not exceed four.
+ */
 private void appendLittleEndian(ref ubyte[] data, uint value, size_t count)
 {
     foreach (index; 0 .. count)
         data ~= cast(ubyte) (value >> (index * 8));
 }
 
+/** Build a minimal deterministic PCM WAV file.
+ *
+ * Returns: A mono 8 kHz, 16-bit PCM WAV containing 16 silent samples.
+ */
 private ubyte[] syntheticWave()
 {
     enum sampleCount = 16;
@@ -362,6 +464,10 @@ private ubyte[] syntheticWave()
     return data;
 }
 
+/** Build a minimal deterministic 24-bit bitmap image.
+ *
+ * Returns: A 2x2 BMP with four fixed colored pixels and padded row stride.
+ */
 private ubyte[] syntheticBitmap()
 {
     enum width = 2;
@@ -390,6 +496,12 @@ private ubyte[] syntheticBitmap()
     return data;
 }
 
+/** Build a deterministic single-file torrent for a WAV payload.
+ *
+ * Params:
+ *     wave = Complete payload whose SHA1 becomes the torrent piece hash.
+ * Returns: Bencoded torrent data describing `tone.wav`.
+ */
 private ubyte[] syntheticTorrent(ubyte[] wave)
 {
     auto digest = new SHA1();
@@ -403,6 +515,16 @@ private ubyte[] syntheticTorrent(ubyte[] wave)
     return torrent;
 }
 
+/** Build a deterministic torrent describing two files.
+ *
+ * The text and wave payloads are concatenated in that order to compute the
+ * piece hash.
+ *
+ * Params:
+ *     text = Content of `alpha.txt`.
+ *     wave = Content of `nested/tone.wav`.
+ * Returns: Bencoded multi-file torrent data.
+ */
 private ubyte[] syntheticMultiFileTorrent(ubyte[] text, ubyte[] wave)
 {
     ubyte[] joined = text.dup;
@@ -425,6 +547,14 @@ private ubyte[] syntheticMultiFileTorrent(ubyte[] text, ubyte[] wave)
     return torrent;
 }
 
+/** Encode archive members as a deterministic ZIP archive.
+ *
+ * Members are stored uncompressed with the fixed fixture timestamp.
+ *
+ * Params:
+ *     members = Member definitions to add in order.
+ * Returns: The encoded ZIP file content.
+ */
 private ubyte[] buildZip(ArchiveMemberDefinition[] members)
 {
     auto zip = new ZipArchive();
@@ -441,6 +571,12 @@ private ubyte[] buildZip(ArchiveMemberDefinition[] members)
     return cast(ubyte[]) zip.build();
 }
 
+/** Format an unsigned integer as an octal digit string.
+ *
+ * Params:
+ *     value = Value to format.
+ * Returns: Octal digits without a prefix; `0` for a zero value.
+ */
 private string octalDigits(ulong value)
 {
     char[] digits;
@@ -454,6 +590,15 @@ private string octalDigits(ulong value)
     return digits.idup;
 }
 
+/** Write text into a fixed-width TAR header field.
+ *
+ * Params:
+ *     header = TAR header block being filled in.
+ *     offset = Byte offset of the field.
+ *     width = Field width in bytes.
+ *     value = Text to copy; must fit within `width`.
+ * Throws: `Exception` when the value is longer than the field.
+ */
 private void setTarText(ref ubyte[512] header, size_t offset, size_t width,
     string value)
 {
@@ -462,6 +607,17 @@ private void setTarText(ref ubyte[512] header, size_t offset, size_t width,
         header[offset + index] = cast(ubyte) character;
 }
 
+/** Write an octal number into a fixed-width TAR header field.
+ *
+ * The field is zero-padded, except for the final NUL terminator.
+ *
+ * Params:
+ *     header = TAR header block being filled in.
+ *     offset = Byte offset of the field.
+ *     width = Field width in bytes, including the terminator.
+ *     value = Value to encode.
+ * Throws: `Exception` when the digits do not fit in the field.
+ */
 private void setTarOctal(ref ubyte[512] header, size_t offset, size_t width,
     ulong value)
 {
@@ -475,6 +631,15 @@ private void setTarOctal(ref ubyte[512] header, size_t offset, size_t width,
     header[offset + width - 1] = 0;
 }
 
+/** Encode archive members as a deterministic POSIX TAR archive.
+ *
+ * Headers use the fixed fixture timestamp and a computed checksum, and every
+ * payload is padded to the next 512-byte boundary.
+ *
+ * Params:
+ *     members = Member definitions to add in order.
+ * Returns: The encoded TAR file content.
+ */
 private ubyte[] buildTar(ArchiveMemberDefinition[] members)
 {
     ubyte[] archive;
@@ -511,6 +676,10 @@ private ubyte[] buildTar(ArchiveMemberDefinition[] members)
     return archive;
 }
 
+/** Describe the single member stored in the nested ZIP fixture.
+ *
+ * Returns: One member definition for `deep/readme.txt`.
+ */
 private ArchiveMemberDefinition[] innerZipMembers()
 {
     return [
@@ -519,6 +688,11 @@ private ArchiveMemberDefinition[] innerZipMembers()
     ];
 }
 
+/** Define the ZIP and TAR archives included in the synthetic catalog.
+ *
+ * Returns: Archive definitions with members and encoded file content, in
+ *     deterministic order.
+ */
 private ArchiveDefinition[] buildArchiveDefinitions()
 {
     auto sharedText = bytes("synthetic duplicate payload\n");
@@ -555,6 +729,10 @@ private ArchiveDefinition[] buildArchiveDefinitions()
     ];
 }
 
+/** Define all regular files in the synthetic catalog, including archives.
+ *
+ * Returns: File definitions sorted by ascending path.
+ */
 private FileDefinition[] buildFileDefinitions()
 {
     auto sharedText = bytes("synthetic duplicate payload\n");
@@ -582,6 +760,12 @@ private FileDefinition[] buildFileDefinitions()
     return files;
 }
 
+/** Convert a string list into a JSON array value.
+ *
+ * Params:
+ *     values = Strings to convert, preserving their order.
+ * Returns: A JSON array of string values.
+ */
 private JSONValue jsonStringArray(string[] values)
 {
     JSONValue[] items;
@@ -590,6 +774,12 @@ private JSONValue jsonStringArray(string[] values)
     return JSONValue(items);
 }
 
+/** Build the manifest entry for one generated regular file.
+ *
+ * Params:
+ *     file = File definition to describe.
+ * Returns: JSON object with path, role, size, SHA-256, and modification time.
+ */
 private JSONValue jsonFile(FileDefinition file)
 {
     JSONValue[string] value;
@@ -601,6 +791,12 @@ private JSONValue jsonFile(FileDefinition file)
     return JSONValue(value);
 }
 
+/** Build the manifest entry for one generated archive.
+ *
+ * Params:
+ *     archive = Archive definition to describe.
+ * Returns: JSON object with path, format, size, SHA-256, and member entries.
+ */
 private JSONValue jsonArchive(ArchiveDefinition archive)
 {
     JSONValue[] entries;
@@ -622,6 +818,14 @@ private JSONValue jsonArchive(ArchiveDefinition archive)
     return JSONValue(value);
 }
 
+/** Build the complete fixture manifest from its inputs.
+ *
+ * Params:
+ *     files = Regular files expected in the catalog.
+ *     directories = Directory paths expected in the catalog.
+ *     archives = Archives expected in the catalog.
+ * Returns: JSON manifest with file, archive, duplicate-group, and count data.
+ */
 private JSONValue buildManifest(FileDefinition[] files, string[] directories,
     ArchiveDefinition[] archives)
 {
@@ -696,6 +900,12 @@ private JSONValue buildManifest(FileDefinition[] files, string[] directories,
     return JSONValue(manifest);
 }
 
+/** Compute the lower-case hexadecimal SHA-256 digest of a byte range.
+ *
+ * Params:
+ *     data = Bytes to hash.
+ * Returns: 64 hexadecimal characters.
+ */
 private string sha256Hex(const(ubyte)[] data)
 {
     auto digest = new SHA256();
@@ -704,11 +914,28 @@ private string sha256Hex(const(ubyte)[] data)
     return result.idup;
 }
 
+/** Render a manifest as pretty-printed JSON text for file output.
+ *
+ * Params:
+ *     manifest = Manifest value to serialize.
+ * Returns: Indented JSON followed by a single trailing newline.
+ */
 private string manifestText(JSONValue manifest)
 {
     return manifest.toPrettyString ~ "\n";
 }
 
+/** Verify that a catalog directory exactly matches the generated definitions.
+ *
+ * The check covers the directory/file set, file sizes and SHA-256 digests, and
+ * the fixed modification time of every file. Paths escaping the root fail.
+ *
+ * Params:
+ *     catalogRoot = Directory to inspect.
+ *     files = Expected regular files.
+ *     directories = Expected directory paths.
+ * Returns: `true` when the tree is present and matches exactly.
+ */
 private bool verifyCatalogTree(string catalogRoot, FileDefinition[] files,
     string[] directories)
 {
@@ -756,6 +983,12 @@ private bool verifyCatalogTree(string catalogRoot, FileDefinition[] files,
     return true;
 }
 
+/** Report whether any path component starts with a dot.
+ *
+ * Params:
+ *     relativePath = Slash-separated path relative to the catalog root.
+ * Returns: `true` when at least one component is dot-prefixed.
+ */
 private bool isHiddenPath(string relativePath)
 {
     foreach (part; relativePath.split("/"))
@@ -764,6 +997,14 @@ private bool isHiddenPath(string relativePath)
     return false;
 }
 
+/** Derive the sorted list of directories implied by the generated files.
+ *
+ * All parent directories are included, plus the explicit `empty-directory`.
+ *
+ * Params:
+ *     files = Regular file definitions whose paths imply directories.
+ * Returns: Sorted slash-separated directory paths.
+ */
 private string[] buildDirectoryList(FileDefinition[] files)
 {
     bool[string] seen;

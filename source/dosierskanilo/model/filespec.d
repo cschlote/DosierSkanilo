@@ -44,6 +44,15 @@ class FileSpec
 		timeLastModified = modtime.toISOExtString;
 	}
 
+	/** Order references by their stored file name.
+	 *
+	 * Only `fileName` participates; the modification timestamp is ignored.
+	 *
+	 * Params:
+	 *     rhs = Reference to compare against.
+	 * Returns: A negative number when this name sorts first, zero when both
+	 *     names are equal, and a positive number otherwise.
+	 */
 	int opCmp(FileSpec rhs) const pure @safe
 	{
 		if (this.fileName > rhs.fileName)
@@ -54,6 +63,10 @@ class FileSpec
 			return 0;
 	}
 
+	/** Return a debug representation of the reference's name and timestamp.
+	 *
+	 * Returns: `FileSpec('<name>', <timestamp>)` with the timestamp unquoted.
+	 */
 	override string toString() const pure
 	{
 		return format("FileSpec('%s', %s)", fileName, timeLastModified);

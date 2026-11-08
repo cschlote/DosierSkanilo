@@ -13,7 +13,8 @@ user-visible changes are listed in [`CHANGELOG.md`](CHANGELOG.md).
 - WP-09, WP-13, WP-14, and the persistence/document-session work are complete.
 - Backend verification: 217 tests, coverage 89.15 %, CLI checks and
   `scripts/lint.sh` pass; CI is green on `testing` and `main`.
-- Documentation and Ddoc headers were refreshed on 2026-11-06.
+- Documentation and Ddoc headers are complete: every documentable public,
+  package, and private declaration has Ddoc (verified 2026-11-08).
 
 ## P0 — Prepare the next backend release
 
@@ -47,10 +48,9 @@ directory escaping, and CLI diagnostics since `26.14.0`).
 - [ ] Decide the fate of the unused `verbose` parameter on
       `deserializeDataClassJsonFile`: keep it as a documented compatibility
       no-op until the next major release, or remove it with a deprecation note.
-- [ ] Reduce the remaining `dub lint --report` undocumented-declaration
-      warnings. Prioritize public DTO fields, archive-adapter classes, and CLI
-      parser types; private helpers can be documented only when it improves
-      maintenance. The maintained module list must keep
+- [x] Document every documentable public, package, and private declaration,
+      including fields, enum members, aliases, manifest constants, constructors,
+      and functions with parameter/return contracts. All maintained modules keep
       `Authors`/`Copyright`/`License` headers.
 - [ ] Decide whether the legacy public `service/scanning.d` scanner should be
       deprecated in favor of the shared JSON operation path, or retained as a

@@ -50,54 +50,118 @@ import dosierskanilo.operations : AnalysisOperationRequest, MetadataOperationReq
     ScanOperationRequest;
 import dosierskanilo.service.jsonoperations : commitJsonCatalog;
 
+/**
+ * One resolved catalog file reference and its relationship to the bound
+ * source root.
+ *
+ * The same catalog specification can resolve differently with and without
+ * a filesystem root, so this is a per-index value rather than a property of
+ * the specification.
+ */
 private struct JsonLocation
 {
+    /// Canonical key used to deduplicate locations and prune path maps.
     string identityKey;
+    /// Display path relative to the source root, including archive virtual layers.
     string relativePath;
+    /// Physical container path relative to the source root, without virtual layers.
     string physicalRelativePath;
+    /// Whether the resolved physical path lies inside the bound source root.
     bool isInSourceRoot;
+    /// Whether `relativePath` adds archive virtual layers over the physical path.
     bool isVirtual;
+    /// Parsed archive layers applied on top of the physical path.
     ArchiveVirtualPathLayer[] virtualEntries;
+    /// Catalog file specification this location was resolved from.
     FileSpec spec;
 }
 
+/**
+ * Deferred version-5 archive member reference collected while indexing.
+ *
+ * Version-5 catalogs store member references as ordinary file specifications
+ * with virtual paths. They are gathered first and folded into the container
+ * archive index once all containers are known.
+ */
 private struct V5JsonReference
 {
+    /// Virtual display path of the member reference.
     string relativePath;
+    /// Physical container path without virtual layers.
     string physicalRelativePath;
+    /// Content token of the blob the member resolves to.
     string contentToken;
+    /// Archive layers from the physical container down to the member.
     ArchiveVirtualPathLayer[] entries;
+    /// Member size in bytes as stored in the catalog.
     ulong size;
+    /// Member modification timestamp string as stored in the catalog.
     string modifiedAt;
 }
 
+/**
+ * Archive member selected for inclusion in a subset export.
+ *
+ * Only the fields needed to add the member reference to the exported blob are
+ * retained.
+ */
 private struct JsonMemberExportReference
 {
+    /// Content token of the member's payload.
     string contentToken;
+    /// Path written into the exported file specification.
     string relativePath;
+    /// Modification timestamp written into the exported specification.
     string modifiedAt;
 }
 
+/**
+ * Page window into an ordered result sequence together with its cursors.
+ *
+ * `start` is inclusive and `end` is exclusive.
+ */
 private struct CatalogSlice
 {
+    /// Index of the first item in the page.
     size_t start;
+    /// Index one past the last item in the page.
     size_t end;
+    /// Forward continuation; valid only when `hasMore` is true.
     CatalogPageCursor nextCursor;
+    /// Backward continuation; valid only when `hasPrevious` is true.
     CatalogPageCursor previousCursor;
+    /// Whether more items follow this page.
     bool hasMore;
+    /// Whether items precede this page.
     bool hasPrevious;
 }
 
+/**
+ * One archive member paired with the index of its container file row.
+ *
+ * The container row index lets availability be refreshed from the container
+ * while serving member pages.
+ */
 private struct ArchiveMemberRow
 {
+    /// Catalog file row representing the archive member.
     CatalogFile file;
+    /// Index into the backend's `fileRows` of the physical container.
     size_t containerRow;
 }
 
+/**
+ * Cached archive-member rows for one directory plus precomputed sort orders.
+ *
+ * The index arrays contain positions into `rows`.
+ */
 private struct ArchiveMemberRows
 {
+    /// Member rows sorted by relative path.
     ArchiveMemberRow[] rows;
+    /// Positions into `rows` ordered by ascending size, then path.
     size_t[] sizeAscending;
+    /// Positions into `rows` ordered by descending size, then path.
     size_t[] sizeDescending;
 }
 
@@ -105,36 +169,65 @@ private struct ArchiveMemberRows
 final class JsonCatalogBackend : CatalogBackend
 {
 private:
+    /// Normalized operation target the backend was opened with.
     OperationTarget backendTarget;
+    /// Bound filesystem root, or an empty string when the source is unbound.
     string sourceRoot;
+    /// Random per-instance token that prefixes emitted content and reference IDs.
     string sourceToken;
+        /// In-memory catalog document currently indexed.
         NamedBinaryBlobCatalog catalog;
+    /// Load failure message; empty when the catalog loaded successfully.
     string catalogLoadError;
+    /// Whether `close` has been called on this backend.
     bool closed;
+    /// Whether directory and file-reference queries can be served.
     bool treeQueriesAvailable;
+    /// Whether at least one torrent lacks a persisted file list.
     bool torrentEntryDetailsUnavailable;
+    /// Counter used to allocate unique content and reference identities.
     size_t nextIdentity;
+    /// Incremented on every index rebuild and embedded in cursor tokens.
     size_t indexGeneration;
 
+    /// Strong fingerprint key to content token, carried across rebuilds.
     string[string] contentTokenByFingerprint;
+    /// Relative path to content token from the previous index.
     string[string] contentTokenByPath;
+    /// Fingerprint recorded for a path in the previous index.
     string[string] oldFingerprintByPath;
+    /// File size recorded for a path in the previous index.
     ulong[string] oldSizeByPath;
+    /// Stable reference token keyed by relative virtual path.
     string[string] referenceTokenByPath;
 
+    /// Indexed physical file references, sorted by relative path.
     CatalogFile[] fileRows;
+    /// Indexed directories, sorted by relative path.
     CatalogDirectory[] directoryRows;
+    /// Lazily built file-row indices ordered by ascending size.
     size_t[] sizeAscendingOrder;
+    /// Lazily built file-row indices ordered by descending size.
     size_t[] sizeDescendingOrder;
+    /// Cached member rows keyed by directory ID token.
     ArchiveMemberRows[string] archiveMemberRowsByDirectory;
+    /// Content snapshots keyed by content token.
     CatalogContentSnapshot[string] contentByToken;
+    /// Archive entries keyed by container content token.
     CatalogArchiveEntry[][string] archiveEntriesByToken;
+    /// Torrent file lists keyed by content token.
     CatalogTorrentManifestEntry[][string] torrentEntriesByToken;
+    /// Catalog blob index keyed by physical file relative path.
     size_t[string] blobIndexByRelativePath;
+    /// Catalog blob index keyed by content token.
     size_t[string] blobIndexByContentToken;
+    /// Content token for each catalog blob index; empty when unassigned.
     string[] contentTokenByBlobIndex;
+    /// Lazily created document session shared by all callers.
     JsonCatalogDocument documentSession;
+    /// Original file specification keyed by relative path.
     FileSpec[string] fileSpecByRelativePath;
+    /// Index into `directoryRows` keyed by relative path.
     size_t[string] directoryIndexByPath;
 
 public:
@@ -176,6 +269,15 @@ public:
         }
     }
 
+    /**
+     * Return the explicit save/discard session for this catalog document.
+     *
+     * The session is created on first use and reused for later calls.
+     *
+     * Returns: The document session owned by this backend.
+     * Throws: `CatalogBackendException` with `CatalogBackendErrorCode.closed`
+     *     when the backend has been closed.
+     */
     override CatalogDocument document()
     {
         requireOpen();
@@ -184,12 +286,25 @@ public:
         return documentSession;
     }
 
+    /**
+     * Return the normalized target this backend was opened with.
+     *
+     * Returns: The target with canonicalized catalog and filesystem paths.
+     * Throws: `CatalogBackendException` when the backend has been closed.
+     */
     override OperationTarget target()
     {
         requireOpen();
         return backendTarget;
     }
 
+    /**
+     * Describe the catalog source for display purposes.
+     *
+     * Returns: Source information with `OperationStorageMode.jsonCatalog` and the
+     *     catalog file's base name as display name.
+     * Throws: `CatalogBackendException` when the backend has been closed.
+     */
     override CatalogSourceInfo sourceInfo()
     {
         requireOpen();
@@ -199,6 +314,13 @@ public:
         return result;
     }
 
+    /**
+     * Summarize the catalog as a repository.
+     *
+     * Returns: Repository information whose root is the bound source root when
+     *     present, otherwise the catalog path, plus the catalog schema version.
+     * Throws: `CatalogBackendException` when the backend has been closed.
+     */
     override RepositoryInfo repositoryInfo()
     {
         requireOpen();
@@ -208,6 +330,16 @@ public:
         return result;
     }
 
+    /**
+     * Report the operations and query features this JSON source supports.
+     *
+     * Scanning is advertised only when a filesystem root is bound. Tree and
+     * filtered-export support additionally require a successfully loaded,
+     * consistent index.
+     *
+     * Returns: Capabilities for this backend instance.
+     * Throws: `CatalogBackendException` when the backend has been closed.
+     */
     override CatalogBackendCapabilities capabilities()
     {
         requireOpen();
@@ -228,6 +360,19 @@ public:
         return result;
     }
 
+    /**
+     * Count directory and file references directly below the source root.
+     *
+     * Archive members are included in the counts only when
+     * `filter.includeArchiveMembers` is set.
+     *
+     * Params:
+     *     filter = Optional source-neutral filters applied to directories and
+     *         files.
+     * Returns: Bounded root aggregates for matching content.
+     * Throws: `CatalogBackendException` when the catalog is closed, unreadable,
+     *     or tree queries are unavailable.
+     */
     override CatalogRootSummary rootSummary(CatalogFilter filter = CatalogFilter.init)
     {
         requireTreeQueries();
@@ -253,6 +398,17 @@ public:
         return result;
     }
 
+    /**
+     * List immediate child directories that match a query.
+     *
+     * Params:
+     *     query = Parent directory and optional filters.
+     *     page = Page size and optional continuation cursor.
+     * Returns: A detached page of matching directories with continuation
+     *     cursors.
+     * Throws: `CatalogBackendException` for a closed backend, unavailable tree
+     *     queries, or an invalid or mismatched cursor.
+     */
     override CatalogDirectoryPage listDirectories(CatalogDirectoryQuery query,
         CatalogPageRequest page = CatalogPageRequest.init)
     {
@@ -269,6 +425,16 @@ public:
         return result;
     }
 
+    /**
+     * List immediate file references that match a query and sort order.
+     *
+     * Params:
+     *     query = Directory, filters, and stable sort order.
+     *     page = Page size and optional continuation cursor.
+     * Returns: A detached page of matching files with refreshed availability.
+     * Throws: `CatalogBackendException` for a closed backend, unavailable tree
+     *     queries, or an invalid or mismatched cursor.
+     */
     override CatalogFilePage listFiles(CatalogFileQuery query,
         CatalogPageRequest page = CatalogPageRequest.init)
     {
@@ -285,6 +451,22 @@ public:
         return result;
     }
 
+    /**
+     * List files adjacent to an anchor path for keyboard-style navigation.
+     *
+     * With an empty anchor this returns the first forward page, or an empty page
+     * when moving backward. When the anchor is not present in the result set the
+     * returned page is empty.
+     *
+     * Params:
+     *     query = Directory, filters, and stable sort order.
+     *     anchorRelativePath = Path of the current row, or an empty string.
+     *     forward = Whether to return rows after the anchor instead of before it.
+     *     limit = Maximum number of rows to return; must be greater than zero.
+     * Returns: A detached page of rows adjacent to the anchor.
+     * Throws: `CatalogBackendException` when `limit` is zero, the backend is
+     *     closed, or tree queries are unavailable.
+     */
     override CatalogFilePage listFilesFrom(CatalogFileQuery query,
         string anchorRelativePath, bool forward, size_t limit = 250)
     {
@@ -325,6 +507,20 @@ public:
         return result;
     }
 
+    /**
+     * List deduplicated content rows across all files and archive members.
+     *
+     * One row is emitted per content identity, with the lexicographically smallest
+     * reference path as its display path. A `pathText` filter accepts either a
+     * path substring or an exact base64 SHA-1 digest.
+     *
+     * Params:
+     *     query = Optional content filters.
+     *     page = Page size and optional continuation cursor.
+     * Returns: A page of content rows and the total number of matches.
+     * Throws: `CatalogBackendException` when the backend is closed, the limit is
+     *     zero, or the cursor belongs to another query or page size.
+     */
     override CatalogContentPage listContents(CatalogContentQuery query,
         CatalogPageRequest page = CatalogPageRequest.init)
     {
@@ -439,11 +635,29 @@ public:
         return result;
     }
 
+    /**
+     * Build the cursor binding token for a content query.
+     *
+     * Params:
+     *     query = Content query whose filter participates in the token.
+     * Returns: Opaque token tied to this source instance and the filter.
+     */
     private string contentQueryToken(CatalogContentQuery query) const
     {
         return sourceToken ~ "\0contents\0" ~ filterToken(query.filter);
     }
 
+    /**
+     * Test a content snapshot against the media and type selectors of a filter.
+     *
+     * Path and availability filters are evaluated by the caller. Content without a
+     * snapshot only matches when no media or type selector is active.
+     *
+     * Params:
+     *     token = Content token to look up.
+     *     filter = Filter whose media and type selectors are applied.
+     * Returns: True when the content satisfies the filter's selector groups.
+     */
     private bool contentMatchesFilter(string token, CatalogFilter filter) const
     {
         const content = token in contentByToken;
@@ -478,6 +692,16 @@ public:
         return true;
     }
 
+    /**
+     * Invoke a handler for every matching file in the requested sort order.
+     *
+     * Physical files are passed with `size_t.max` as the container index; archive
+     * members are passed with the index of their container row in `fileRows`.
+     *
+     * Params:
+     *     query = Directory, filters, and sort order to apply.
+     *     handler = Callback receiving each matching row and its container index.
+     */
     private void forEachMatchingFile(CatalogFileQuery query,
         scope void delegate(ref CatalogFile file, size_t containerRow) handler)
     {
@@ -496,6 +720,18 @@ public:
         }
     }
 
+    /**
+     * Collect matching files in a half-open index window.
+     *
+     * Availability is refreshed for each returned row, or inherited from its
+     * refreshed container for archive members.
+     *
+     * Params:
+     *     query = Directory, filters, and sort order to apply.
+     *     start = Inclusive index of the first row to keep.
+     *     end = Exclusive index one past the last row to keep.
+     * Returns: Detached matching rows in display order.
+     */
     private CatalogFile[] matchingWindow(CatalogFileQuery query, size_t start,
         size_t end)
     {
@@ -520,6 +756,16 @@ public:
         return result;
     }
 
+    /**
+     * Map a logical position to a row index for a sort order.
+     *
+     * Size orders are built lazily and cached until the next index rebuild.
+     *
+     * Params:
+     *     sortOrder = Requested stable order.
+     *     offset = Logical position in that order.
+     * Returns: Index into `fileRows`.
+     */
     size_t fileOrderIndex(CatalogSortOrder sortOrder, size_t offset)
     {
         final switch (sortOrder)
@@ -555,6 +801,15 @@ public:
         }
     }
 
+    /**
+     * Whether a file row belongs to the query directory and passes its filters.
+     *
+     * Params:
+     *     rowIndex = Index into `fileRows`.
+     *     query = Directory and filter to test against.
+     * Returns: True when the row is an immediate child of the directory and
+     *     matches the filter.
+     */
     bool fileRowMatches(size_t rowIndex, CatalogFileQuery query) const
     {
         const file = fileRows[rowIndex];
@@ -562,12 +817,35 @@ public:
             && matches(file, query.filter);
     }
 
+    /**
+     * Continue a file listing from a forward cursor.
+     *
+     * Params:
+     *     query = File query the cursor was created for.
+     *     cursor = Forward cursor returned by a previous page.
+     * Returns: The next page, or an empty page past the end.
+     * Throws: `CatalogBackendException` when the cursor does not match the query.
+     */
     override CatalogFilePage nextFilesPage(CatalogFileQuery query,
         CatalogPageCursor cursor)
     {
         return listFiles(query, CatalogPageRequest(cursor.adapterPageSize, cursor));
     }
 
+    /**
+     * Continue a file listing backward from a cursor.
+     *
+     * The cursor marks the first row of the current page, so the previous page
+     * starts one page size earlier.
+     *
+     * Params:
+     *     query = File query the cursor was created for.
+     *     cursor = Backward cursor from a previous page.
+     * Returns: The preceding page.
+     * Throws: `CatalogBackendException` with
+     *     `CatalogBackendErrorCode.invalidCursor` when the cursor is invalid or
+     *     does not match the query.
+     */
     override CatalogFilePage previousFilesPage(CatalogFileQuery query,
         CatalogPageCursor cursor)
     {
@@ -583,6 +861,16 @@ public:
                 cursor.adapterQueryToken)));
     }
 
+    /**
+     * Express a stored file name relative to the bound filesystem root.
+     *
+     * Absolute names inside the root lose the root prefix. Names outside the root
+     * or without a bound root are still normalized and returned as stored.
+     *
+     * Params:
+     *     fileName = Stored file name, possibly absolute.
+     * Returns: Normalized path relative to the source root when possible.
+     */
     private string storageRelativePath(string fileName) const
     {
         if (!isAbsolute(fileName))
@@ -597,6 +885,21 @@ public:
         return normalizedPath;
     }
 
+    /**
+     * Store or clear the archive password for exactly one catalog file.
+     *
+     * The catalog is re-read under a write lease, so concurrent writers cannot be
+     * overwritten silently. Matching prefers the exact storage-relative path and
+     * falls back to a base-name match when the request is just a file name.
+     *
+     * Params:
+     *     relativePath = Path or base name of the file to update.
+     *     password = New archive password; an empty string clears it.
+     * Throws: `CatalogBackendException` with
+     *     `CatalogBackendErrorCode.invalidIdentifier` when no file or more than one
+     *     file matches, and `CatalogBackendErrorCode.backendFailure` when the
+     *     catalog cannot be written.
+     */
     override void setArchivePassword(string relativePath, string password)
     {
         requireOpen();
@@ -647,6 +950,18 @@ public:
         reloadCatalog();
     }
 
+    /**
+     * Load a detached content snapshot, masked to the requested detail families.
+     *
+     * Params:
+     *     contentId = Content identity to load.
+     *     details = Optional detail families to include; unrequested families are
+     *         cleared.
+     * Returns: The masked content snapshot.
+     * Throws: `CatalogBackendException` with
+     *     `CatalogBackendErrorCode.invalidIdentifier` for unknown content or when
+     *     the backend is closed.
+     */
     override CatalogContentSnapshot loadContent(ContentId contentId,
         CatalogDetailMask details = CatalogDetailMask.init)
     {
@@ -658,6 +973,17 @@ public:
             "Unknown JSON content identity.");
     }
 
+    /**
+     * Copy a content snapshot and drop detail families that were not requested.
+     *
+     * Archive state is refreshed from the current index rather than trusting the
+     * build-time snapshot.
+     *
+     * Params:
+     *     source = Snapshot to copy.
+     *     details = Detail families to keep.
+     * Returns: An independent, masked snapshot.
+     */
     private CatalogContentSnapshot maskedSnapshot(CatalogContentSnapshot source,
         CatalogDetailMask details) const
     {
@@ -708,6 +1034,14 @@ public:
         return result;
     }
 
+    /**
+     * Build the archive summary for a content token from the current index.
+     *
+     * Params:
+     *     token = Container content token.
+     * Returns: A summary with `indexKnown` set only when an archive index exists
+     *     for the token.
+     */
     CatalogArchiveSummary archiveSummaryForToken(string token) const
     {
         CatalogArchiveSummary summary;
@@ -722,6 +1056,20 @@ public:
         return summary;
     }
 
+    /**
+     * Page through archive metadata for one content identity.
+     *
+     * A known content without an archive index yields an empty page, matching the
+     * SQLite backend; only unknown identities are errors.
+     *
+     * Params:
+     *     contentId = Container content identity.
+     *     page = Page size and optional continuation cursor.
+     * Returns: A page of archive metadata rows.
+     * Throws: `CatalogBackendException` with
+     *     `CatalogBackendErrorCode.invalidIdentifier` for unknown content or when
+     *     the backend is closed.
+     */
     override CatalogArchiveEntryPage listArchiveEntries(ContentId contentId,
         CatalogPageRequest page = CatalogPageRequest.init)
     {
@@ -749,6 +1097,21 @@ public:
         return result;
     }
 
+    /**
+     * Page through locatable members of an indexed archive container.
+     *
+     * Only safe, non-directory entries with a linked content identity are listed.
+     * Member availability follows the container's current on-disk availability.
+     *
+     * Params:
+     *     containerReferenceId = Reference identity of the archive container.
+     *     page = Page size and optional continuation cursor.
+     * Returns: A page of member references for the container.
+     * Throws: `CatalogBackendException` with
+     *     `CatalogBackendErrorCode.invalidCursor` for a zero limit and
+     *     `CatalogBackendErrorCode.invalidIdentifier` when the reference is not an
+     *     indexed archive container.
+     */
     override CatalogArchiveMemberPage listArchiveMembers(
         ReferenceId containerReferenceId, CatalogPageRequest page = CatalogPageRequest.init)
     {
@@ -836,6 +1199,19 @@ public:
         return result;
     }
 
+    /**
+     * Page through the persisted file list of one torrent.
+     *
+     * Params:
+     *     contentId = Torrent content identity.
+     *     page = Page size and optional continuation cursor.
+     * Returns: A page of torrent manifest descriptors; an empty page when the
+     *     content is known but has no file-list details.
+     * Throws: `CatalogBackendException` with
+     *     `CatalogBackendErrorCode.unsupportedFeature` when any indexed torrent
+     *     lacks a file list, `CatalogBackendErrorCode.invalidIdentifier` for
+     *     unknown content, or when the backend is closed.
+     */
     override CatalogTorrentEntryPage listTorrentEntries(ContentId contentId,
         CatalogPageRequest page = CatalogPageRequest.init)
     {
@@ -864,6 +1240,15 @@ public:
         return result;
     }
 
+    /**
+     * Resolve a root-relative directory path to its indexed identity.
+     *
+     * Params:
+     *     relativePath = Directory path; empty or "." denotes the source root.
+     * Returns: The directory ID, or `DirectoryId.init` for the root or an unknown
+     *     path.
+     * Throws: `CatalogBackendException` when tree queries are unavailable.
+     */
     override DirectoryId resolveDirectory(string relativePath)
     {
         requireTreeQueries();
@@ -874,6 +1259,14 @@ public:
         return DirectoryId.init;
     }
 
+    /**
+     * Resolve a relative path to a file or archive-member reference identity.
+     *
+     * Params:
+     *     relativePath = Physical file path or archive virtual path.
+     * Returns: The matching reference ID, or `ReferenceId.init` when not found.
+     * Throws: `CatalogBackendException` when tree queries are unavailable.
+     */
     override ReferenceId resolveReference(string relativePath)
     {
         requireTreeQueries();
@@ -890,6 +1283,16 @@ public:
         return ReferenceId.init;
     }
 
+    /**
+     * Load one indexed reference by identity with refreshed availability.
+     *
+     * Params:
+     *     referenceId = Reference identity to load.
+     * Returns: The detached file row for the reference.
+     * Throws: `CatalogBackendException` with
+     *     `CatalogBackendErrorCode.invalidIdentifier` for unknown references or
+     *     when tree queries are unavailable.
+     */
     override CatalogFile loadReference(ReferenceId referenceId)
     {
         requireTreeQueries();
@@ -902,6 +1305,23 @@ public:
         return result;
     }
 
+    /**
+     * Extract one archive member into a leased content cache file.
+     *
+     * The container chain is walked up to its physical filesystem archive, and
+     * extraction steps are applied from the outermost to the innermost container.
+     *
+     * Params:
+     *     memberReferenceId = Reference identity of the archive member.
+     *     cancellation = Optional shared cancellation flag polled during
+     *         extraction.
+     * Returns: A lease for the extracted member file; callers must release it.
+     * Throws: `CatalogBackendException` with
+     *     `CatalogBackendErrorCode.unsupportedFeature` when no filesystem root is
+     *     bound, `CatalogBackendErrorCode.invalidIdentifier` when the reference is
+     *     not an available indexed member, or
+     *     `CatalogBackendErrorCode.cancelled` when extraction is cancelled.
+     */
     override MemberContentLease acquireMemberContent(
         ReferenceId memberReferenceId, shared(bool)* cancellation = null)
     {
@@ -980,6 +1400,20 @@ public:
                 CatalogBackendErrorCode.cancelled, failure.msg);
     }
 
+    /**
+     * Query catalog blobs for repository-style tooling.
+     *
+     * Blob identifiers are one-based catalog array positions, which is also the
+     * cursor unit used for continuation.
+     *
+     * Params:
+     *     options = Text, media, and type filters plus paging and cursor options.
+     * Returns: A page of cloned blobs with file specifications, flags, and blob
+     *     identifiers.
+     * Throws: `CatalogBackendException` with
+     *     `CatalogBackendErrorCode.invalidIdentifier` when the limit is zero, or
+     *     when the backend is closed.
+     */
     override RepositoryBlobPage queryBlobs(RepositoryQueryOptions options)
     {
         requireOpen();
@@ -1100,6 +1534,19 @@ public:
         return result;
     }
 
+    /**
+     * Group catalog blobs that share size and checksums.
+     *
+     * Only blobs with complete digests and at least one file name are considered;
+     * groups with a single member are omitted.
+     *
+     * Params:
+     *     limit = Maximum number of groups to return; must be greater than zero.
+     * Returns: Duplicate groups sorted by size, then by lowest blob identifier.
+     * Throws: `CatalogBackendException` with
+     *     `CatalogBackendErrorCode.invalidIdentifier` when the limit is zero, or
+     *     when the backend is closed.
+     */
     override RepositoryDuplicateGroup[] queryDuplicateGroups(size_t limit = 100)
     {
         requireOpen();
@@ -1130,18 +1577,56 @@ public:
         return groups.length > limit ? groups[0 .. limit] : groups;
     }
 
+    /**
+     * Look up the content token assigned to a catalog blob index.
+     *
+     * Params:
+     *     blobIndex = Index into the catalog data array.
+     * Returns: The content token, or an empty string when the index is out of
+     *     range.
+     */
     private string contentTokenForBlobIndex(size_t blobIndex) const
     {
         return blobIndex < contentTokenByBlobIndex.length
             ? contentTokenByBlobIndex[blobIndex] : "";
     }
 
+    /**
+     * Export a filtered subset without progress reporting or cancellation.
+     *
+     * Params:
+     *     query = Path prefix and file filters selecting the subset.
+     *     options = Output format, destination, and detail selection.
+     * Returns: Counts and publication state of the export.
+     * Throws: `CatalogBackendException` for invalid options or I/O failures; see
+     *     `exportSubsetControlled`.
+     */
     override CatalogExportResult exportSubset(CatalogSubsetQuery query,
         CatalogExportOptions options)
     {
         return exportSubsetControlled(query, options, null, 0);
     }
 
+    /**
+     * Export a filtered subset as a version-5 JSON catalog.
+     *
+     * Exactly one reference is exported per selected physical path, along with the
+     * requested content and archive/torrent detail. Archive members are exported
+     * only when content details and archive entries are both requested.
+     *
+     * Params:
+     *     query = Path prefix and file filters selecting the subset.
+     *     options = Output format, destination, and detail selection.
+     *     control = Optional progress and cancellation control; may be null.
+     *     operationId = Operation ID copied into reported progress.
+     * Returns: Counts and publication state; `committed` is true only after the
+     *     output was published.
+     * Throws: `CatalogBackendException` with
+     *     `CatalogBackendErrorCode.invalidTarget` when no output path is given,
+     *     `CatalogBackendErrorCode.unsupportedFeature` for unsupported formats or
+     *     member exports without content details, and
+     *     `CatalogBackendErrorCode.backendFailure` when publishing fails.
+     */
     override CatalogExportResult exportSubsetControlled(CatalogSubsetQuery query,
         CatalogExportOptions options, OperationControl control,
         ulong operationId)
@@ -1466,6 +1951,16 @@ public:
         return result;
     }
 
+    /**
+     * Reject in-place JSON import through this adapter.
+     *
+     * Params:
+     *     jsonPath = Source path; not used because import is rejected.
+     *     options = Import options; not used because import is rejected.
+     * Throws: `CatalogBackendException` with
+     *     `CatalogBackendErrorCode.unsupportedOperation` unconditionally, or when
+     *     the backend is closed.
+     */
     override void importJson(string jsonPath, JsonImportOptions options = JsonImportOptions.init)
     {
         requireOpen();
@@ -1473,6 +1968,18 @@ public:
             "JSON catalogs cannot import into themselves through this adapter.");
     }
 
+    /**
+     * Reject controlled in-place JSON import; delegates to `importJson`.
+     *
+     * Params:
+     *     jsonPath = Source path; not used because import is rejected.
+     *     options = Import options; not used because import is rejected.
+     *     control = Operation control; not used because import is rejected.
+     *     operationId = Operation ID; not used because import is rejected.
+     * Returns: Never returns normally because `importJson` always throws.
+     * Throws: `CatalogBackendException` with
+     *     `CatalogBackendErrorCode.unsupportedOperation` unconditionally.
+     */
     override bool importJsonControlled(string jsonPath, JsonImportOptions options,
         OperationControl control, ulong operationId)
     {
@@ -1480,6 +1987,20 @@ public:
         return true;
     }
 
+    /**
+     * Run a scan operation against this JSON catalog.
+     *
+     * Params:
+     *     request = Scan request including target, options, and dry-run flag.
+     *     control = Progress and cancellation control.
+     * Returns: The operation result; the catalog is reloaded when changes were
+     *     committed.
+     * Throws: `CatalogBackendException` with
+     *     `CatalogBackendErrorCode.invalidTarget` for a mismatched target or
+     *     missing filesystem root, and
+     *     `CatalogBackendErrorCode.unsupportedOperation` when scanning is not
+     *     supported.
+     */
     override OperationResult runOperation(ScanOperationRequest request,
         OperationControl control)
     {
@@ -1490,6 +2011,19 @@ public:
         return executeAndRefresh(request, control);
     }
 
+    /**
+     * Reject standalone metadata operations for JSON catalogs.
+     *
+     * Params:
+     *     request = Metadata request whose target is validated first.
+     *     control = Progress and cancellation control; unused.
+     * Returns: Never returns normally because metadata operations are always
+     *     rejected.
+     * Throws: `CatalogBackendException` with
+     *     `CatalogBackendErrorCode.invalidTarget` for a mismatched target, and
+     *     `CatalogBackendErrorCode.unsupportedOperation` unconditionally
+     *     otherwise.
+     */
     override OperationResult runOperation(MetadataOperationRequest request,
         OperationControl control)
     {
@@ -1498,6 +2032,17 @@ public:
             "Standalone metadata operations are not supported for JSON catalogs.");
     }
 
+    /**
+     * Run an analysis operation against this JSON catalog.
+     *
+     * Params:
+     *     request = Analysis request including target, options, and dry-run flag.
+     *     control = Progress and cancellation control.
+     * Returns: The operation result; the catalog is reloaded when changes were
+     *     committed.
+     * Throws: `CatalogBackendException` with
+     *     `CatalogBackendErrorCode.invalidTarget` for a mismatched target.
+     */
     override OperationResult runOperation(AnalysisOperationRequest request,
         OperationControl control)
     {
@@ -1505,6 +2050,12 @@ public:
         return executeAndRefresh(request, control);
     }
 
+    /**
+     * Close the backend and drop all derived indexes.
+     *
+     * The in-memory catalog document is retained; only query indexes are
+     * released.
+     */
     override void close()
     {
         closed = true;
@@ -1517,6 +2068,11 @@ public:
     }
 
 private:
+    /**
+     * Throw when the backend has already been closed.
+     *
+     * Throws: `CatalogBackendException` with `CatalogBackendErrorCode.closed`.
+     */
     void requireOpen() const
     {
         if (closed)
@@ -1524,6 +2080,14 @@ private:
                 "JSON catalog backend is closed.");
     }
 
+    /**
+     * Require an open, readable catalog whose tree queries are available.
+     *
+     * Throws: `CatalogBackendException` with `CatalogBackendErrorCode.closed`,
+     *     `CatalogBackendErrorCode.backendFailure` when the catalog failed to
+     *     load, or `CatalogBackendErrorCode.unsupportedFeature` when no consistent
+     *     tree index exists.
+     */
     void requireTreeQueries() const
     {
         requireOpen();
@@ -1535,6 +2099,17 @@ private:
                 "JSON tree queries require a bound root and root-contained references.");
     }
 
+    /**
+     * Validate that an operation target matches the opened JSON catalog.
+     *
+     * Params:
+     *     request = Target supplied by the operation request.
+     *     operation = Operation kind; scan additionally requires both the bound
+     *         and requested filesystem roots.
+     * Throws: `CatalogBackendException` with
+     *     `CatalogBackendErrorCode.invalidTarget` when the catalog path, mode,
+     *     repository root, or filesystem root does not match.
+     */
     void requireTarget(OperationTarget request, OperationKind operation) const
     {
         requireOpen();
@@ -1554,6 +2129,14 @@ private:
                 "JSON scan requires the explicitly bound filesystem root.");
     }
 
+    /**
+     * Run a scan through the shared operation runner and refresh the index.
+     *
+     * Params:
+     *     request = Scan request forwarded to the operation runner.
+     *     control = Progress and cancellation control.
+     * Returns: The operation result.
+     */
     OperationResult executeAndRefresh(ScanOperationRequest request,
         OperationControl control)
     {
@@ -1563,6 +2146,14 @@ private:
         return result;
     }
 
+    /**
+     * Run an analysis through the shared operation runner and refresh the index.
+     *
+     * Params:
+     *     request = Analysis request forwarded to the operation runner.
+     *     control = Progress and cancellation control.
+     * Returns: The operation result.
+     */
     OperationResult executeAndRefresh(AnalysisOperationRequest request,
         OperationControl control)
     {
@@ -1572,6 +2163,13 @@ private:
         return result;
     }
 
+    /**
+     * Re-read the catalog from disk and rebuild every derived index.
+     *
+     * Throws: `CatalogBackendException` with
+     *     `CatalogBackendErrorCode.backendFailure` when the catalog cannot be
+     *     read again.
+     */
     void reloadCatalog()
     {
         try
@@ -1584,11 +2182,28 @@ private:
         rebuildIndex();
     }
 
+    /**
+     * Normalize a path to an absolute native storage path.
+     *
+     * Params:
+     *     path = Path to normalize.
+     * Returns: The absolute, normalized storage representation.
+     */
     string canonicalPath(string path) const
     {
         return nativePathToStoragePath(buildNormalizedPath(absolutePath(path)));
     }
 
+    /**
+     * Validate that a target denotes an explicit JSON catalog source.
+     *
+     * Params:
+     *     target = Target to validate.
+     * Throws: `CatalogBackendException` with
+     *     `CatalogBackendErrorCode.invalidTarget` unless the mode is
+     *     `OperationStorageMode.jsonCatalog`, the catalog path is set, and no
+     *     repository root is given.
+     */
     void enforceJsonTarget(OperationTarget target) const
     {
         if (target.mode != OperationStorageMode.jsonCatalog
@@ -1597,6 +2212,14 @@ private:
                 "JSON backend requires an explicit JSON catalog target.");
     }
 
+    /**
+     * Require the version-5 JSON export format.
+     *
+     * Params:
+     *     options = Export options to validate.
+     * Throws: `CatalogBackendException` with
+     *     `CatalogBackendErrorCode.unsupportedFeature` for any other format.
+     */
     void enforceJsonExportFormat(CatalogExportOptions options) const
     {
         if (options.format != CatalogExportFormat.jsonV5)
@@ -1604,6 +2227,16 @@ private:
                 "JSON catalog adapter exports version 5 only.");
     }
 
+    /**
+     * Fill missing metadata in an export target from a candidate blob.
+     *
+     * Existing checksums, file type, media signature, archive specifications,
+     * archive password, and torrent info are kept; missing values are copied.
+     *
+     * Params:
+     *     target = Blob being assembled for export; updated in place.
+     *     candidate = Blob providing fallback metadata.
+     */
     void mergeExportMetadata(ref NamedBinaryBlob target, NamedBinaryBlob candidate)
     {
         if (!target.checkSums.hasDigests && candidate.checkSums.hasDigests)
@@ -1623,6 +2256,19 @@ private:
             target.torrentInfo = candidate.torrentInfo.dup;
     }
 
+    /**
+     * Resolve a stored file name into a catalog location.
+     *
+     * Version-5 names may contain archive virtual layers. Older writers sometimes
+     * double-escaped a container separator; when the literal path does not exist
+     * on disk, the value is folded back into an archive reference.
+     *
+     * Params:
+     *     fileName = File name as stored in a catalog file specification.
+     *     parseVirtual = Whether to parse archive virtual path syntax.
+     * Returns: The resolved location; unbound or out-of-root paths carry a
+     *     distinct `identityKey` prefix and leave tree fields unset.
+     */
     JsonLocation resolvePath(string fileName, bool parseVirtual = false) const
     {
         JsonLocation result;
@@ -1720,6 +2366,15 @@ private:
         return result;
     }
 
+    /**
+     * Build a stable content key from a blob's size and complete digests.
+     *
+     * Params:
+     *     blob = Blob supplying size and checksums.
+     *     fingerprint = Fingerprint describing digest completeness.
+     * Returns: A key such as `fingerprint:<size>:<md5>:<sha1>:<xxh64>`, or an
+     *     empty string when the fingerprint is incomplete.
+     */
     string strongFingerprintKey(NamedBinaryBlob blob,
         CatalogContentFingerprint fingerprint) const
     {
@@ -1730,11 +2385,27 @@ private:
             ~ ":" ~ blob.checkSums.xxh64sum_b64;
     }
 
+    /**
+     * Wrap a content token in a catalog content identity.
+     *
+     * Params:
+     *     token = Content token.
+     * Returns: The corresponding `ContentId`.
+     */
     ContentId contentIdFromToken(string token) const
     {
         return ContentId(token);
     }
 
+    /**
+     * Build a content fingerprint from a size and stored checksums.
+     *
+     * Params:
+     *     size = Content size in bytes.
+     *     checksums = Stored digest container.
+     * Returns: A fingerprint whose `complete` flag is true only when all three
+     *     digests decode to their expected lengths.
+     */
     CatalogContentFingerprint fingerprintFor(size_t size, CheckSums checksums) const
     {
         CatalogContentFingerprint fingerprint;
@@ -1760,11 +2431,26 @@ private:
         return fingerprint;
     }
 
+    /**
+     * Build a content fingerprint for a catalog blob.
+     *
+     * Params:
+     *     blob = Blob supplying size and checksums.
+     * Returns: The derived fingerprint.
+     */
     CatalogContentFingerprint fingerprintFor(NamedBinaryBlob blob) const
     {
         return fingerprintFor(blob.fileSize, blob.checkSums);
     }
 
+    /**
+     * Convert persisted media info into catalog media stream rows.
+     *
+     * Params:
+     *     blob = Blob whose media signature is converted.
+     * Returns: One row per image, video, audio, or text stream; empty when no
+     *     media signature is stored.
+     */
     CatalogMediaStream[] mediaStreamsFor(NamedBinaryBlob blob) const
     {
         CatalogMediaStream[] result;
@@ -1821,6 +2507,15 @@ private:
         return result;
     }
 
+    /**
+     * Build a detached content snapshot for a catalog blob.
+     *
+     * Params:
+     *     blob = Blob supplying content metadata.
+     *     contentId = Identity to assign to the snapshot.
+     * Returns: The snapshot, including archive/torrent summaries and extractor
+     *     statuses derived from the stored metadata.
+     */
     CatalogContentSnapshot snapshotFor(NamedBinaryBlob blob, ContentId contentId) const
     {
         CatalogContentSnapshot result;
@@ -1918,6 +2613,13 @@ private:
         torrentEntryDetailsUnavailable = false;
     }
 
+    /**
+     * Rebuild all derived indexes from the in-memory catalog.
+     *
+     * Path maps carried over from the previous index are pruned to the current
+     * paths, preserving stable identities where content is unchanged. Indexing
+     * failures leave tree queries disabled rather than throwing.
+     */
     void rebuildIndex()
     {
         import core.time : MonoTime;
@@ -2028,6 +2730,13 @@ private:
             cast(long) (MonoTime.currTime - started).total!"msecs");
     }
 
+    /**
+     * Drop entries whose keys are no longer present in a retained key set.
+     *
+     * Params:
+     *     values = Associative array to prune in place.
+     *     retained = Keys to keep.
+     */
     void prunePathMap(T)(ref T[string] values, bool[string] retained)
     {
         string[] removed;
@@ -2038,6 +2747,13 @@ private:
             values.remove(key);
     }
 
+    /**
+     * Fold deferred version-5 member references into their container indexes.
+     *
+     * Params:
+     *     references = Member references collected during the blob pass.
+     *     contentByPath = Content token by display path for version-5 containers.
+     */
     void indexV5ArchiveReferences(V5JsonReference[] references,
         string[string] contentByPath)
     {
@@ -2118,6 +2834,16 @@ private:
         }
     }
 
+    /**
+     * Merge a candidate snapshot into an existing content snapshot.
+     *
+     * Missing fingerprints, file types, and media streams are filled in; boolean
+     * flags are unioned and extractor statuses are added when absent.
+     *
+     * Params:
+     *     current = Snapshot updated in place.
+     *     candidate = Snapshot providing fallback metadata.
+     */
     void mergeContentSnapshot(ref CatalogContentSnapshot current,
         CatalogContentSnapshot candidate)
     {
@@ -2140,6 +2866,19 @@ private:
         }
     }
 
+    /**
+     * Resolve or allocate a stable content token for a blob.
+     *
+     * Resolution order is: matching strong fingerprint, a previous token for one
+     * of the paths whose size and fingerprint still agree, then a fresh token.
+     *
+     * Params:
+     *     blob = Blob being indexed.
+     *     paths = Identity keys of all locations for the blob.
+     *     fingerprint = Strong fingerprint key, or an empty string when incomplete.
+     *     blobIndex = Catalog array index, used for orphan blobs without paths.
+     * Returns: The content token to use for the blob.
+     */
     string contentTokenFor(NamedBinaryBlob blob, string[] paths,
         string fingerprint, size_t blobIndex)
     {
@@ -2191,11 +2930,23 @@ private:
         return token;
     }
 
+    /**
+     * Allocate a new unique content token for this backend instance.
+     *
+     * Returns: A token derived from the source token and identity counter.
+     */
     string newContentToken()
     {
         return sourceToken ~ ":content:" ~ (++nextIdentity).to!string;
     }
 
+    /**
+     * Return the stable reference token for a relative path.
+     *
+     * Params:
+     *     relativePath = Relative path to identify.
+     * Returns: The existing token, or a newly allocated one for the path.
+     */
     string referenceToken(string relativePath)
     {
         if (auto oldToken = relativePath in referenceTokenByPath)
@@ -2205,6 +2956,13 @@ private:
         return token;
     }
 
+    /**
+     * Index archive specifications and torrent file lists for one content token.
+     *
+     * Params:
+     *     blob = Blob supplying archive and torrent metadata.
+     *     contentToken = Content token that owns the metadata.
+     */
     void indexArchiveAndTorrent(NamedBinaryBlob blob, string contentToken)
     {
         if (blob.archiveIndexKnown && blob.archiveSpecs is null)
@@ -2231,6 +2989,20 @@ private:
         }
     }
 
+    /**
+     * Recursively index archive specifications for one container content token.
+     *
+     * Each specification receives its index, occurrence, and entry identity;
+     * linked member content is indexed as well.
+     *
+     * Params:
+     *     specs = Archive entries to index; may be null.
+     *     containerToken = Content token of the containing archive.
+     *     depth = Current nesting depth; indexing stops beyond 32 levels.
+     * Throws: `CatalogBackendException` with
+     *     `CatalogBackendErrorCode.backendFailure` when nested archives exceed the
+     *     depth limit.
+     */
     void indexArchiveSpecs(ArchiveSpec[] specs, string containerToken,
         size_t depth = 0)
     {
@@ -2321,6 +3093,15 @@ private:
         }
     }
 
+    /**
+     * Build a content snapshot for an archive member linked to a specification.
+     *
+     * Params:
+     *     spec = Archive entry describing the member.
+     *     id = Content identity assigned to the member.
+     *     fingerprint = Fingerprint computed for the member.
+     * Returns: A snapshot with archive and checksum extractor statuses.
+     */
     CatalogContentSnapshot snapshotForArchiveEntry(ArchiveSpec spec,
         ContentId id, CatalogContentFingerprint fingerprint) const
     {
@@ -2346,6 +3127,15 @@ private:
         return result;
     }
 
+    /**
+     * Ensure directory rows exist for a relative directory path.
+     *
+     * Missing intermediate directories are created and parent child counts are
+     * updated. Empty paths and "." are ignored.
+     *
+     * Params:
+     *     relativeDirectory = Directory path relative to the source root.
+     */
     void addDirectory(string relativeDirectory)
     {
         if (relativeDirectory.length == 0 || relativeDirectory == ".")
@@ -2378,12 +3168,32 @@ private:
         }
     }
 
+    /**
+     * Return the parent of a relative path, or an empty string at the root.
+     *
+     * Params:
+     *     path = Relative path to inspect.
+     * Returns: The parent path without a trailing separator.
+     */
     string parentPath(string path) const
     {
         auto parent = dirName(path);
         return parent == "." ? "" : parent;
     }
 
+    /**
+     * Add one physical file reference to the directory and file indexes.
+     *
+     * Duplicate paths are ignored; a conflicting content identity disables tree
+     * queries. Directory counts and aggregate sizes are updated.
+     *
+     * Params:
+     *     blob = Blob supplying content metadata.
+     *     spec = File specification supplying the timestamp.
+     *     location = Resolved location of the reference.
+     *     contentId = Content identity shared by the reference.
+     *     blobIndex = Catalog array index of the blob.
+     */
     void addFileReference(NamedBinaryBlob blob, FileSpec spec,
         JsonLocation location, ContentId contentId, size_t blobIndex)
     {
@@ -2441,6 +3251,14 @@ private:
         }
     }
 
+    /**
+     * Refresh a filesystem reference's availability from the current disk state.
+     *
+     * Non-filesystem locators are left unchanged.
+     *
+     * Params:
+     *     file = File row updated in place.
+     */
     void refreshAvailability(ref CatalogFile file) const
     {
         if (file.locator.kind != ContentLocator.Kind.filesystem)
@@ -2451,6 +3269,15 @@ private:
             : CatalogReferenceAvailability.unavailable;
     }
 
+    /**
+     * Return cached archive-member rows for one directory.
+     *
+     * The cache is built on first use and refreshed on the next index rebuild.
+     *
+     * Params:
+     *     directoryId = Directory whose members are requested.
+     * Returns: Cached rows with path and size sort orders.
+     */
     ArchiveMemberRows* archiveMemberRows(DirectoryId directoryId)
     {
         const key = directoryId.adapterToken;
@@ -2501,6 +3328,17 @@ private:
         return key in archiveMemberRowsByDirectory;
     }
 
+    /**
+     * Order two file rows according to a catalog sort order.
+     *
+     * Path breaks ties for both size orders.
+     *
+     * Params:
+     *     left = Left-hand row.
+     *     right = Right-hand row.
+     *     sortOrder = Requested stable order.
+     * Returns: True when `left` should sort before `right`.
+     */
     static bool fileBefore(in CatalogFile left, in CatalogFile right,
         CatalogSortOrder sortOrder)
     {
@@ -2521,6 +3359,13 @@ private:
         }
     }
 
+    /**
+     * Merge physical files and archive members into one sorted stream.
+     *
+     * Params:
+     *     query = Directory, filters, and sort order.
+     *     sink = Callback receiving each match and its container row index.
+     */
     void forEachFileCandidate(CatalogFileQuery query,
         scope void delegate(ref CatalogFile file, size_t containerRow) sink)
     {
@@ -2568,6 +3413,15 @@ private:
         }
     }
 
+    /**
+     * Map a logical member position to a row index for a sort order.
+     *
+     * Params:
+     *     rows = Cached member rows and their order indexes.
+     *     sortOrder = Requested stable order.
+     *     position = Logical position in that order.
+     * Returns: Index into `rows.rows`.
+     */
     static size_t memberOrderIndex(in ArchiveMemberRows rows,
         CatalogSortOrder sortOrder, size_t position)
     {
@@ -2584,6 +3438,16 @@ private:
         }
     }
 
+    /**
+     * Collect immediate child directories that match a query.
+     *
+     * When a filter is active, per-directory counts are recomputed so they
+     * describe only matching content.
+     *
+     * Params:
+     *     query = Parent directory and optional filters.
+     * Returns: Matching directories sorted by relative path.
+     */
     CatalogDirectory[] matchingDirectories(CatalogDirectoryQuery query)
     {
         CatalogDirectory[] result;
@@ -2608,6 +3472,13 @@ private:
         return result;
     }
 
+    /**
+     * Recompute a directory's matching file count and aggregate size.
+     *
+     * Params:
+     *     directory = Directory row updated in place.
+     *     filter = Filter applied to files and, when requested, archive members.
+     */
     private void applyDirectoryFilterCounts(ref CatalogDirectory directory,
         CatalogFilter filter)
     {
@@ -2639,6 +3510,14 @@ private:
         directory.aggregateSize = total;
     }
 
+    /**
+     * Whether any file or archive member below a directory matches a filter.
+     *
+     * Params:
+     *     directoryPath = Directory path relative to the source root.
+     *     filter = Filter applied to candidate files and members.
+     * Returns: True when at least one descendant reference matches.
+     */
     bool directoryHasMatch(string directoryPath, CatalogFilter filter)
     {
         const prefix = directoryPath ~ "/";
@@ -2664,6 +3543,15 @@ private:
         return false;
     }
 
+    /**
+     * Find the first file row whose relative path is not less than a value.
+     *
+     * Relies on `fileRows` being sorted by relative path.
+     *
+     * Params:
+     *     path = Lower-bound path.
+     * Returns: Index of the first row at or after `path`.
+     */
     size_t lowerBoundPath(string path) const
     {
         size_t low;
@@ -2679,6 +3567,14 @@ private:
         return low;
     }
 
+    /**
+     * Find a file or archive-member row by reference identity.
+     *
+     * Params:
+     *     referenceId = Reference identity to find.
+     *     result = Receives the matching row when found.
+     * Returns: True when a matching physical row or member was found.
+     */
     bool findFileRow(ReferenceId referenceId, out CatalogFile result)
     {
         foreach (row; fileRows)
@@ -2698,6 +3594,13 @@ private:
         return false;
     }
 
+    /**
+     * Return the stored archive password for a content identity.
+     *
+     * Params:
+     *     contentId = Content identity to look up.
+     * Returns: The stored password, or an empty string when none is stored.
+     */
     string archivePasswordForContent(ContentId contentId) const
     {
         if (auto index = contentId.adapterToken in blobIndexByContentToken)
@@ -2706,12 +3609,29 @@ private:
         return "";
     }
 
+    /**
+     * List all locatable archive members of a container recursively.
+     *
+     * Params:
+     *     container = Archive container file row.
+     * Returns: Direct and nested member rows; empty when the container has no
+     *     index or is not an archive.
+     */
     CatalogFile[] archiveMemberFiles(CatalogFile container)
     {
         bool[string] activeContents;
         return archiveMemberFiles(container, 0, activeContents);
     }
 
+    /**
+     * Recursively build member rows while guarding against archive cycles.
+     *
+     * Params:
+     *     container = Archive container file row.
+     *     depth = Current nesting depth; recursion stops at 32.
+     *     activeContents = Content tokens on the current recursion stack.
+     * Returns: Member rows for this container and its nested archives.
+     */
     private CatalogFile[] archiveMemberFiles(CatalogFile container, size_t depth,
         ref bool[string] activeContents)
     {
@@ -2776,12 +3696,29 @@ private:
         return result;
     }
 
+    /**
+     * Whether a directory should be listed for the given filter.
+     *
+     * Params:
+     *     directory = Directory to test.
+     *     filter = Active filter, if any.
+     * Returns: True when no filter is active or a descendant matches it.
+     */
     bool directoryVisible(CatalogDirectory directory, CatalogFilter filter)
     {
         return !hasActiveFilter(filter)
             || directoryHasMatch(directory.relativePath, filter);
     }
 
+    /**
+     * Whether a file row satisfies the path, availability, media, and type
+     * filters.
+     *
+     * Params:
+     *     file = File row to test.
+     *     filter = Filter selectors to apply.
+     * Returns: True when every active selector accepts the row.
+     */
     bool matches(CatalogFile file, CatalogFilter filter) const
     {
         if (filter.pathText.length > 0
@@ -2808,6 +3745,13 @@ private:
         return !hasTypeFilter || matchesType;
     }
 
+    /**
+     * Whether a filter contains any active selector.
+     *
+     * Params:
+     *     filter = Filter to inspect.
+     * Returns: True when at least one filter field is set.
+     */
     bool hasActiveFilter(CatalogFilter filter) const
     {
         return filter.pathText.length > 0 || filter.video || filter.audio
@@ -2815,6 +3759,16 @@ private:
             || filter.torrent || filter.availableOnly || filter.includeArchiveMembers;
     }
 
+    /**
+     * Whether a path equals or lies below a prefix.
+     *
+     * Both native and archive path separators are accepted at the boundary.
+     *
+     * Params:
+     *     path = Path to test.
+     *     prefix = Prefix to match; an empty prefix matches everything.
+     * Returns: True when `path` is the prefix or a descendant of it.
+     */
     bool hasPathPrefix(string path, string prefix) const
     {
         return prefix.length == 0 || path == prefix
@@ -2822,6 +3776,13 @@ private:
             || path.startsWith(prefix ~ archivePathSeparator());
     }
 
+    /**
+     * Build the cursor binding token for a file query.
+     *
+     * Params:
+     *     query = Directory, filter, and sort order participating in the token.
+     * Returns: Opaque token tied to this source and index generation.
+     */
     string fileQueryToken(CatalogFileQuery query) const
     {
         return sourceToken ~ "\0" ~ indexGeneration.to!string ~ "\0files\0"
@@ -2830,6 +3791,13 @@ private:
             ~ (cast(int) query.sortOrder).to!string;
     }
 
+    /**
+     * Build the cursor binding token for a directory query.
+     *
+     * Params:
+     *     query = Parent directory and filter participating in the token.
+     * Returns: Opaque token tied to this source and index generation.
+     */
     string directoryQueryToken(CatalogDirectoryQuery query) const
     {
         return sourceToken ~ "\0" ~ indexGeneration.to!string ~ "\0directories\0"
@@ -2837,6 +3805,13 @@ private:
             ~ "\0" ~ filterToken(query.filter);
     }
 
+    /**
+     * Serialize the active selector fields of a filter into a cursor token.
+     *
+     * Params:
+     *     filter = Filter to serialize.
+     * Returns: An opaque, stable representation of the filter.
+     */
     string filterToken(CatalogFilter filter) const
     {
         return filter.pathText ~ "\0" ~ (filter.caseSensitive ? "1" : "0")
@@ -2848,6 +3823,19 @@ private:
             ~ (filter.includeArchiveMembers ? "1" : "0");
     }
 
+    /**
+     * Compute the item window and cursors for one page request.
+     *
+     * Params:
+     *     request = Requested limit and optional cursor.
+     *     queryToken = Token identifying the source, query, and sort order.
+     *     itemCount = Total number of items in the result sequence.
+     * Returns: The slice bounds plus forward and backward cursors.
+     * Throws: `CatalogBackendException` with
+     *     `CatalogBackendErrorCode.invalidCursor` when the limit is zero, the
+     *     cursor is invalid for this query or page size, or the cursor lies past
+     *     the end.
+     */
     CatalogSlice pageSlice(CatalogPageRequest request, string queryToken,
         size_t itemCount) const
     {
@@ -2879,6 +3867,14 @@ private:
         return result;
     }
 
+    /**
+     * Assemble a file page from a matching slice.
+     *
+     * Params:
+     *     matching = Ordered matching rows.
+     *     slice = Window and cursors computed for the rows.
+     * Returns: The detached page.
+     */
     CatalogFilePage makeFilePage(CatalogFile[] matching, CatalogSlice slice) const
     {
         CatalogFilePage result;
@@ -2894,17 +3890,35 @@ private:
 /** Explicit save/discard session over one JSON catalog document. */
 private final class JsonCatalogDocument : CatalogDocument
 {
+    /// Backend whose in-memory catalog this session edits.
     private JsonCatalogBackend backend;
+    /// On-disk fingerprint recorded when the catalog was loaded or saved.
     private string loadedFingerprint;
+    /// Whether the in-memory catalog has changes not yet saved.
     private bool dirty;
+    /// Whether `close` has been called on this session.
     private bool closed;
 
+    /**
+     * Create a document session over an already-open backend.
+     *
+     * Params:
+     *     backend = Backend whose catalog is edited by this session.
+     */
     this(JsonCatalogBackend backend)
     {
         this.backend = backend;
         loadedFingerprint = fingerprintFor(backend.backendTarget.catalogPath);
     }
 
+    /**
+     * Build an on-disk fingerprint of a catalog file.
+     *
+     * Params:
+     *     path = Catalog file path.
+     * Returns: A `size:mtime` fingerprint, or an empty string when the file does
+     *     not exist.
+     */
     private static string fingerprintFor(string path)
     {
         import std.file : exists, getSize, timeLastModified;
@@ -2915,6 +3929,11 @@ private final class JsonCatalogDocument : CatalogDocument
             ~ timeLastModified(path).stdTime.to!string;
     }
 
+    /**
+     * Throw when this document session has been closed.
+     *
+     * Throws: `CatalogBackendException` with `CatalogBackendErrorCode.closed`.
+     */
     private void requireOpen() const
     {
         if (closed)
@@ -2922,6 +3941,17 @@ private final class JsonCatalogDocument : CatalogDocument
                 "The catalog document session is closed.");
     }
 
+    /**
+     * Validate that a document operation targets this session's catalog.
+     *
+     * Params:
+     *     request = Target supplied by the operation request.
+     *     scan = Reserved for scan-specific checks; the catalog target is
+     *         currently validated the same way for scans and analyses.
+     * Throws: `CatalogBackendException` with
+     *     `CatalogBackendErrorCode.invalidTarget` when the target is not a JSON
+     *     catalog or names a different catalog path.
+     */
     private void requireTarget(OperationTarget request, bool scan) const
     {
         /* Document operations identify the catalog; the scan root is an
@@ -2935,18 +3965,37 @@ private final class JsonCatalogDocument : CatalogDocument
                 "The operation target does not match the opened document.");
     }
 
+    /**
+     * Report whether the in-memory catalog has unsaved changes.
+     *
+     * Returns: True when changes are pending.
+     * Throws: `CatalogBackendException` when the session is closed.
+     */
     override bool modified() const
     {
         requireOpen();
         return dirty;
     }
 
+    /**
+     * Return the fingerprint captured when the catalog was loaded or saved.
+     *
+     * Returns: The `size:mtime` fingerprint string.
+     * Throws: `CatalogBackendException` when the session is closed.
+     */
     override string fingerprint() const
     {
         requireOpen();
         return loadedFingerprint;
     }
 
+    /**
+     * Suggest a filesystem root shared by the catalog's absolute file paths.
+     *
+     * Returns: The common parent directory of absolute physical paths, or the
+     *     catalog directory when paths are relative or no common root exists.
+     * Throws: `CatalogBackendException` when the session is closed.
+     */
     override string suggestedFilesystemRoot()
     {
         requireOpen();
@@ -2990,6 +4039,13 @@ private final class JsonCatalogDocument : CatalogDocument
         return commonRoot;
     }
 
+    /**
+     * Bind or clear the filesystem root used for tree queries.
+     *
+     * Params:
+     *     root = New absolute root; an empty string unbinds the root.
+     * Throws: `CatalogBackendException` when the session is closed.
+     */
     override void bindFilesystemRoot(string root)
     {
         requireOpen();
@@ -3002,6 +4058,20 @@ private final class JsonCatalogDocument : CatalogDocument
             backend.clearIndex();
     }
 
+    /**
+     * Apply a scan to the in-memory catalog without committing it.
+     *
+     * Failures are reported in the returned result rather than thrown; a
+     * non-dry-run scan marks the session dirty and rebuilds the index.
+     *
+     * Params:
+     *     request = Scan request including target, options, and dry-run flag.
+     *     control = Progress and cancellation control; a default is created when
+     *         null.
+     * Returns: The scan result with summaries and a final state.
+     * Throws: `CatalogBackendException` when the session is closed or the target
+     *     does not match the opened catalog.
+     */
     override OperationResult applyScan(ScanOperationRequest request,
         OperationControl control)
     {
@@ -3040,6 +4110,20 @@ private final class JsonCatalogDocument : CatalogDocument
         return result;
     }
 
+    /**
+     * Apply metadata and analysis work to the in-memory catalog without saving.
+     *
+     * Failures are reported in the returned result rather than thrown; a
+     * non-dry-run analysis marks the session dirty and rebuilds the index.
+     *
+     * Params:
+     *     request = Analysis request including target, options, and dry-run flag.
+     *     control = Progress and cancellation control; a default is created when
+     *         null.
+     * Returns: The analysis result with summaries and a final state.
+     * Throws: `CatalogBackendException` when the session is closed or the target
+     *     does not match the opened catalog.
+     */
     override OperationResult applyAnalysis(AnalysisOperationRequest request,
         OperationControl control)
     {
@@ -3079,6 +4163,19 @@ private final class JsonCatalogDocument : CatalogDocument
         return result;
     }
 
+    /**
+     * Write pending changes to disk if the catalog has not changed underneath.
+     *
+     * Paths are normalized for the current format before the JSON document is
+     * committed. On success the loaded fingerprint is refreshed and the backend
+     * index rebuilt.
+     *
+     * Params:
+     *     pretty = Whether to indent the serialized JSON.
+     * Throws: `CatalogBackendException` when the session is closed,
+     *     `CatalogBackendErrorCode.writeConflict` when the file changed on disk,
+     *     or any exception from committing the catalog.
+     */
     override void save(bool pretty = false)
     {
         requireOpen();
@@ -3101,6 +4198,12 @@ private final class JsonCatalogDocument : CatalogDocument
         backend.rebuildIndex();
     }
 
+    /**
+     * Reload the catalog from disk and drop unsaved changes.
+     *
+     * Throws: `CatalogBackendException` when the session is closed or the catalog
+     *     cannot be reloaded.
+     */
     override void discard()
     {
         requireOpen();
@@ -3109,6 +4212,11 @@ private final class JsonCatalogDocument : CatalogDocument
         dirty = false;
     }
 
+    /**
+     * Mark this document session as closed.
+     *
+     * No further operations are accepted, but the owning backend stays open.
+     */
     override void close()
     {
         closed = true;
@@ -3118,6 +4226,16 @@ private final class JsonCatalogDocument : CatalogDocument
 /** Explicit factory for direct JSON catalog sources. */
 final class JsonCatalogBackendFactory : CatalogBackendFactory
 {
+    /**
+     * Open a JSON catalog backend for an explicit JSON target.
+     *
+     * Params:
+     *     target = Target describing the catalog to open.
+     * Returns: A new backend bound to the target.
+     * Throws: `CatalogBackendException` with
+     *     `CatalogBackendErrorCode.unsupportedOperation` unless the target mode is
+     *     `OperationStorageMode.jsonCatalog`.
+     */
     override CatalogBackend open(OperationTarget target)
     {
         if (target.mode != OperationStorageMode.jsonCatalog)
