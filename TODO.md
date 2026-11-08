@@ -7,7 +7,7 @@ user-visible changes are listed in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Current status (2026-11-08)
 
-- Version `26.15.0`; storage-neutral `CatalogBackend`, JSON v5, SQLite schema
+- Version `26.15.1`; storage-neutral `CatalogBackend`, JSON v5, SQLite schema
   v6, explicit JSON `CatalogDocument` sessions, shared operation API, member
   cache, recovery writer, and tag-driven release validation are implemented.
 - WP-09, WP-13, WP-14, and the persistence/document-session work are complete.
@@ -19,10 +19,10 @@ user-visible changes are listed in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## P0 — Prepare the next backend release
 
-Target: next version after `26.15.0`; choose patch or minor at release time
+Target: next version after `26.15.1`; choose patch or minor at release time
 based on the public API changes since the last tag.
 
-- [x] Release `26.15.0` is complete: `VERSION`, changelog, Debian/Arch/Fedora/
+- [x] Release `26.15.1` is complete: `VERSION`, changelog, Debian/Arch/Fedora/
       Flatpak metadata, the paired GUI release, and the Flatpak archive hash are
       committed.
 - [ ] Confirm that no open item requires an incompatible public API change; if
