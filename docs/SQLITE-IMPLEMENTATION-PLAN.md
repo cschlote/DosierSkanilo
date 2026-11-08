@@ -7,20 +7,20 @@
 > Status lines and test counts below describe the date noted in each section;
 > they are not a claim about the current release.
 
-## Status board (2026-11-02)
+## Status board (2026-11-08)
 
 | Work package | State | Evidence |
 | --- | --- | --- |
 | WP-09 shared operations | Complete | `docs/OPERATION-PARITY.md` and backend/GUI display tests |
-| WP-13 catalog backend | Complete | JSON v5, SQLite schema v5, `CatalogBackend`, shared cache, GUI integration |
+| WP-13 catalog backend | Complete | JSON v5, SQLite schema v6, `CatalogBackend`, shared cache, GUI integration |
 | WP-14 review remediation | Complete | `docs/reviews/2026-10-28-code-review.md` closeout and regression tests |
 | Persistence/document sessions | Complete | `CatalogDocument`, JSON save/discard, conflict handling |
-| Next backend release | Planned | `TODO.md`, target `26.14.0` |
-| Documentation/DDoc | Current pass done | `TODO.md` P1 follow-ups remain |
+| Current backend release | Released | `26.15.0`, tag `v26.15.0`, package and Flatpak metadata updated |
+| Documentation/DDoc | Complete | All documentable declarations and module headers are documented |
 
 The checkboxes below are the historical implementation record. Open work is
-tracked only in [`TODO.md`](TODO.md); do not treat an unchecked historical box
-as a current commitment without checking that file.
+tracked only in [`TODO.md`](../TODO.md); do not treat an unchecked historical
+box as a current commitment without checking that file.
 
 This document turns the SQLite repository design into an incremental work plan.
 Each work package has a clear result and an exit criterion. A package should be
@@ -122,7 +122,8 @@ both targets. WP-13.5.1 through WP-13.5.4 provided stable archive-entry
 identities, recursive nested scanning, JSON v5 virtual member references, SQLite
 schema v4 file-reference migration without archive-specific tables, and the
 shared extraction cache. WP-13.6 completed CLI/GTK integration; schema v5 added
-the generated `is_virtual` column.
+the generated `is_virtual` column, and schema v6 later moved directory paths
+into the escaped reference namespace.
 
 The backend library tests and GUI tests/build are separate checks. GUI-specific
 status, test commands, and remaining UI integration tests are maintained in

@@ -204,9 +204,8 @@ struct AnalysisOperationRequest
     ulong operationId; ///< Caller-assigned nonzero identity.
     OperationTarget target; ///< Explicit JSON or repository source.
     RepositoryAnalysisOptions options; ///< Duplicate merge and missing-file options.
-    /// Metadata extractor options for direct JSON analysis. Repository analysis
-    /// rejects them; JSON analysis runs the selected jobs before duplicate
-    /// analysis.
+    /// Metadata extractor options. Both repository and JSON analysis run the
+    /// selected jobs before duplicate and missing-file analysis.
     MetadataScanOptions metadataOptions;
     /// Continue with an empty catalog if an existing JSON input is malformed.
     bool forceJsonOverwrite;

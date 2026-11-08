@@ -9,6 +9,10 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- Documentation was refreshed against the current implementation: SQLite schema
+  v6, escaped directory paths, advisory repository roots, JSON migration
+  details, operation contracts, and release status.
+
 - Contributor and agent guidance is now organized in a compact `AGENTS.md`,
   with detailed change, verification, versioning, and release rules in
   `docs/development/engineering-workflow.md`.
@@ -22,8 +26,9 @@ They represent the functional evolution and are intentionally summarized.
 - A SQLite repository can be opened from a different mount or directory.
   Stored references are root-relative already; the advisory `root_path` is now
   refreshed on open instead of rejecting the repository with
-  `Repository root mismatch`. This supports copying repositories or opening
-  them through sshfs.
+  `Repository root mismatch`. Copied, moved, or remounted repositories open at
+  their current path; the SQLite file must still reside on a filesystem that
+  meets the documented locking and durability requirements.
 
 ## Release 26.15.0 - 2026-11-07
 
