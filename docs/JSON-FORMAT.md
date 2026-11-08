@@ -1,8 +1,8 @@
 # JSON Storage Format
 
 This document describes the JSON formats used by DosierSkanilo for import and
-export. The current writer emits version 5. Readers continue to accept JSON
-versions 0-5 plus legacy root arrays.
+export. The current writer emits version 5. Readers continue to accept legacy
+root arrays and wrapper versions 1-5.
 
 The CLI writes compact JSON by default. Pass `--pretty` to indent saved
 catalogs for human reading; compact and pretty output carry the same data.
@@ -146,13 +146,13 @@ and uses a session-scoped extraction cache for deep scraping. The GTK archive
 tree expands those references lazily, and the previewer extracts selected
 members through the same leased cache service.
 
-The current shallow archive scan records entry names only; size, timestamp and
-checksums are populated by deep scanning, which extracts entries to temporary
-files. An `ArchiveSpec` with zero/empty values can therefore mean “listed but not
-deeply inspected,” not necessarily an empty member. Typed archive descriptors
-report safe normalized paths and duplicate occurrence. V5 stores the empty-index
-state and shallow/deep completion explicitly; SQLite schema v5 stores that state
-in `metadata_status`.
+A shallow archive scan records entry names for ZIP, TAR and 7z; RAR also records
+member size and timestamp. Checksums are populated only by deep scanning, which
+extracts entries to temporary files. An `ArchiveSpec` with zero/empty values can
+therefore mean “listed but not deeply inspected,” not necessarily an empty
+member. Typed archive descriptors report safe normalized paths and duplicate
+occurrence. V5 stores the empty-index state and shallow/deep completion
+explicitly; current SQLite schema v6 stores that state in `metadata_status`.
 
 ## Version 4: Nested Archive Entries
 
@@ -225,10 +225,10 @@ accepting v0-v4; importing a v4 nested `ArchiveSpec` tree converts it to normal
 member blob records and virtual references, carrying forward entry checksums,
 nested archive passwords, and nested member references. The optional
 `archiveIndexKnown` and `archiveIndexDeep` fields retain empty-index and scan-depth
-state when no `ArchiveSpec` list is written. SQLite schema v5 stores virtual
-members as normal `file_refs`, keeps their physical `directory_id`, and moves
-index state to `metadata_status`; the schema contains no archive-entry/index
-tables. Deep checksums are emitted for duplicate-name members only when the
+state when no `ArchiveSpec` list is written. SQLite schema v5 and later store
+virtual members as normal `file_refs`, keep their physical `directory_id`, and
+move index state to `metadata_status`; the schema contains no archive-entry/
+index tables. Deep checksums are emitted for duplicate-name members only when the
 archive adapter can extract that exact occurrence. Cache paths are session-local
 and never serialized as file references.
 
@@ -280,7 +280,7 @@ During output migration:
 
 The relevant implementation is in
 `source/dosierskanilo/model/namedbinaryblob.d`, especially
-`fixupDataClassArrayIn()`, `fixupDataClassArrayOut()` and the wrapper
+`fixupDataClassArrayIn()`, `fixupDataClassArrayOutV5()` and the wrapper
 serialization functions.
 
 ## Import and Export Rules for SQLite

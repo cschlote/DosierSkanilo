@@ -1,8 +1,9 @@
-/** Simple logging wrapper.
+/** Simple logging wrapper for CLI diagnostics.
  *
- * This module writes log output to stdout. Some functions always log; others
- * only log when the command-line verbose flag is enabled. Output is flushed
- * after each call.
+ * Diagnostic and error helpers write to stderr; command-result output uses the
+ * shared `dosierskanilo.logging` helpers and goes to stdout. Some functions
+ * always log, while others only log when the command-line verbose flag is
+ * enabled. Output is flushed after each call.
  *
  * Authors: Carsten Schlote, schlote@vahanus.net
  * Copyright: Carsten Schlote, licensed under GPL-3.0-only

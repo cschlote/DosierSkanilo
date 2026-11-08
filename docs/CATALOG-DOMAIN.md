@@ -1,8 +1,8 @@
 # Catalog Domain Values and Locators
 
-Status: WP-13.1 through WP-13.6 are implemented. JSON v5 and SQLite schema v5
-store archive members as normal virtual references; the shared extraction cache
-and GUI archive navigation are implemented.
+Status: WP-13.1 through WP-13.6 are implemented. JSON v5 and current SQLite
+schema v6 store archive members as normal virtual references; the shared
+extraction cache and GUI archive navigation are implemented.
 
 This document freezes the concepts needed by a storage-neutral catalog API.
 It distinguishes payload identity from the places where that payload is
@@ -272,9 +272,10 @@ is authoritative.
   as normal content records with virtual `FileSpec` paths. JSON v0-v4 nested
   `ArchiveSpec[]` remains an import-compatibility shape.
 - SQLite `blobs.id` approximates `ContentId`; `file_refs.id` approximates
-  `ReferenceId`; schema v5 uses `file_refs.relative_path` for physical and
-  virtual path layers and the generated `is_virtual` column for classification.
-  These integer IDs remain adapter-private.
+  `ReferenceId`; schema v5 and later use `file_refs.relative_path` for physical
+  and virtual path layers and the generated `is_virtual` column for
+  classification. Schema v6 also stores directory paths in the same escaped
+  namespace. These integer IDs remain adapter-private.
 - `RepositoryArchiveEntry` exposes a stable row ID, normalized path, ordered
   index/duplicate occurrence, size/time/checksums, and a linked content ID after
   deep extraction. `CatalogBackend.listArchiveMembers` combines that entry ID
@@ -289,8 +290,8 @@ is authoritative.
 - `ArchiveSpec` is the JSON v0-v4 compatibility representation. JSON v5 stores
   each scraped member as a normal content record with a virtual `FileSpec`;
   legacy nested `ArchiveSpec` trees remain readable and are promoted on export.
-- SQL schema v5 stores members in normal `file_refs` and `blobs`; archive index
-  version/depth state lives in `metadata_status`. The former
+- Current SQLite schema v6 stores members in normal `file_refs` and `blobs`;
+  archive index version/depth state lives in `metadata_status`. The former
   `archive_entries`/`archive_indexes` tables are removed, and inner archive
   directories remain a GUI tree projection rather than persisted directory
   rows.

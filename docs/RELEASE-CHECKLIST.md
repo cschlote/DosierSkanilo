@@ -20,7 +20,8 @@ released from the same integration branch and each tag is prefixed with `v`.
       display-gated tests, JSON/repository self-tests, splitter/video-sink checks,
       and the 95,001-record JSON/SQLite smoke loads.
 - [ ] Backend docs and Ddoc: `./scripts/build-docs.sh` completes, and
-      `dub lint --report` shows no new undocumented public API symbols.
+      `dub lint dosierskanilo --config=cli --report` shows no new undocumented
+      public API symbols.
 - [ ] Backend and GUI `TODO.md` status/roadmap reviewed; no stale open item is
       presented as current release work.
 - [ ] GUI: `./scripts/benchmark-filters.sh 1000 10000 100000` reviewed for

@@ -19,9 +19,10 @@ on top of these shared requests.
 - **Metadata request:** supported only for an explicit repository root and at
   least one selected extractor. JSON has no standalone metadata command.
 - **Analysis request:** repository mode requires an explicit repository root
-  and accepts analysis options, but no metadata options. JSON mode requires an
-  explicit catalog path; optional metadata jobs run first to match existing
-  direct-JSON behavior.
+  and accepts analysis options plus optional metadata options; requested
+  metadata jobs run before duplicate and missing-file analysis. JSON mode
+  requires an explicit catalog path; optional metadata jobs run first to match
+  existing direct-JSON behavior.
 
 Targets are not inferred or converted. The caller resolves a repository root
 before constructing a request. JSON scan must not initialize or discover a
@@ -69,9 +70,10 @@ backend exposes `importJsonControlled` and `exportSubsetControlled` so both CLI
 paths honor the same cooperative cancellation channel.
 
 The request types intentionally reuse repository option structs. Validation
-rejects an analysis request that disables duplicate merging. Validation also
-rejects an empty standalone metadata request and JSON scan `dropMissing`, as the
-current CLI does.
+rejects a JSON analysis request that disables duplicate merging; repository
+analysis accepts the option and skips the merge. Validation also rejects an
+empty standalone metadata request and JSON scan `dropMissing`, as the current
+CLI does.
 
 ## Request ownership
 

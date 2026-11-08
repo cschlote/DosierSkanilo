@@ -75,7 +75,8 @@ sequence. JSON/SQLite parity coverage includes case-sensitive path filtering in
 the directory tree and catalog view, size sorting, forward/backward paging,
 archive-member pages, and shared previews. Cross-adapter evidence is recorded
 in [docs/OPERATION-PARITY.md](docs/OPERATION-PARITY.md); remaining GUI-only
-interaction coverage is tracked in `TODO.md`.
+interaction coverage is tracked in the
+[GUI TODO](https://github.com/cschlote/DosierSkanilo-Gui/blob/main/TODO.md).
 
 The GUI exposes shared scan, metadata, and analysis requests from its Tools
 menu, with background progress, cooperative cancellation, safe pause/resume, and
@@ -122,7 +123,8 @@ Compiler strategy:
 
 The GitLab pipeline runs one lint job and three build jobs:
 
-- `lint`: installs lint dependencies only (`dub`, `hadolint`, `shellcheck`)
+- `lint`: installs lint dependencies only (`ldc2`, `dub`, `hadolint`,
+  `shellcheck`, and a Markdown linter)
 - `build:debian13`, `build:ubuntu24.04`, `build:alpine`: each installs build and
   runtime dependencies, builds the project, and runs the test suite
 
@@ -230,11 +232,14 @@ Scan and analyze a direct JSON catalog:
 Detailed architecture and diagrams:
 
 - `docs/ARCHITECTURE.md`
+- `docs/CATALOG-DOMAIN.md` - storage-neutral catalog identity and locator model
 - `docs/JSON-FORMAT.md` - current JSON import/export format and migrations
 - `docs/DATABASE.md` - normalized SQLite repository architecture
-- `docs/SQLITE-IMPLEMENTATION-PLAN.md` - staged implementation checklist
+- `docs/SQLITE-IMPLEMENTATION-PLAN.md` - historical implementation record
 - `docs/OPERATION-API.md` - shared CLI/GTK operation request and control contract
+- `docs/OPERATION-PARITY.md` - CLI/GTK operation and adapter parity evidence
 - `docs/BENCHMARKS.md` - JSON/SQLite storage baseline measurements
+- `docs/RELEASE-CHECKLIST.md` - backend and GUI release procedure
 - `docs/development/engineering-workflow.md` - change, verification,
   versioning, and release rules
 - `docs/development/d-language-guide.md` - D style, module structure, and

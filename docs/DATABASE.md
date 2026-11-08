@@ -4,10 +4,11 @@ This document describes the persistent SQLite repository backend for
 DosierSkanilo. The database represents the current state of one directory tree.
 It does not contain scan history.
 
-Current schema version: **5**. Version 2 repositories migrate archive rows to
+Current schema version: **6**. Version 2 repositories migrate archive rows to
 stable ordered/path-occurrence identities when opened. Version 4 replaces those
-archive-specific rows with virtual file references, and version 5 adds the
-generated `is_virtual` classification column.
+archive-specific rows with virtual file references, version 5 adds the generated
+`is_virtual` classification column, and version 6 moves directory paths into the
+same escaped namespace as file references.
 
 ## Goals
 
@@ -33,7 +34,6 @@ The recommended Git-like layout is:
         scan-2026-09-17T12-34-56.jsonl
     exports/
     backups/
-    locks/
 ```
 
 SQLite may create `catalog.sqlite3-wal` and `catalog.sqlite3-shm` while the
@@ -46,8 +46,10 @@ The directory has separate responsibilities:
 - `logs/`: Human-readable or structured operational logs; not query state.
 - `exports/`: Optional JSON exports created by the user or CLI.
 - `backups/`: Optional database and JSON backups before destructive operations.
-- Cross-process operation locks currently live in the system temporary directory;
-  they are coordination state, not part of the repository catalog.
+- Cross-process operation leases live outside the repository, preferably in
+  `$XDG_RUNTIME_DIR/dosierskanilo-operation-leases` and otherwise in a private
+  per-user directory below the system temporary directory. They are coordination
+  state, not part of the repository catalog.
 
 The database belongs to the repository metadata, similar to `.git`. A command
 started below the repository root should search parent directories for
@@ -69,8 +71,11 @@ repository
 
 ### Core Tables
 
-- `repository`: One row containing the canonical root path, schema version,
-  creation time, update time and tool versions.
+- `repository`: One row containing the advisory root path, schema version,
+  creation time, update time and tool versions. Catalog references are
+  root-relative, so opening a copied, moved, or otherwise remounted repository
+  refreshes this path instead of rejecting the repository. The stored path is
+  metadata, not a binding constraint.
 - `directories`: Relative directory tree, including empty directories when
   they are discovered.
 - `blobs`: One row per known binary payload. Contains size, file type and
@@ -148,6 +153,14 @@ rewriting path text.
 fields, including the fields that the current JSON v5 writer does not output.
 `torrent_files` stores the torrent-relative path and length for each entry.
 
+### Schema version 6: escaped directory namespace
+
+The v5-to-v6 migration rewrites `directories.relative_path` values into the same
+canonical escaped namespace used by `file_refs.relative_path`. A literal `!` is
+stored as `!!`, so prefix queries no longer confuse a real directory name with
+an archive-layer separator. The migration updates the longest paths first to
+avoid temporary collisions in the unique path index.
+
 ## Directory Rows Versus Derived Paths
 
 The current JSON format stores file paths only. A GUI can derive most parent
@@ -192,8 +205,8 @@ The `.dosierskanilo` SQLite repository is the normal working storage for new
 catalogs. JSON remains the complete structured interchange format and the
 interchange boundary between repository and non-repository workflows:
 
-- Import accepts all currently supported legacy forms from version 0 through
-  version 5, including recursively indexed nested archive metadata.
+- Import accepts legacy root arrays and wrapper versions 1 through 5, including
+  recursively indexed nested archive metadata.
 - Import runs inside one SQLite transaction.
 - Export can select all data or a filtered relationship closure.
 - A filtered export includes the selected file references, their blobs and the
@@ -236,6 +249,12 @@ initialization/open error such as `database is locked` or `SQLITE_READONLY`.
 Do not disable SQLite locking or place the database on a share that only
 pretends to provide POSIX locks.
 
+Opening a repository through a different path is independent of filesystem
+locking. Because catalog references are root-relative and `root_path` is
+advisory, a copied, moved, or remounted repository opens at its current location.
+The SQLite file itself must still reside on a filesystem that meets the locking
+and durability requirements above.
+
 Supported deployment options remain:
 
 - Keep the SQLite repository on a local filesystem and keep media on the NAS.
@@ -259,8 +278,8 @@ SQL drivers and JSON serialization stay private adapters.
 by `import dosierskanilo.repository`, remains the SQLite compatibility facade
 for initialization/discovery, normalized queries, JSON transfer, and synchronous
 convenience methods for scan, metadata, and analysis. The shared
-`runOperation()` API handles explicit SQLite and JSON targets for
-scan/metadata/analysis through the same backend selection.
+`runOperation()` API handles explicit SQLite and JSON targets for the operation
+kinds each storage mode supports through the same backend selection.
 
 Do not claim generic SQL-database support yet: assess which transaction,
 keyset-query, migration, and binary-type capabilities another SQL engine would
@@ -269,9 +288,10 @@ need before adding one. The staged design is tracked as WP-13 in
 
 Schema v3 stored `archive_entries` as metadata children of a container blob and
 linked deeply fingerprinted members to ordinary content blobs. Schema v4
-replaced that archive-specific relation with virtual `file_refs`, and schema v5
-adds the generated `is_virtual` classification column; the migrations are
-documented in `SQLITE-IMPLEMENTATION-PLAN.md`.
+replaced that archive-specific relation with virtual `file_refs`, schema v5
+adds the generated `is_virtual` classification column, and schema v6 escapes
+directory paths into the file-reference namespace; the migrations are documented
+in `SQLITE-IMPLEMENTATION-PLAN.md`.
 
 ## API and Package Versioning
 
@@ -307,6 +327,6 @@ The detailed, checkable work breakdown is maintained in
 8. Add compatibility tests for JSON round trips and database migrations.
 
 These phases record the SQLite rollout sequence and are complete. WP-13.1
-through WP-13.6 add the storage-neutral API, JSON v5, SQLite schema v5, the
-shared extraction cache, and GUI archive navigation. JSON v0-v4 remain readable
-compatibility inputs.
+through WP-13.6 add the storage-neutral API, JSON v5, the shared extraction
+cache, and GUI archive navigation; SQLite schema v6 is the current storage
+version. JSON v0-v4 remain readable compatibility inputs.

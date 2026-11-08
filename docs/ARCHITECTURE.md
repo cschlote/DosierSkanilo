@@ -299,7 +299,7 @@ This keeps the model content-oriented while preserving all known file names.
 ## 5. Serialization and Migration
 
 The current interchange format is JSON using `NamedBinaryBlobCatalog`. The
-version-3 wrapper contains:
+current writer emits the version-5 wrapper, which contains:
 
 - `dataVersion`
 - `dataArray`
@@ -310,9 +310,10 @@ The complete field inventory, legacy formats and output compatibility rules
 are documented in [JSON-FORMAT.md](JSON-FORMAT.md).
 
 On load, legacy fields are migrated in `fixupDataClassArrayIn()`. On save,
-outbound compatibility cleanup happens in `fixupDataClassArrayOut()`. The
-single-path output form (`fileName` and `timeLastModified`) and the multi-path
-form (`fileSpecs`) both represent the same internal `FileSpec[]` relationship.
+outbound normalization happens in `fixupDataClassArrayOutV5()`. Every record is
+written with `fileSpecs`, including a single reference; the legacy single-path
+fields (`fileName` and `timeLastModified`) are input-only and are cleared before
+serialization.
 
 Relevant code:
 
@@ -349,7 +350,7 @@ The implementation sequence is tracked in
 
 `FileArchive` returns typed entry descriptors and can extract members to a
 destination directory. Deep `updateArchives()` recursively indexes nested
-archives. JSON v5 and SQLite schema v5 represent safe members as ordinary
+archives. JSON v5 and current SQLite schema v6 represent safe members as ordinary
 virtual file references linked to normal content blobs. ZIP and TAR adapters can
 select precise duplicate occurrences when their tools support it; RAR and 7z
 leave duplicate entries without deep fingerprints.

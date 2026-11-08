@@ -5,7 +5,7 @@ SQLite repository. Historical work-package records remain in
 [`docs/SQLITE-IMPLEMENTATION-PLAN.md`](docs/SQLITE-IMPLEMENTATION-PLAN.md);
 user-visible changes are listed in [`CHANGELOG.md`](CHANGELOG.md).
 
-## Current status (2026-11-07)
+## Current status (2026-11-08)
 
 - Version `26.15.0`; storage-neutral `CatalogBackend`, JSON v5, SQLite schema
   v6, explicit JSON `CatalogDocument` sessions, shared operation API, member
@@ -18,25 +18,20 @@ user-visible changes are listed in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## P0 — Prepare the next backend release
 
-Target: `26.15.0` (minor release for archive path handling, filters, repository
-directory escaping, and CLI diagnostics since `26.14.0`).
+Target: next version after `26.15.0`; choose patch or minor at release time
+based on the public API changes since the last tag.
 
-- [x] Confirm that no open item requires an incompatible public API change; if
+- [x] Release `26.15.0` is complete: `VERSION`, changelog, Debian/Arch/Fedora/
+      Flatpak metadata, the paired GUI release, and the Flatpak archive hash are
+      committed.
+- [ ] Confirm that no open item requires an incompatible public API change; if
       it does, move it to the next major release instead of this one.
-- [x] Re-run the release checklist in
+- [ ] Re-run the release checklist in
       [`docs/RELEASE-CHECKLIST.md`](docs/RELEASE-CHECKLIST.md), including the
       paired GUI release.
-- [x] Move `## Unreleased` to `## Release 26.14.0` in `CHANGELOG.md`, update
-      `VERSION` and package metadata, and commit the release notes.
-- [x] Create the annotated `v26.14.0` tag after the paired GUI tag is ready;
-      verify that the tag workflow validates tag/VERSION/CHANGELOG and publishes
-      the GitHub release.
-- [ ] Update packaging metadata (`packaging/debian/changelog`, Arch, Fedora,
-      Flatpak) for `26.14.0`; download the published source archive, update the
-      Flatpak `sha256` pins, and verify installation from the packaged
-      artifacts.
 - [ ] Regenerate and review the Ddoc site (`scripts/build-docs.sh`) as part of
-      the release evidence.
+      the next release evidence.
+- [ ] Verify installation from the packaged artifacts after the next release.
 
 ## P1 — Catalog correctness and documentation follow-ups
 
@@ -64,9 +59,9 @@ directory escaping, and CLI diagnostics since `26.14.0`).
 - [ ] Add distribution smoke checks for the supported package formats
       (Debian/Ubuntu/Alpine, Arch, Fedora, Flatpak) to the release evidence.
 - [ ] Populate archive-member sizes and timestamps during shallow scans for ZIP,
-      TAR, RAR, and 7z by parsing their listing output. Shallow scans currently
-      leave member sizes at zero, which makes the GUI show 0-byte archive
-      entries until a deep scan extracts them.
+      TAR, and 7z by parsing their listing output. RAR already supplies these
+      fields from its shallow listing. The remaining formats leave member sizes
+      at zero, so the GUI shows 0-byte entries until a deep scan extracts them.
 - [ ] Decide whether direct JSON browsing needs a streaming reader/index for
       multi-million-record catalogs, or an explicit size guard that recommends
       repository import. Current direct JSON tabs hold the complete catalog and
@@ -86,9 +81,9 @@ directory escaping, and CLI diagnostics since `26.14.0`).
   cross-process/display-backed verification in
   [`docs/OPERATION-PARITY.md`](docs/OPERATION-PARITY.md).
 - **WP-13.1–13.6:** Catalog domain/backend contract, JSON v5 virtual archive
-  references, SQLite schema v5 with generated `is_virtual`, shared extraction
-  cache, GUI integration, archive directory projection, and double-escaped
-  member compatibility.
+  references, SQLite schema v6 with escaped directory paths and generated
+  `is_virtual`, shared extraction cache, GUI integration, archive directory
+  projection, and double-escaped member compatibility.
 - **Persistence models:** `CatalogPersistence`, JSON `CatalogDocument` sessions,
   explicit save/discard/conflict handling, and SQLite transactional-store
   semantics.
@@ -97,5 +92,6 @@ directory escaping, and CLI diagnostics since `26.14.0`).
   and paired backend/GUI release checklist.
 - **Network filesystem decision:** CIFS/SMB/NFS/WSL/FUSE remain unsupported
   until they satisfy the recorded locking and durability requirements.
-- **Documentation/DDoc:** current-state docs, historical plan banner, module
-  attribution headers, and public API documentation refreshed.
+- **Documentation/DDoc:** current-state docs, historical plan banner, complete
+  module attribution headers, and Ddoc for every documentable declaration
+  including private and package symbols.
