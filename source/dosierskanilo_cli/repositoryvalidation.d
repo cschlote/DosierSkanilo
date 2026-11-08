@@ -53,6 +53,21 @@ bool validateRepositoryOptions(string command, ref ArgsArray options)
         errorLine("--dry-run is supported only in JSON mode.");
         return false;
     }
+    if (!options.argRestoreInput.empty && command != "restore")
+    {
+        errorLine("--input is available only with restore.");
+        return false;
+    }
+    if (options.argForce && command != "init" && command != "restore")
+    {
+        errorLine("--force is available only with init or restore.");
+        return false;
+    }
+    if (!options.argExportJSON.empty && command != "export" && command != "backup")
+    {
+        errorLine("--output is available only with export or backup.");
+        return false;
+    }
     if (options.argMergeDuplicates && command != "scan")
     {
         errorLine("--merge-duplicates is available only with scan.");
@@ -87,6 +102,11 @@ bool validateRepositoryOptions(string command, ref ArgsArray options)
         errorLine("Export requires an output JSON filename.");
         return false;
     }
+    if (command == "restore" && options.argRestoreInput.empty)
+    {
+        errorLine("Restore requires an input SQLite backup filename.");
+        return false;
+    }
     if ((command == "info" || command == "list" || command == "duplicates")
         && options.argOutputFormat != "table"
         && options.argOutputFormat != "json")
@@ -106,7 +126,8 @@ bool validateRepositoryOptions(string command, ref ArgsArray options)
         errorFLine("Import JSON filename '%s' looks invalid.", options.argImportJSON);
         return false;
     }
-    if (!options.argExportJSON.empty && !options.argExportJSON.endsWith(jsonFileExtension))
+    if (command == "export" && !options.argExportJSON.empty
+        && !options.argExportJSON.endsWith(jsonFileExtension))
     {
         errorFLine("Export JSON filename '%s' looks invalid.", options.argExportJSON);
         return false;
@@ -160,6 +181,22 @@ unittest
     auto invalidCachedList = ArgsArray();
     invalidCachedList.argArchiveCacheMiB = 64;
     assert(!validateRepositoryOptions("list", invalidCachedList));
+
+    auto backupOptions = ArgsArray();
+    backupOptions.argExportJSON = buildPath(baseDir, "catalog.sqlite3");
+    assert(validateRepositoryOptions("backup", backupOptions));
+
+    auto restoreOptions = ArgsArray();
+    restoreOptions.argRestoreInput = buildPath(baseDir, "catalog.sqlite3");
+    restoreOptions.argForce = true;
+    assert(validateRepositoryOptions("restore", restoreOptions));
+
+    auto missingRestore = ArgsArray();
+    assert(!validateRepositoryOptions("restore", missingRestore));
+
+    auto invalidBackupForce = ArgsArray();
+    invalidBackupForce.argForce = true;
+    assert(!validateRepositoryOptions("backup", invalidBackupForce));
 }
 
 /** Whether any list/query filter differs from its default value.
@@ -222,7 +259,7 @@ private bool validateRepositoryCommand(string command, ArgsArray options)
     bool hasStorageAction = options.argInitRepository || options.argScanFiles
         || options.argRunMetadata || options.argRunAnalysis
         || !options.argImportJSON.empty || !options.argExportJSON.empty
-        || options.argWriteJSON;
+        || !options.argRestoreInput.empty || options.argWriteJSON;
     bool hasMetadataAction = options.argDoChecksums || options.argDoFileTypes
         || options.argDoMediaSig || options.argScanArchives
         || options.argScanTorrents;
@@ -287,7 +324,26 @@ private bool validateRepositoryCommand(string command, ArgsArray options)
         if (options.argInitRepository || options.argScanFiles
             || options.argRunMetadata || options.argRunAnalysis
             || hasMetadataAction || options.argDropMissing || options.argWriteJSON
-            || options.argReplaceCatalog || hasRepositoryQueryOptions(options))
+            || options.argReplaceCatalog || options.argForce
+            || hasRepositoryQueryOptions(options))
+            return invalidCommandOptions(command);
+        break;
+    case "backup":
+        if (options.argInitRepository || options.argScanFiles
+            || options.argRunMetadata || options.argRunAnalysis
+            || !options.argImportJSON.empty || options.argWriteJSON
+            || options.argDropMissing || options.argReplaceCatalog
+            || !options.argRestoreInput.empty || options.argForce
+            || hasMetadataAction || hasRepositoryQueryOptions(options))
+            return invalidCommandOptions(command);
+        break;
+    case "restore":
+        if (options.argInitRepository || options.argScanFiles
+            || options.argRunMetadata || options.argRunAnalysis
+            || !options.argImportJSON.empty || !options.argExportJSON.empty
+            || options.argWriteJSON || options.argDropMissing
+            || options.argReplaceCatalog || hasMetadataAction
+            || hasRepositoryQueryOptions(options))
             return invalidCommandOptions(command);
         break;
     case "":

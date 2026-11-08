@@ -270,6 +270,21 @@ Supported deployment options remain:
 - Add an explicit external database-root configuration if local metadata with
   remote media is not sufficient.
 
+## Backup and Restore
+
+`dosierskanilo backup [ROOT] [--output FILE]` creates a consistent snapshot with
+SQLite `VACUUM INTO` and validates it with `PRAGMA integrity_check`. Without an
+output path it writes a timestamped `catalog-*.sqlite3` file below
+`.dosierskanilo/backups/`. A backup does not replace JSON export; use the JSON
+export when moving a catalog to another machine or a network-mounted directory.
+
+`dosierskanilo restore [ROOT] --input FILE [--force]` validates the source
+schema and integrity before changing the target. If a database already exists,
+`--force` is required; the current database and its side files are moved into
+`backups/` before the validated source is copied into place and the repository
+is reopened. The library exposes the same operations as
+`Repository.backupTo()` and `Repository.restore()`.
+
 ## Corruption and Recovery
 
 `SQLITE_CORRUPT` or `database disk image is malformed` means the database file

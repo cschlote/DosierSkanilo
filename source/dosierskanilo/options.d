@@ -19,10 +19,11 @@ struct ArgsArray
 	string argBaseDir; ///< Base directory for JSON paths.
 	string argRepositoryPath; ///< Repository root or path below a repository.
 	string argImportJSON; ///< JSON file to import into a repository.
-	string argExportJSON; ///< JSON file to export from a repository.
+	string argRestoreInput; ///< SQLite backup file to restore into a repository.
+	string argExportJSON; ///< Output file for JSON export or SQLite backup.
 	string argExportPath; ///< Optional path prefix for a selected export.
 	bool argInitRepository; ///< Initialize a `.dosierskanilo` repository.
-	bool argForceInit; ///< Reinitialize an existing repository database.
+	bool argForce; ///< Reinitialize or replace an existing repository database.
 	bool argDoFileTypes; ///< Query file types via the `file` utility.
 	bool argDoChecksums; ///< Calculate checksums for files.
 	bool argDoMediaSig; ///< Calculate media signatures.

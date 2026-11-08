@@ -122,6 +122,10 @@ int main(string[] args)
 				else if (parsed.command == CliCommand.scan
 					|| parsed.command == CliCommand.analyze)
 					rc = executeCatalogOperation(options);
+				else if (parsed.command == CliCommand.backup)
+					rc = executeRepositoryBackup(options);
+				else if (parsed.command == CliCommand.restore)
+					rc = executeRepositoryRestore(options);
 				else
 					rc = executeRepositoryOperation(options);
 			}
@@ -169,6 +173,10 @@ private string commandDisplayName(CliCommand command)
 		return "import";
 	case CliCommand.exportJson:
 		return "export";
+	case CliCommand.backup:
+		return "backup";
+	case CliCommand.restore:
+		return "restore";
 	case CliCommand.recover:
 		return "recover";
 	}
@@ -196,6 +204,14 @@ private string settingsTarget(ArgsArray options, CliCommand command)
 		return (repository.empty ? "." : repository) ~ " -> "
 			~ (options.argExportJSON.empty ? "(missing)"
 				: options.argExportJSON);
+	case CliCommand.backup:
+		return (repository.empty ? "." : repository) ~ " -> "
+			~ (options.argExportJSON.empty ? "(default backup path)"
+				: options.argExportJSON);
+	case CliCommand.restore:
+		return (options.argRestoreInput.empty ? "(missing)"
+			: options.argRestoreInput) ~ " -> "
+			~ (repository.empty ? "." : repository);
 	case CliCommand.recover:
 		return options.argJSONFile.empty ? "(missing)" : options.argJSONFile;
 	case CliCommand.noCommand, CliCommand.init, CliCommand.scan,
@@ -224,6 +240,8 @@ private string settingsTarget(ArgsArray options, CliCommand command)
 private string settingsStorage(ArgsArray options, CliCommand command)
 {
 	if (command == CliCommand.importJson)
+		return "repository";
+	if (command == CliCommand.backup || command == CliCommand.restore)
 		return "repository";
 	if (command == CliCommand.exportJson || command == CliCommand.recover)
 		return "JSON";
@@ -615,8 +633,8 @@ bool executeRepositoryOperation(ArgsArray options)
 				auto databaseAlreadyExists = exists(buildPath(repositoryPath,
 					repositoryDirectoryName, repositoryDatabaseFileName));
 				repository = Repository.initialize(repositoryPath,
-					RepositoryOptions(), options.argForceInit);
-				if (options.argForceInit && databaseAlreadyExists)
+					RepositoryOptions(), options.argForce);
+				if (options.argForce && databaseAlreadyExists)
 					logFLine("Reinitialized repository at '%s'.", repository.rootPath);
 				else if (databaseAlreadyExists)
 					logFLine("Opened existing repository at '%s'.", repository.rootPath);
@@ -680,6 +698,51 @@ bool executeRepositoryOperation(ArgsArray options)
 		errorLine("Catalog operation failed: ", ex.msg);
 		return false;
 	}
+}
+
+/** Create a consistent SQLite backup of a repository.
+ *
+ * Params:
+ *     options = Parsed command-line options providing the repository path and
+ *         optional output file.
+ * Returns: `true` when the backup was written and validated.
+ */
+bool executeRepositoryBackup(ArgsArray options)
+{
+	auto repository = Repository.open(options.argRepositoryPath);
+	scope (exit)
+		repository.close();
+	auto output = options.argExportJSON;
+	if (output.empty)
+	{
+		auto stamp = Clock.currTime.toISOExtString.replace(":", "-");
+		auto backupDirectory = buildPath(repository.rootPath,
+			repositoryDirectoryName, "backups");
+		mkdirRecurse(backupDirectory);
+		output = buildPath(backupDirectory,
+			"catalog-" ~ stamp ~ ".sqlite3");
+	}
+	repository.backupTo(output);
+	logFLine("Backup written to '%s'.", output);
+	return true;
+}
+
+/** Restore a repository database from a validated SQLite backup.
+ *
+ * Params:
+ *     options = Parsed command-line options providing the repository path,
+ *         backup input file, and replace flag.
+ * Returns: `true` when the repository was restored and reopened.
+ */
+bool executeRepositoryRestore(ArgsArray options)
+{
+	auto repository = Repository.restore(options.argRepositoryPath,
+		options.argRestoreInput, options.argForce);
+	scope (exit)
+		repository.close();
+	logFLine("Restored repository at '%s' from '%s'.", repository.rootPath,
+		options.argRestoreInput);
+	return true;
 }
 
 /** Import a JSON catalog into a repository.
