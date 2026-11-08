@@ -26,6 +26,8 @@ import dosierskanilo.model.namedbinaryblob : NamedBinaryBlob;
 import dosierskanilo.operations : OperationControl, OperationTarget;
 import dosierskanilo.operationlease : TargetWriteLease;
 import dosierskanilo.repository.errors;
+import dosierskanilo.repository.filesystem : isUnsupportedRepositoryFilesystemType,
+    repositoryFilesystemType;
 import dosierskanilo.repository.analysis : analyzeRepositoryControlled;
 import dosierskanilo.repository.analysis : queryDuplicateGroups;
 import dosierskanilo.repository.metadata : updateRepositoryMetadataControlled;
@@ -76,6 +78,7 @@ private:
      */
     static Repository openRoot(string rootPath, RepositoryOptions options)
     {
+        ensureSupportedFilesystem(rootPath);
         auto paths = RepositoryPaths.fromRoot(rootPath);
         if (!exists(paths.metadataPath))
             throw new RepositoryException("Not a DosierSkanilo repository: "
@@ -179,6 +182,24 @@ private:
             cast(long) currentRepositorySchemaVersion, now, now);
     }
 
+    /** Reject SQLite repositories on filesystems without SQLite guarantees.
+     *
+     * Params:
+     *     rootPath = Repository root directory.
+     * Throws: `RepositoryException` when the filesystem type is known to be
+     *     unsafe for SQLite locking or durability.
+     */
+    static void ensureSupportedFilesystem(string rootPath)
+    {
+        const fsType = repositoryFilesystemType(rootPath);
+        if (fsType.empty || !isUnsupportedRepositoryFilesystemType(fsType))
+            return;
+        throw new RepositoryException(
+            "SQLite repositories are not supported on filesystem type '"
+            ~ fsType ~ "': " ~ rootPath
+            ~ ". Keep the repository on a local filesystem or use a JSON catalog.");
+    }
+
     /** Throw when this handle has been closed. */
     void requireOpen() const
     {
@@ -205,6 +226,7 @@ public:
         RepositoryOptions options = RepositoryOptions())
     {
         rootPath = canonicalDirectory(rootPath);
+        ensureSupportedFilesystem(rootPath);
         auto paths = RepositoryPaths.fromRoot(rootPath);
         mkdirRecurse(paths.metadataPath);
         mkdirRecurse(paths.logsPath);

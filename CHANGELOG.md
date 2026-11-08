@@ -7,6 +7,14 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
+## Unreleased
+
+- SQLite repositories on FUSE, sshfs, SMB/CIFS, NFS, 9p, and similar network
+  filesystems are now rejected before the database is opened. These mounts do
+  not provide SQLite's required locking and durability guarantees and can
+  corrupt a catalog. An application-level lock file cannot make them safe; keep
+  the repository on a local filesystem or use a JSON catalog.
+
 ## Release 26.15.1 - 2026-11-08
 
 - Branch workflow now uses short-lived, intent-named feature branches from
