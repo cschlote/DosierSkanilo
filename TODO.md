@@ -11,7 +11,7 @@ user-visible changes are listed in [`CHANGELOG.md`](CHANGELOG.md).
   v6, explicit JSON `CatalogDocument` sessions, shared operation API, member
   cache, recovery writer, and tag-driven release validation are implemented.
 - WP-09, WP-13, WP-14, and the persistence/document-session work are complete.
-- Backend verification: 217 tests, coverage 89.15 %, CLI checks and
+- Backend verification: 219 tests, coverage 89.15 %, CLI checks and
   `scripts/lint.sh` pass; CI is green on `main`, and `testing` mirrors the same
   commit without deployments.
 - Documentation and Ddoc headers are complete: every documentable public,
@@ -70,7 +70,8 @@ based on the public API changes since the last tag.
 - [ ] Revisit network-filesystem SQLite placement only if a representative
       CIFS/SMB or NFS environment provides exclusive cross-host locks, working
       WAL shared memory, atomic rename, durable sync, and hard links (or the
-      documented copy fallback). The current decision remains: unsupported.
+      documented copy fallback). The current decision remains: unsupported;
+      `Repository` now rejects these mount types before opening SQLite.
 
 ## Completed work (compact record)
 

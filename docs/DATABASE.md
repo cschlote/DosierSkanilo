@@ -255,6 +255,13 @@ advisory, a copied, moved, or remounted repository opens at its current location
 The SQLite file itself must still reside on a filesystem that meets the locking
 and durability requirements above.
 
+The library enforces this boundary: `Repository.initialize` and `Repository.open`
+classify the root path from the kernel mount table and reject known FUSE,
+sshfs, SMB/CIFS, NFS, 9p, WSL `drvfs`, and similar network filesystems with a
+clear `RepositoryException` before opening SQLite. An application-level lock
+file on such a mount cannot replace SQLite's own locking, shared-memory, rename,
+and sync guarantees; use a local repository or a JSON catalog instead.
+
 Supported deployment options remain:
 
 - Keep the SQLite repository on a local filesystem and keep media on the NAS.
@@ -262,6 +269,25 @@ Supported deployment options remain:
   after evaluating corruption risk explicitly.
 - Add an explicit external database-root configuration if local metadata with
   remote media is not sufficient.
+
+## Corruption and Recovery
+
+`SQLITE_CORRUPT` or `database disk image is malformed` means the database file
+is damaged; retrying or adding an application lock file does not repair it.
+Stop every process that uses the repository, copy the database (and any
+`-wal`/`-shm` files) to local storage, and preserve the original before trying
+recovery:
+
+```sh
+sqlite3 catalog.sqlite3 "PRAGMA integrity_check;"
+sqlite3 catalog.sqlite3 ".recover" | sqlite3 catalog-recovered.sqlite3
+sqlite3 catalog-recovered.sqlite3 "PRAGMA integrity_check;"
+```
+
+If the recovered database passes, replace `catalog.sqlite3` while no process is
+running it. If recovery is incomplete, re-import the source data or rebuild the
+repository with a fresh scan. Do not retry the damaged repository on a network
+or FUSE mount.
 
 ## Public API Boundary
 
