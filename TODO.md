@@ -34,6 +34,51 @@ based on the public API changes since the last tag.
       the next release evidence.
 - [ ] Verify installation from the packaged artifacts after the next release.
 
+## Major 27 — Collapse legacy formats and migrations
+
+Target: `27.0.0` (deliberate major break; existing catalogs are rebuilt with a
+fresh scan). The single-user operating model makes dropping historical formats
+acceptable, but the cut must still be explicit and well tested.
+
+Goal: keep exactly one persisted baseline:
+
+- **JSON v5** is the only supported interchange format.
+- **SQLite schema v6** is the only supported repository schema.
+- If the cleanup changes the database shape, bump the schema once and make that
+  new version the new baseline; do not carry old migrations forward.
+
+Work items:
+
+- [ ] Freeze JSON v5 and schema v6 as the 27 baseline.
+- [ ] Remove JSON readers, writers, and normalization for legacy root arrays and
+      versions 0–4.
+- [ ] Make v0–v4 JSON inputs fail with a clear, actionable error that tells the
+      user to rescan or recreate the catalog.
+- [ ] Remove schema migrations 1–5. New repositories are created directly at
+      schema v6; older repositories are rejected with a clear error.
+- [ ] Remove now-dead compatibility DTOs, fixup helpers, archive-spec legacy
+      conversion, fixtures, and tests.
+- [ ] Keep the current v5 export/import path and the `backup`/`restore`
+      commands. Backup remains the safety net for the migration.
+- [ ] Remove or justify the remaining legacy public surface:
+      `service/scanning.d`, the unused `verbose` argument on
+      `deserializeDataClassJsonFile`, and other compatibility-only wrappers.
+- [ ] Reduce JSON-format tests to the v5 contract and add explicit rejection
+      tests for every removed input version.
+- [ ] Reduce SQLite migration tests to fresh v6 creation and add explicit
+      rejection tests for schema versions below v6.
+- [ ] Update `README.md`, `DATABASE.md`, `JSON-FORMAT.md`, `ARCHITECTURE.md`,
+      `CATALOG-DOMAIN.md`, the testing guide, and release notes for the hard
+      cut.
+- [ ] Verify a fresh large-repository scan, metadata extraction, analysis,
+      v5 export/import round-trip, backup, and restore.
+- [ ] Release as `27.0.0` with a clear note that 26.x catalogs must be recreated
+      or rebuilt from a current v5 export.
+
+Definition of done: no production code path accepts a legacy JSON or SQLite
+schema, a fresh repository works end to end, backup/restore works on the new
+baseline, and the documentation no longer implies that old formats are readable.
+
 ## P1 — Catalog correctness and documentation follow-ups
 
 - [ ] Fix `CatalogDocument.applyScan`/`applyAnalysis` for `request.dryRun`:
