@@ -11,7 +11,7 @@ user-visible changes are listed in [`CHANGELOG.md`](CHANGELOG.md).
   v6, explicit JSON `CatalogDocument` sessions, shared operation API, member
   cache, recovery writer, and tag-driven release validation are implemented.
 - WP-09, WP-13, WP-14, and the persistence/document-session work are complete.
-- Backend verification: 221 tests, coverage 89.14 %, CLI checks and
+- Backend verification: 222 tests, coverage 89.14 %, CLI checks and
   `scripts/lint.sh` pass; CI is green on `main`, and `testing` mirrors the same
   commit without deployments.
 - Documentation and Ddoc headers are complete: every documentable public,

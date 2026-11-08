@@ -35,7 +35,7 @@ bool isUnsupportedRepositoryFilesystemType(string fsType) @safe pure
         return true;
     foreach (unsupported; [
         "nfs", "nfs4", "cifs", "smb", "smb2", "smb3", "9p", "drvfs",
-        "davfs", "ceph", "afs", "glusterfs", "lustre"
+        "davfs", "ceph", "afs", "glusterfs", "lustre", "autofs", "autofs4"
     ])
     {
         if (value == unsupported || value.startsWith(unsupported ~ "."))
@@ -79,6 +79,46 @@ string filesystemTypeForPath(string path, string mountInfo) @safe
         bestType = after[0];
     }
     return bestType;
+}
+
+/** Collect mount points whose filesystem type must not be probed.
+ *
+ * Params:
+ *     mountInfo = Contents of `/proc/self/mountinfo`.
+ * Returns: Mount point-to-filesystem-type map for unsupported mounts.
+ */
+string[string] unsupportedMountPoints(string mountInfo) @safe
+{
+    string[string] result;
+    foreach (line; mountInfo.splitLines)
+    {
+        const parts = line.split(" - ");
+        if (parts.length != 2)
+            continue;
+        const before = parts[0].split;
+        const after = parts[1].split;
+        if (before.length < 5 || after.length < 1)
+            continue;
+        if (isUnsupportedRepositoryFilesystemType(after[0]))
+            result[decodeMountInfoPath(before[4])] = after[0];
+    }
+    return result;
+}
+
+/** Whether a path lies below one of the supplied mount points.
+ *
+ * Params:
+ *     path = Absolute path to classify.
+ *     mountPoints = Mount points returned by `unsupportedMountPoints`.
+ * Returns: `true` when a path probing operation must be skipped.
+ */
+bool isWithinUnsupportedMount(string path, string[string] mountPoints) @safe
+{
+    const canonical = buildNormalizedPath(path);
+    foreach (mountPoint, _; mountPoints)
+        if (isPathWithin(canonical, mountPoint))
+            return true;
+    return false;
 }
 
 /** Query the kernel filesystem type for a path.
@@ -144,6 +184,19 @@ unittest
         == "tmpfs");
     assert(filesystemTypeForPath("/home/user/catalog", mountInfo) == "ext4");
     assert(filesystemTypeForPath("/elsewhere", "") == "");
+}
+
+@("unsupported mount table classification protects missing-file probes")
+unittest
+{
+    enum mountInfo = "1 0 0:1 / / rw - ext4 /dev/root rw\n"
+        ~ "2 1 0:2 / /mnt/sshfs rw - fuse.sshfs host:/data rw\n"
+        ~ "3 1 0:3 / /mnt/local rw - ext4 /dev/sdb rw\n";
+    auto mounts = unsupportedMountPoints(mountInfo);
+    assert(mounts.length == 1);
+    assert(isWithinUnsupportedMount("/mnt/sshfs/file", mounts));
+    assert(!isWithinUnsupportedMount("/mnt/local/file", mounts));
+    assert(!isWithinUnsupportedMount("/home/user/file", mounts));
 }
 
 @("unsupported repository filesystem types are rejected")

@@ -262,6 +262,13 @@ clear `RepositoryException` before opening SQLite. An application-level lock
 file on such a mount cannot replace SQLite's own locking, shared-memory, rename,
 and sync guarantees; use a local repository or a JSON catalog instead.
 
+Missing-file reconciliation also consults the kernel mount table. References
+below an unsupported network/FUSE/autofs mount are left unchanged instead of
+being probed, because a stale mount can block `lstat` indefinitely and make the
+scan appear stuck at `checking missing files`. This is an intentional
+availability trade-off; those paths stay in the catalog until the mount is
+available or the reference is explicitly removed.
+
 Supported deployment options remain:
 
 - Keep the SQLite repository on a local filesystem and keep media on the NAS.
