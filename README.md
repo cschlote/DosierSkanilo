@@ -235,6 +235,10 @@ Detailed architecture and diagrams:
 - `docs/SQLITE-IMPLEMENTATION-PLAN.md` - staged implementation checklist
 - `docs/OPERATION-API.md` - shared CLI/GTK operation request and control contract
 - `docs/BENCHMARKS.md` - JSON/SQLite storage baseline measurements
+- `docs/development/engineering-workflow.md` - change, verification,
+  versioning, and release rules
+- `docs/development/d-language-guide.md` - D style, module structure, and
+  Ddoc conventions
 
 ## License
 
