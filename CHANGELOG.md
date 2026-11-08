@@ -9,6 +9,10 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- Contributor and agent guidance is now organized in a compact `AGENTS.md`,
+  with detailed change, verification, versioning, and release rules in
+  `docs/development/engineering-workflow.md`.
+
 - Source documentation is now complete for every public, package, and private
   declaration: modules, types, fields, enum members, aliases, manifest
   constants, constructors, and functions carry Ddoc, including parameter and
