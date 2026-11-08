@@ -162,7 +162,7 @@ Run the same stage order locally:
 The supported command forms are:
 
 ```text
-dosierskanilo init [ROOT]
+dosierskanilo init [ROOT] [--force]
 dosierskanilo scan [ROOT] [OPTIONS]
 dosierskanilo metadata [ROOT] [OPTIONS]
 dosierskanilo analyze [ROOT] [OPTIONS]
@@ -181,15 +181,21 @@ dosierskanilo duplicates [ROOT] --json CATALOG.json
 
 Common options use kebab-case: `--recursive`, `--checksums`, `--file-types`,
 `--media-info`, `--scan-archives`, `--scan-torrents`, `--all`, `--drop-missing`,
-`--pick-hidden`, `--threads`, `--verbose`, `--pretty`, and `--format=table|json`
-for query commands. `--all` enables checksums, file types, media info, one
-shallow archive scan, and torrent scanning; repeating `--scan-archives` still
+`--pick-hidden`, `--threads`, `--verbose`, `--pretty`, `--force` (init only),
+and `--format=table|json` for query commands. `--all` enables checksums, file
+types, media info, one shallow archive scan, and torrent scanning; repeating
+`--scan-archives` still
 selects a deep archive scan. On `analyze`, requested metadata runs before the
 duplicate and missing-file analysis. Saved JSON catalogs are compact by
 default; `--pretty` indents them for human reading. Archive scans and metadata
 extraction accept
 `--archive-cache-dir` and `--archive-cache-size` (MiB) to control the temporary
 member cache; each run uses an owned session directory and removes it on exit.
+`init --force` moves `catalog.sqlite3` and its `-wal`/`-shm` side files into
+`.dosierskanilo/backups/` and starts a new empty catalog; stop other processes
+using the repository first. SQLite repositories must reside on a local
+filesystem. For catalogs on network or FUSE mounts, keep SQLite local and
+`export` the catalog to JSON locally before copying it to the other machine.
 Help is `--help`; version is `--version`. Normal commands print
 `DosierSkanilo <version>` and a compact one-line `Settings:` summary to stderr at
 startup so stdout stays usable for command output and JSON formats. `--verbose`
@@ -218,6 +224,8 @@ Initialize and scan a SQLite repository:
 ```bash
 ./build/bin/dosierskanilo init /data/library
 ./build/bin/dosierskanilo scan /data/library --recursive --all
+# Replace an existing database but preserve it under .dosierskanilo/backups/
+./build/bin/dosierskanilo init /data/library --force
 ./build/bin/dosierskanilo metadata /data/library --checksums --media-info
 ./build/bin/dosierskanilo analyze /data/library --all
 ```

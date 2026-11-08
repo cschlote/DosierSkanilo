@@ -14,7 +14,7 @@ import std.array : array;
 import std.datetime.systime : Clock;
 import std.conv : to;
 import std.exception : enforce;
-import std.file : copy, exists, isDir, mkdirRecurse;
+import std.file : copy, exists, isDir, mkdirRecurse, rename;
 import std.path : absolutePath, baseName, buildNormalizedPath, buildPath, dirName, isAbsolute;
 import std.string : empty, replace, startsWith, toLower;
 import std.stdio : File;
@@ -200,6 +200,32 @@ private:
             ~ ". Keep the repository on a local filesystem or use a JSON catalog.");
     }
 
+    /** Move an existing catalog database and its side files into backups.
+     *
+     * Params:
+     *     paths = Repository paths whose database should be preserved.
+     * Throws: `Exception` when a file cannot be moved.
+     */
+    static void backupExistingCatalog(RepositoryPaths paths)
+    {
+        if (!exists(paths.databasePath))
+            return;
+        mkdirRecurse(paths.backupsPath);
+        const stamp = currentTimestamp().replace(":", "-");
+        const databaseName = baseName(paths.databasePath);
+        rename(paths.databasePath,
+            buildPath(paths.backupsPath,
+                databaseName ~ ".before-reinit-" ~ stamp));
+        foreach (suffix; ["-wal", "-shm"])
+        {
+            const sideFile = paths.databasePath ~ suffix;
+            if (exists(sideFile))
+                rename(sideFile,
+                    buildPath(paths.backupsPath,
+                        databaseName ~ suffix ~ ".before-reinit-" ~ stamp));
+        }
+    }
+
     /** Throw when this handle has been closed. */
     void requireOpen() const
     {
@@ -216,14 +242,16 @@ public:
      * Params:
      *   rootPath = existing directory to use as the repository root.
      *   options = repository/version options.
+     *   force = move an existing catalog database and its side files into
+     *       `backups/` and create a new empty database.
      * Returns:
      *   An open repository handle.
      * Throws:
-     *   `RepositoryException` when the root does not exist or contains an
-     *   incompatible repository.
+     *   `RepositoryException` when the root does not exist, contains an
+     *   incompatible repository, or another writer owns the target.
      */
     static Repository initialize(string rootPath,
-        RepositoryOptions options = RepositoryOptions())
+        RepositoryOptions options = RepositoryOptions(), bool force = false)
     {
         rootPath = canonicalDirectory(rootPath);
         ensureSupportedFilesystem(rootPath);
@@ -232,6 +260,17 @@ public:
         mkdirRecurse(paths.logsPath);
         mkdirRecurse(paths.exportsPath);
         mkdirRecurse(paths.backupsPath);
+        TargetWriteLease targetLease;
+        if (force && exists(paths.databasePath))
+        {
+            targetLease = TargetWriteLease.acquireRepositoryRoot(rootPath);
+            backupExistingCatalog(paths);
+        }
+        scope (exit)
+        {
+            if (targetLease !is null)
+                targetLease.release();
+        }
         return openRoot(rootPath, options);
     }
 
@@ -1125,6 +1164,45 @@ unittest
     steady.close();
     assert(timeLastModified(databasePath) == stamp,
         "Opening an initialized repository must not write to the database.");
+}
+
+@("repository force reinitialization backs up and clears the catalog")
+unittest
+{
+    import std.algorithm.searching : canFind;
+    import std.file : SpanMode, dirEntries, exists, mkdirRecurse, rmdirRecurse,
+        tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const root = buildPath(tempDir(), "repository-force-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+    {
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+    write(buildPath(root, "sample.txt"), "payload");
+
+    auto repository = Repository.initialize(root);
+    repository.scan(RepositoryScanOptions(true, false, false));
+    assert(repository.blobCount > 0);
+    repository.close();
+
+    auto reinitialized = Repository.initialize(root, RepositoryOptions(), true);
+    scope (exit)
+        reinitialized.close();
+    assert(reinitialized.blobCount == 0);
+
+    bool foundBackup;
+    foreach (entry; dirEntries(buildPath(root, ".dosierskanilo", "backups"),
+        SpanMode.shallow))
+    {
+        if (entry.name.canFind(".before-reinit-"))
+            foundBackup = true;
+    }
+    assert(foundBackup, "force initialization must preserve the old database");
 }
 
 @("repository opens at a new mount path and rebinds the advisory root")

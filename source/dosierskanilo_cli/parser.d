@@ -54,7 +54,7 @@ catalog and keeps JSON available for import and export.
 
 Commands:
 
-    init       Initialize a catalog
+    init       Initialize a catalog; --force reinitializes an existing database
     scan       Scan a catalog
     metadata   Extract metadata in a catalog
     analyze    Analyze a catalog
@@ -91,6 +91,11 @@ JSON output:
 Global options:
 
     --no-input                Suppress interactive prompts and read no input
+
+Initialization options:
+
+    --force                   Reinitialize an existing repository database
+                              after moving the old database to backups/
 
 Recovery options:
 
@@ -264,6 +269,7 @@ ParsedCommandLine parseCommandLine(string[] args)
             "drop-missing", "SA------- Drop missing files from database", &argsarray.argDropMissing,
             "threads", "SAM------ Number of worker threads", &argsarray.argNumberOfThreads,
             "replace", "S-----R-- Replace existing data (JSON scan or import)", &argsarray.argReplaceCatalog,
+            "force", "------R-- Reinitialize an existing repository database (init only)", &argsarray.argForceInit,
             "pick-hidden", "S-------- Pick hidden files and directories too", &argsarray.argPickHidden,
             "dry-run", "--------J Compute JSON results without writing the catalog", &argsarray.argDryRun,
             "no-input", "-------G- Suppress interactive prompts and input", &argsarray.argNoInput,
@@ -352,6 +358,12 @@ ParsedCommandLine parseCommandLine(string[] args)
     }
     if (argsarray.argVersion)
         return ParsedCommandLine(ParseStatus.showVersion, CliCommand.noCommand, argsarray);
+
+    if (argsarray.argForceInit && command != "init")
+    {
+        errorLine("--force is available only with init.");
+        return ParsedCommandLine(ParseStatus.error, CliCommand.noCommand, argsarray);
+    }
 
     if (command == "recover")
     {
@@ -548,9 +560,18 @@ unittest
     assert(helpText.canFind("--archive-cache-size"));
     assert(helpText.canFind("--pretty"));
     assert(helpText.canFind("--no-input"));
+    assert(helpText.canFind("--force"));
     assert(helpText.canFind("recover"));
     assert(helpText.canFind("--verbose"));
     assert(helpText.canFind("S A M I L D R G J"));
+    auto forcedInit = parseCommandLine(["program", "init", "./test",
+        "--force"]);
+    assert(forcedInit.status == ParseStatus.run);
+    assert(forcedInit.options.argInitRepository);
+    assert(forcedInit.options.argForceInit);
+    auto invalidForce = parseCommandLine(["program", "scan", "./test",
+        "--force"]);
+    assert(invalidForce.status == ParseStatus.error);
     auto outdatedMetadataFlag = parseCommandLine(["program", "metadata",
         "./test", "--checksum"]);
     assert(outdatedMetadataFlag.status == ParseStatus.error);

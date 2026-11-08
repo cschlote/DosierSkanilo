@@ -9,6 +9,10 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- `init --force` reinitializes an existing SQLite repository by moving the old
+  database and its `-wal`/`-shm` side files into `.dosierskanilo/backups/` and
+  creating a new empty catalog.
+
 - SQLite repositories on FUSE, sshfs, SMB/CIFS, NFS, 9p, and similar network
   filesystems are now rejected before the database is opened. These mounts do
   not provide SQLite's required locking and durability guarantees and can

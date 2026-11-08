@@ -286,8 +286,9 @@ sqlite3 catalog-recovered.sqlite3 "PRAGMA integrity_check;"
 
 If the recovered database passes, replace `catalog.sqlite3` while no process is
 running it. If recovery is incomplete, re-import the source data or rebuild the
-repository with a fresh scan. Do not retry the damaged repository on a network
-or FUSE mount.
+repository with a fresh scan. `dosierskanilo init ROOT --force` preserves the
+damaged database under `backups/` and creates an empty catalog for a fresh
+scan. Do not retry the damaged repository on a network or FUSE mount.
 
 ## Public API Boundary
 
