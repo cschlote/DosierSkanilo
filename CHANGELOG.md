@@ -9,6 +9,10 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- Missing-file reconciliation no longer probes paths below unsupported
+  network, FUSE, or autofs mount points. A stale mount could otherwise block
+  the scan indefinitely at `checking missing files`.
+
 - New `backup` and `restore` commands create and validate consistent SQLite
   repository snapshots (`VACUUM INTO` plus `PRAGMA integrity_check`) and replace
   an existing catalog only after validation and an explicit `--force`.

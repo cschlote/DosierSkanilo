@@ -9,7 +9,7 @@ module dosierskanilo.repository.scanner;
 import d2sqlite3;
 
 import std.algorithm.searching : startsWith;
-import std.file : SpanMode, dirEntries, isFile;
+import std.file : SpanMode, dirEntries, isFile, readText;
 import std.path : buildNormalizedPath, buildPath, dirName, dirSeparator;
 import std.string : empty, replace, split;
 
@@ -18,6 +18,8 @@ import dosierarkivo.archive : archivePathSeparator, escapeArchiveVirtualPath,
 import dosierskanilo.repository.archiveindex : deleteUnreachableBlobs,
     isVirtualFileReferenceSql;
 import dosierskanilo.repository.errors;
+import dosierskanilo.repository.filesystem : isWithinUnsupportedMount,
+    unsupportedMountPoints;
 import dosierskanilo.repository.types;
 import dosierskanilo.operations : OperationControl, OperationKind,
     OperationPhase, OperationProgress, OperationState;
@@ -547,9 +549,10 @@ private MissingCandidate nextMissingCandidate(ref Database db, long afterId)
 
 /** Probe candidate references and stage the ones missing from disk.
  *
- * Candidates outside a non-recursive scan's scope and hidden paths are left
- * untouched. Progress is reported before each filesystem probe so a pause
- * names the path currently blocking.
+ * Candidates outside a non-recursive scan's scope, hidden paths, and paths
+ * below unsupported network/FUSE mounts are left untouched. The latter avoids
+ * blocking indefinitely on a stale mount. Progress is reported before each
+ * filesystem probe so a pause names the path currently blocking.
  *
  * Params:
  *     db = Open database holding the temporary candidate table.
@@ -572,6 +575,16 @@ private bool stageMissingReferences(ref Database db, string rootPath,
      * overhead dominates the phase and makes progress look stalled. */
     import std.string : indexOf;
 
+    string[string] unsafeMounts;
+    version (linux)
+    {
+        try
+            unsafeMounts = unsupportedMountPoints(readText("/proc/self/mountinfo"));
+        catch (Exception)
+        {
+        }
+    }
+
     long[] missingIds;
     {
         auto candidates = db.execute("SELECT id, relative_path FROM "
@@ -589,6 +602,15 @@ private bool stageMissingReferences(ref Database db, string rootPath,
             {
                 const auto physicalRelative = parseArchiveVirtualPath(
                     relativePath).physicalPath;
+                const auto absolutePath = buildPath(rootPath, physicalRelative);
+                /* A stale or hanging network/FUSE mount must not block the
+                 * whole scan. Leave those references unchanged; the mount is
+                 * outside the supported repository filesystem contract. */
+                if (isWithinUnsupportedMount(absolutePath, unsafeMounts))
+                {
+                    completed++;
+                    continue;
+                }
                 /* Report before the filesystem probe so a heartbeat names
                  * the path that is currently blocking, not the previous one. */
                 if (!reportScanProgress(control, operationId,
