@@ -9,6 +9,10 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- Branch workflow now uses short-lived, intent-named feature branches from
+  `main`; `testing` is a deployment-free mirror, and changelog updates happen
+  before merge.
+
 - Packaging metadata now separates mandatory runtime libraries (SQLite and
   MediaInfo) from optional feature tools (`file`, archive tools, `python3`).
   Build and runtime dependencies are documented per distribution.

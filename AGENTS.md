@@ -48,10 +48,18 @@ Guidance for coding agents in this repository. The detailed rules are in
 
 ## Branches and releases
 
-- Merge completed work into `main` with `--no-ff`, then fast-forward `testing`.
+- Work on a short-lived branch from `main` for each problem. Use intent-based
+  kebab-case names such as `feature/...`, `fix/...`, `docs/...`,
+  `chore/...`, or `release/...`.
+- Keep one problem per branch and use one or more thematic commits.
+- Update `CHANGELOG.md` under `## Unreleased` before merging.
+- Merge completed work into `main` with `--no-ff`; do not squash away the
+  thematic commit history. Stay on `main` afterwards.
+- `testing` is a deployment-free mirror of `main`, not an integration branch.
+  Never commit to it; fast-forward it to `main` after each merge.
 - Before a release, explicitly review the checklist and confirm that docs,
   scripts, package metadata, changelog, and tests describe the same state.
-- Release commits move `## Unreleased` to `## Release X.Y.Z`.
+- Release branches move `## Unreleased` to `## Release X.Y.Z`.
 - Create annotated tags on the `main` merge commit, never on a branch-only
   commit. Source archives embed the commit SHA, so moving a tag changes the
   archive hash.

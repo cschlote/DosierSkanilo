@@ -89,12 +89,22 @@ The test layers and their exact commands are documented in
 
 ## Branches and merges
 
-- Keep work on a feature or integration branch and keep unrelated work out of
-  the change.
-- Merge completed work into `main` with `--no-ff` so the integration point stays
-  explicit. In the shared branch model this is normally `testing` into `main`.
-- After merging, fast-forward `testing` to `main` so both branches point at the
-  same verified state.
+- `main` is the working and deployment branch. Create a short-lived branch from
+  `main` for each problem.
+- Name branches by intent using kebab-case. Examples:
+  `feature/archive-search`, `fix/root-rebinding`, `docs/testing-guide`,
+  `chore/dependency-metadata`, and `release/1.2.3`. Avoid generic names and
+  mixed topics.
+- Solve one problem per branch in one or more thematic commits. Keep unrelated
+  fixes, refactors, and formatting changes out of the branch.
+- Before merging, update `CHANGELOG.md` under `## Unreleased` with the
+  user-visible or notable maintenance change.
+- Merge the completed branch into `main` with `--no-ff` so the integration point
+  stays explicit. Do not squash away the thematic commit history.
+- After the merge, stay on `main`. `testing` is a deployment-free mirror of
+  `main`, not an integration branch and never a place for direct commits.
+  Fast-forward it without leaving `main` (`git branch -f testing main`) and push
+  both branches to all mirrors.
 - Push branches to all configured mirrors when publishing the result.
 
 ## Releases
@@ -104,11 +114,12 @@ release commit, review that checklist explicitly and confirm that documentation,
 scripts, package metadata, changelog, and tests all describe the same intended
 state. The non-negotiable points are:
 
-- Create the release commit on the integration branch: move `## Unreleased` to
+- Create a `release/X.Y.Z` branch from `main`, move `## Unreleased` to
   `## Release X.Y.Z`, update `VERSION` and package metadata, and keep the
   summary in simple English.
-- Merge the release commit to `main` first, then create the annotated tag
-  `vX.Y.Z` on the `main` merge commit. Do not tag a branch-only commit.
+- Merge the release branch to `main` first, then create the annotated tag
+  `vX.Y.Z` on the `main` merge commit. Do not tag a branch-only commit. Stay on
+  `main` and mirror the result to `testing` without deploying from `testing`.
 - Source archives embed the tagged commit SHA. Moving or re-creating a tag
   changes the archive hash even when the tree is identical.
 - Update Flatpak `sha256` pins in a follow-up commit on `main` after downloading
