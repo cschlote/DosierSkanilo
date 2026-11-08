@@ -9,6 +9,10 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- Packaging metadata now separates mandatory runtime libraries (SQLite and
+  MediaInfo) from optional feature tools (`file`, archive tools, `python3`).
+  Build and runtime dependencies are documented per distribution.
+
 - Contributor documentation now defines the approval path for undocumented
   workflow gaps, the release-checklist review, the internal/external test
   layers, and the full-test merge gate.

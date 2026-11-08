@@ -98,6 +98,9 @@ export DC=ldc2
 dub test -b unittest-cov -- -v
 ```
 
+Build and runtime dependencies for each distribution package are listed in
+[`packaging/README.md`](packaging/README.md#dependencies).
+
 Generate API docs:
 
 ```bash
