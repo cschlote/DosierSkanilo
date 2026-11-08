@@ -1,7 +1,8 @@
 # Release Checklist
 
 Use this checklist for a backend + GUI release pair. Both repositories are
-released from the same integration branch and each tag is prefixed with `v`.
+released from `main`; each tag is prefixed with `v`. The `testing` branch is a
+deployment-free mirror of `main`, never a release or integration branch.
 
 ## Preconditions
 
@@ -9,7 +10,8 @@ released from the same integration branch and each tag is prefixed with `v`.
 - [ ] README, AGENTS, workflow/testing docs, TODO, CHANGELOG, and package
       metadata describe the same intended release state.
 - [ ] The documented test commands match the current scripts and CI jobs.
-- [ ] The integration branch is pushed to every mirror and `main` is merged.
+- [ ] The release branch is merged into `main`, `main` is pushed to every
+      mirror, and `testing` is fast-forwarded to the same commit.
 - [ ] CI on `main` passed, including the GUI Xvfb display job, or the same
       checks were run locally when remote CI is intentionally disabled.
 - [ ] Untracked local review/scratch files are committed or removed.
@@ -73,8 +75,9 @@ released from the same integration branch and each tag is prefixed with `v`.
 
 ## Publish
 
-- [ ] Commit `Release X.Y.Z` in each repository.
-- [ ] Merge the release commits to `main` and push `main`.
+- [ ] Commit `Release X.Y.Z` on a `release/X.Y.Z` branch in each repository.
+- [ ] Merge the release branches to `main` with `--no-ff`, push `main`, and
+      fast-forward `testing` without staying on it.
 - [ ] Create annotated tags `vX.Y.Z` on the `main` merge commits and push them
       to every mirror.
 - [ ] Update the Flatpak `sha256` pins from the published tag archives in a
