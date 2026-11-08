@@ -242,6 +242,7 @@ Detailed architecture and diagrams:
 - `docs/RELEASE-CHECKLIST.md` - backend and GUI release procedure
 - `docs/development/engineering-workflow.md` - change, verification,
   versioning, and release rules
+- `docs/development/testing.md` - internal, integration, and external test layers
 - `docs/development/d-language-guide.md` - D style, module structure, and
   Ddoc conventions
 

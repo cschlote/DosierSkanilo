@@ -9,6 +9,10 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- Contributor documentation now defines the approval path for undocumented
+  workflow gaps, the release-checklist review, the internal/external test
+  layers, and the full-test merge gate.
+
 - Documentation was refreshed against the current implementation: SQLite schema
   v6, escaped directory paths, advisory repository roots, JSON migration
   details, operation contracts, and release status.

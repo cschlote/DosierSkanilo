@@ -6,6 +6,9 @@ released from the same integration branch and each tag is prefixed with `v`.
 ## Preconditions
 
 - [ ] Backend and GUI working trees are clean (`git status`).
+- [ ] README, AGENTS, workflow/testing docs, TODO, CHANGELOG, and package
+      metadata describe the same intended release state.
+- [ ] The documented test commands match the current scripts and CI jobs.
 - [ ] The integration branch is pushed to every mirror and `main` is merged.
 - [ ] CI on `main` passed, including the GUI Xvfb display job, or the same
       checks were run locally when remote CI is intentionally disabled.

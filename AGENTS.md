@@ -11,7 +11,10 @@ Guidance for coding agents in this repository. The detailed rules are in
 - Follow the existing D style, module boundaries, and ownership patterns.
 - Flag assumptions, risks, and follow-up work clearly when they affect
   correctness.
-- See [change scope](docs/development/engineering-workflow.md#change-scope-and-user-work).
+- If a goal, rule, or procedure cannot be derived logically from this file and
+  the linked docs, ask for approval, then update the documentation.
+- See [change scope](docs/development/engineering-workflow.md#change-scope-and-user-work)
+  and [documentation gaps](docs/development/engineering-workflow.md#documentation-gaps-and-approval).
 
 ## Changelog and documentation
 
@@ -27,8 +30,11 @@ Guidance for coding agents in this repository. The detailed rules are in
 
 - Run the smallest relevant verification step after editing and report any
   check that could not be completed.
+- Before merging a feature branch or preparing a release, run the complete
+  local test gate.
 - Prefer local checks; do not claim a pass without running the command.
-- See the [verification matrix](docs/development/engineering-workflow.md#verification).
+- See the [verification policy](docs/development/engineering-workflow.md#verification)
+  and [testing layers](docs/development/testing.md).
 
 ## Versioning
 
@@ -43,6 +49,8 @@ Guidance for coding agents in this repository. The detailed rules are in
 ## Branches and releases
 
 - Merge completed work into `main` with `--no-ff`, then fast-forward `testing`.
+- Before a release, explicitly review the checklist and confirm that docs,
+  scripts, package metadata, changelog, and tests describe the same state.
 - Release commits move `## Unreleased` to `## Release X.Y.Z`.
 - Create annotated tags on the `main` merge commit, never on a branch-only
   commit. Source archives embed the commit SHA, so moving a tag changes the

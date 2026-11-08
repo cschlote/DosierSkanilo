@@ -25,9 +25,21 @@ applies to human contributors and coding agents.
 - If ambiguity or an environment limitation could affect correctness, stop and
   state the assumption instead of guessing.
 
+## Documentation gaps and approval
+
+If a goal, rule, or procedure cannot be derived logically from `AGENTS.md` and
+the linked documentation, do not invent a new workflow. Stop, explain the gap,
+and ask for approval. After approval, update `AGENTS.md` or the appropriate
+linked document in the same change so the rule is explicit for the next
+contributor. Documentation is part of the implementation, not an optional
+afterthought.
+
 ## Verification
 
-Run the smallest relevant check after editing. Examples:
+The test layers and their exact commands are documented in
+[`testing.md`](testing.md). Summary:
+
+- Run the smallest relevant check after editing. Examples:
 
 | Change | Minimum check |
 | --- | --- |
@@ -46,6 +58,9 @@ Run the smallest relevant check after editing. Examples:
 - Add tests next to the code they verify and confirm from the test output that
   the new test actually ran. See the
   [D language guide](d-language-guide.md#tests).
+- Before merging a feature branch into `main` or preparing a release, run the
+  complete local gate (`DC=ldc2 ./scripts/test.sh` and `./scripts/lint.sh`),
+  not only the targeted tests.
 
 ## Changelog, docs, and planning
 
@@ -84,8 +99,10 @@ Run the smallest relevant check after editing. Examples:
 
 ## Releases
 
-Follow the full [release checklist](../RELEASE-CHECKLIST.md). The non-negotiable
-points are:
+Follow the full [release checklist](../RELEASE-CHECKLIST.md). Before creating a
+release commit, review that checklist explicitly and confirm that documentation,
+scripts, package metadata, changelog, and tests all describe the same intended
+state. The non-negotiable points are:
 
 - Create the release commit on the integration branch: move `## Unreleased` to
   `## Release X.Y.Z`, update `VERSION` and package metadata, and keep the
