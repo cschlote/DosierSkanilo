@@ -9,6 +9,10 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- New `backup` and `restore` commands create and validate consistent SQLite
+  repository snapshots (`VACUUM INTO` plus `PRAGMA integrity_check`) and replace
+  an existing catalog only after validation and an explicit `--force`.
+
 - `init --force` reinitializes an existing SQLite repository by moving the old
   database and its `-wal`/`-shm` side files into `.dosierskanilo/backups/` and
   creating a new empty catalog.

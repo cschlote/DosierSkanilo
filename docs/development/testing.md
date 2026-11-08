@@ -37,7 +37,8 @@ tools installed when changing those adapters.
 `scripts/test-cli.sh` builds the CLI and runs it as a real process against a
 temporary synthetic corpus. It covers:
 
-- JSON and SQLite scan, analyze, list, duplicates, import, export, and recovery
+- JSON and SQLite scan, analyze, list, duplicates, import, export, backup,
+  restore, and recovery
 - progress-phase order, monotonic counters, and cancellation exit codes
 - SIGINT handling during import, export, JSON scan/analyze, SQLite scan, and
   metadata, including partial-save and rollback behavior
@@ -97,6 +98,6 @@ metadata. The build must complete without missing-symbol or broken-link errors.
 
 ## Current baseline
 
-On 2026-11-08 the full suite reported 220 passing tests and 89.16 % coverage.
+On 2026-11-08 the full suite reported 221 passing tests and 89.14 % coverage.
 Treat these numbers as a recorded snapshot, not a permanent contract; update
 them when the test set changes.

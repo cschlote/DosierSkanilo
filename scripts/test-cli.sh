@@ -80,6 +80,28 @@ sqlite_analysis_output=$("${BIN}" analyze "${synthetic_sqlite_root}")
 assert_progress_order "${sqlite_analysis_output}" \
     validating "missing files" duplicates "analysis cleanup"
 
+# SQLite backup and restore round-trip.
+backup_catalog="${TMP_DIR}/synthetic-backup.sqlite3"
+backup_refs=$("${BIN}" info "${synthetic_sqlite_root}" --format=json \
+    | grep -o '"references":[0-9]*' | cut -d: -f2)
+"${BIN}" backup "${synthetic_sqlite_root}" --output "${backup_catalog}" \
+    >"${TMP_DIR}/sqlite-backup.out"
+[[ -f "${backup_catalog}" ]]
+grep -q "Backup written" "${TMP_DIR}/sqlite-backup.out"
+if "${BIN}" restore "${synthetic_sqlite_root}" --input "${backup_catalog}" \
+    >/dev/null 2>&1; then
+    printf '%s\n' "Restore without --force replaced a database." >&2
+    exit 1
+fi
+printf 'extra\n' >"${synthetic_sqlite_root}/extra.txt"
+"${BIN}" scan "${synthetic_sqlite_root}" --recursive --checksums >/dev/null
+"${BIN}" restore "${synthetic_sqlite_root}" --input "${backup_catalog}" --force \
+    >"${TMP_DIR}/sqlite-restore.out"
+grep -q "Restored repository" "${TMP_DIR}/sqlite-restore.out"
+restored_refs=$("${BIN}" info "${synthetic_sqlite_root}" --format=json \
+    | grep -o '"references":[0-9]*' | cut -d: -f2)
+[[ "${restored_refs}" == "${backup_refs}" ]]
+
 pushd "${TMP_DIR}" >/dev/null
 synthetic_json_output=$("${BIN}" scan "${fixture_root}" \
     --json "${synthetic_catalog}" --recursive --checksums)

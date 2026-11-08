@@ -171,6 +171,8 @@ dosierskanilo list [ROOT] [FILTERS]
 dosierskanilo duplicates [ROOT]
 dosierskanilo import [ROOT] INPUT.json [--replace]
 dosierskanilo export [ROOT] --output OUTPUT.json [--path VIRTUAL_PATH]
+dosierskanilo backup [ROOT] [--output OUTPUT.sqlite3]
+dosierskanilo restore [ROOT] --input INPUT.sqlite3 [--force]
 dosierskanilo recover CATALOG.json [--restore-from FILE]
 
 dosierskanilo scan [ROOT] --json CATALOG.json [--base-dir DIR] [OPTIONS]
@@ -181,8 +183,9 @@ dosierskanilo duplicates [ROOT] --json CATALOG.json
 
 Common options use kebab-case: `--recursive`, `--checksums`, `--file-types`,
 `--media-info`, `--scan-archives`, `--scan-torrents`, `--all`, `--drop-missing`,
-`--pick-hidden`, `--threads`, `--verbose`, `--pretty`, `--force` (init only),
-and `--format=table|json` for query commands. `--all` enables checksums, file
+`--pick-hidden`, `--threads`, `--verbose`, `--pretty`,
+`--force` (init/restore), `--output` (export/backup), `--input` (restore), and
+`--format=table|json` for query commands. `--all` enables checksums, file
 types, media info, one shallow archive scan, and torrent scanning; repeating
 `--scan-archives` still
 selects a deep archive scan. On `analyze`, requested metadata runs before the
@@ -193,9 +196,13 @@ extraction accept
 member cache; each run uses an owned session directory and removes it on exit.
 `init --force` moves `catalog.sqlite3` and its `-wal`/`-shm` side files into
 `.dosierskanilo/backups/` and starts a new empty catalog; stop other processes
-using the repository first. SQLite repositories must reside on a local
-filesystem. For catalogs on network or FUSE mounts, keep SQLite local and
-`export` the catalog to JSON locally before copying it to the other machine.
+using the repository first. `backup` writes a consistent, integrity-checked
+SQLite snapshot via `VACUUM INTO`; without `--output` it uses a timestamped file
+below `.dosierskanilo/backups/`. `restore --input FILE --force` validates the
+snapshot before replacing the current database and preserves the previous one
+under `backups/`. SQLite repositories must reside on a local filesystem. For
+catalogs on network or FUSE mounts, keep SQLite local and `export` the catalog
+to JSON locally before copying it to the other machine.
 Help is `--help`; version is `--version`. Normal commands print
 `DosierSkanilo <version>` and a compact one-line `Settings:` summary to stderr at
 startup so stdout stays usable for command output and JSON formats. `--verbose`
@@ -228,6 +235,9 @@ Initialize and scan a SQLite repository:
 ./build/bin/dosierskanilo init /data/library --force
 ./build/bin/dosierskanilo metadata /data/library --checksums --media-info
 ./build/bin/dosierskanilo analyze /data/library --all
+./build/bin/dosierskanilo backup /data/library
+./build/bin/dosierskanilo restore /data/library \
+  --input /backup/library.sqlite3 --force
 ```
 
 Scan and analyze a direct JSON catalog:

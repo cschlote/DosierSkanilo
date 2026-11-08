@@ -63,6 +63,8 @@ Commands:
     duplicates List duplicate blob groups
     import     Import JSON v0-v5 into a catalog
     export     Export a catalog as JSON v5
+    backup     Create a consistent SQLite repository backup
+    restore    Restore a SQLite repository backup
     recover    List backups/recovery files and optionally restore one
 
 JSON target options:
@@ -92,10 +94,12 @@ Global options:
 
     --no-input                Suppress interactive prompts and read no input
 
-Initialization options:
+Repository maintenance options:
 
-    --force                   Reinitialize an existing repository database
-                              after moving the old database to backups/
+    --force                   Reinitialize an existing repository (init) or
+                              replace it during restore
+    --output FILE             Output file for JSON export or SQLite backup
+    --input FILE              SQLite backup file for restore
 
 Recovery options:
 
@@ -107,7 +111,7 @@ available for that scope):
     S Scan (repository or JSON)      A Analyze (repository or JSON)
     M Metadata extraction            I Catalog info
     L List catalog content           D Duplicate groups
-    R Init/import/export             G Global options
+    R Init/import/export/backup/restore  G Global options
     J JSON catalog workflows
 
 For example, `SA-------` applies to scan and analysis; `---ILD---` applies to
@@ -152,6 +156,10 @@ enum CliCommand
     importJson,
     /// Export a repository catalog as JSON.
     exportJson,
+    /// Create a consistent SQLite repository backup.
+    backup,
+    /// Restore a SQLite repository backup.
+    restore,
     /// List recovery backups and optionally restore one.
     recover
 }
@@ -200,7 +208,8 @@ ParsedCommandLine parseCommandLine(string[] args)
         switch (args[1])
         {
             case "init", "scan", "metadata", "analyze", "info", "list",
-                "duplicates", "import", "export", "recover":
+                "duplicates", "import", "export", "backup", "restore",
+                "recover":
                 command = args[1];
                 commandIndex = 1;
                 break;
@@ -252,7 +261,8 @@ ParsedCommandLine parseCommandLine(string[] args)
     {
         helpInformation = getopt(args, /* std.getopt.config.required, */
 
-            "output", "------R-- Output JSON file for export", &argsarray.argExportJSON,
+            "output", "------R-- Output JSON file for export or SQLite backup", &argsarray.argExportJSON,
+            "input", "------R-- SQLite backup file for restore", &argsarray.argRestoreInput,
             "path", "------R-- Export only the selected path prefix", &argsarray.argExportPath,
             "json", "S-------J JSON catalog to read/write", &argsarray.argJSONFile,
             "base-dir", "S-------J Base directory for JSON paths", &argsarray.argBaseDir,
@@ -269,7 +279,7 @@ ParsedCommandLine parseCommandLine(string[] args)
             "drop-missing", "SA------- Drop missing files from database", &argsarray.argDropMissing,
             "threads", "SAM------ Number of worker threads", &argsarray.argNumberOfThreads,
             "replace", "S-----R-- Replace existing data (JSON scan or import)", &argsarray.argReplaceCatalog,
-            "force", "------R-- Reinitialize an existing repository database (init only)", &argsarray.argForceInit,
+            "force", "------R-- Reinitialize an existing repository (init) or replace it (restore)", &argsarray.argForce,
             "pick-hidden", "S-------- Pick hidden files and directories too", &argsarray.argPickHidden,
             "dry-run", "--------J Compute JSON results without writing the catalog", &argsarray.argDryRun,
             "no-input", "-------G- Suppress interactive prompts and input", &argsarray.argNoInput,
@@ -359,9 +369,20 @@ ParsedCommandLine parseCommandLine(string[] args)
     if (argsarray.argVersion)
         return ParsedCommandLine(ParseStatus.showVersion, CliCommand.noCommand, argsarray);
 
-    if (argsarray.argForceInit && command != "init")
+    if (argsarray.argForce && command != "init" && command != "restore")
     {
-        errorLine("--force is available only with init.");
+        errorLine("--force is available only with init or restore.");
+        return ParsedCommandLine(ParseStatus.error, CliCommand.noCommand, argsarray);
+    }
+    if (!argsarray.argRestoreInput.empty && command != "restore")
+    {
+        errorLine("--input is available only with restore.");
+        return ParsedCommandLine(ParseStatus.error, CliCommand.noCommand, argsarray);
+    }
+    if (!argsarray.argExportJSON.empty && command != "export"
+        && command != "backup")
+    {
+        errorLine("--output is available only with export or backup.");
         return ParsedCommandLine(ParseStatus.error, CliCommand.noCommand, argsarray);
     }
 
@@ -449,6 +470,10 @@ private CliCommand commandToCliCommand(string command)
         return CliCommand.importJson;
     case "export":
         return CliCommand.exportJson;
+    case "backup":
+        return CliCommand.backup;
+    case "restore":
+        return CliCommand.restore;
     case "recover":
         return CliCommand.recover;
     case "":
@@ -561,6 +586,20 @@ unittest
     assert(helpText.canFind("--pretty"));
     assert(helpText.canFind("--no-input"));
     assert(helpText.canFind("--force"));
+    assert(helpText.canFind("--input"));
+    assert(helpText.canFind("backup"));
+    assert(helpText.canFind("restore"));
+    auto backupCommand = parseCommandLine(["program", "backup", "./test",
+        "--output", "./test/backup.sqlite3"]);
+    assert(backupCommand.status == ParseStatus.run);
+    assert(backupCommand.command == CliCommand.backup);
+    assert(backupCommand.options.argExportJSON == "./test/backup.sqlite3");
+    auto restoreCommand = parseCommandLine(["program", "restore", "./test",
+        "--input", "./test/backup.sqlite3", "--force"]);
+    assert(restoreCommand.status == ParseStatus.run);
+    assert(restoreCommand.command == CliCommand.restore);
+    assert(restoreCommand.options.argRestoreInput == "./test/backup.sqlite3");
+    assert(restoreCommand.options.argForce);
     assert(helpText.canFind("recover"));
     assert(helpText.canFind("--verbose"));
     assert(helpText.canFind("S A M I L D R G J"));
@@ -568,7 +607,7 @@ unittest
         "--force"]);
     assert(forcedInit.status == ParseStatus.run);
     assert(forcedInit.options.argInitRepository);
-    assert(forcedInit.options.argForceInit);
+    assert(forcedInit.options.argForce);
     auto invalidForce = parseCommandLine(["program", "scan", "./test",
         "--force"]);
     assert(invalidForce.status == ParseStatus.error);

@@ -14,7 +14,7 @@ import std.array : array;
 import std.datetime.systime : Clock;
 import std.conv : to;
 import std.exception : enforce;
-import std.file : copy, exists, isDir, mkdirRecurse, rename;
+import std.file : copy, exists, isDir, isFile, mkdirRecurse, remove, rename;
 import std.path : absolutePath, baseName, buildNormalizedPath, buildPath, dirName, isAbsolute;
 import std.string : empty, replace, startsWith, toLower;
 import std.stdio : File;
@@ -204,9 +204,10 @@ private:
      *
      * Params:
      *     paths = Repository paths whose database should be preserved.
+     *     reason = Short suffix describing why the backup was created.
      * Throws: `Exception` when a file cannot be moved.
      */
-    static void backupExistingCatalog(RepositoryPaths paths)
+    static void backupExistingCatalog(RepositoryPaths paths, string reason)
     {
         if (!exists(paths.databasePath))
             return;
@@ -215,14 +216,14 @@ private:
         const databaseName = baseName(paths.databasePath);
         rename(paths.databasePath,
             buildPath(paths.backupsPath,
-                databaseName ~ ".before-reinit-" ~ stamp));
+                databaseName ~ ".before-" ~ reason ~ "-" ~ stamp));
         foreach (suffix; ["-wal", "-shm"])
         {
             const sideFile = paths.databasePath ~ suffix;
             if (exists(sideFile))
                 rename(sideFile,
                     buildPath(paths.backupsPath,
-                        databaseName ~ suffix ~ ".before-reinit-" ~ stamp));
+                        databaseName ~ suffix ~ ".before-" ~ reason ~ "-" ~ stamp));
         }
     }
 
@@ -264,7 +265,7 @@ public:
         if (force && exists(paths.databasePath))
         {
             targetLease = TargetWriteLease.acquireRepositoryRoot(rootPath);
-            backupExistingCatalog(paths);
+            backupExistingCatalog(paths, "reinit");
         }
         scope (exit)
         {
@@ -272,6 +273,126 @@ public:
                 targetLease.release();
         }
         return openRoot(rootPath, options);
+    }
+
+    /** Validate a SQLite backup before replacing a repository database.
+     *
+     * Params:
+     *     backupPath = Candidate repository backup file.
+     * Throws: `RepositoryException` when the file is missing, corrupt, not a
+     *     DosierSkanilo repository, or was written by a newer schema.
+     */
+    private static void validateRestoreSource(string backupPath)
+    {
+        if (!exists(backupPath) || !isFile(backupPath))
+            throw new RepositoryException("Backup file does not exist: " ~ backupPath);
+        try
+        {
+            auto db = Database(backupPath);
+            try
+            {
+                auto result = db.execute("PRAGMA integrity_check");
+                const status = result.empty ? "" : result.front.peek!string(0);
+                if (status != "ok")
+                    throw new RepositoryException("Backup integrity check failed: "
+                        ~ status);
+
+                bool hasRepository;
+                bool hasBlobs;
+                bool hasFileRefs;
+                foreach (row; db.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"))
+                {
+                    const name = row.peek!string(0);
+                    hasRepository = hasRepository || name == "repository";
+                    hasBlobs = hasBlobs || name == "blobs";
+                    hasFileRefs = hasFileRefs || name == "file_refs";
+                }
+                if (!hasRepository || !hasBlobs || !hasFileRefs)
+                    throw new RepositoryException(
+                        "File is not a DosierSkanilo repository backup: " ~ backupPath);
+
+                auto versionResult = db.execute(
+                    "SELECT schema_version FROM repository WHERE id = 1");
+                if (versionResult.empty)
+                    throw new RepositoryException(
+                        "Repository metadata row is missing from backup: " ~ backupPath);
+                const schemaVersion = cast(ulong) versionResult.front.peek!long(0);
+                if (schemaVersion > currentRepositorySchemaVersion)
+                    throw new RepositoryException(
+                        "Backup schema is newer than this application: "
+                        ~ to!string(schemaVersion));
+            }
+            finally
+            {
+                db.close();
+            }
+        }
+        catch (RepositoryException ex)
+        {
+            throw ex;
+        }
+        catch (Exception ex)
+        {
+            throw new RepositoryException(
+                "Backup could not be opened: " ~ ex.msg);
+        }
+    }
+
+    /** Replace a repository database with a validated SQLite backup.
+     *
+     * The current database and its side files are moved into `backups/` when
+     * `force` is true. The source is validated before any target change.
+     *
+     * Params:
+     *     rootPath = Repository root directory.
+     *     backupPath = SQLite database file produced by `backupTo`.
+     *     force = Replace an existing database. Required when one exists.
+     * Returns: A newly opened repository handle.
+     * Throws: `RepositoryException` when the backup is invalid, an existing
+     *     database is present without `force`, or another writer owns the
+     *     target.
+     */
+    static Repository restore(string rootPath, string backupPath, bool force = false)
+    {
+        rootPath = canonicalDirectory(rootPath);
+        ensureSupportedFilesystem(rootPath);
+        validateRestoreSource(backupPath);
+        auto paths = RepositoryPaths.fromRoot(rootPath);
+        if (buildNormalizedPath(absolutePath(backupPath)) == paths.databasePath)
+            throw new RepositoryException(
+                "Restore source must differ from the repository database.");
+
+        mkdirRecurse(paths.metadataPath);
+        mkdirRecurse(paths.logsPath);
+        mkdirRecurse(paths.exportsPath);
+        mkdirRecurse(paths.backupsPath);
+
+        auto targetLease = TargetWriteLease.acquireRepositoryRoot(rootPath);
+        scope (exit)
+            targetLease.release();
+
+        if (exists(paths.databasePath))
+        {
+            if (!force)
+                throw new RepositoryException(
+                    "Repository already has a database. Use --force to replace it.");
+            backupExistingCatalog(paths, "restore");
+        }
+        foreach (suffix; ["-wal", "-shm"])
+        {
+            const sideFile = paths.databasePath ~ suffix;
+            if (exists(sideFile))
+                remove(sideFile);
+        }
+
+        const staging = paths.databasePath ~ ".restore-"
+            ~ currentTimestamp().replace(":", "-") ~ ".tmp";
+        copy(backupPath, staging);
+        rename(staging, paths.databasePath);
+        auto restored = openRoot(rootPath, RepositoryOptions());
+        restored.appendLog("repository.restore", backupPath);
+        return restored;
     }
 
     /** Open the repository containing `startPath`.
@@ -496,6 +617,50 @@ public:
             targetLease.release();
         return exportCatalogJsonControlled(database, repositoryPaths.rootPath,
             jsonFile, options, control, operationId);
+    }
+
+    /** Write a consistent, validated copy of the repository database.
+     *
+     * Uses SQLite `VACUUM INTO`, which includes rows still present in the WAL
+     * and produces a compact snapshot. The destination must not exist.
+     *
+     * Params:
+     *     outputPath = Destination SQLite database file.
+     * Throws: `RepositoryException` when the destination exists, equals the
+     *     live database, or fails its integrity check; `OperationTargetBusyException`
+     *     when another writer owns the repository.
+     */
+    void backupTo(string outputPath)
+    {
+        requireOpen();
+        const target = buildNormalizedPath(absolutePath(outputPath));
+        if (target == repositoryPaths.databasePath)
+            throw new RepositoryException(
+                "Backup path must differ from the repository database.");
+        if (exists(target))
+            throw new RepositoryException("Backup target already exists: " ~ target);
+        mkdirRecurse(dirName(target));
+
+        auto targetLease = TargetWriteLease.acquireRepositoryRoot(
+            repositoryPaths.rootPath);
+        scope (exit)
+            targetLease.release();
+
+        database.execute("VACUUM INTO ?", target);
+        auto verificationDb = Database(target);
+        try
+        {
+            auto result = verificationDb.execute("PRAGMA integrity_check");
+            const status = result.empty ? "" : result.front.peek!string(0);
+            if (status != "ok")
+                throw new RepositoryException("Backup integrity check failed: "
+                    ~ status);
+        }
+        finally
+        {
+            verificationDb.close();
+        }
+        appendLog("repository.backup", target);
     }
 
     /** Load repository blobs using the shared domain model for consumers.
@@ -1203,6 +1368,55 @@ unittest
             foundBackup = true;
     }
     assert(foundBackup, "force initialization must preserve the old database");
+}
+
+@("repository backup and restore round-trip")
+unittest
+{
+    import std.exception : assertThrown;
+    import std.file : exists, mkdirRecurse, remove, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const root = buildPath(tempDir(), "repository-backup-" ~ randomUUID().toString());
+    const backup = buildPath(tempDir(), "repository-backup-" ~ randomUUID().toString()
+        ~ ".sqlite3");
+    mkdirRecurse(root);
+    scope (exit)
+    {
+        if (exists(backup))
+            remove(backup);
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+    write(buildPath(root, "first.txt"), "first");
+
+    auto repository = Repository.initialize(root);
+    repository.scan(RepositoryScanOptions(true, false, false));
+    assert(repository.blobCount == 1);
+    repository.backupTo(backup);
+    assert(exists(backup));
+    repository.close();
+
+    write(buildPath(root, "second.txt"), "second");
+    auto changed = Repository.open(root);
+    changed.scan(RepositoryScanOptions(true, false, false));
+    assert(changed.blobCount == 2);
+    changed.close();
+
+    assertThrown!RepositoryException(Repository.restore(root, backup));
+    auto restored = Repository.restore(root, backup, true);
+    scope (exit)
+        restored.close();
+    assert(restored.blobCount == 1);
+
+    import std.file : readText;
+    const invalid = buildPath(tempDir(), "invalid-backup-" ~ randomUUID().toString());
+    write(invalid, "not a sqlite database");
+    scope (exit)
+        if (exists(invalid))
+            remove(invalid);
+    assertThrown!RepositoryException(Repository.restore(root, invalid, true));
 }
 
 @("repository opens at a new mount path and rebinds the advisory root")
