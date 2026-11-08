@@ -22,13 +22,33 @@ version (unittest)
     import dosierarkivo.testsupport;
 }
 
+/** RAR archive adapter backed by the `unrar` command-line tool. */
 class FileArchiveRar : FileArchive
 {
+    /** Create a wrapper for one RAR file.
+     *
+     * Params:
+     *     filename = Path to the RAR archive on disk; stored unchanged.
+     */
     this(string filename)
     {
         super(ArchiveType.rar, filename);
     }
 
+    /** Like `FileArchive.getEntryDescriptors`, enriched with `unrar lt` metadata.
+     *
+     * Size, modification time and directory flags are read from the verbose
+     * listing. A partial listing is accepted when at least one `Name:` block was
+     * parsed, so a truncated archive still yields usable metadata.
+     *
+     * Params:
+     *     password = Archive password; empty disables password prompting.
+     * Returns: Descriptors in listing order, or `null` when the base
+     *     implementation returns no listing.
+     * Throws: `ArchivePasswordRequiredException` when a password is missing or
+     *     rejected, `ArchiveToolException` when the listing fails without any
+     *     usable entry.
+     */
     override ArchiveEntryDescriptor[] getEntryDescriptors(string password = "")
     {
         auto entries = super.getEntryDescriptors(password);
@@ -125,6 +145,15 @@ class FileArchiveRar : FileArchive
         return entries;
     }
 
+    /** List member names using `unrar lb`.
+     *
+     * Params:
+     *     password = Archive password; empty disables password prompting.
+     * Returns: Member names in archive order; empty lines are dropped.
+     * Throws: `ArchivePasswordRequiredException` when a password is missing or
+     *     rejected, `ArchiveToolException` when `unrar` fails without producing
+     *     any name.
+     */
     override string[] getEntries(string password = "")
     {
         auto passwordOption = password.length > 0 ? "-p" ~ password : "-p-";
@@ -143,6 +172,16 @@ class FileArchiveRar : FileArchive
         return names;
     }
 
+    /** Extract one member into `destDir` using `unrar x`.
+     *
+     * Params:
+     *     filename = Member name exactly as reported by the archive listing.
+     *     destDir = Directory that receives the extracted member.
+     *     password = Archive password; empty disables password prompting.
+     * Returns: `true` on success.
+     * Throws: `ArchivePasswordRequiredException` when a password is missing or
+     *     rejected, `ArchiveToolException` for any other tool failure.
+     */
     override bool extractEntry(string filename, string destDir, string password = "")
     {
         auto tarPath = buildPath(getcwd(), this.fileName);
@@ -157,8 +196,10 @@ class FileArchiveRar : FileArchive
 
     version (unittest)
     {
+        /** Test archive file name produced by the unittest fixture. */
         enum string fn = rarFileName;
 
+        /** Build the RAR fixture from `expectedEntries`, replacing any old file. */
         static void createTestArchive()
         {
             deleteTestArchive;
@@ -166,6 +207,7 @@ class FileArchiveRar : FileArchive
             assert(rc.status == 0, rc.output);
         }
 
+        /** Remove the RAR fixture if it exists. */
         static void deleteTestArchive()
         {
             if (fn.exists)

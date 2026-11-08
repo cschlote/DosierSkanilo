@@ -108,7 +108,14 @@ OperationResult runOperation(ScanOperationRequest request,
         });
 }
 
-/** Execute repository metadata extraction through the shared operation contract. */
+/** Execute repository metadata extraction through the shared operation contract.
+ *
+ * Params:
+ *     request = Metadata request describing the repository and options.
+ *     control = Callback channel; when `null` a fresh control is created.
+ * Returns: The operation result. Validation failures, busy targets and backend
+ *     errors are returned as failed results rather than thrown.
+ */
 OperationResult runOperation(MetadataOperationRequest request,
     OperationControl control)
 {
@@ -149,7 +156,14 @@ OperationResult runOperation(MetadataOperationRequest request,
         });
 }
 
-/** Execute repository analysis through the shared operation contract. */
+/** Execute repository analysis through the shared operation contract.
+ *
+ * Params:
+ *     request = Analysis request describing the repository and options.
+ *     control = Callback channel; when `null` a fresh control is created.
+ * Returns: The operation result. Validation failures, busy targets and backend
+ *     errors are returned as failed results rather than thrown.
+ */
 OperationResult runOperation(AnalysisOperationRequest request,
     OperationControl control)
 {
@@ -208,6 +222,26 @@ OperationResult runOperation(AnalysisOperationRequest request,
         });
 }
 
+/** Run a repository-backed operation with uniform progress and error mapping.
+ *
+ * The repository is opened from `target.repositoryRoot`, the supplied delegate
+ * performs the actual work, and common failures are converted into a failed
+ * `OperationResult` instead of escaping. The caller is responsible for holding
+ * and releasing `lease` for the duration of this call.
+ *
+ * Params:
+ *     operationId = Identifier reported in progress and result objects.
+ *     operation = Kind of operation being executed.
+ *     target = Storage target whose repository root is opened.
+ *     lease = Write lease held by the caller while the operation runs.
+ *     control = Callback channel used for progress, pause and cancellation.
+ *     successPhase = Phase reported in the final completed progress message.
+ *     completedMessage = Message attached to a completed result.
+ *     cancelledMessage = Message attached to a cancelled result.
+ *     execute = Delegate that performs the operation on the open repository.
+ * Returns: The operation result. Failures are captured in `state`, `errorCode`
+ *     and `error` rather than thrown.
+ */
 private OperationResult runRepositoryOperation(ulong operationId,
     OperationKind operation, OperationTarget target, TargetWriteLease lease,
     OperationControl control,
@@ -288,6 +322,16 @@ private OperationResult runRepositoryOperation(ulong operationId,
     return result;
 }
 
+/** Choose the phase reported after a metadata update.
+ *
+ * Torrent handling takes precedence over archive scanning, then media info,
+ * file-type detection and checksums.
+ *
+ * Params:
+ *     options = Metadata options that were requested.
+ * Returns: The most specific enabled phase, or `OperationPhase.discovering`
+ *     when no metadata option is enabled.
+ */
 private OperationPhase metadataFinalPhase(MetadataScanOptions options)
 {
     if (options.scanTorrents) return OperationPhase.torrents;
@@ -298,6 +342,18 @@ private OperationPhase metadataFinalPhase(MetadataScanOptions options)
     return OperationPhase.discovering;
 }
 
+/** Run a scan against a JSON catalog, including optional partial save.
+ *
+ * When cancellation happens during scanning, the collected catalog is saved
+ * only if `request.savePartialOnCancel` is set and the request is not a dry
+ * run.
+ *
+ * Params:
+ *     request = Scan request describing target, options and save policy.
+ *     control = Callback channel used for progress, pause and cancellation.
+ * Returns: The operation result. Failures are captured in `state`, `errorCode`
+ *     and `error` rather than thrown.
+ */
 private OperationResult runJsonScanOperation(ScanOperationRequest request,
     OperationControl control)
 {
@@ -373,6 +429,17 @@ private OperationResult runJsonScanOperation(ScanOperationRequest request,
     return result;
 }
 
+/** Run an analysis against a JSON catalog.
+ *
+ * Analysis results are committed through a pause/cancel safe point; a dry run
+ * never writes the catalog.
+ *
+ * Params:
+ *     request = Analysis request describing target, options and save policy.
+ *     control = Callback channel used for progress, pause and cancellation.
+ * Returns: The operation result. Failures are captured in `state`, `errorCode`
+ *     and `error` rather than thrown.
+ */
 private OperationResult runJsonAnalysisOperation(AnalysisOperationRequest request,
     OperationControl control)
 {
@@ -435,6 +502,27 @@ private OperationResult runJsonAnalysisOperation(AnalysisOperationRequest reques
     return result;
 }
 
+/** Commit a JSON catalog after an optional pause/cancel checkpoint.
+ *
+ * In dry-run mode nothing is written and only the cancellation state is
+ * reported. Otherwise the caller may be paused before the existing catalog is
+ * replaced atomically; when `saveOnCancel` is set, pending data is stored even
+ * if cancellation was requested.
+ *
+ * Params:
+ *     catalogPath = Destination JSON catalog path.
+ *     catalog = Catalog content to serialize.
+ *     control = Callback channel used for progress, pause and cancellation.
+ *     operationId = Identifier reported in progress objects.
+ *     operation = Kind of operation that produced the catalog.
+ *     dryRun = When true, skip writing entirely.
+ *     saveOnCancel = When true, write even when cancellation was requested.
+ *     prettyJson = When true, serialize with indentation.
+ * Returns: `false` when the write was skipped because of pause or cancellation,
+ *     `true` when the catalog was written (or when a dry run stayed uncancelled).
+ * Throws: `Exception` when the catalog cannot be written; the existing catalog
+ *     is left untouched in that case.
+ */
 private bool commitJsonAtSafePoint(string catalogPath,
     ref NamedBinaryBlobCatalog catalog, OperationControl control, ulong operationId,
     OperationKind operation, bool dryRun, bool saveOnCancel = false,
@@ -472,6 +560,18 @@ private bool commitJsonAtSafePoint(string catalogPath,
     return true;
 }
 
+/** Send one progress snapshot through the operation control channel.
+ *
+ * Params:
+ *     control = Callback channel; must not be `null`.
+ *     operationId = Identifier of the running operation.
+ *     operation = Kind of operation being executed.
+ *     phase = Current operation phase.
+ *     state = Current operation state.
+ *     message = Human-readable progress message.
+ *     completed = Number of work items completed so far.
+ *     totalKnown = Whether `completed` is measured against a known total.
+ */
 private void reportOperation(OperationControl control, ulong operationId,
     OperationKind operation, OperationPhase phase, OperationState state,
     string message, size_t completed = 0, bool totalKnown = false)
@@ -487,6 +587,12 @@ private void reportOperation(OperationControl control, ulong operationId,
     control.report(progress);
 }
 
+/** Copy recovery and write-attempt details from a failed catalog write.
+ *
+ * Params:
+ *     result = Operation result that receives the details.
+ *     failure = Exception raised by the catalog writer.
+ */
 private void applyCatalogWriteFailure(ref OperationResult result,
     CatalogWriteException failure)
 {
@@ -495,6 +601,15 @@ private void applyCatalogWriteFailure(ref OperationResult result,
     result.failedStagingPath = failure.writeResult.failedStagingPath;
 }
 
+/** Build a result for an operation that failed before doing any work.
+ *
+ * Params:
+ *     operationId = Identifier of the failed operation.
+ *     operation = Kind of operation that was attempted.
+ *     errorCode = Failure category to report.
+ *     message = Human-readable failure message.
+ * Returns: A result with `state` set to `failed`.
+ */
 private OperationResult failedOperation(ulong operationId, OperationKind operation,
     OperationErrorCode errorCode, string message)
 {
@@ -507,6 +622,15 @@ private OperationResult failedOperation(ulong operationId, OperationKind operati
     return result;
 }
 
+/** Acquire the write lease for an operation target.
+ *
+ * For repository storage the repository root is resolved first so a nested
+ * working directory still locks the actual repository.
+ *
+ * Params:
+ *     target = Storage target to lock; its repository root may be updated.
+ * Returns: The acquired write lease.
+ */
 private TargetWriteLease acquireOperationTargetLease(OperationTarget target)
 {
     if (target.mode == OperationStorageMode.repository)
@@ -518,6 +642,13 @@ private TargetWriteLease acquireOperationTargetLease(OperationTarget target)
     return TargetWriteLease.acquire(target);
 }
 
+/** Whether any metadata enrichment option is enabled.
+ *
+ * Params:
+ *     options = Metadata options to inspect.
+ * Returns: `true` when checksums, file types, media info, archives or torrents
+ *     were requested.
+ */
 private bool requestsMetadata(MetadataScanOptions options)
 {
     return options.calculateChecksums || options.detectFileTypes

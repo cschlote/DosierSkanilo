@@ -16,34 +16,56 @@ import dosierskanilo.repository.types : AnalysisSummary, MetadataScanOptions,
 /** Select the storage implementation explicitly for an operation. */
 enum OperationStorageMode
 {
+    /// Use the initialized SQLite repository as the operation's storage.
     repository,
+    /// Use a direct JSON catalog file as the operation's storage.
     jsonCatalog
 }
 
 /** Shared operation families supported by the first operation API version. */
 enum OperationKind
 {
+    /// Scan a filesystem and write catalog records.
     scan,
+    /// Extract metadata for existing catalog records.
     metadata,
+    /// Analyze a catalog for duplicates and missing files.
     analyze,
+    /// Import catalog data from an external source.
     catalogImport,
+    /// Export catalog data to an external destination.
     catalogExport
 }
 
 /** Lifecycle states used in progress notifications and terminal results. */
 enum OperationState
 {
+    /// Accepted but not yet started.
     queued,
+    /// Executing work.
     running,
+    /// A pause was requested but not yet acknowledged at a checkpoint.
     pausing,
+    /// Stopped at a safe checkpoint and waiting to resume or cancel.
     paused,
+    /// Cancellation was requested and cooperative shutdown is in progress.
     cancelling,
+    /// Finished successfully.
     completed,
+    /// Stopped by cancellation before completing.
     cancelled,
+    /// Terminated with an error.
     failed
 }
 
-/** Whether a task lifecycle transition is allowed by the shared contract. */
+/** Whether a task lifecycle transition is allowed by the shared contract.
+ *
+ * Params:
+ *     current = State the operation is currently in.
+ *     next = Proposed state to transition to.
+ * Returns: `true` when the shared lifecycle contract allows the transition;
+ *     `false` otherwise, including for all transitions out of a terminal state.
+ */
 bool validOperationStateTransition(OperationState current, OperationState next)
 {
     final switch (current)
@@ -72,20 +94,35 @@ bool validOperationStateTransition(OperationState current, OperationState next)
 /** Backend phase reported by an operation; totals may not yet be known. */
 enum OperationPhase
 {
+    /// No particular phase is active or reported.
     none,
+    /// Validating the operation request and target.
     validating,
+    /// Discovering input files or records.
     discovering,
+    /// Scanning filesystem entries and writing initial records.
     scanning,
+    /// Reconciling known catalog records against files that are now missing.
     reconcilingMissingFiles,
+    /// Calculating content checksums.
     checksums,
+    /// Detecting file types.
     fileTypes,
+    /// Extracting embedded media information.
     mediaInfo,
+    /// Scanning archive contents.
     archives,
+    /// Scanning torrent metadata and payload references.
     torrents,
+    /// Analyzing missing files.
     analysisMissingFiles,
+    /// Analyzing duplicate content.
     analysisDuplicates,
+    /// Applying analysis-driven cleanup.
     analysisCleanup,
+    /// Reading a JSON catalog.
     jsonRead,
+    /// Writing a JSON catalog.
     jsonWrite
 }
 
@@ -100,7 +137,13 @@ struct OperationTarget
     /// Filesystem root for JSON scan. JSON analyze needs only `catalogPath`.
     string filesystemRoot;
 
-    /** Construct an explicit SQLite repository target. */
+    /** Construct an explicit SQLite repository target.
+     *
+     * Params:
+     *     root = Root directory of the initialized repository.
+     * Returns: A target using `OperationStorageMode.repository` and the given
+     *     root.
+     */
     static OperationTarget repositoryTarget(string root)
     {
         OperationTarget target;
@@ -109,7 +152,14 @@ struct OperationTarget
         return target;
     }
 
-    /** Construct an explicit JSON catalog target. */
+    /** Construct an explicit JSON catalog target.
+     *
+     * Params:
+     *     catalog = Path to the direct-JSON catalog file.
+     *     filesystem = Optional filesystem root required by JSON scans.
+     * Returns: A target using `OperationStorageMode.jsonCatalog` and the given
+     *     paths.
+     */
     static OperationTarget jsonTarget(string catalog, string filesystem = "")
     {
         OperationTarget target;
@@ -169,14 +219,23 @@ struct AnalysisOperationRequest
 /** Validation errors detectable without opening a repository or catalog. */
 enum OperationRequestError
 {
+    /// The request passed validation.
     none,
+    /// The operation ID is zero.
     invalidOperationId,
+    /// A repository target has no repository root.
     missingRepositoryRoot,
+    /// The target mixes repository and JSON path fields.
     invalidRepositoryTarget,
+    /// A JSON target has no catalog path.
     missingCatalogPath,
+    /// A JSON scan has no filesystem root.
     missingFilesystemRoot,
+    /// The operation does not support the selected storage mode.
     unsupportedStorageMode,
+    /// An option is not supported for the selected target mode.
     unsupportedOptionCombination,
+    /// A metadata operation selected no extractor.
     missingMetadataSelection
 }
 
@@ -186,7 +245,10 @@ struct OperationRequestValidation
     OperationRequestError error; /// Stable validation failure category.
     string message; /// Human-readable validation diagnostic.
 
-    /// True when the request has no shape/option error.
+    /** Whether the request passed validation.
+     *
+     * Returns: `true` when `error` is `OperationRequestError.none`.
+     */
     @property bool valid() const
     {
         return error == OperationRequestError.none;
@@ -224,6 +286,11 @@ alias OperationProgressCallback = void delegate(OperationProgress event);
 /** Exception wrapper used to preserve progress-callback failures at API boundaries. */
 class OperationCallbackException : Exception
 {
+    /** Construct a wrapper carrying the offending callback's message.
+     *
+     * Params:
+     *     message = Diagnostic text copied from the callback failure.
+     */
     this(string message)
     {
         super(message);
@@ -233,9 +300,13 @@ class OperationCallbackException : Exception
 /** Stable operation-level failure categories; extractor failures remain summaries. */
 enum OperationErrorCode
 {
+    /// No operation-level failure occurred.
     none,
+    /// Another operation currently holds the target.
     targetBusy,
+    /// A progress callback threw and aborted the operation.
     callbackFailure,
+    /// The storage or processing backend reported a failure.
     backendFailure
 }
 
@@ -267,13 +338,21 @@ struct OperationResult
 final class OperationControl
 {
 private:
+    /// Atomic flag set when cooperative cancellation is requested.
     shared bool cancelRequested;
+    /// Optional external cancellation flag mirrored on request; may be null.
     shared bool* cancellationMirror;
+    /// Whether a pause is pending; guarded by `runControlMutex`.
     bool pauseRequested;
+    /// Whether a safe pause checkpoint is currently reachable.
     bool pauseAvailable;
+    /// Serializes pause/cancellation state changes and the condition below.
     Mutex runControlMutex;
+    /// Wakes a paused worker on resume or cancellation.
     Condition runControlCondition;
+    /// Optional callback that receives each progress event.
     OperationProgressCallback progressCallback;
+    /// Serializes invocations of `progressCallback` across worker threads.
     Mutex callbackMutex;
 
 public:
@@ -301,7 +380,11 @@ public:
         }
     }
 
-    /** Whether a caller requested cooperative cancellation. */
+    /** Whether a caller requested cooperative cancellation.
+     *
+     * Returns: `true` when the local request flag or the bound external mirror
+     *     is set.
+     */
     @property bool cancellationRequested() const nothrow
     {
         if (atomicLoad(cancelRequested))
@@ -315,6 +398,9 @@ public:
      * The pointed-to storage must remain alive until this operation and all its
      * workers have joined. Call `unbindCancellationMirror()` before the storage
      * goes out of scope.
+     *
+     * Params:
+     *     mirror = External cancellation flag to poll, or `null` to unbind.
      */
     void bindCancellationMirror(shared bool* mirror)
     {
@@ -333,7 +419,10 @@ public:
             cancellationMirror = null;
     }
 
-    /** Whether the current phase has a reachable, safe pause checkpoint. */
+    /** Whether the current phase has a reachable, safe pause checkpoint.
+     *
+     * Returns: `true` when pause is available and cancellation is not pending.
+     */
     @property bool pauseIsAvailable()
     {
         synchronized (runControlMutex)
@@ -344,6 +433,10 @@ public:
      * Advertise whether a pause request can be honored at a future safe point.
      * Executors must set this false while holding a transaction, statement, or
      * non-interruptible replacement sequence.
+     *
+     * Params:
+     *     available = Whether a pause request can be honored at a reachable
+     *         safe point.
      */
     void setPauseAvailable(bool available)
     {
@@ -395,6 +488,12 @@ public:
      * The caller must have drained workers and released active storage
      * transactions/statements before calling this method. False means
      * cancellation took precedence while the operation was stopped.
+     *
+     * Params:
+     *     progress = Event describing the checkpoint; state and message are
+     *         updated while reporting pause/resume transitions.
+     * Returns: `false` when cancellation is pending or was requested while
+     *     paused; `true` otherwise, including when no pause was requested.
      */
     bool pauseAtCheckpoint(OperationProgress progress)
     {
@@ -437,6 +536,9 @@ public:
      * The event state is adjusted to `cancelling` or `pausing` when those
      * requests are pending.
      *
+     * Params:
+     *     event = Progress value delivered to the callback; it is adjusted in
+     *         place before delivery.
      * Throws: `OperationCallbackException` when the progress callback throws.
      */
     void report(OperationProgress event)
@@ -464,12 +566,29 @@ public:
     }
 }
 
+/** Build a failed request-validation result.
+ *
+ * Params:
+ *     error = Stable failure category to report.
+ *     message = Human-readable diagnostic explaining the failure.
+ * Returns: A validation value whose `valid` property is false.
+ */
 private OperationRequestValidation validationError(OperationRequestError error,
     string message)
 {
     return OperationRequestValidation(error, message);
 }
 
+/** Check that a target selects exactly one storage backend and carries its
+ * required paths.
+ *
+ * Params:
+ *     target = Explicit repository or JSON catalog target to inspect.
+ *     requireFilesystemRoot = Whether a JSON target must also name a
+ *         filesystem root.
+ * Returns: A valid result when the target is consistent, otherwise the first
+ *     detected request error.
+ */
 private OperationRequestValidation validateTarget(OperationTarget target,
     bool requireFilesystemRoot)
 {
@@ -498,12 +617,25 @@ private OperationRequestValidation validateTarget(OperationTarget target,
     return OperationRequestValidation.init;
 }
 
+/** Report whether a metadata selection enables at least one extractor.
+ *
+ * Params:
+ *     options = Metadata extractor selection to inspect.
+ * Returns: `true` when any checksum, file-type, media, archive, or torrent
+ *     extractor is enabled.
+ */
 private bool requestsMetadata(MetadataScanOptions options)
 {
     return options.calculateChecksums || options.detectFileTypes
         || options.extractMediaInfo || options.scanArchives || options.scanTorrents;
 }
 
+/** Check that a caller assigned a usable operation identity.
+ *
+ * Params:
+ *     operationId = Caller-assigned operation identifier.
+ * Returns: A valid result for a nonzero ID, otherwise `invalidOperationId`.
+ */
 private OperationRequestValidation validateIdentity(ulong operationId)
 {
     if (operationId == 0)
@@ -512,7 +644,12 @@ private OperationRequestValidation validateIdentity(ulong operationId)
     return OperationRequestValidation.init;
 }
 
-/** Validate a scan request without opening either target. */
+/** Validate a scan request without opening either target.
+ *
+ * Params:
+ *     request = Scan request whose identity, target, and options are checked.
+ * Returns: A valid result, or the first detected request error.
+ */
 OperationRequestValidation validateOperationRequest(ScanOperationRequest request)
 {
     auto identity = validateIdentity(request.operationId);
@@ -536,7 +673,13 @@ OperationRequestValidation validateOperationRequest(ScanOperationRequest request
     return OperationRequestValidation.init;
 }
 
-/** Validate a metadata request; standalone metadata extraction is SQLite-only. */
+/** Validate a metadata request; standalone metadata extraction is SQLite-only.
+ *
+ * Params:
+ *     request = Metadata request whose identity, target, and extractor
+ *         selection are checked.
+ * Returns: A valid result, or the first detected request error.
+ */
 OperationRequestValidation validateOperationRequest(MetadataOperationRequest request)
 {
     auto identity = validateIdentity(request.operationId);
@@ -554,7 +697,13 @@ OperationRequestValidation validateOperationRequest(MetadataOperationRequest req
     return OperationRequestValidation.init;
 }
 
-/** Validate analysis target/options while preserving the separate JSON contract. */
+/** Validate analysis target/options while preserving the separate JSON contract.
+ *
+ * Params:
+ *     request = Analysis request whose identity, target, and options are
+ *         checked.
+ * Returns: A valid result, or the first detected request error.
+ */
 OperationRequestValidation validateOperationRequest(AnalysisOperationRequest request)
 {
     auto identity = validateIdentity(request.operationId);

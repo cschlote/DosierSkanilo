@@ -31,6 +31,16 @@ version (unittest)
  */
 class FileArchiveZip : FileArchive
 {
+    /** Parse the human-readable `unzip -l` listing into member names.
+     *
+     * Only rows between the dashed header and the dashed trailer are considered,
+     * and rows that do not match the size/date/time columns are skipped.
+     *
+     * Params:
+     *     output = Complete standard output of `unzip -l`.
+     * Returns: Member names in listing order, or an empty array when no row
+     *     could be parsed.
+     */
     private string[] parseUnzipLongListOutput(string output) const
     {
         string[] entries;
@@ -64,11 +74,26 @@ class FileArchiveZip : FileArchive
         return entries;
     }
 
+    /** Create a wrapper for one ZIP file.
+     *
+     * Params:
+     *     filename = Path to the ZIP archive on disk; stored unchanged.
+     */
     this(string filename)
     {
         super(ArchiveType.zip, filename);
     }
 
+    /** List member names using `unzip -Z1`, falling back to `unzip -l`.
+     *
+     * Params:
+     *     password = Accepted for interface compatibility; ZIP listing does not
+     *         use it.
+     * Returns: Member names in archive order, or an empty array when the
+     *     listing tool fails or its output cannot be parsed.
+     * Throws: `ArchivePasswordRequiredException` when the tool reports a
+     *     password or encryption problem.
+     */
     override string[] getEntries(string password = "")
     {
         auto rcMachineReadable = execute(["unzip", "-Z1", this.fileName]);
@@ -105,6 +130,16 @@ class FileArchiveZip : FileArchive
         return entries;
     }
 
+    /** Extract one member into `destDir` using `unzip`.
+     *
+     * Params:
+     *     filename = Member name exactly as reported by the archive listing.
+     *     destDir = Directory that receives the extracted file.
+     *     password = Archive password; empty selects the tool's default.
+     * Returns: `true` on success.
+     * Throws: `ArchivePasswordRequiredException` when a password is missing or
+     *     rejected, `ArchiveToolException` for any other tool failure.
+     */
     override bool extractEntry(string filename, string destDir, string password = "")
     {
         auto zipPath = buildPath(getcwd(), this.fileName);
@@ -116,11 +151,33 @@ class FileArchiveZip : FileArchive
         return true;
     }
 
+    /** Report whether a specific duplicate occurrence can be extracted.
+     *
+     * The implementation delegates duplicate selection to Python's `zipfile`
+     * module, so this is `true` only when `python3` is runnable.
+     *
+     * Returns: `true` when index-based extraction is available.
+     */
     override @property bool supportsEntryOccurrence() const
     {
         return executeShell("python3 --version").status == 0;
     }
 
+    /** Extract the exact occurrence identified by a descriptor.
+     *
+     * Unique names are delegated to the name-based overload. Duplicate names
+     * are extracted by their archive index through Python's `zipfile` module,
+     * which also verifies that the index still names the expected member.
+     *
+     * Params:
+     *     descriptor = Entry identity returned by `getEntryDescriptors`.
+     *     destDir = Directory that receives the extracted member.
+     *     password = Archive password; empty means no password.
+     * Returns: `true` on success, `false` when duplicate selection is needed
+     *     but `python3` is unavailable or the extraction script fails.
+     * Throws: `ArchivePasswordRequiredException` when a password is missing or
+     *     rejected.
+     */
     override bool extractEntry(ArchiveEntryDescriptor descriptor, string destDir,
         string password = "")
     {
@@ -151,8 +208,10 @@ class FileArchiveZip : FileArchive
 
     version (unittest)
     {
+        /** Test archive file name produced by the unittest fixture. */
         enum string fn = zipFileName;
 
+        /** Build the ZIP fixture from `expectedEntries`, replacing any old file. */
         static void createTestArchive()
         {
             if (fn.exists)
@@ -162,6 +221,7 @@ class FileArchiveZip : FileArchive
             assert(rc.status == 0, rc.output);
         }
 
+        /** Remove the ZIP fixture if it exists. */
         static void deleteTestArchive()
         {
             if (fn.exists)

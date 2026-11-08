@@ -35,31 +35,62 @@ import dosierskanilo.repository.archiveindex : deleteUnreachableBlobs,
 import dosierskanilo.repository.schema : migrate;
 import dosierskanilo.repository.types;
 
+/** Snapshot of one file reference that contains archive members. */
 private struct VirtualContainerReference
 {
+    /// Directory row ID, or null when the container sits at the root.
     Nullable!long directoryId;
+    /// Stored repository-relative path of the container file.
     string relativePath;
+    /// Whether the container file still exists on disk.
     bool existsOnDisk;
+    /// Last-seen timestamp, or an empty string when unknown.
     string lastSeenAt;
 }
 
+/** One per-blob metadata job executed by a worker. */
 private class MetadataWorkItem
 {
+    /// Stable repository ID of the blob to inspect.
     long blobId;
+    /// Loaded blob carrying extraction results.
     NamedBinaryBlob blob;
+    /// Scan options shared by the whole run.
     MetadataScanOptions options;
+    /// Operation control for reporting and cancellation, or null when uncontrolled.
     OperationControl control;
+    /// Operation ID included in reported progress events.
     ulong operationId;
+    /// Number of blobs completed before this item, used for progress.
     ulong progressCompleted;
+    /// Total number of blobs in the run, used for progress.
     ulong progressTotal;
+    /// Whether checksums should be calculated for this blob.
     bool doChecksums;
+    /// Whether the file type should be detected for this blob.
     bool doFileType;
+    /// Whether media information should be extracted for this blob.
     bool doMediaInfo;
+    /// Whether archive contents should be indexed for this blob.
     bool doArchives;
+    /// Whether torrent metadata should be parsed for this blob.
     bool doTorrents;
+    /// Error message per metadata kind; absent when that job succeeded.
     string[string] errors;
 }
 
+/** Report progress for one metadata work item.
+ *
+ * Does nothing when the item has no operation control.
+ *
+ * Params:
+ *     item = work item whose progress counters are reported.
+ *     phase = metadata phase currently running.
+ *     subtaskCompleted = completed units of the optional subtask.
+ *     subtaskTotal = total units of the optional subtask.
+ *     subtaskTotalKnown = whether `subtaskTotal` is meaningful.
+ *     subtaskUnit = unit name for the subtask, for example `bytes`.
+ */
 private void reportMetadataWorkProgress(MetadataWorkItem item,
     OperationPhase phase, ulong subtaskCompleted = 0,
     ulong subtaskTotal = 0, bool subtaskTotalKnown = false,
@@ -84,6 +115,14 @@ private void reportMetadataWorkProgress(MetadataWorkItem item,
     item.control.report(progress);
 }
 
+/** Run the metadata jobs selected for one work item.
+ *
+ * Failures are recorded in `item.errors` per metadata kind; operation callback
+ * exceptions are rethrown so cancellation and pause requests propagate.
+ *
+ * Params:
+ *     item = work item naming the blob and the selected jobs.
+ */
 private void runMetadataWork(MetadataWorkItem item)
 {
     void attempt(string kind, void delegate() action)
@@ -150,6 +189,13 @@ private void runMetadataWork(MetadataWorkItem item)
     }
 }
 
+/** Return blob IDs that have at least one non-virtual file reference.
+ *
+ * Params:
+ *     db = Open repository database.
+ *     filePath = Optional repository file path; empty selects every blob.
+ * Returns: Distinct blob IDs ordered by ID.
+ */
 private long[] metadataBlobIds(ref Database db, string filePath)
 {
     long[] blobIds;
@@ -174,7 +220,12 @@ private long[] metadataBlobIds(ref Database db, string filePath)
     return blobIds;
 }
 
-/** Persist one metadata result atomically, rolling back partial writes. */
+/** Persist one metadata result atomically, rolling back partial writes.
+ *
+ * Params:
+ *     db = Open repository database.
+ *     work = Delegate that performs the writes inside the transaction.
+ */
 private void commitMetadataWork(ref Database db, scope void delegate() work)
 {
     db.begin();
@@ -201,6 +252,11 @@ private void commitMetadataWork(ref Database db, scope void delegate() work)
  * they run only after a fully completed scan and inside one transaction. The
  * version bump always runs because per-blob commits may already have changed
  * the source even when a later item failed.
+ *
+ * Params:
+ *     db = Open repository database.
+ *     options = Scan options describing the enabled metadata jobs.
+ *     completed = Whether the run reached its end without being cancelled.
  */
 private void finalizeMetadataRun(ref Database db, MetadataScanOptions options,
     bool completed)
@@ -239,6 +295,12 @@ private void finalizeMetadataRun(ref Database db, MetadataScanOptions options,
  * Uses bounded parallel batches when `options.threads > 1`; otherwise processes
  * blobs sequentially. The source version is bumped when the run completes or is
  * cancelled so existing cursors are invalidated.
+ *
+ * Params:
+ *     db = Open repository database.
+ *     rootPath = Repository root used to resolve file references.
+ *     options = Metadata jobs and worker settings.
+ * Returns: Counters collected during the metadata run.
  */
 MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
     MetadataScanOptions options)
@@ -388,6 +450,14 @@ MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
  * Run metadata extraction in bounded worker batches with one atomic persistence
  * transaction per blob. Pause is acknowledged only after every worker in the
  * active batch has finished and all complete blob results have been committed.
+ *
+ * Params:
+ *     db = Open repository database.
+ *     rootPath = Repository root used to resolve file references.
+ *     options = Metadata jobs and worker settings.
+ *     control = Operation control for progress and cancellation, or null.
+ *     operationId = ID included in reported progress events.
+ * Returns: Metadata counters plus cancellation and commit flags.
  */
 MetadataExecutionResult updateRepositoryMetadataControlled(ref Database db,
     string rootPath, MetadataScanOptions options, OperationControl control,
@@ -510,12 +580,24 @@ MetadataExecutionResult updateRepositoryMetadataControlled(ref Database db,
     return execution;
 }
 
+/** Return whether the work item has at least one metadata job selected.
+ *
+ * Params:
+ *     item = work item to inspect.
+ * Returns: `true` when any metadata kind should run for the blob.
+ */
 private bool hasMetadataWork(MetadataWorkItem item)
 {
     return item.doChecksums || item.doFileType || item.doMediaInfo
         || item.doArchives || item.doTorrents;
 }
 
+/** Run one metadata batch sequentially or on a bounded worker pool.
+ *
+ * Params:
+ *     items = work items to execute.
+ *     threads = worker count; values of one or less run serially.
+ */
 private void runControlledMetadataBatch(MetadataWorkItem[] items, size_t threads)
 {
     if (threads <= 1)
@@ -545,6 +627,12 @@ private void runControlledMetadataBatch(MetadataWorkItem[] items, size_t threads
     }
 }
 
+/** Return the metadata phases selected by the scan options, in run order.
+ *
+ * Params:
+ *     options = scan options describing the selected metadata jobs.
+ * Returns: Selected phases; empty when no metadata job is enabled.
+ */
 private OperationPhase[] metadataPhases(MetadataScanOptions options)
 {
     OperationPhase[] phases;
@@ -556,6 +644,17 @@ private OperationPhase[] metadataPhases(MetadataScanOptions options)
     return phases;
 }
 
+/** Report metadata progress and honor cancellation and pause requests.
+ *
+ * Params:
+ *     control = operation control, or null for an uncontrolled run.
+ *     operationId = ID included in the progress event.
+ *     phase = metadata phase being reported.
+ *     completed = number of blobs completed so far.
+ *     total = total number of blobs.
+ *     path = path shown as the current progress context.
+ * Returns: `false` when the run should stop, otherwise `true`.
+ */
 private bool reportMetadataProgress(OperationControl control, ulong operationId,
     OperationPhase phase, size_t completed, size_t total, string path)
 {
@@ -728,7 +827,17 @@ unittest
         .oneValue!long > 0);
 }
 
-/** Honor pause/cancel requests after workers and metadata transactions have drained. */
+/** Report progress after a batch has drained, before honoring pause or cancel.
+ *
+ * Params:
+ *     control = operation control, or null for an uncontrolled run.
+ *     operationId = ID included in the progress event.
+ *     phase = phase to report at the checkpoint.
+ *     completed = number of blobs completed so far.
+ *     total = total number of blobs.
+ *     path = path shown as the current progress context.
+ * Returns: `false` when cancellation was requested, otherwise `true`.
+ */
 private bool checkpointMetadataProgress(OperationControl control,
     ulong operationId, OperationPhase phase, size_t completed, size_t total,
     string path)
@@ -751,6 +860,14 @@ private bool checkpointMetadataProgress(OperationControl control,
     return control.pauseAtCheckpoint(progress) && !control.cancellationRequested;
 }
 
+/** Process all selected blobs in bounded parallel batches.
+ *
+ * Params:
+ *     db = Open repository database.
+ *     rootPath = Repository root used to resolve file references.
+ *     options = Scan options; `threads` must be greater than one.
+ * Returns: Counters for the completed metadata run.
+ */
 private MetadataSummary updateRepositoryMetadataParallel(ref Database db,
     string rootPath, MetadataScanOptions options)
 {
@@ -774,6 +891,18 @@ private MetadataSummary updateRepositoryMetadataParallel(ref Database db,
     return summary;
 }
 
+/** Process and persist one batch of blob IDs.
+ *
+ * Work items are executed on a worker pool, then each result is committed in
+ * its own transaction as soon as its worker finishes.
+ *
+ * Params:
+ *     db = Open repository database.
+ *     rootPath = Repository root used to resolve file references.
+ *     options = Scan options shared by the batch.
+ *     blobIds = Blob IDs in the batch.
+ *     summary = Counters updated with the batch results.
+ */
 private void processMetadataBatch(ref Database db, string rootPath,
     MetadataScanOptions options, long[] blobIds, ref MetadataSummary summary)
 {
@@ -841,6 +970,16 @@ private void processMetadataBatch(ref Database db, string rootPath,
     }
 }
 
+/** Persist the successful and failed metadata results of one work item.
+ *
+ * Failure messages are taken from `item.errors`; counters in `summary` are
+ * updated once per successful metadata kind.
+ *
+ * Params:
+ *     db = Open repository database.
+ *     item = Work item holding the loaded blob and its results.
+ *     summary = Counters updated with the persisted results.
+ */
 private void persistMetadataWork(ref Database db, MetadataWorkItem item,
     ref MetadataSummary summary)
 {
@@ -898,6 +1037,14 @@ private void persistMetadataWork(ref Database db, MetadataWorkItem item,
         { persistTorrentInfo(db, item.blobId, item.blob.torrentInfo); });
 }
 
+/** Load one blob with its file references, digests, and stored password.
+ *
+ * Params:
+ *     db = Open repository database.
+ *     rootPath = Repository root used to resolve file references.
+ *     blobId = Stable repository ID of the blob.
+ * Returns: The loaded blob, or `null` when the blob has no file references.
+ */
 private NamedBinaryBlob loadBlob(ref Database db, string rootPath, long blobId)
 {
     auto blobResult = db.execute("SELECT b.file_size, b.file_type, b.md5, "
@@ -960,6 +1107,15 @@ private NamedBinaryBlob loadBlob(ref Database db, string rootPath, long blobId)
     return blob.fileSpecs.length == 0 ? null : blob;
 }
 
+/** Store the checksum digests of a blob.
+ *
+ * Missing digests are written as SQL null.
+ *
+ * Params:
+ *     db = Open repository database.
+ *     blobId = Stable repository ID of the blob.
+ *     blob = Blob whose checksums are persisted.
+ */
 private void persistChecksums(ref Database db, long blobId, NamedBinaryBlob blob)
 {
     Nullable!Blob md5;
@@ -972,6 +1128,15 @@ private void persistChecksums(ref Database db, long blobId, NamedBinaryBlob blob
         md5, sha1, xxh64, blobId);
 }
 
+/** Insert or update the status row for one metadata kind.
+ *
+ * Params:
+ *     db = Open repository database.
+ *     blobId = Stable repository ID of the blob.
+ *     kind = Metadata kind, for example `checksums`.
+ *     state = Status value such as `pending`, `completed`, or `failed`.
+ *     errorMessage = Error text stored with the status, or an empty string.
+ */
 private void setMetadataStatus(ref Database db, long blobId, string kind,
     string state, string errorMessage)
 {
@@ -983,6 +1148,17 @@ private void setMetadataStatus(ref Database db, long blobId, string kind,
         currentTimestamp(), errorMessage);
 }
 
+/** Return whether a metadata kind is already complete for a blob.
+ *
+ * States `completed` and `empty` count as complete; for archives the
+ * `not_archive` state also counts as complete.
+ *
+ * Params:
+ *     db = Open repository database.
+ *     blobId = Stable repository ID of the blob.
+ *     kind = Metadata kind such as `file_type` or `archives`.
+ * Returns: `true` when the stored state counts as complete.
+ */
 private bool metadataCompleted(ref Database db, long blobId, string kind)
 {
     auto result = db.execute("SELECT state FROM metadata_status "
@@ -994,6 +1170,14 @@ private bool metadataCompleted(ref Database db, long blobId, string kind)
         || (kind == "archives" && state == "not_archive");
 }
 
+/** Return whether a stored archive index matches the current extractor version.
+ *
+ * Params:
+ *     db = Open repository database.
+ *     blobId = Stable repository ID of the container blob.
+ *     requireDeep = Whether the index must come from a deep scan.
+ * Returns: `true` when no re-index is needed for the requested depth.
+ */
 private bool archiveIndexCurrent(ref Database db, long blobId, bool requireDeep)
 {
     auto result = db.execute("SELECT state, extractor_version FROM metadata_status "
@@ -1013,11 +1197,27 @@ private bool archiveIndexCurrent(ref Database db, long blobId, bool requireDeep)
     return !requireDeep || extractor.get.endsWith(":deep");
 }
 
+/** Map whether extracted data exists to its metadata status value.
+ *
+ * Params:
+ *     hasData = Whether the extractor produced any data.
+ * Returns: `completed` when data exists, otherwise `empty`.
+ */
 private string metadataState(bool hasData)
 {
     return hasData ? "completed" : "empty";
 }
 
+/** Replace the stored media streams and signature of a blob.
+ *
+ * Existing rows for the blob are deleted first. A null or empty signature only
+ * clears the rows.
+ *
+ * Params:
+ *     db = Open repository database.
+ *     blobId = Stable repository ID of the blob.
+ *     info = Extracted media information, or null.
+ */
 private void persistMediaInfo(ref Database db, long blobId, MediaInfoSig info)
 {
     db.execute("DELETE FROM media_image_streams WHERE blob_id = ?", blobId);
@@ -1056,6 +1256,21 @@ private void persistMediaInfo(ref Database db, long blobId, MediaInfoSig info)
             cast(long) stream.bitRate, stream.duration);
 }
 
+/** Rewrite the archive member references and index status of a container blob.
+ *
+ * A null `entries` slice removes all member references for the container and
+ * deletes its archive status. Otherwise member blobs and file references are
+ * created or updated, stale descendants are removed, and the archive metadata
+ * status records the extractor version and scan depth.
+ *
+ * Params:
+ *     db = Open repository database.
+ *     blobId = Stable repository ID of the container blob.
+ *     entries = Extracted archive entries, or null when not an archive.
+ *     deepScanned = Whether entry checksums were calculated by a deep scan.
+ *     summary = Counters updated for member metadata.
+ * Throws: `Exception` when nested archive indexing exceeds the depth limit.
+ */
 private void persistArchives(ref Database db, long blobId, ArchiveSpec[] entries,
     bool deepScanned, ref MetadataSummary summary)
 {
@@ -1288,6 +1503,15 @@ private void persistArchives(ref Database db, long blobId, ArchiveSpec[] entries
         extractorVersion, currentTimestamp());
 }
 
+/** Store or remove the archive password of a blob.
+ *
+ * An empty password deletes the stored password.
+ *
+ * Params:
+ *     db = Open repository database.
+ *     blobId = Stable repository ID of the blob.
+ *     password = Password to store, or an empty string to remove it.
+ */
 private void persistArchivePassword(ref Database db, long blobId, string password)
 {
     if (password.length == 0)
@@ -1300,6 +1524,16 @@ private void persistArchivePassword(ref Database db, long blobId, string passwor
         blobId, password);
 }
 
+/** Replace the stored torrent metadata of a blob.
+ *
+ * Existing torrent rows are deleted first. A null or empty value only clears
+ * the rows.
+ *
+ * Params:
+ *     db = Open repository database.
+ *     blobId = Stable repository ID of the torrent blob.
+ *     info = Parsed torrent information, or null.
+ */
 private void persistTorrentInfo(ref Database db, long blobId, TorrentInfo info)
 {
     db.execute("DELETE FROM torrent_files WHERE torrent_blob_id = ?", blobId);
@@ -1325,6 +1559,13 @@ private void persistTorrentInfo(ref Database db, long blobId, TorrentInfo info)
     }
 }
 
+/** Decode a base64 checksum digest, treating malformed input as missing.
+ *
+ * Params:
+ *     value = Base64-encoded digest, or an empty string.
+ * Returns: The decoded digest, or a null `Nullable!Blob` when the input is
+ *     empty or not valid base64.
+ */
 private Nullable!Blob checksumBlob(string value)
 {
     Nullable!Blob result;
@@ -1341,6 +1582,14 @@ private Nullable!Blob checksumBlob(string value)
     return result;
 }
 
+/** Return whether all three digests are present and have their expected length.
+ *
+ * Params:
+ *     md5 = Optional MD5 digest; must be 16 bytes.
+ *     sha1 = Optional SHA1 digest; must be 20 bytes.
+ *     xxh64 = Optional XXH64 digest; must be 8 bytes.
+ * Returns: `true` only when every digest is present and correctly sized.
+ */
 private bool hasValidDigests(Nullable!Blob md5, Nullable!Blob sha1,
     Nullable!Blob xxh64)
 {
@@ -1349,6 +1598,10 @@ private bool hasValidDigests(Nullable!Blob md5, Nullable!Blob sha1,
         && xxh64.get.length == 8;
 }
 
+/** Return the current local time in ISO extended format for database columns.
+ *
+ * Returns: Timestamp formatted with `std.datetime`'s ISO extended string form.
+ */
 private string currentTimestamp()
 {
     import std.datetime.systime : Clock;

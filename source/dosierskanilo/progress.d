@@ -25,7 +25,14 @@ struct ProgressCallBack
 	/** Optional callback with per-call context, useful for concurrent operations. */
 	void delegate(size_t i, size_t m) contextual;
 
-	/** Invoke the configured callback, if any. */
+	/** Invoke the configured callback, if any.
+	 *
+	 * The contextual delegate takes precedence over the plain function pointer.
+	 *
+	 * Params:
+	 *   i = current progress value.
+	 *   m = maximum progress value.
+	 */
 	void report(size_t i, size_t m)
 	{
 		if (contextual !is null)
@@ -166,9 +173,13 @@ unittest
 	assert(s4.endsWith("0.000000"), s4);
 }
 
+/** Time of the most recent progress line, used to rate-limit output. */
 private SysTime lastProgress;
+/** Most recent top-level progress position reused by nested callbacks. */
 private size_t lastIdx;
+/** Most recent top-level total file count reused by nested callbacks. */
 private size_t lastTotalFiles;
+/** Most recent top-level file name reused by nested callbacks. */
 private string lastFile;
 
 /** Update the shared progress line for a callback sub-task.

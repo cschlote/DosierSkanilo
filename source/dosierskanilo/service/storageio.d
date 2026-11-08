@@ -71,6 +71,13 @@ bool readStorageJsonFile(string jsonFile, bool forceOverwrite, ref NamedBinaryBl
  *
  * This compatibility overload keeps older call sites working while the main
  * application stores the wrapper object directly.
+ *
+ * Params:
+ *   jsonFile = JSON storage file path.
+ *   forceOverwrite = replace catalog-format errors with an empty database.
+ *   dynObjectArray = destination array; receives the catalog data.
+ * Returns:
+ *   `true` on success or intentional empty initialization.
  */
 bool readStorageJsonFile(string jsonFile, bool forceOverwrite, ref NamedBinaryBlob[] dynObjectArray)
 {
@@ -396,6 +403,14 @@ class CatalogWriteException : Exception
     }
 }
 
+/** Candidate directories for recovery catalogs, most preferred first.
+ *
+ * The XDG state directory (or `~/.local/state` when unset) is offered before
+ * the system temporary directory.
+ *
+ * Returns: Ordered list of directory paths; temporary directory is always the
+ *     last entry.
+ */
 private string[] recoveryDirectories()
 {
     string[] directories;
@@ -412,6 +427,18 @@ private string[] recoveryDirectories()
     return directories;
 }
 
+/** Build a unique recovery file name for a catalog that could not be written.
+ *
+ * The name combines the catalog base name, the supplied timestamp with colons
+ * replaced by dashes, the process ID and a process-wide serial number so
+ * concurrent attempts do not collide.
+ *
+ * Params:
+ *     jsonFile = Original catalog path whose base name is reused.
+ *     extension = File extension, including the leading dot.
+ *     nowString = Timestamp embedded in the name.
+ * Returns: A file name (not a full path) ending in `extension`.
+ */
 private string recoveryFileName(string jsonFile, string extension,
     string nowString)
 {
@@ -425,6 +452,20 @@ private string recoveryFileName(string jsonFile, string extension,
 /**
  * Write a catalog to its canonical path, falling back to recovery locations
  * when the target directory or file cannot be written.
+ *
+ * Params:
+ *     jsonFile = Canonical JSON catalog path to replace.
+ *     dynObjectWrapper = Catalog data to serialize.
+ *     jsonFileExtension = File extension used for backup files.
+ *     nowString = Timestamp embedded in backup and recovery file names.
+ *     backupDirectory = Optional backup directory; empty keeps the backup next
+ *         to the catalog.
+ *     cancelCheck = Optional callback consulted before work starts and after
+ *         serialization; `true` cancels the write.
+ *     pretty = Indent the serialized JSON for human reading.
+ * Returns: A result describing the written path, whether a recovery location
+ *     was used, the attempted paths and any error messages. `written` is true
+ *     when the data reached a file.
  */
 CatalogWriteResult writeCatalogJsonFile(string jsonFile,
     ref NamedBinaryBlobCatalog dynObjectWrapper,
@@ -604,6 +645,18 @@ bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlobCatalog dynObjectW
  *
  * This compatibility overload keeps older call sites working while the main
  * application stores the wrapper object directly.
+ *
+ * Params:
+ *   jsonFile = JSON storage file path.
+ *   dynObjectArray = source array of blobs.
+ *   jsonFileExtension = file extension for backup files.
+ *   nowString = optional timestamp string to use in backup file names.
+ *   backupDirectory = optional directory for the backup file; empty keeps the
+ *     backup next to the catalog.
+ *   pretty = indent the serialized JSON for human reading.
+ * Returns:
+ *   `true` only when the canonical catalog was replaced; `false` on
+ *   cancellation, canonical write failure, or a recovery-only write.
  */
 bool writeStorageJsonFile(string jsonFile, ref NamedBinaryBlob[] dynObjectArray,
     string jsonFileExtension = ".json",

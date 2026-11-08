@@ -14,7 +14,12 @@ public import dosierskanilo.logging;
 
 import std.stdio : stderr, writefln, writeln;
 
-/** Write a formatted CLI diagnostic to stderr. */
+/** Write a formatted CLI diagnostic to stderr.
+ *
+ * Params:
+ *     args = Format string followed by its arguments, forwarded to
+ *         `std.stdio.writefln`.
+ */
 void errorFLine(T...)(T args)
 {
 	version (unittest)
@@ -27,7 +32,11 @@ void errorFLine(T...)(T args)
 	}
 }
 
-/** Write a CLI diagnostic to stderr. */
+/** Write a CLI diagnostic to stderr.
+ *
+ * Params:
+ *     args = Values forwarded to `std.stdio.writeln`.
+ */
 void errorLine(T...)(T args)
 {
 	version (unittest)
@@ -40,7 +49,12 @@ void errorLine(T...)(T args)
 	}
 }
 
-/** Write an informational CLI message to stderr. */
+/** Write an informational CLI message to stderr.
+ *
+ * Params:
+ *     args = Format string followed by its arguments, forwarded to
+ *         `std.stdio.writefln`.
+ */
 void noticeFLine(T...)(T args)
 {
 	version (unittest)

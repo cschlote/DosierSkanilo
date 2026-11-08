@@ -9,6 +9,12 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- Source documentation is now complete for every public, package, and private
+  declaration: modules, types, fields, enum members, aliases, manifest
+  constants, constructors, and functions carry Ddoc, including parameter and
+  return contracts where applicable. The D language guide now makes this
+  requirement explicit for private code as well.
+
 - A SQLite repository can be opened from a different mount or directory.
   Stored references are root-relative already; the advisory `root_path` is now
   refreshed on open instead of rejecting the repository with

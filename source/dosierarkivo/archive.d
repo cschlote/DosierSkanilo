@@ -28,6 +28,11 @@ static assert(archivePathEscapeChar != '\0', "NUL cannot appear in a path");
 /** Raised when an archive operation needs a password or rejects the supplied one. */
 class ArchivePasswordRequiredException : Exception
 {
+    /** Construct the exception with a diagnostic message.
+     *
+     * Params:
+     *     message = Human-readable reason, usually the archive tool output.
+     */
     this(string message)
     {
         super(message);
@@ -37,6 +42,11 @@ class ArchivePasswordRequiredException : Exception
 /** Raised when an interactive password request is cancelled by the caller. */
 class ArchivePasswordCancelledException : Exception
 {
+    /** Construct the exception with a diagnostic message.
+     *
+     * Params:
+     *     message = Human-readable reason for the cancellation.
+     */
     this(string message)
     {
         super(message);
@@ -46,6 +56,11 @@ class ArchivePasswordCancelledException : Exception
 /** Raised when an external archive tool exits unsuccessfully. */
 class ArchiveToolException : Exception
 {
+    /** Construct the exception with a diagnostic message.
+     *
+     * Params:
+     *     message = Human-readable reason, usually the archive tool output.
+     */
     this(string message)
     {
         super(message);
@@ -56,7 +71,12 @@ class ArchiveToolException : Exception
 alias ArchivePasswordCallback = bool delegate(string archivePath, string reason,
     out string password);
 
-/** Whether external archive-tool output indicates a missing or rejected password. */
+/** Whether external archive-tool output indicates a missing or rejected password.
+ *
+ * Params:
+ *     output = Combined tool output to inspect; matching is case-insensitive.
+ * Returns: `true` when the text mentions a password, encryption or passphrase.
+ */
 bool isArchivePasswordFailure(string output)
 {
     auto message = output.toLower;
@@ -67,10 +87,15 @@ bool isArchivePasswordFailure(string output)
 /** Types of archives we support. */
 enum ArchiveType
 {
+    /// No supported archive format was recognized.
     unknown,
+    /// ZIP archive handled by `FileArchiveZip`.
     zip,
+    /// TAR archive handled by `FileArchiveTar`.
     tar,
+    /// RAR archive handled by `FileArchiveRar`.
     rar,
+    /// 7z archive handled by `FileArchive7z`.
     _7z
 }
 
@@ -108,6 +133,11 @@ struct ArchiveEntryDescriptor
 /** Convert native path separators to the slash form used in catalog storage.
  *
  * On POSIX a backslash is a legal filename character and must be preserved.
+ *
+ * Params:
+ *     path = Path in native spelling.
+ * Returns: The path with backslashes replaced by slashes on Windows, otherwise
+ *     the input unchanged.
  */
 string nativePathToStoragePath(string path) @safe
 {
@@ -119,7 +149,16 @@ string nativePathToStoragePath(string path) @safe
         return path;
 }
 
-/** Normalize a member name without permitting absolute or traversal paths. */
+/** Normalize a member name without permitting absolute or traversal paths.
+ *
+ * Params:
+ *     name = Raw member name from the archive index.
+ *     safe = Set to `false` for absolute, drive-qualified or traversal paths and
+ *         for names containing NUL.
+ *     isDirectory = Set to `true` when the raw name ends with a slash.
+ * Returns: The slash-separated normalized path, or an empty string when the
+ *     name is unsafe.
+ */
 string normalizeArchiveEntryPath(string name, out bool safe, out bool isDirectory) @safe
 {
     import std.string : replace, split;
@@ -147,7 +186,10 @@ string normalizeArchiveEntryPath(string name, out bool safe, out bool isDirector
     return components.join("/");
 }
 
-/** Canonical doubled form of the archive path escape character. */
+/** Canonical doubled form of the archive path escape character.
+ *
+ * Returns: The escape character repeated twice.
+ */
 string archivePathEscapeSequence() @safe
 {
     import std.conv : to;
@@ -156,7 +198,12 @@ string archivePathEscapeSequence() @safe
     return marker ~ marker;
 }
 
-/** Escape literal marker characters in a path used in archive display paths. */
+/** Escape literal marker characters in a path used in archive display paths.
+ *
+ * Params:
+ *     path = Unescaped path text.
+ * Returns: The path with every escape character doubled.
+ */
 string escapeArchiveVirtualPath(string path) @safe
 {
     import std.conv : to;
@@ -166,7 +213,10 @@ string escapeArchiveVirtualPath(string path) @safe
     return path.replace(marker, archivePathEscapeSequence());
 }
 
-/** Canonical separator between a container path and its member path. */
+/** Canonical separator between a container path and its member path.
+ *
+ * Returns: The escape character followed by `/`.
+ */
 string archivePathSeparator() @safe
 {
     import std.conv : to;
@@ -174,7 +224,10 @@ string archivePathSeparator() @safe
     return archivePathEscapeChar.to!string ~ "/";
 }
 
-/** Canonical marker before a duplicate-occurrence number. */
+/** Canonical marker before a duplicate-occurrence number.
+ *
+ * Returns: The escape character followed by the occurrence marker character.
+ */
 string archivePathOccurrenceMarker() @safe
 {
     import std.conv : to;
@@ -186,6 +239,13 @@ string archivePathOccurrenceMarker() @safe
  *
  * Set `occurrence` for same-name entries in the same container. Occurrences
  * are zero based and omitted when the path is unambiguous.
+ *
+ * Params:
+ *     containerPath = Display-encoded outer path.
+ *     entryPath = Member path to append; literal markers are escaped here.
+ *     occurrence = Zero-based duplicate occurrence, or `size_t.max` to omit the
+ *         occurrence suffix.
+ * Returns: The combined canonical virtual path.
  */
 string appendArchiveVirtualPath(string containerPath, string entryPath,
     size_t occurrence = size_t.max) @safe
@@ -199,7 +259,12 @@ string appendArchiveVirtualPath(string containerPath, string entryPath,
     return result;
 }
 
-/** Decode doubled escape markers for display and text matching. */
+/** Decode doubled escape markers for display and text matching.
+ *
+ * Params:
+ *     path = Canonical path with doubled escapes.
+ * Returns: The path with every doubled escape marker reduced to one character.
+ */
 string archiveDisplayPath(string path) @safe
 {
     import std.conv : to;
@@ -209,7 +274,12 @@ string archiveDisplayPath(string path) @safe
         archivePathEscapeChar.to!string);
 }
 
-/** SQL expression that decodes a canonical path for text matching. */
+/** SQL expression that decodes a canonical path for text matching.
+ *
+ * Params:
+ *     expression = SQL expression producing the canonical path value.
+ * Returns: A SQL `replace(...)` expression yielding the decoded display form.
+ */
 string archivePathDisplaySql(string expression)
 {
     import std.conv : to;
@@ -223,6 +293,10 @@ string archivePathDisplaySql(string expression)
  *
  * Literal escape characters are removed in their doubled form; a remaining
  * single escape character followed by `/` marks an archive layer.
+ *
+ * Params:
+ *     column = Name or expression of the canonical path column.
+ * Returns: A SQL boolean expression that is true for virtual archive paths.
  */
 string archiveVirtualColumnSql(string column = "relative_path")
 {
@@ -239,6 +313,12 @@ string archiveVirtualColumnSql(string column = "relative_path")
  * Both the stored spelling and its decoded display form are searched so a
  * filter works for user-visible names containing the escape character as well
  * as for archive separator searches.
+ *
+ * Params:
+ *     column = Name or expression of the canonical path column.
+ *     parameter = SQL expression that yields the search text.
+ *     caseSensitive = When false, both sides are compared after `lower(...)`.
+ * Returns: A SQL predicate true when either spelling contains the text.
  */
 string archivePathFilterSql(string column, string parameter,
     bool caseSensitive)
@@ -255,7 +335,14 @@ string archivePathFilterSql(string column, string parameter,
         pathExpression, textExpression, displayExpression, textExpression);
 }
 
-/** Match display or canonical text against a canonical path in memory. */
+/** Match display or canonical text against a canonical path in memory.
+ *
+ * Params:
+ *     path = Canonical path in stored spelling.
+ *     text = Search text.
+ *     caseSensitive = When false, comparison ignores letter case.
+ * Returns: `true` when either the canonical or decoded path contains `text`.
+ */
 bool archivePathMatchesText(string path, string text,
     bool caseSensitive = false)
 {
@@ -282,6 +369,11 @@ struct ParsedArchiveVirtualPath
     string physicalPath; /// Physical container path after decoding escapes.
     ArchiveVirtualPathLayer[] entries; /// Decoded archive layers, outermost first.
 
+    /** Whether at least one archive-member layer follows the physical path.
+     *
+     * Returns: `true` when `entries` is non-empty, i.e. the path addresses a
+     *     member inside an archive rather than a plain file.
+     */
     @property bool isVirtual() const @safe
     {
         return entries.length > 0;
@@ -293,6 +385,9 @@ struct ParsedArchiveVirtualPath
  * The escape character doubles itself, `<escape>/` separates a container from
  * its member path, and `<escape>~N` disambiguates duplicate member names.
  *
+ * Params:
+ *     path = Canonical path to decode.
+ * Returns: The physical path and its decoded archive layers, outermost first.
  * Throws: Exception when a literal marker is not escaped or an occurrence
  * suffix is malformed.
  */
@@ -400,6 +495,11 @@ ParsedArchiveVirtualPath parseArchiveVirtualPath(string path) @safe
  *
  * A literal escape character is doubled; `<escape>/` separates a container
  * from its member path. The returned layers have literal markers restored.
+ *
+ * Params:
+ *     path = Canonical path to split.
+ * Returns: The physical path followed by each member layer, outermost first.
+ * Throws: Exception when the path does not follow the canonical grammar.
  */
 string[] splitArchiveVirtualPath(string path)
 {
@@ -416,6 +516,11 @@ string[] splitArchiveVirtualPath(string path)
  * Physical paths and archive member paths decode literal `!!` escapes. A path
  * that does not follow the canonical grammar falls back to its raw final
  * component so legacy literal names remain visible unchanged.
+ *
+ * Params:
+ *     path = Canonical or legacy path.
+ * Returns: The decoded final path component, or an empty string for a path
+ *     that splits into no layers.
  */
 string archiveDisplayBaseName(string path)
 {
@@ -464,6 +569,8 @@ abstract class FileArchive
      * The base implementation returns `null` and is meant to be overridden by
      * concrete archive handlers.
      *
+     * Params:
+     *   password = optional archive password.
      * Returns:
      *   `null` or the list of entries in the archive.
      */
@@ -477,6 +584,11 @@ abstract class FileArchive
      * Identity is expressed as normalized member path plus occurrence in the
      * ordered index. The caller must bind that identity to the container content
      * and `archiveEntryIdentityVersion`; it is not a global ID by itself.
+     *
+     * Params:
+     *     password = Optional archive password.
+     * Returns: One descriptor per entry in listing order, or `null` when the
+     *     underlying `getEntries` returns `null`.
      */
     ArchiveEntryDescriptor[] getEntryDescriptors(string password = "")
     {
@@ -522,6 +634,7 @@ abstract class FileArchive
      * Params:
      *   filename = name of entry in archive
      *   destDir = directory to extract to
+     *   password = optional archive password
      * Returns:
      *   true on success, false on failure
      */
@@ -530,7 +643,15 @@ abstract class FileArchive
         return false;
     }
 
-    /** Extract one descriptor occurrence when the format adapter can select it. */
+    /** Extract one descriptor occurrence when the format adapter can select it.
+     *
+     * Params:
+     *     descriptor = Entry identity from `getEntryDescriptors`.
+     *     destDir = Directory that receives the extracted member.
+     *     password = Optional archive password.
+     * Returns: `true` on success; `false` when the entry has a duplicate name
+     *     or the underlying extraction fails.
+     */
     bool extractEntry(ArchiveEntryDescriptor descriptor, string destDir,
         string password = "")
     {
@@ -539,7 +660,11 @@ abstract class FileArchive
         return extractEntry(descriptor.name, destDir, password);
     }
 
-    /** Whether this adapter can select a particular duplicate-name occurrence. */
+    /** Whether this adapter can select a particular duplicate-name occurrence.
+     *
+     * Returns: `true` when occurrence-aware extraction is implemented; the
+     *     base implementation returns `false`.
+     */
     @property bool supportsEntryOccurrence() const
     {
         return false;
@@ -547,10 +672,12 @@ abstract class FileArchive
 
     version (unittest)
     {
+        /** No-op test-archive hook; subclasses override it to build fixtures. */
         static void createTestArchive()
         {
         }
 
+        /** No-op test-archive hook; subclasses override it to remove fixtures. */
         static void deleteTestArchive()
         {
         }

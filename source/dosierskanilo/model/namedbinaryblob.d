@@ -50,6 +50,11 @@ public import dosierskanilo.model.filespec;
  */
 class CatalogFormatException : Exception
 {
+	/** Build the exception with a diagnostic message.
+	 *
+	 * Params:
+	 *     message = Human-readable description of the format failure.
+	 */
 	this(string message)
 	{
 		super(message);
@@ -61,6 +66,11 @@ class CatalogFormatException : Exception
  * Such failures may be recovered by starting with an empty catalog when the
  * caller explicitly allows an overwrite. I/O, callback and out-of-memory
  * failures are not recoverable and must never be treated as "malformed".
+ *
+ * Params:
+ *     error = Failure to classify; may be `null`.
+ * Returns: `true` for this module's format exception, JSON parsing errors, or
+ *     Jsonizer errors; `false` otherwise, including for `null`.
  */
 bool isCatalogFormatFailure(Throwable error) @safe nothrow
 {
@@ -80,7 +90,7 @@ enum int DATA_CLASS_VERSION3 = 3; ///< Legacy NamedBinaryBlob representation, v3
 enum int DATA_CLASS_VERSION4 = 4; ///< Recursive archive-member representation, v4
 enum int DATA_CLASS_VERSION5 = 5; ///< Current virtual-reference representation, v5
 
-/// Helper variables of the class
+/** Helper task pointers used to run the per-blob update jobs in parallel. */
 mixin template payloadHelpers()
 {
 	import std.parallelism : Task, task;
@@ -368,7 +378,11 @@ class NamedBinaryBlob
 
 	/* ------------------------------------------------------------------- */
 
-	/** create a string from the object contents */
+	/** Create a string from the object contents.
+	 *
+	 * Returns: A diagnostic summary containing the base filename, size,
+	 *     modification time, checksums, file type, and metadata.
+	 */
 	override string toString() const
 	{
 		import std.string : format;
@@ -535,6 +549,13 @@ class NamedBinaryBlob
 		return rs;
 	}
 
+	/** Return the openable physical path for a file spec.
+	 *
+	 * Params:
+	 *     spec = File spec to inspect; may be `null`.
+	 * Returns: The physical path for non-virtual specs, or an empty string for
+	 *     virtual archive members, missing specs, or unparsable names.
+	 */
 	package(dosierskanilo) string physicalPathForSpec(FileSpec spec) const @safe
 	{
 		if (spec is null || spec.fileName.length == 0)
@@ -589,8 +610,13 @@ class NamedBinaryBlob
 		return names[0];
 	}
 
-	/** Find a filename in a set of fileSpecs
-	*/
+	/** Find a filename in a set of fileSpecs.
+	 *
+	 * Params:
+	 *     filename = Stored or physical name to look for.
+	 * Returns: `true` when a matching spec exists; virtual-grammar specs also
+	 *     match their parsed physical path.
+	 */
 	bool hasFileName(string filename) @safe
 	{
 		import std.algorithm.searching : find;
@@ -610,8 +636,12 @@ class NamedBinaryBlob
 		return rc;
 	}
 
-	/** Get a FileSpec by its filename
-	*/
+	/** Get a FileSpec by its filename.
+	 *
+	 * Params:
+	 *     filename = Stored or physical name to look for.
+	 * Returns: The matching spec, or `null` when none matches.
+	 */
 	FileSpec getFileSpec(string filename) @safe
 	{
 		import std.algorithm.searching : find;
@@ -890,6 +920,10 @@ unittest
  * Some JPEG files are reported by MediaInfo as a video stream with JPEG format
  * instead of as an image stream. The file utility identifies these files more
  * reliably as still images, so use that result to repair the stream category.
+ *
+ * Params:
+ *     obj = Blob record to repair in place; ignored when `null` or when no
+ *         matching MediaInfo signature is present.
  */
 private void normalizeJpegImageMediaInfo(NamedBinaryBlob obj)
 {
@@ -1009,15 +1043,25 @@ unittest
 
 version (unittest)
 {
+	/// Path to the version-0 JSON catalog fixture.
 	enum json_file_v0 = "./test/json_file_v0.json";
+	/// Path to the version-1 JSON catalog fixture.
 	enum json_file_v1 = "./test/json_file_v1.json";
+	/// Path to the version-2 JSON catalog fixture.
 	enum json_file_v2 = "./test/json_file_v2.json";
+	/// Path to the version-2 archive JSON catalog fixture.
 	enum json_file_v2_archive = "./test/json_file_v2_archive.json";
+	/// Path to the version-2 torrent JSON catalog fixture.
 	enum json_file_v2_torrent = "./test/json_file_v2_torrent.json";
+	/// Contents of the version-0 JSON catalog fixture.
 	auto test_json_v0 = import(json_file_v0);
+	/// Contents of the version-1 JSON catalog fixture.
 	auto test_json_v1 = import(json_file_v1);
+	/// Contents of the version-2 JSON catalog fixture.
 	auto test_json_v2 = import(json_file_v2);
+	/// Contents of the version-2 archive JSON catalog fixture.
 	auto test_json_v2_archive = import(json_file_v2_archive);
+	/// Contents of the version-2 torrent JSON catalog fixture.
 	auto test_json_v2_torrent = import(json_file_v2_torrent);
 }
 
@@ -1025,6 +1069,7 @@ version (unittest)
  *
  * Params:
  *   dataArray = Array of NamedBinaryBlob objects to process
+ *   progressCallBack = optional callback for deserialization progress.
  * Returns: Updated array of NamedBinaryBlob objects
  */
 NamedBinaryBlob[] fixupDataClassArrayIn(NamedBinaryBlob[] dataArray,
@@ -1125,6 +1170,7 @@ NamedBinaryBlob[] fixupDataClassArrayIn(NamedBinaryBlob[] dataArray,
  *
  * Params:
  *   dataArray = Array of NamedBinaryBlob objects to process
+ *   progressCallBack = optional callback for serialization progress.
  * Returns: Updated array of NamedBinaryBlob objects
  */
 NamedBinaryBlob[] fixupDataClassArrayOut(NamedBinaryBlob[] dataArray,
@@ -1207,6 +1253,7 @@ unittest
  *
  * Params:
  *   serializedData = JSON string with serialized NamedBinaryBlob data
+ *   progressCallBack = optional callback for deserialization progress.
  * Returns:
  *   wrapper object with deserialized NamedBinaryBlob data and metadata
  */
@@ -1359,6 +1406,14 @@ NamedBinaryBlob[] deserializeDataClassJsonFile(string fileName, bool verbose = f
 	return deserializeDataClassJsonString(serializedData);
 }
 
+/** Convert a file name to the canonical JSON-v5 path grammar.
+ *
+ * Params:
+ *     fileName = File name to canonicalize.
+ *     fromLegacyVersion = Whether the name comes from a pre-v5 catalog and
+ *         therefore needs native-to-storage escaping.
+ * Returns: Canonical escaped path, with virtual members re-appended.
+ */
 private string canonicalV5FilePath(string fileName, bool fromLegacyVersion)
 {
 	import std.string : replace;
@@ -1374,11 +1429,27 @@ private string canonicalV5FilePath(string fileName, bool fromLegacyVersion)
 	return result;
 }
 
+/** Build the identity key used to count archive entries with the same path.
+ *
+ * Params:
+ *     path = Normalized archive member path.
+ * Returns: A key prefixed with `safe\0`, the only identity class this model
+ *     tracks.
+ */
 private string archiveVirtualIdentityKey(string path)
 {
 	return "safe\0" ~ path;
 }
 
+/** Append virtual member blobs for one archive level, recursing into nested ones.
+ *
+ * Params:
+ *     result = Output array that receives the generated member blobs.
+ *     entries = Archive entries to convert.
+ *     containerPath = Canonical virtual path of the containing archive.
+ *     depth = Current nesting level; used to enforce the depth limit.
+ * Throws: `Exception` when nesting exceeds the supported depth.
+ */
 private void appendArchiveMemberBlobs(ref NamedBinaryBlob[] result,
 	ArchiveSpec[] entries, string containerPath, size_t depth = 0)
 {
@@ -1445,7 +1516,16 @@ private void appendArchiveMemberBlobs(ref NamedBinaryBlob[] result,
 	}
 }
 
-/** Convert legacy nested ArchiveSpec trees into ordinary JSON-v5 blob references. */
+/** Convert legacy nested ArchiveSpec trees into ordinary JSON-v5 blob references.
+ *
+ * Params:
+ *     blobs = Blob records to normalize; `null` entries are skipped.
+ *     sourceAlreadyV5 = Whether paths already use the V5 grammar rather than a
+ *         legacy native-path spelling.
+ * Returns: A newly sorted record array containing the normalized blobs and
+ *     generated archive-member references.
+ * Throws: `Exception` when an archive index has no containing file reference.
+ */
 private NamedBinaryBlob[] normalizeV5Catalog(NamedBinaryBlob[] blobs,
 	bool sourceAlreadyV5)
 {
@@ -1484,6 +1564,12 @@ private NamedBinaryBlob[] normalizeV5Catalog(NamedBinaryBlob[] blobs,
 	return sortDataClassArrayByFileName(records);
 }
 
+/** Report whether every regular file entry in an archive tree has full digests.
+ *
+ * Params:
+ *     entries = Archive entries to inspect, including nested levels.
+ * Returns: `true` when all non-directory entries carry complete checksums.
+ */
 private bool archiveEntriesHaveCompleteChecksums(ArchiveSpec[] entries)
 {
 	foreach (entry; entries)
@@ -1504,6 +1590,12 @@ private bool archiveEntriesHaveCompleteChecksums(ArchiveSpec[] entries)
 	return true;
 }
 
+/** Strip legacy fields and normalize optional metadata before V5 serialization.
+ *
+ * Params:
+ *     dataArray = Blob records to normalize in place.
+ * Returns: The same array, for chaining.
+ */
 private NamedBinaryBlob[] fixupDataClassArrayOutV5(
 	NamedBinaryBlob[] dataArray)
 {
@@ -1850,6 +1942,13 @@ void serializeDataClassArrayFile(string fileName, NamedBinaryBlob[] dataArray)
 
 version (unittest)
 {
+	/** Verify JSON round-tripping against an expected catalog fixture.
+	 *
+	 * Params:
+	 *     fileName = JSON catalog text to deserialize.
+	 *     expectedLength = Expected number of records.
+	 *     expectedJsonFile = Path of the fixture to compare against.
+	 */
 	void testSerializeDataClassArrayFile(string fileName, int expectedLength, string expectedJsonFile)
 	{
 		import std.conv : to;
@@ -2077,7 +2176,15 @@ unittest
 	assert(dco.mediaInfoSig, "No MediaInfo was set.");
 }
 
-/** Build the cache identity for one archive container. */
+/** Build the cache identity for one archive container.
+ *
+ * Params:
+ *     blob = Blob describing the archive container.
+ *     physicalPath = Path to the archive on disk.
+ *     displayPath = Preferred stable display path when no digests are known.
+ * Returns: A fingerprint-based key when complete digests exist, otherwise a
+ *     path-and-size-based key.
+ */
 private string archiveCacheIdentity(NamedBinaryBlob blob,
 	string physicalPath, string displayPath)
 {
@@ -2454,7 +2561,13 @@ void updateArchives(NamedBinaryBlob obj,
 	}
 }
 
-/** Collapse multi-line archive tool output to its most useful line. */
+/** Collapse multi-line archive tool output to its most useful line.
+ *
+ * Params:
+ *     message = Raw tool error text.
+ * Returns: The last non-empty trimmed line, or `"archive tool failed"` when no
+ *     non-empty line exists.
+ */
 private string oneLineFailure(string message)
 {
 	import std.string : splitLines, strip;
@@ -2469,6 +2582,16 @@ private string oneLineFailure(string message)
 	return result;
 }
 
+/** Ask the callback for an archive password and store it.
+ *
+ * Params:
+ *     reason = Why the password is required, passed to the callback.
+ *     archivePath = Archive path passed to the callback.
+ *     callback = Password callback; must not be `null`.
+ *     password = Receives the supplied password on success.
+ * Throws: `ArchivePasswordRequiredException` when no callback is available, or
+ *     `ArchivePasswordCancelledException` when the callback declines.
+ */
 private void requestPassword(string reason, string archivePath,
 	ArchivePasswordCallback callback, ref string password)
 {
@@ -2855,7 +2978,12 @@ unittest
 
 /** Merge identical binblobs into a new combined object
  *
- * objs - list of identical(!) objects
+ * Params:
+ *     objs = list of identical objects to merge; must contain at least two.
+ * Returns: A copy of the first object with merged metadata and deduplicated
+ *     file references from all inputs.
+ * Throws: `Exception` when fewer than two objects are supplied, digests are
+ *     missing, or metadata differs between the inputs.
  */
 NamedBinaryBlob mergeDataClassObjects(NamedBinaryBlob[] objs)
 {
@@ -2986,6 +3114,10 @@ NamedBinaryBlob[] cleanupDataClassObjs(NamedBinaryBlob[] objs)
  * Unlike `cleanupDataClassObjs`, this helper does not test filesystem
  * existence. Callers can preserve unavailable source references unless the
  * user explicitly requested missing-file removal.
+ *
+ * Params:
+ *     objs = Blob records to filter.
+ * Returns: The non-null records that still have at least one file reference.
  */
 NamedBinaryBlob[] cleanupInvalidatedDataClassObjs(NamedBinaryBlob[] objs)
 {

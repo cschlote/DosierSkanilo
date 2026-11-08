@@ -88,6 +88,13 @@ RepositoryDuplicateGroup[] queryDuplicateGroups(ref Database db, size_t limit = 
  * blob would silently lose torrent data, archive passwords, media streams, or
  * metadata state that only the dropped blob carried. Existing rows of the kept
  * blob win; successful states from the dropped blob replace unsuccessful ones.
+ *
+ * Params:
+ *     db = Open repository database; must already be in a transaction when the
+ *         caller needs the copy to be atomic with the deletion.
+ *     keepId = Blob id that survives the merge.
+ *     dropId = Blob id whose metadata is copied and which is about to be
+ *         deleted.
  */
 private void mergeBlobMetadata(ref Database db, long keepId, long dropId)
 {
@@ -150,13 +157,29 @@ private void mergeBlobMetadata(ref Database db, long keepId, long dropId)
         keepId, dropId);
 }
 
+/** Whether an analysis summary reports any change requiring a catalog write.
+ *
+ * Params:
+ *     summary = Summary produced by an analysis pass.
+ * Returns: `true` when files were dropped, blobs merged or blobs orphaned.
+ */
 private bool analysisChanged(const AnalysisSummary summary) @safe
 {
     return summary.droppedFiles > 0 || summary.mergedBlobs > 0
         || summary.orphanedBlobs > 0;
 }
 
-/** Analyze current repository rows without materializing the catalog. */
+/** Analyze current repository rows without materializing the catalog.
+ *
+ * Params:
+ *     db = Open repository database; the analysis runs in its own transaction.
+ *     options = Requested analysis steps such as dropping missing files and
+ *         merging duplicate blobs.
+ * Returns: Counts describing missing files, applied changes, duplicate groups,
+ *     merged blobs and orphaned blobs.
+ * Throws: Exception when the transaction fails; the transaction is rolled back
+ *     before the exception is rethrown.
+ */
 AnalysisSummary analyzeRepository(ref Database db, RepositoryAnalysisOptions options)
 {
     AnalysisSummary summary;
@@ -234,6 +257,16 @@ AnalysisSummary analyzeRepository(ref Database db, RepositoryAnalysisOptions opt
 /**
  * Prepare analysis changes in temporary tables, then apply them in one atomic
  * catalog transaction. Pause points occur only during the staging phase.
+ *
+ * Params:
+ *     db = Open repository database.
+ *     options = Requested analysis steps.
+ *     control = Operation control channel, or `null` when no UI is attached.
+ *     operationId = Identifier reported in progress objects.
+ * Returns: The analysis summary together with commit and cancellation flags.
+ *     On cancellation nothing is committed and the summary is reset.
+ * Throws: Exception when a database operation fails; the transaction is rolled
+ *     back before the exception is rethrown.
  */
 AnalysisExecutionResult analyzeRepositoryControlled(ref Database db,
     RepositoryAnalysisOptions options, OperationControl control, ulong operationId)
@@ -382,6 +415,14 @@ AnalysisExecutionResult analyzeRepositoryControlled(ref Database db,
     return execution;
 }
 
+/** Recreate the temporary tables used to stage analysis results.
+ *
+ * Existing staging tables are dropped first, so the database ends with empty
+ * `analysis_missing_plan` and `analysis_merge_plan` tables.
+ *
+ * Params:
+ *     db = Open repository database.
+ */
 private void resetAnalysisStage(ref Database db)
 {
     db.execute("DROP TABLE IF EXISTS temp.analysis_missing_plan");
@@ -391,6 +432,11 @@ private void resetAnalysisStage(ref Database db)
         ~ "(keep_id INTEGER NOT NULL, drop_id INTEGER PRIMARY KEY)");
 }
 
+/** Drop the temporary analysis staging tables, ignoring cleanup errors.
+ *
+ * Params:
+ *     db = Open repository database.
+ */
 private void clearAnalysisStage(ref Database db)
 {
     try
@@ -403,6 +449,16 @@ private void clearAnalysisStage(ref Database db)
     }
 }
 
+/** Report one analysis progress checkpoint and honor pause/cancel requests.
+ *
+ * Params:
+ *     control = Operation control channel, or `null` when no UI is attached.
+ *     operationId = Identifier of the running analysis operation.
+ *     phase = Analysis phase being executed.
+ *     completed = Number of work items finished so far.
+ *     message = Human-readable progress message.
+ * Returns: `false` when cancellation was requested, otherwise `true`.
+ */
 private bool reportAnalysisProgress(OperationControl control, ulong operationId,
     OperationPhase phase, size_t completed, string message)
 {

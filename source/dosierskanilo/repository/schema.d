@@ -20,6 +20,7 @@ import dosierskanilo.repository.archiveindex : ensureArchiveMemberBlob,
 import dosierskanilo.repository.errors;
 import dosierskanilo.repository.types;
 
+/** SQL that creates the baseline repository tables for a fresh database. */
 private enum initialSchema = q"SQL
 CREATE TABLE IF NOT EXISTS repository (
     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -425,34 +426,72 @@ void migrate(ref Database db, string now)
         db.execute("PRAGMA user_version = " ~ to!string(schemaVersion));
 }
 
+/** File reference captured while migrating legacy archive rows.
+ *
+ * Instances are queued so nested archive containers can be expanded level by
+ * level.
+ */
 private struct MigrationFileReference
 {
+    /// Catalog row id of the reference.
     long id;
+    /// Blob id holding the file's size and checksums.
     long blobId;
+    /// Optional parent directory id.
     Nullable!long directoryId;
+    /// Stored relative path of the reference.
     string relativePath;
+    /// Last-modified timestamp, or an empty string when unknown.
     string modifiedAt;
+    /// Whether the reference currently exists on disk.
     bool existsOnDisk;
+    /// Last-seen timestamp, or an empty string when unknown.
     string lastSeenAt;
+    /// Nesting level below the physical container; zero for top-level files.
     size_t depth;
 }
 
+/** One legacy archive entry being converted into a virtual file reference. */
 private struct MigrationArchiveEntry
 {
+    /// Position of the entry within its archive.
     size_t entryIndex;
+    /// Occurrence counter used to disambiguate duplicate paths.
     size_t occurrence;
+    /// Original member name as stored in the archive.
     string fileName;
+    /// Normalized member path.
     string normalizedPath;
+    /// Whether the legacy row marked the path as safe.
     bool pathSafe;
+    /// Whether the entry denotes a directory.
     bool isDirectory;
+    /// Uncompressed member size in bytes.
     long fileSize;
+    /// Last-modified timestamp, or an empty string when unknown.
     string modifiedAt;
+    /// Optional MD5 digest.
     Nullable!Blob md5;
+    /// Optional SHA-1 digest.
     Nullable!Blob sha1;
+    /// Optional XXH64 digest.
     Nullable!Blob xxh64;
+    /// Optional blob id already associated with the member content.
     Nullable!long contentBlobId;
 }
 
+/** Convert legacy archive entry rows into virtual file references.
+ *
+ * Containers are processed in queue order so nested archives expand into
+ * further virtual references. Archive index metadata is migrated into
+ * `metadata_status` as well.
+ *
+ * Params:
+ *     db = Open database being migrated.
+ *     now = Fallback timestamp used when an index has none.
+ * Throws: `Exception` when nesting exceeds the migration depth limit or a
+ *     database statement fails.
+ */
 private void migrateArchiveRowsToVirtualReferences(ref Database db, string now)
 {
     MigrationFileReference[] containers;
@@ -610,6 +649,14 @@ private void migrateArchiveRowsToVirtualReferences(ref Database db, string now)
         ~ "WHERE metadata_kind = 'archives' AND extractor_version IS NULL");
 }
 
+/** Copy rows from the legacy `archive_entries_v2` table into `archive_entries`.
+ *
+ * Entry indexes and occurrence counters are recomputed per blob, and a content
+ * blob link is created when checksums allow it.
+ *
+ * Params:
+ *     db = Open database being migrated.
+ */
 private void copyLegacyArchiveEntries(ref Database db)
 {
     struct LegacyEntry
@@ -681,6 +728,16 @@ private void copyLegacyArchiveEntries(ref Database db)
     }
 }
 
+/** Look up or create the content blob for a legacy archive member.
+ *
+ * Params:
+ *     db = Open database being migrated.
+ *     size = Uncompressed member size in bytes.
+ *     md5 = Optional MD5 digest.
+ *     sha1 = Optional SHA-1 digest.
+ *     xxh64 = Optional XXH64 digest.
+ * Returns: The blob id, or an empty `Nullable` when no blob could be resolved.
+ */
 private Nullable!long nullableArchiveMemberBlob(ref Database db, long size,
     Nullable!Blob md5, Nullable!Blob sha1, Nullable!Blob xxh64)
 {

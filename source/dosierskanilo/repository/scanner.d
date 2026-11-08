@@ -22,7 +22,16 @@ import dosierskanilo.repository.types;
 import dosierskanilo.operations : OperationControl, OperationKind,
     OperationPhase, OperationProgress, OperationState;
 
-/** Scan the repository root and update current file references. */
+/** Scan the repository root and update current file references.
+ *
+ * Params:
+ *     db = Open repository database to update.
+ *     rootPath = Absolute repository root directory.
+ *     options = Scan scope and missing-file handling options.
+ * Returns: Summary counters for the completed scan.
+ * Throws: `RepositoryException` or database errors propagated from the
+ *     controlled scan.
+ */
 ScanSummary scanRepository(ref Database db, string rootPath,
     RepositoryScanOptions options)
 {
@@ -33,6 +42,18 @@ ScanSummary scanRepository(ref Database db, string rootPath,
  * Stage filesystem observations outside a catalog transaction, then apply them
  * atomically. Pause checkpoints occur only while staging and after each
  * temporary-table statement has completed.
+ *
+ * Params:
+ *     db = Open repository database to update.
+ *     rootPath = Absolute repository root directory.
+ *     options = Scan scope and missing-file handling options.
+ *     control = Optional operation control for progress, pause, and
+ *         cancellation; may be `null`.
+ *     operationId = Operation id reported in progress events.
+ * Returns: Execution result containing scan counters and commit/cancellation
+ *     state.
+ * Throws: `RepositoryException` or database errors when scanning or applying
+ *     the staged changes fails.
  */
 ScanExecutionResult scanRepositoryControlled(ref Database db, string rootPath,
     RepositoryScanOptions options, OperationControl control, ulong operationId)
@@ -141,14 +162,30 @@ ScanExecutionResult scanRepositoryControlled(ref Database db, string rootPath,
     return execution;
 }
 
+/** Precompiled statements reused throughout one scan run.
+ *
+ * Preparing these statements once avoids per-row preparation overhead while
+ * walking large repositories.
+ */
 private struct ScanStatements
 {
+    /// Looks up an existing file reference by relative path.
     Statement selectFile;
+    /// Marks an unchanged file reference as seen now.
     Statement markFileSeen;
+    /// Stages one observed file row for later application.
     Statement stageFile;
+    /// Stages one observed directory row for later application.
     Statement stageDirectory;
+    /// Removes a discovered path from the missing-candidate set.
     Statement removeMissingCandidate;
 
+    /** Prepare all scan statements against the given database handle.
+     *
+     * Params:
+     *     db = Open database used for the scan; the prepared statements remain
+     *         bound to it.
+     */
     this(ref Database db)
     {
         stageFile = db.prepare("INSERT OR REPLACE INTO temp.scan_stage_files "
@@ -167,6 +204,23 @@ private struct ScanStatements
     }
 }
 
+/** Insert or update the catalog row for one scanned file.
+ *
+ * New files are added to the current scan stage with a fresh blob. Changed
+ * files receive a fresh blob, drop any virtual descendants that no longer
+ * apply, and are counted as changed. Unchanged files are only marked as seen.
+ *
+ * Params:
+ *     db = Open database used for the scan.
+ *     relativePath = Canonical (escaped) repository-relative path of the file.
+ *     fileSize = Size of the file in bytes.
+ *     modified = Last-modified timestamp in ISO extended format.
+ *     now = Timestamp recorded as the last-seen time.
+ *     summary = Scan counters updated in place.
+ *     virtualContainers = Set of canonical paths known to contain virtual
+ *         members; matching paths get their members' availability refreshed.
+ *     statements = Precompiled statements reused for this scan.
+ */
 private void upsertFileReference(ref Database db, string relativePath,
     ulong fileSize, string modified, string now, ref ScanSummary summary,
     in bool[string] virtualContainers, ref ScanStatements statements)
@@ -242,6 +296,13 @@ private void upsertFileReference(ref Database db, string relativePath,
         updateVirtualReferencesAvailability(db, relativePath, true, now);
 }
 
+/** Delete all stored virtual member references below a container path.
+ *
+ * Params:
+ *     db = Open database used for the scan.
+ *     containerPath = Canonical (escaped) path of the container whose members
+ *         should be removed.
+ */
 private void deleteVirtualDescendants(ref Database db, string containerPath)
 {
     /* The caller passes the canonical (escaped) stored path. */
@@ -255,6 +316,20 @@ private void deleteVirtualDescendants(ref Database db, string containerPath)
         db.execute("DELETE FROM file_refs WHERE id = ?", id);
 }
 
+/** Refresh availability of all virtual members belonging to a physical file.
+ *
+ * Only references whose escaped path falls in the container's prefix range are
+ * parsed, which keeps the update from walking every virtual member in the
+ * repository.
+ *
+ * Params:
+ *     db = Open database used for the scan.
+ *     physicalRelativePath = Stored path of the physical container (escaped or
+ *         raw; the physical part is extracted).
+ *     available = New `exists_on_disk` value for matching members.
+ *     now = Timestamp recorded as the last-seen time; an empty string leaves
+ *         `last_seen_at` unchanged.
+ */
 private void updateVirtualReferencesAvailability(ref Database db,
     string physicalRelativePath, bool available, string now)
 {
@@ -400,6 +475,11 @@ unittest
     repository.close();
 }
 
+/** Drop and recreate the temporary staging tables used by a scan.
+ *
+ * Params:
+ *     db = Open database whose temporary schema is reset.
+ */
 private void resetScanStage(ref Database db)
 {
     db.execute("DROP TABLE IF EXISTS temp.scan_stage_directories");
@@ -416,6 +496,11 @@ private void resetScanStage(ref Database db)
     db.execute("CREATE TEMP TABLE scan_stage_missing (id INTEGER PRIMARY KEY)");
 }
 
+/** Drop the scan staging tables, ignoring any cleanup errors.
+ *
+ * Params:
+ *     db = Open database whose temporary schema is cleared.
+ */
 private void clearScanStage(ref Database db)
 {
     try
@@ -430,13 +515,25 @@ private void clearScanStage(ref Database db)
     }
 }
 
+/** One previously known reference that may have disappeared from disk. */
 private struct MissingCandidate
 {
+    /// Catalog row id of the reference.
     long id;
+    /// Stored relative path of the reference.
     string relativePath;
+    /// Whether a candidate row was actually returned.
     bool found;
 }
 
+/** Fetch the next missing-file candidate with an id greater than `afterId`.
+ *
+ * Params:
+ *     db = Open database holding the temporary candidate table.
+ *     afterId = Cursor value; pass zero to start at the beginning.
+ * Returns: The next candidate, or a default-initialized value with
+ *     `found == false` when no candidate remains.
+ */
 private MissingCandidate nextMissingCandidate(ref Database db, long afterId)
 {
     auto result = db.execute("SELECT id, relative_path FROM "
@@ -448,6 +545,24 @@ private MissingCandidate nextMissingCandidate(ref Database db, long afterId)
     return MissingCandidate(row.peek!long(0), row.peek!string(1), true);
 }
 
+/** Probe candidate references and stage the ones missing from disk.
+ *
+ * Candidates outside a non-recursive scan's scope and hidden paths are left
+ * untouched. Progress is reported before each filesystem probe so a pause
+ * names the path currently blocking.
+ *
+ * Params:
+ *     db = Open database holding the temporary candidate table.
+ *     rootPath = Repository root against which paths are resolved.
+ *     recursive = Whether references below subdirectories are in scope.
+ *     pickHidden = Whether hidden path components are considered.
+ *     control = Optional operation control for progress and cancellation.
+ *     operationId = Operation id reported in progress events.
+ *     completed = Number of observations already completed before this call.
+ *     observedMissing = Running count of missing references, updated in place.
+ * Returns: `true` when staging completed, or `false` when the operation was
+ *     cancelled.
+ */
 private bool stageMissingReferences(ref Database db, string rootPath,
     bool recursive, bool pickHidden, OperationControl control, ulong operationId,
     size_t completed, ref size_t observedMissing)
@@ -492,6 +607,11 @@ private bool stageMissingReferences(ref Database db, string rootPath,
     return true;
 }
 
+/** Create catalog rows for all staged directories in parent-first order.
+ *
+ * Params:
+ *     db = Open database used for the scan.
+ */
 private void applyStagedDirectories(ref Database db)
 {
     auto directories = db.execute("SELECT relative_path FROM "
@@ -500,6 +620,16 @@ private void applyStagedDirectories(ref Database db)
         ensureDirectory(db, row.peek!string(0));
 }
 
+/** Apply all staged file observations to the catalog.
+ *
+ * Params:
+ *     db = Open database used for the scan.
+ *     now = Timestamp recorded as the last-seen time.
+ *     summary = Scan counters updated in place.
+ *     virtualContainers = Set of canonical paths known to contain virtual
+ *         members.
+ *     statements = Precompiled statements reused for this scan.
+ */
 private void applyStagedFiles(ref Database db, string now,
     ref ScanSummary summary, in bool[string] virtualContainers,
     ref ScanStatements statements)
@@ -512,6 +642,13 @@ private void applyStagedFiles(ref Database db, string now,
             virtualContainers, statements);
 }
 
+/** Mark staged references as missing and refresh their virtual members.
+ *
+ * Params:
+ *     db = Open database used for the scan.
+ *     virtualContainers = Set of canonical paths known to contain virtual
+ *         members.
+ */
 private void applyStagedMissing(ref Database db, in bool[string] virtualContainers)
 {
     auto missing = db.execute("SELECT id FROM temp.scan_stage_missing ORDER BY id");
@@ -527,6 +664,15 @@ private void applyStagedMissing(ref Database db, in bool[string] virtualContaine
     }
 }
 
+/** Collect the canonical paths of file references that act as containers.
+ *
+ * A container is any physical file that has virtual member references stored
+ * below it.
+ *
+ * Params:
+ *     db = Open database to query.
+ * Returns: Set of escaped container paths.
+ */
 private bool[string] virtualContainerPaths(ref Database db)
 {
     bool[string] result;
@@ -537,6 +683,17 @@ private bool[string] virtualContainerPaths(ref Database db)
     return result;
 }
 
+/** Report one scan progress checkpoint when a control object is present.
+ *
+ * Params:
+ *     control = Optional operation control; when `null`, no report is sent.
+ *     operationId = Operation id reported in progress events.
+ *     phase = Current scan phase.
+ *     completed = Number of observations completed so far.
+ *     path = Path currently being processed.
+ * Returns: `true` when the scan may continue, or `false` when cancellation or
+ *     a pause checkpoint requested a stop.
+ */
 private bool reportScanProgress(OperationControl control, ulong operationId,
     OperationPhase phase, size_t completed, string path)
 {
@@ -561,6 +718,13 @@ private bool reportScanProgress(OperationControl control, ulong operationId,
     return !control.cancellationRequested;
 }
 
+/** Check whether a repository-relative path currently exists on disk.
+ *
+ * Params:
+ *     rootPath = Repository root directory.
+ *     relativePath = Native relative path below the root.
+ * Returns: `true` when the path exists.
+ */
 private bool existsOnDisk(string rootPath, string relativePath)
 {
     import std.file : exists;
@@ -568,6 +732,16 @@ private bool existsOnDisk(string rootPath, string relativePath)
     return exists(buildPath(rootPath, relativePath));
 }
 
+/** Ensure catalog rows exist for a directory and all of its parents.
+ *
+ * Directory identities share the escaped namespace with file references.
+ *
+ * Params:
+ *     db = Open database used for the scan.
+ *     relativeDirectory = Native repository-relative directory path.
+ * Returns: The catalog id of the deepest directory, or `0` for the repository
+ *     root or an empty path.
+ */
 private long ensureDirectory(ref Database db, string relativeDirectory)
 {
     if (relativeDirectory.empty || relativeDirectory == ".")
@@ -600,6 +774,15 @@ private long ensureDirectory(ref Database db, string relativeDirectory)
     return parentId;
 }
 
+/** Convert an absolute scanned path into a storage-relative path.
+ *
+ * Params:
+ *     rootPath = Repository root directory.
+ *     path = Absolute path below the root.
+ * Returns: The path relative to the root in storage form, or an empty string
+ *     when `path` is the root itself.
+ * Throws: `RepositoryException` when `path` is outside the repository root.
+ */
 private string repositoryRelativePath(string rootPath, string path)
 {
     auto normalizedRoot = buildNormalizedPath(rootPath);
@@ -613,6 +796,12 @@ private string repositoryRelativePath(string rootPath, string path)
     return nativePathToStoragePath(normalized[prefix.length .. $]);
 }
 
+/** Report whether any path component starts with a dot.
+ *
+ * Params:
+ *     relativePath = Slash-separated repository-relative path.
+ * Returns: `true` when at least one component is hidden.
+ */
 private bool hasHiddenComponent(string relativePath)
 {
     foreach (part; relativePath.split("/"))
@@ -621,6 +810,10 @@ private bool hasHiddenComponent(string relativePath)
     return false;
 }
 
+/** Return the current local time as an ISO extended-format timestamp.
+ *
+ * Returns: Timestamp string used for catalog bookkeeping.
+ */
 private string currentTimestamp()
 {
     import std.datetime.systime : Clock;

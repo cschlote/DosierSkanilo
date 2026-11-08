@@ -38,13 +38,35 @@ module dosierskanilo.format.byte_reader;
 
 ## DDoc
 
-- Use block DDoc for modules, structs, classes, functions, methods, and meaningful private helpers.
+- Document every documentable declaration, including `private` and `package`
+  functions, methods, constructors, fields, aliases, manifest constants, and
+  enum members. Private code is read and maintained like public code; its
+  documentation is not optional.
+- Use block DDoc for modules, structs, classes, functions, and methods. A short
+  `///` line is enough for simple fields and enum members.
 - Describe why a type exists, not only the names of its fields.
 - Document every field that carries format, ownership, or lifecycle meaning.
 - Document every function with `Params:` and `Returns:`; add `Throws:` where applicable.
 - State sentinel values, units, byte order, ownership, and optionality explicitly.
 - Keep uncertain semantics marked as unresolved rather than presenting guesses as facts.
 - Comments and source documentation use English for consistency with the codebase.
+
+Example of a private helper with a complete contract:
+
+```d
+/** Convert a repository-relative path into its canonical escaped spelling.
+ *
+ * Params:
+ *     relativePath = Slash-separated catalog path below the repository root.
+ * Returns: The escaped path used in references and filters.
+ * Throws: `CatalogFormatException` when the path is absolute or traverses
+ *     above the repository root.
+ */
+private string canonicalCatalogPath(string relativePath)
+{
+    // ...
+}
+```
 
 ## Tests
 

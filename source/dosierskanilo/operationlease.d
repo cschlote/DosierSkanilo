@@ -25,6 +25,11 @@ import dosierskanilo.operations : OperationTarget, OperationStorageMode;
 /** A failure category reserved for an already-leased operation target. */
 class OperationTargetBusyException : Exception
 {
+    /** Build the exception for a target that another operation owns.
+     *
+     * Params:
+     *     target = Canonical target key included in the message.
+     */
     this(string target)
     {
         super("Another mutating operation already owns target: " ~ target);
@@ -35,9 +40,20 @@ class OperationTargetBusyException : Exception
 final class TargetWriteLease
 {
 private:
+    /// Operating-system file descriptor for the lock, or `-1` when released.
     int descriptor = -1;
+    /// Canonical key of the target protected by this lease.
     string leasedTargetKey;
 
+    /** Open and exclusively lock the lease file for a target.
+     *
+     * Params:
+     *     lockPath = Filesystem path of the lease file.
+     *     targetKey = Canonical target key used for diagnostics and ownership.
+     * Throws: `OperationTargetBusyException` when another process already
+     *     holds the lease, or `Exception` when the lock file cannot be opened
+     *     or the platform does not support leases.
+     */
     this(string lockPath, string targetKey)
     {
         leasedTargetKey = targetKey;
@@ -63,20 +79,39 @@ private:
     }
 
 public:
-    /** Acquire a lease for the canonical repository root or JSON catalog path. */
+    /** Acquire a lease for the canonical repository root or JSON catalog path.
+     *
+     * Params:
+     *     target = Operation target to protect.
+     * Returns: A held lease; release it when the operation ends.
+     * Throws: `OperationTargetBusyException` when another process owns the
+     *     target, or `Exception` when the lease file cannot be opened.
+     */
     static TargetWriteLease acquire(OperationTarget target)
     {
         auto targetKey = canonicalTargetKey(target);
         return new TargetWriteLease(operationLockPath(targetKey), targetKey);
     }
 
-    /** Acquire a repository lease when the caller already resolved its root. */
+    /** Acquire a repository lease when the caller already resolved its root.
+     *
+     * Params:
+     *     rootPath = Repository root directory.
+     * Returns: A held lease; release it when the operation ends.
+     * Throws: `OperationTargetBusyException` when another process owns the
+     *     target, or `Exception` when the lease file cannot be opened.
+     */
     static TargetWriteLease acquireRepositoryRoot(string rootPath)
     {
         return acquire(OperationTarget.repositoryTarget(rootPath));
     }
 
-    /** Whether this lease protects the supplied normalized operation target. */
+    /** Whether this lease protects the supplied normalized operation target.
+     *
+     * Params:
+     *     target = Target to compare against the leased target.
+     * Returns: `true` when both normalize to the same lock key.
+     */
     bool owns(OperationTarget target)
     {
         return leasedTargetKey == canonicalTargetKey(target);
@@ -96,6 +131,7 @@ public:
         }
     }
 
+    /** Release the lease when the object is destroyed. */
     ~this()
     {
         release();
@@ -106,8 +142,16 @@ public:
 final class TargetReadLease
 {
 private:
+    /// Operating-system file descriptor for the lock, or `-1` when released.
     int descriptor = -1;
 
+    /** Open and acquire a shared lock on a JSON catalog lease file.
+     *
+     * Params:
+     *     lockPath = Filesystem path of the lease file.
+     * Throws: `Exception` when the lock file cannot be opened or the lock
+     *     cannot be acquired, including on platforms without lease support.
+     */
     this(string lockPath)
     {
         version (Posix)
@@ -130,7 +174,13 @@ private:
     }
 
 public:
-    /** Acquire a shared lease for a JSON catalog while parsing its current contents. */
+    /** Acquire a shared lease for a JSON catalog while parsing its current contents.
+     *
+     * Params:
+     *     catalogPath = Path of the JSON catalog.
+     * Returns: A held shared lease; release it after parsing.
+     * Throws: `Exception` when the lease file cannot be opened or locked.
+     */
     static TargetReadLease acquireJsonCatalog(string catalogPath)
     {
         auto targetKey = canonicalTargetKey(
@@ -152,6 +202,7 @@ public:
         }
     }
 
+    /** Release the read lease when the object is destroyed. */
     ~this()
     {
         release();
@@ -162,8 +213,20 @@ public:
 final class TargetCatalogReplacementLease
 {
 private:
+    /// Operating-system file descriptor for the lock, or `-1` when released.
     int descriptor = -1;
 
+    /** Open and acquire the catalog replacement lock.
+     *
+     * Params:
+     *     lockPath = Filesystem path of the lease file.
+     *     targetKey = Canonical target key used for diagnostics.
+     *     wait = Whether to block until the lock becomes available instead of
+     *         failing immediately.
+     * Throws: `OperationTargetBusyException` when the lock is held and `wait`
+     *     is false, or `Exception` when the file cannot be opened or the lock
+     *     fails for another reason.
+     */
     this(string lockPath, string targetKey, bool wait)
     {
         version (Posix)
@@ -189,7 +252,17 @@ private:
     }
 
 public:
-    /** Acquire exclusive access only for the non-interruptible replacement phase. */
+    /** Acquire exclusive access only for the non-interruptible replacement phase.
+     *
+     * Params:
+     *     catalogPath = Path of the JSON catalog.
+     *     wait = Whether to block until the lock is available instead of
+     *         failing immediately.
+     * Returns: A held replacement lease; release it after the replacement.
+     * Throws: `OperationTargetBusyException` when the lock is held and `wait`
+     *     is false, or `Exception` when the lease file cannot be opened or
+     *     locked.
+     */
     static TargetCatalogReplacementLease acquireJsonCatalog(string catalogPath,
         bool wait = true)
     {
@@ -213,12 +286,19 @@ public:
         }
     }
 
+    /** Release the replacement lease when the object is destroyed. */
     ~this()
     {
         release();
     }
 }
 
+/** Derive a stable lock key from a normalized operation target.
+ *
+ * Params:
+ *     target = Operation target to normalize.
+ * Returns: A key of the form `repository:<root>` or `json:<catalogPath>`.
+ */
 private string canonicalTargetKey(OperationTarget target)
 {
     final switch (target.mode)
@@ -231,6 +311,13 @@ private string canonicalTargetKey(OperationTarget target)
     }
 }
 
+/** Compute a fixed-width hexadecimal lock file name from a target key.
+ *
+ * Params:
+ *     targetKey = Canonical operation target key.
+ * Returns: A 32-character hexadecimal name derived from two independent
+ *     hashes of the key.
+ */
 private string targetLockName(string targetKey)
 {
     ulong first = 14695981039346656037UL;
@@ -243,6 +330,14 @@ private string targetLockName(string targetKey)
     return format("%016x%016x", first, second);
 }
 
+/** Return the private directory that stores operation lease files.
+ *
+ * Uses `XDG_RUNTIME_DIR` when available, otherwise a per-user directory below
+ * the system temporary directory. The directory is created with owner-only
+ * permissions where supported.
+ *
+ * Returns: Absolute path of the lease directory.
+ */
 private string lockDirectory()
 {
     version (Posix)
@@ -263,12 +358,24 @@ private string lockDirectory()
         return buildPath(tempDir(), "dosierskanilo-operation-leases");
 }
 
+/** Return the exclusive operation lease file path for a target key.
+ *
+ * Params:
+ *     targetKey = Canonical operation target key.
+ * Returns: Absolute path of the operation lock file.
+ */
 private string operationLockPath(string targetKey)
 {
     return buildPath(lockDirectory(),
         "operation-" ~ targetLockName(targetKey) ~ ".lock");
 }
 
+/** Return the catalog replacement/read lease file path for a target key.
+ *
+ * Params:
+ *     targetKey = Canonical JSON catalog target key.
+ * Returns: Absolute path of the catalog lock file.
+ */
 private string catalogLockPath(string targetKey)
 {
     return buildPath(lockDirectory(),
@@ -279,14 +386,38 @@ version (Posix)
 {
     /* sys/file.h defines the same lock operation values on Linux, the BSDs and
      * macOS; druntime does not declare flock() or these constants. */
+    /// Request a shared (read) lock.
     enum LOCK_SH = 0x01;
+    /// Request an exclusive (write) lock.
     enum LOCK_EX = 0x02;
+    /// Fail instead of waiting when the lock is not immediately available.
     enum LOCK_NB = 0x04;
+    /// Release a lock held on a file descriptor.
     enum LOCK_UN = 0x08;
 
+    /** C binding for the POSIX `open` function.
+     *
+     * Params:
+     *     path = NUL-terminated filesystem path.
+     *     flags = Open flags such as `O_RDWR` and `O_CREAT`.
+     * Returns: A non-negative file descriptor, or `-1` on error.
+     */
     pragma(mangle, "open") extern (C) nothrow int cOpen(const(char)* path,
         int flags, ...);
+    /** C binding for the BSD/POSIX `flock` function.
+     *
+     * Params:
+     *     fd = Open file descriptor.
+     *     operation = Lock operation such as `LOCK_EX` or `LOCK_UN`.
+     * Returns: Zero on success, or `-1` on error.
+     */
     pragma(mangle, "flock") extern (C) nothrow int cFlock(int fd, int operation);
+    /** C binding for the POSIX `close` function.
+     *
+     * Params:
+     *     fd = File descriptor to close.
+     * Returns: Zero on success, or `-1` on error.
+     */
     pragma(mangle, "close") extern (C) nothrow int cClose(int fd);
 }
 
@@ -338,6 +469,11 @@ unittest
 
 version (Posix)
 {
+    /** C binding for the POSIX `fork` function used by the lease tests.
+     *
+     * Returns: The child pid in the parent, zero in the child, or a negative
+     *     value on failure.
+     */
     private extern(C) int fork();
 }
 

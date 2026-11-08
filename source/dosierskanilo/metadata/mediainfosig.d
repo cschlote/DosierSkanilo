@@ -55,7 +55,10 @@ public:
 		width = w;
 		height = h;
 	}
-	/// create a string from the object contents
+	/** Render the image stream as a compact debug string.
+	 *
+	 * Returns: A representation such as `image0('JPG', 320x200)`.
+	 */
 	override string toString() const
 	{
 		string met;
@@ -64,7 +67,10 @@ public:
 		return met;
 	}
 
-	/** Create a copy of the image stream record. */
+	/** Create a copy of the image stream record.
+	 *
+	 * Returns: A newly allocated `MediaInfoImage` with the same field values.
+	 */
 	MediaInfoImage dup()
 	{
 		auto mii = new MediaInfoImage(index, format, width, height);
@@ -127,7 +133,11 @@ class MediaInfoVideo
 		duration = dur;
 	}
 
-	/// create a string from the object contents
+	/** Render the video stream as a compact debug string.
+	 *
+	 * Returns: A representation such as
+	 *     `video0('de', 'AV1', 320x200, 25fps, 5000000bps, '1h')`.
+	 */
 	override string toString() const
 	{
 		string met;
@@ -136,7 +146,10 @@ class MediaInfoVideo
 		return met;
 	}
 
-	/** Create a copy of the video stream record. */
+	/** Create a copy of the video stream record.
+	 *
+	 * Returns: A newly allocated `MediaInfoVideo` with the same field values.
+	 */
 	MediaInfoVideo dup()
 	{
 		return new MediaInfoVideo(index, language, format, width, height, frameRate, bitRate, duration);
@@ -192,7 +205,11 @@ class MediaInfoAudio
 		bitRate = br;
 		duration = dur;
 	}
-	/// create a string from the object contents
+	/** Render the audio stream as a compact debug string.
+	 *
+	 * Returns: A representation such as
+	 *     `audio1('de', 'AAC', 6 ch., 200000bps, '1h')`.
+	 */
 	override string toString() const
 	{
 		string met;
@@ -200,7 +217,10 @@ class MediaInfoAudio
 			.format(index, language, format, channels, bitRate, duration);
 		return met;
 	}
-	/** Create a copy of the audio stream record. */
+	/** Create a copy of the audio stream record.
+	 *
+	 * Returns: A newly allocated `MediaInfoAudio` with the same field values.
+	 */
 	MediaInfoAudio dup()
 	{
 		return new MediaInfoAudio(index, language, format, channels, bitRate, duration);
@@ -256,7 +276,11 @@ class MediaInfoText
 		bitRate = br;
 		duration = dur;
 	}
-	/// create a string from the object contents
+	/** Render the text stream as a compact debug string.
+	 *
+	 * Returns: A representation such as
+	 *     `text1('de', 'AAC', 0.1fps, 200000bps, '1h')`.
+	 */
 	override string toString() const
 	{
 		string met;
@@ -264,7 +288,10 @@ class MediaInfoText
 			.format(index, language, format, frameRate, bitRate, duration);
 		return met;
 	}
-	/** Create a copy of the text stream record. */
+	/** Create a copy of the text stream record.
+	 *
+	 * Returns: A newly allocated `MediaInfoText` with the same field values.
+	 */
 	MediaInfoText dup()
 	{
 		return new MediaInfoText(index, language, format, frameRate, bitRate, duration);
@@ -332,7 +359,14 @@ class MediaInfoSig
 		audioStreams = aStreams;
 		textStreams = tStreams;
 	}
-	/// create a string from the object contents
+	/** Render all streams as one comma-separated debug string.
+	 *
+	 * Null stream references, which can occur in older catalogs, are skipped
+	 * instead of being dereferenced.
+	 *
+	 * Returns: A string of the form `MediaInfoSig(stream, ...)`; the result is
+	 *     `MediaInfoSig()` when no non-null streams are stored.
+	 */
 	override string toString() const
 	{
 		string met = "MediaInfoSig(";
@@ -354,6 +388,10 @@ class MediaInfoSig
 
 	/** Equality operator
 	 * We use the string representation for equality testing.
+	 *
+	 * Params:
+	 *     other = Signature to compare with; `null` compares unequal.
+	 * Returns: `true` when both signatures render to the same string.
 	 */
 	bool opEquals(const MediaInfoSig other) const
 	{
@@ -374,14 +412,20 @@ class MediaInfoSig
 	// 	// just ignore for now
 	// }
 
-	/** Create a deep copy of the media info signature. */
+	/** Create a deep copy of the media info signature.
+	 *
+	 * Returns: A new `MediaInfoSig` whose stream arrays are duplicated.
+	 */
 	MediaInfoSig dup()
 	{
 		auto dupObj = new MediaInfoSig(this);
 		return dupObj;
 	}
 
-	/** Check if the media info signature is empty. */
+	/** Check if the media info signature is empty.
+	 *
+	 * Returns: `true` when all four stream arrays are empty.
+	 */
 	bool empty() const
 	{
 		return imageStreams.length == 0 &&
@@ -390,27 +434,43 @@ class MediaInfoSig
 			textStreams.length == 0;
 	}
 
-	/** Some simple getters for common use cases. */
+	/** Check whether at least one video stream is present.
+	 *
+	 * Returns: `true` when `videoStreams` is non-empty.
+	 */
 	bool hasVideo() const
 	{
 		return videoStreams.length > 0;
 	}
-	/// True when at least one audio stream is present.
+	/** Check whether at least one audio stream is present.
+	 *
+	 * Returns: `true` when `audioStreams` is non-empty.
+	 */
 	bool hasAudio() const
 	{
 		return audioStreams.length > 0;
 	}
-	/// True when at least one image stream is present.
+	/** Check whether at least one image stream is present.
+	 *
+	 * Returns: `true` when `imageStreams` is non-empty.
+	 */
 	bool hasImage() const
 	{
 		return imageStreams.length > 0;
 	}
-	/// True when at least one text/subtitle stream is present.
+	/** Check whether at least one text/subtitle stream is present.
+	 *
+	 * Returns: `true` when `textStreams` is non-empty.
+	 */
 	bool hasText() const
 	{
 		return textStreams.length > 0;
 	}
-	/// True when any video, audio, image, or text stream is present.
+	/** Check whether any media stream is present.
+	 *
+	 * Returns: `true` when at least one video, audio, image, or text stream
+	 *     exists.
+	 */
 	bool hasMedia() const
 	{
 		return hasVideo() || hasAudio() || hasImage() || hasText();
@@ -479,7 +539,12 @@ unittest
 	assert(mivers.startsWith("MediaInfoLib - v"), mivers);
 }
 
-/** Parse bitrate string into ulong
+/** Parse a MediaInfo bitrate string into bits per second.
+ *
+ * Params:
+ *     bitrateStr = Raw MediaInfo value; may be empty or start with "Unknown".
+ * Returns: Parsed bitrate in bits per second, or `0` when the value is empty,
+ *     unknown, or cannot be parsed.
  */
 private ulong parseBitRate(string bitrateStr) pure @safe
 {
@@ -501,7 +566,13 @@ private ulong parseBitRate(string bitrateStr) pure @safe
 	return bitrateInt;
 }
 
-/** Parse frame rate string into double
+/** Parse a MediaInfo frame rate string into frames per second.
+ *
+ * Params:
+ *     frameRateStr = Raw MediaInfo value; may be empty or start with
+ *         "Unknown".
+ * Returns: Parsed frame rate in frames per second, or `0.0` when the value is
+ *     empty, unknown, or cannot be parsed.
  */
 private double parseFrameRate(string frameRateStr) pure @safe
 {
@@ -524,7 +595,12 @@ private double parseFrameRate(string frameRateStr) pure @safe
 	return frameRateDbl;
 }
 
-/** Parse integer string into ulong
+/** Parse a MediaInfo integer string into an unsigned value.
+ *
+ * Params:
+ *     intStr = Raw MediaInfo value; may be empty or start with "Unknown".
+ * Returns: Parsed value, or `0` when the value is empty, unknown, or cannot be
+ *     parsed.
  */
 private ulong parseInteger(string intStr) pure @safe
 {
@@ -547,7 +623,12 @@ private ulong parseInteger(string intStr) pure @safe
 	return intVal;
 }
 
-/** Parse an image stream from MediaInfo object
+/** Parse an image stream from an opened MediaInfo object.
+ *
+ * Params:
+ *     info = MediaInfo handle used for stream field queries.
+ *     index = Zero-based image stream index.
+ * Returns: The parsed stream, or `null` when reading its fields throws.
  */
 private MediaInfoImage parseImageStream(MediaInfo info, uint index)
 {
@@ -567,7 +648,12 @@ private MediaInfoImage parseImageStream(MediaInfo info, uint index)
 }
 
 /**
- * Parse a video stream from MediaInfo object
+ * Parse a video stream from an opened MediaInfo object.
+ *
+ * Params:
+ *     info = MediaInfo handle used for stream field queries.
+ *     index = Zero-based video stream index.
+ * Returns: The parsed stream, or `null` when reading its fields throws.
  */
 private MediaInfoVideo parseVideoStream(MediaInfo info, uint index)
 {
@@ -597,7 +683,12 @@ private MediaInfoVideo parseVideoStream(MediaInfo info, uint index)
 }
 
 /**
- * Parse a audio stream from MediaInfo object
+ * Parse an audio stream from an opened MediaInfo object.
+ *
+ * Params:
+ *     info = MediaInfo handle used for stream field queries.
+ *     index = Zero-based audio stream index.
+ * Returns: The parsed stream, or `null` when reading its fields throws.
  */
 private MediaInfoAudio parseAudioStream(MediaInfo info, uint index)
 {
@@ -622,7 +713,12 @@ private MediaInfoAudio parseAudioStream(MediaInfo info, uint index)
 }
 
 /**
- * Parse a text stream from MediaInfo object
+ * Parse a text stream from an opened MediaInfo object.
+ *
+ * Params:
+ *     info = MediaInfo handle used for stream field queries.
+ *     index = Zero-based text stream index.
+ * Returns: The parsed stream, or `null` when reading its fields throws.
  */
 private MediaInfoText parseTextStream(MediaInfo info, uint index)
 {
@@ -873,8 +969,8 @@ unittest
 
 /** Parse media info signature from media info lines
  *
- * Param:
- *   mediaInfo = Array of media info lines
+ * Params:
+ *   mediaInfo = Array of media info lines in the `<kind:details>` form.
  * Returns: Parsed MediaInfoSig object
  */
 /* Example data:
