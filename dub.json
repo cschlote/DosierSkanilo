@@ -15,7 +15,7 @@
 		"jsonizer": "~>0",
 		"xxhash3": "~>0"
 	},
-	"systemDependencies": "Install libraries on Debian/Ubuntu: apt install -y libmediainfo0v5 libmediainfo-dev libsqlite3-dev",
+	"systemDependencies": "Build: libmediainfo-dev and libsqlite3-dev. Runtime: libmediainfo (loaded at runtime) and libsqlite3. Optional runtime tools: file, unzip, tar, unrar, p7zip, python3.",
 	"versions": [
 		"SqliteEnableUnlockNotify"
 	],

@@ -8,6 +8,8 @@ sdk-extensions:
 command: dosierskanilo
 finish-args:
   - --filesystem=home
+# Mandatory runtime: libmediainfo is built below; SQLite comes from the runtime.
+# Optional file/archive tools are not bundled and disable those features.
 modules:
   - name: libzen
     subdir: Project/GNU/Library

@@ -18,8 +18,65 @@ packaged without `.git`. Replace `SKIP` and other placeholders in distribution
 recipes before publishing packages. The project is licensed under
 `GPL-3.0-only`; package recipes should install the repository's `LICENSE.md`.
 
-The scanner depends on MediaInfo and archive tools at runtime. Debian/Fedora
-recipes below are drafts and should be built in their native clean-build tools.
+## Dependencies
+
+### Build dependencies
+
+- D compiler and DUB: `ldc2` is the tested compiler; DUB resolves
+  `d2sqlite3`, `silly`, `jsonizer`, `mediainfo-d`, and `xxhash3`.
+- C toolchain and linker (`gcc`/`cc`), `pkg-config`, and `git` for the build
+  version stamp.
+- SQLite development headers: `libsqlite3-dev` (Debian/Ubuntu), `sqlite`
+  (Arch), `sqlite-devel` (Fedora).
+- MediaInfo development headers when building the binding:
+  `libmediainfo-dev` (Debian/Ubuntu), `mediainfo-devel` (Fedora). The runtime
+  library is loaded dynamically.
+- Documentation: `adrdox` is fetched by DUB; GDC is the preferred host
+  compiler. Lint jobs also need `shellcheck`, `hadolint`, and a Markdown
+  linter.
+
+The helper script used by CI is
+[`../scripts/install-dependencies.sh`](../scripts/install-dependencies.sh);
+the package recipes below are the authoritative distribution metadata.
+
+### Mandatory runtime dependencies
+
+- SQLite runtime library (`libsqlite3.so.0`); the executable links it directly.
+- MediaInfo shared library (`libmediainfo.so.0`); the D binding loads it at
+  runtime. The `mediainfo` command-line frontend is not required.
+- The platform C runtime and `libgcc_s`.
+
+### Optional runtime dependencies
+
+| Command | Enables |
+| --- | --- |
+| `file` | file-type signatures (`--file-types`, `--all`) |
+| `unzip` | ZIP listing and member extraction |
+| `tar` | TAR listing and member extraction |
+| `unrar` | RAR listing and member extraction |
+| `p7zip` / `7z` | 7z listing and member extraction |
+| `python3` | exact extraction of duplicate-name ZIP members |
+
+Without these commands the corresponding metadata or archive feature is
+unavailable or degrades gracefully; they are not required to start the scanner
+or work with files and SQLite repositories.
+
+### Package mapping
+
+- **Debian/Ubuntu:** `Depends: libmediainfo0v5`; `${shlibs:Depends}` adds
+  SQLite. `Recommends: file, unzip, tar, unrar, p7zip-full | 7zip`;
+  `Suggests: python3`.
+- **Arch:** `depends=('libmediainfo' 'sqlite')`; the archive and file tools are
+  listed in `optdepends`.
+- **Fedora:** `Requires: mediainfo, sqlite-libs`; `Recommends` lists the
+  optional tools and `Suggests` adds Python.
+- **Flatpak:** bundles `libzen` and `libmediainfo` but does not bundle `file`,
+  `unzip`, `tar`, `unrar`, `p7zip`, or `python3`. Archive and file-type
+  features therefore remain unavailable in the Flatpak build until those
+  tools are added to the manifest or supplied by the runtime.
+
+Debian and Fedora recipes are drafts and should be built in their native
+clean-build tools.
 
 ## Flatpak build
 
@@ -33,8 +90,9 @@ flatpak-builder --force-clean --install-deps-from=flathub \
 ```
 
 The DUB dependency resolution runs inside the build sandbox with network access.
-The Flatpak bundles MediaInfo for media metadata; 7z and RAR scanning remain
-unavailable until their command-line tools are added to the manifest.
+The Flatpak bundles libmediainfo for media metadata. It does not bundle `file`,
+`unzip`, `tar`, `unrar`, `p7zip`, or `python3`, so archive and file-type
+features remain unavailable until those tools are added to the manifest.
 
 ## Containerized Debian build
 

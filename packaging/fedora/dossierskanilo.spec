@@ -8,13 +8,17 @@ Source0:        %{url}/archive/refs/tags/v%{version}.tar.gz
 
 BuildRequires:  ldc
 BuildRequires:  dub
+BuildRequires:  gcc
 BuildRequires:  mediainfo-devel
+BuildRequires:  sqlite-devel
 Requires:       mediainfo
-Requires:       file
-Requires:       unzip
-Requires:       tar
-Requires:       unrar
-Requires:       p7zip
+Requires:       sqlite-libs
+Recommends:     file
+Recommends:     unzip
+Recommends:     tar
+Recommends:     unrar
+Recommends:     p7zip
+Suggests:       python3
 
 %description
 DosierSkanilo scans files, calculates checksums, extracts metadata and stores
