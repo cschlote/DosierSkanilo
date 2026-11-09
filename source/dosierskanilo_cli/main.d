@@ -23,6 +23,8 @@ module dosierskanilo_cli.main;
 
 import core.atomic : atomicLoad, atomicStore;
 import core.stdc.signal;
+import core.thread : Thread;
+import core.time : msecs;
 
 import std.algorithm.iteration;
 import std.array;
@@ -1652,7 +1654,14 @@ bool executeRepositoryMetadata(CatalogBackend backend, string repositoryRoot,
 	if (result.state != OperationState.completed)
 	{
 		if (result.state == OperationState.cancelled)
-            errorLine("Catalog metadata operation cancelled.");
+		{
+			if (result.changesCommitted)
+				errorLine("Catalog metadata operation cancelled; completed "
+					~ "batch(es) were committed.");
+			else
+				errorLine("Catalog metadata operation cancelled; no changes "
+					~ "were committed.");
+		}
 		else
 			errorLine("Catalog metadata operation failed: ", result.error);
 		return false;
@@ -1675,7 +1684,6 @@ bool executeRepositoryMetadata(CatalogBackend backend, string repositoryRoot,
  */
 OperationControl cliOperationControl(string label, string detail = "")
 {
-	prepareOperationOutput(label, detail);
 	OperationControl control;
 	SysTime lastVerboseProgress;
 	bool haveVerboseProgress;
@@ -1688,13 +1696,31 @@ OperationControl cliOperationControl(string label, string detail = "")
 			control.requestCancellation();
 		if (isVerboseOutputs())
 		{
-			if (event.state == OperationState.running)
+			if (event.state == OperationState.running
+				|| event.state == OperationState.cancelling
+				|| event.state == OperationState.paused)
 				printVerboseOperationProgress(label, event,
 					lastVerboseProgress, haveVerboseProgress);
 		}
-		else if (event.state == OperationState.running)
+		else if (event.state == OperationState.running
+			|| event.state == OperationState.cancelling
+			|| event.state == OperationState.paused)
 			printOperationProgress(label, event);
 	});
+	auto cancellationWatcher = new Thread({
+		while (!control.cancellationRequested)
+		{
+			if (atomicLoad(gotCtrlC))
+			{
+				control.requestCancellation();
+				return;
+			}
+			Thread.sleep(100.msecs);
+		}
+	});
+	cancellationWatcher.isDaemon = true;
+	cancellationWatcher.start();
+	prepareOperationOutput(label, detail, control);
 	return control;
 }
 

@@ -211,7 +211,10 @@ cache, and flag details. Long-running operations print the operation and
 target once, followed by compact phase, count, elapsed-time, and path updates.
 On a terminal the progress line is rewritten in place and colored; redirected
 output emits timestamped records every few seconds, and a heartbeat marks long
-gaps without progress callbacks. `--verbose` prints one-second records with rates
+gaps without progress callbacks. After the first Ctrl-C the line changes to
+`cancelling` and keeps showing the active phase and byte/count progress; the
+final message states whether completed batches were committed. A second Ctrl-C
+terminates immediately. `--verbose` prints one-second records with rates
 and includes the full error trace on failure. `NO_COLOR` and `TERM=dumb` disable
 color; `CLICOLOR_FORCE=1` forces it. Query commands include indexed archive
 members:
