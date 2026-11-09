@@ -18,6 +18,7 @@ import std.process;
 import std.range;
 
 import core.thread : Thread;
+import core.atomic : atomicLoad;
 import core.sync.mutex : Mutex;
 
 import dosierskanilo;
@@ -945,6 +946,9 @@ private __gshared OperationProgress lastOperationEvent;
 /// True when `lastOperationEvent` holds a valid event.
 private __gshared bool haveLastOperationEvent;
 
+/** Operation control used by the heartbeat to surface cancellation. */
+private __gshared OperationControl activeOperationControl;
+
 /** Initialize the shared operation-state mutex. */
 shared static this()
 {
@@ -1133,11 +1137,15 @@ private string formatTimestamp(SysTime now)
  * Params:
  *   label = Primary operation label shown in the header.
  *   detail = Optional secondary context shown in the header.
+ *   control = Active operation control, used to surface cancellation even
+ *       when the operation emits no further progress events.
  */
-void prepareOperationOutput(string label, string detail = "")
+void prepareOperationOutput(string label, string detail = "",
+    OperationControl control = null)
 {
     operationContextLabel = label;
     operationContextDetail = detail;
+    activeOperationControl = control;
     operationHeaderPrinted = false;
     operationStartedAt = Clock.currTime;
     lastOperationProgress = SysTime.init;
@@ -1202,17 +1210,24 @@ private void printOperationHeartbeat(uint generation)
     }
 
     const auto now = Clock.currTime;
-    if (lastEventTime != SysTime.init
+    const auto control = activeOperationControl;
+    const bool cancelling = control !is null && control.cancellationRequested;
+    if (!cancelling && lastEventTime != SysTime.init
         && now - lastEventTime < dur!"seconds"(3))
         return;
+    if (cancelling)
+    {
+        event.state = OperationState.cancelling;
+        event.message = "Cancellation requested; waiting for current work to stop.";
+    }
 
     const auto elapsed = operationStartedAt == SysTime.init
         ? Duration.zero : now - operationStartedAt;
     const bool tty = stdoutIsTerminal();
     if (!haveEvent)
     {
-        auto line = format("waiting for first progress update  %s",
-            formatElapsed(elapsed));
+        auto line = format("%swaiting for first progress update  %s",
+            cancelling ? "cancelling  " : "", formatElapsed(elapsed));
         if (tty)
             logF("\r\x1b[K%s", line);
         else
@@ -1360,6 +1375,10 @@ string formatOperationProgressLine(OperationProgress event, size_t columns,
     }
 
     string prefix = progress.empty ? phase : phase ~ "  " ~ progress;
+    if (event.state == OperationState.cancelling)
+        prefix = "cancelling  " ~ prefix;
+    else if (event.state == OperationState.paused)
+        prefix = "paused  " ~ prefix;
     if (!timing.empty)
         prefix ~= "  " ~ timing;
 
@@ -1488,6 +1507,7 @@ void clearOperationProgress()
         logF("\r\x1b[K");
     operationProgressLineOpen = false;
     lastOperationPhase = "";
+    activeOperationControl = null;
     synchronized (operationStateMutex)
         operationHeartbeatActive = false;
 }
@@ -1524,6 +1544,12 @@ unittest
     auto veryNarrow = formatOperationProgressLine(event, 35, false,
         dur!"seconds"(12));
     assert(veryNarrow.length <= 35, veryNarrow);
+
+    event.state = OperationState.cancelling;
+    auto cancelled = formatOperationProgressLine(event, 100, false,
+        dur!"seconds"(12), true);
+    assert(cancelled.canFind("cancelling"), cancelled);
+    assert(cancelled.canFind("checksums"), cancelled);
 }
 
 @("formatOperationProgressLine shows unknown-total progress and paths")

@@ -9,6 +9,11 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- CLI operations now switch the progress line to `cancelling` immediately
+  after Ctrl-C and report whether a completed metadata batch was committed.
+  A watcher propagates the signal even when an operation is between progress
+  events.
+
 - Missing-file reconciliation no longer probes paths below unsupported
   network, FUSE, or autofs mount points. A stale mount could otherwise block
   the scan indefinitely at `checking missing files`.
