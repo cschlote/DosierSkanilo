@@ -7,28 +7,26 @@ user-visible changes are listed in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Current status (2026-11-10)
 
-- Version `26.15.1`; storage-neutral `CatalogBackend`, JSON v5, SQLite schema
+- Version `26.16.0`; storage-neutral `CatalogBackend`, JSON v5, SQLite schema
   v6, explicit JSON `CatalogDocument` sessions, shared operation API, member
   cache, recovery writer, and tag-driven release validation are implemented.
 - WP-09, WP-13, WP-14, and the persistence/document-session work are complete.
-- Backend verification: 243 tests, coverage 89.41 %, CLI checks and
-  `scripts/lint.sh` pass; CI is green on `main`, and `testing` mirrors the same
-  commit without deployments.
+- Backend verification: 243 tests, coverage 89.41 %, CLI checks,
+  `scripts/lint.sh`, and the Ddoc build pass locally; `testing` mirrors `main`
+  without deployments.
 - The read-only `status` command reports aggregate SQLite and JSON catalog
   statistics, including metadata coverage and storage sizes.
 - Documentation and Ddoc headers are complete: every documentable public,
   package, and private declaration has Ddoc (verified 2026-11-08).
-- The 2026-11-10 review is complete; its remediation is planned below and is
-  the release blocker for the next version.
+- The 2026-11-10 review remediation is complete and released as `26.16.0`.
 
 ## P0 — Review remediation for the next release
 
 Source: [`docs/reviews/2026-11-10-code-review.md`](docs/reviews/2026-11-10-code-review.md).
 
-Target: the next release after `26.15.1`. This is a backward-compatible
-bug-fix and robustness cycle; no public API is removed. Use `26.15.2` when the
-cycle contains only fixes, or `26.16.0` when a new option or observable
-behavior is added. Keep `27.0.0` separate.
+Target: `26.16.0` (completed review remediation). The cycle is
+backward-compatible; no public API was removed. Major `27.0.0` remains the next
+deliberate format break.
 
 Rules:
 
@@ -199,8 +197,8 @@ Rules:
 - [x] Re-run every targeted probe from the review and record the result in
       `docs/development/testing.md`.
 - [x] Full suite, CLI integration, lint, and the Ddoc build are green.
-- [x] `CHANGELOG.md` under `## Unreleased` covers every user-visible fix.
-- [ ] `VERSION` and all packaging metadata use the chosen patch/minor version.
+- [x] `CHANGELOG.md` documents `## Release 26.16.0` with every user-visible change.
+- [x] `VERSION` and all packaging metadata use `26.16.0`.
 - [ ] Re-run [`docs/RELEASE-CHECKLIST.md`](docs/RELEASE-CHECKLIST.md), including
       the paired GUI release.
 - [ ] Confirm the paired GUI release consumes the document-save/dry-run fixes,

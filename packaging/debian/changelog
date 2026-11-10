@@ -1,3 +1,11 @@
+dosierskanilo (26.16.0-1) unstable; urgency=medium
+
+  * Release DosierSkanilo 26.16.0 with the status command, archive and
+    filesystem safety hardening, WAL-safe backups, staged restore rollback,
+    JSON document conflict fixes, archive paging, and CLI progress fixes.
+
+ -- Carsten Schlote <schlote@vahanus.net>  Tue, 10 Nov 2026 00:00:00 +0000
+
 dosierskanilo (26.15.1-1) unstable; urgency=medium
 
   * Release DosierSkanilo 26.15.1 with advisory repository roots,
