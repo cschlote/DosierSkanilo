@@ -58,4 +58,4 @@ modules:
     sources:
       - type: archive
         url: https://github.com/cschlote/DosierSkanilo/archive/refs/tags/v26.16.0.tar.gz
-        sha256: SKIP
+        sha256: a77bf8bf3421b4bf471f6dd3e5ef376060dbe5d6639e1814be8f1204a55fdee9
