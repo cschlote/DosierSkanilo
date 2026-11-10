@@ -450,3 +450,26 @@ legacy scanner.
       tarball before publishing.
 - [ ] Re-run `DC=ldc2 ./scripts/test.sh` after the fixes; this review itself did
       not rerun the full suite.
+
+## Status update - 2026-11-10
+
+Reviewed against unreleased `main` at `a3a28dd` (`v26.15.1` plus 13 commits);
+full suite `222 passed`, `89.10 %` coverage, CLI checks and lint green.
+
+- All Critical and Major findings of this review remain fixed in the re-read
+  code (archive `--` option markers, JSON rescan metadata clearing, POSIX
+  backslash handling, non-BMP range bounds, analysis cursor bumps, torrent key
+  guards, JSON duplicate metadata merge, `!`-named containers).
+- M6 (git-less archives) and M7 (distribution recipes) are verified in the
+  current release: `VERSION` and all packing recipes are at `26.15.1`, the
+  Flatpak manifest is a real `dub build` recipe, and its `sha256`
+  (`91d7fe8d...`) matches the published `v26.15.1` tarball.
+- The open follow-ups from this review are covered by regression tests or were
+  superseded by later work. The malformed-torrent, POSIX-backslash, non-BMP,
+  cursor and packaging checks are present.
+- The later 2026-10-28 review's M3-M6 were partially regressed or only
+  partially fixed during the `26.13`-`26.15` refactors; the corrected status is
+  recorded in that review and in
+  [`2026-11-10-code-review.md`](2026-11-10-code-review.md).
+- New findings are concentrated in the archive-trust boundary and the new
+  backup/restore/document surfaces; see the 2026-11-10 report.

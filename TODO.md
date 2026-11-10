@@ -5,7 +5,7 @@ SQLite repository. Historical work-package records remain in
 [`docs/SQLITE-IMPLEMENTATION-PLAN.md`](docs/SQLITE-IMPLEMENTATION-PLAN.md);
 user-visible changes are listed in [`CHANGELOG.md`](CHANGELOG.md).
 
-## Current status (2026-11-08)
+## Current status (2026-11-10)
 
 - Version `26.15.1`; storage-neutral `CatalogBackend`, JSON v5, SQLite schema
   v6, explicit JSON `CatalogDocument` sessions, shared operation API, member
@@ -81,6 +81,11 @@ baseline, and the documentation no longer implies that old formats are readable.
 
 ## P1 — Catalog correctness and documentation follow-ups
 
+- [ ] Work through the open findings in
+      [`docs/reviews/2026-11-10-code-review.md`](docs/reviews/2026-11-10-code-review.md).
+      Start with the archive symlink exposure, WAL-safe `init --force`/`restore`
+      backups, document-save conflicts, restore rollback, and the optional
+      `file` dependency.
 - [ ] Fix `CatalogDocument.applyScan`/`applyAnalysis` for `request.dryRun`:
       currently the JSON adapter updates the in-memory buffer while leaving
       `modified()` false and the query index stale. Either reject dry-run on
