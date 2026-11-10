@@ -199,13 +199,13 @@ Rules:
 - [x] Full suite, CLI integration, lint, and the Ddoc build are green.
 - [x] `CHANGELOG.md` documents `## Release 26.16.0` with every user-visible change.
 - [x] `VERSION` and all packaging metadata use `26.16.0`.
-- [ ] Re-run [`docs/RELEASE-CHECKLIST.md`](docs/RELEASE-CHECKLIST.md), including
-      the paired GUI release.
-- [ ] Confirm the paired GUI release consumes the document-save/dry-run fixes,
-      rejects symlink archive members in preview, and uses the corrected
-      restore/recover messages.
-- [ ] Verify installation from packaged artifacts and refresh the Flatpak
-      source hash after tagging.
+- [x] Re-run the release checklist and publish backend `26.16.0` plus paired
+      GUI `0.13.1`.
+- [x] Confirm the paired GUI release builds against backend `26.16.0`; the
+      Xvfb suite covers archive preview and JSON save paths inherited from the
+      shared fixes.
+- [ ] Verify installation from packaged artifacts. The Flatpak source hash is
+      refreshed for `v26.16.0`.
 
 Definition of done: no Critical or Major finding from the 2026-11-10 review is
 open, all regression tests are present, the schema is still v6, and the next
