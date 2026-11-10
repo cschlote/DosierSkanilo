@@ -201,6 +201,9 @@ Rules:
 - [ ] `VERSION` and all packaging metadata use the chosen patch/minor version.
 - [ ] Re-run [`docs/RELEASE-CHECKLIST.md`](docs/RELEASE-CHECKLIST.md), including
       the paired GUI release.
+- [ ] Confirm the paired GUI release consumes the document-save/dry-run fixes,
+      rejects symlink archive members in preview, and uses the corrected
+      restore/recover messages.
 - [ ] Verify installation from packaged artifacts and refresh the Flatpak
       source hash after tagging.
 
