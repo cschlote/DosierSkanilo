@@ -935,37 +935,39 @@ RepositoryArchiveEntry[] listArchiveEntriesFromDatabase(ref Database db,
         ~ "ORDER BY relative_path", options.blobId))
         containerPaths ~= row.peek!string(0).idup;
 
-    string[] rangeConditions;
-    string[string] rangeStarts;
-    foreach (index, containerPath; containerPaths)
-    {
-        ParsedArchiveVirtualPath parsed;
-        try
-            parsed = parseArchiveVirtualPath(containerPath);
-        catch (Exception)
-            continue;
-        /* Stored reference paths are already in canonical display grammar. */
-        const prefix = containerPath ~ archivePathSeparator();
-        const startName = ":member_start_" ~ index.to!string;
-        const endName = ":member_end_" ~ index.to!string;
-        rangeConditions ~= "(f.relative_path >= " ~ startName
-            ~ " AND f.relative_path < " ~ endName ~ ")";
-        rangeStarts[startName] = prefix;
-        rangeStarts[endName] = prefix[0 .. $ - 1] ~ "0";
-    }
-    if (rangeConditions.length == 0)
+    if (containerPaths.length == 0 || options.limit == 0)
         return [];
 
-    RepositoryArchiveEntry[] allEntries;
-    bool[string] seenIdentity;
-    auto statement = db.prepare("SELECT f.id, f.relative_path, "
-        ~ "f.time_last_modified, b.id, b.file_size, b.md5, b.sha1, b.xxh64 "
-        ~ "FROM file_refs f JOIN blobs b ON b.id = f.blob_id WHERE ("
-        ~ rangeConditions.join(" OR ") ~ ") AND "
-        ~ isVirtualFileReferenceSql("f.relative_path")
-        ~ " ORDER BY f.relative_path");
-    foreach (name, value; rangeStarts)
-        statement.bind(name, value);
+    /* Container ranges live in a temporary table. This avoids two SQL bind
+     * variables per reference and lets SQLite apply the page limit after
+     * identity deduplication. */
+    db.execute("DROP TABLE IF EXISTS temp.archive_container_prefixes");
+    db.execute("CREATE TEMP TABLE archive_container_prefixes ("
+        ~ "prefix TEXT PRIMARY KEY, upper TEXT NOT NULL)");
+    scope (exit)
+        db.execute("DROP TABLE IF EXISTS temp.archive_container_prefixes");
+    auto insert = db.prepare("INSERT OR IGNORE INTO "
+        ~ "temp.archive_container_prefixes (prefix, upper) VALUES (?, ?)");
+    foreach (containerPath; containerPaths)
+    {
+        /* Stored reference paths are already in canonical display grammar. */
+        const prefix = containerPath ~ archivePathSeparator();
+        insert.inject(prefix, prefix[0 .. $ - 1] ~ "0");
+        insert.reset();
+    }
+
+    RepositoryArchiveEntry[] result;
+    auto statement = db.prepare(
+        "SELECT MIN(f.id), MIN(f.relative_path), f.time_last_modified, "
+        ~ "b.id, b.file_size, b.md5, b.sha1, b.xxh64, "
+        ~ "substr(f.relative_path, length(p.prefix) + 1) AS member_key "
+        ~ "FROM file_refs f JOIN blobs b ON b.id = f.blob_id "
+        ~ "JOIN temp.archive_container_prefixes p "
+        ~ "ON f.relative_path >= p.prefix AND f.relative_path < p.upper "
+        ~ "WHERE " ~ isVirtualFileReferenceSql("f.relative_path") ~ " "
+        ~ "GROUP BY member_key ORDER BY member_key LIMIT ? OFFSET ?");
+    statement.bind(1, cast(long) options.limit);
+    statement.bind(2, cast(long) options.offset);
     foreach (row; statement.execute())
     {
         const auto path = row.peek!string(1);
@@ -977,15 +979,10 @@ RepositoryArchiveEntry[] listArchiveEntriesFromDatabase(ref Database db,
         if (!parsed.isVirtual || !containerPaths.canFind(parentArchivePath(path)))
             continue;
         const auto layer = parsed.entries[$ - 1];
-        const auto identity = layer.relativePath ~ "\0"
-            ~ (layer.hasOccurrence ? layer.occurrence.to!string : "0");
-        if (identity in seenIdentity)
-            continue;
-        seenIdentity[identity] = true;
         RepositoryArchiveEntry entry;
         entry.id = row.peek!long(0);
         entry.containerBlobId = options.blobId;
-        entry.entryIndex = allEntries.length;
+        entry.entryIndex = options.offset + result.length;
         entry.occurrence = layer.hasOccurrence ? layer.occurrence : 0;
         entry.name = layer.relativePath;
         entry.relativePath = layer.relativePath;
@@ -997,13 +994,8 @@ RepositoryArchiveEntry[] listArchiveEntriesFromDatabase(ref Database db,
         entry.checkSums.sha1sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(6));
         entry.checkSums.xxh64sum_b64 = decodeBase64(row.peek!(Nullable!Blob)(7));
         entry.contentBlobId = row.peek!long(3);
-        allEntries ~= entry;
+        result ~= entry;
     }
-    const auto start = options.offset < allEntries.length
-        ? options.offset : allEntries.length;
-    const auto end = options.limit > allEntries.length - start
-        ? allEntries.length : start + options.limit;
-    auto result = allEntries[start .. end];
     return result;
 }
 
@@ -2733,4 +2725,34 @@ unittest
     statement.reset();
     statement.bind(":text", "missing");
     assert(statement.execute().oneValue!long == 0);
+}
+
+@("archive entry listing paginates deduplicated container references")
+unittest
+{
+    auto db = Database(":memory:");
+    migrate(db, "2026-01-01T00:00:00");
+    db.execute("INSERT INTO blobs (id, file_size) VALUES (1, 100), (2, 1), (3, 2)");
+    db.execute("INSERT INTO file_refs (id, blob_id, relative_path, exists_on_disk) "
+        ~ "VALUES (1, 1, 'archives/a.zip', 1), "
+        ~ "(2, 2, 'archives/a.zip!/x.txt', 1), "
+        ~ "(3, 3, 'archives/a.zip!/y.txt', 1), "
+        ~ "(4, 1, 'archives/b.zip', 1), "
+        ~ "(5, 2, 'archives/b.zip!/x.txt', 1)");
+
+    auto first = listArchiveEntriesFromDatabase(db,
+        RepositoryArchiveQuery(1, 0, 1));
+    assert(first.length == 1);
+    assert(first[0].name == "x.txt");
+    assert(first[0].entryIndex == 0);
+
+    auto second = listArchiveEntriesFromDatabase(db,
+        RepositoryArchiveQuery(1, 1, 1));
+    assert(second.length == 1);
+    assert(second[0].name == "y.txt");
+    assert(second[0].entryIndex == 1);
+
+    auto empty = listArchiveEntriesFromDatabase(db,
+        RepositoryArchiveQuery(1, 2, 1));
+    assert(empty.length == 0);
 }

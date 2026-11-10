@@ -31,26 +31,46 @@ import dosierskanilo.membercontentcache : MemberContentCancelledException,
     MemberContentLease;
 import dosierskanilo.memberextraction : ArchiveExtractionStep,
     extractArchiveMember;
+import dosierskanilo.metadata.mediainfosig : MediaInfoSig;
 import dosierskanilo.model.archivespec : ArchiveSpec;
 import dosierskanilo.model.checksums : CheckSums;
 import dosierskanilo.model.filespec : FileSpec;
 import dosierskanilo.model.namedbinaryblob : DATA_CLASS_VERSION3,
     DATA_CLASS_VERSION4, DATA_CLASS_VERSION5, NamedBinaryBlob, NamedBinaryBlobCatalog,
     deserializeDataClassJsonWrapperFile, serializeDataClassWrapperFile;
-import dosierskanilo.operationlease : TargetWriteLease;
+import dosierskanilo.operationlease : TargetCatalogReplacementLease,
+    TargetWriteLease;
 import dosierskanilo.repository.types : JsonImportOptions, RepositoryBlobPage,
     RepositoryBlobFlags, RepositoryDuplicateGroup, RepositoryInfo,
     RepositoryQueryOptions;
 import dosierskanilo.operationrunner;
 import dosierskanilo.service.jsonoperations : JsonAnalysisApplication,
     JsonScanApplication, analyzeJsonCatalogInto, commitJsonCatalog,
-    normalizeJsonCatalogPaths, scanJsonCatalogInto;
+    commitJsonCatalogUnderLease, normalizeJsonCatalogPaths,
+    scanJsonCatalogInto;
 import dosierskanilo.operations : AnalysisOperationRequest, MetadataOperationRequest,
     OperationControl, OperationErrorCode, OperationKind, OperationPhase,
     OperationProgress, OperationResult, OperationState, OperationStorageMode,
     OperationTarget,
     ScanOperationRequest;
 import dosierskanilo.service.jsonoperations : commitJsonCatalog;
+
+/** Build a cheap on-disk fingerprint for a JSON catalog file.
+ *
+ * Params:
+ *     path = Catalog file path.
+ * Returns: A `size:mtime` fingerprint, or an empty string when the file does
+ *     not exist.
+ */
+private string catalogFileFingerprint(string path)
+{
+    import std.file : exists, getSize, timeLastModified;
+
+    if (!exists(path))
+        return "";
+    return getSize(path).to!string ~ ":"
+        ~ timeLastModified(path).stdTime.to!string;
+}
 
 /**
  * One resolved catalog file reference and its relationship to the bound
@@ -167,6 +187,25 @@ private struct ArchiveMemberRows
     size_t[] sizeDescending;
 }
 
+/** Deep-copy a JSON catalog so an operation can be applied transactionally.
+ *
+ * Params:
+ *     source = Catalog to copy.
+ * Returns: A catalog whose blobs and mutable metadata are independent of the
+ *     source.
+ */
+private NamedBinaryBlobCatalog cloneCatalog(NamedBinaryBlobCatalog source)
+{
+    NamedBinaryBlob[] records;
+    records.reserve(source.dataArray.length);
+    foreach (blob; source.dataArray)
+        records ~= blob is null ? null : blob.dup();
+    auto result = NamedBinaryBlobCatalog(source.dataVersion, records);
+    result.mediaInfoVersion = source.mediaInfoVersion;
+    result.fileUtilityVersion = source.fileUtilityVersion;
+    return result;
+}
+
 /** JSON-backed catalog adapter for legacy and version-5 catalogs. */
 final class JsonCatalogBackend : CatalogBackend, CatalogStatusProvider
 {
@@ -183,6 +222,8 @@ private:
     string catalogLoadError;
     /// Whether `close` has been called on this backend.
     bool closed;
+    /// On-disk fingerprint captured when the catalog was loaded.
+    string loadFingerprint;
     /// Whether directory and file-reference queries can be served.
     bool treeQueriesAvailable;
     /// Whether at least one torrent lacks a persisted file list.
@@ -245,6 +286,7 @@ public:
             sourceRoot = backendTarget.filesystemRoot;
         }
         sourceToken = randomUUID().toString();
+        loadFingerprint = catalogFileFingerprint(backendTarget.catalogPath);
         try
             catalog = deserializeDataClassJsonWrapperFile(backendTarget.catalogPath);
         catch (Exception failure)
@@ -1015,8 +1057,15 @@ public:
             OperationTarget.jsonTarget(backendTarget.catalogPath));
         scope (exit)
             targetLease.release();
-        auto fresh = deserializeDataClassJsonWrapperFile(
-            backendTarget.catalogPath);
+        NamedBinaryBlobCatalog fresh;
+        try
+            fresh = deserializeDataClassJsonWrapperFile(
+                backendTarget.catalogPath);
+        catch (Exception failure)
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.backendFailure,
+                "Cannot read the catalog before updating the archive password: "
+                ~ failure.msg);
         const auto requestedPath = buildNormalizedPath(relativePath);
         size_t[] exact;
         size_t[] byName;
@@ -1051,7 +1100,7 @@ public:
                 "Filename is ambiguous in this catalog: " ~ relativePath);
         fresh.dataArray[matches[0]].archivePassword = password;
         try
-            serializeDataClassWrapperFile(backendTarget.catalogPath, fresh);
+            commitJsonCatalogUnderLease(backendTarget.catalogPath, fresh, null);
         catch (Exception failure)
             throw new CatalogBackendException(CatalogBackendErrorCode.backendFailure,
                 "Cannot write the archive password: " ~ failure.msg);
@@ -1182,6 +1231,10 @@ public:
         CatalogPageRequest page = CatalogPageRequest.init)
     {
         requireOpen();
+        if (page.limit == 0)
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.invalidCursor,
+                "Archive entry page limit must be greater than zero.");
         const auto token = contentId.adapterToken;
         auto entries = token in archiveEntriesByToken;
         if (entries is null)
@@ -1324,6 +1377,10 @@ public:
         CatalogPageRequest page = CatalogPageRequest.init)
     {
         requireOpen();
+        if (page.limit == 0)
+            throw new CatalogBackendException(
+                CatalogBackendErrorCode.invalidCursor,
+                "Torrent entry page limit must be greater than zero.");
         if (!capabilities().supportsTorrentEntryQueries)
             throw new CatalogBackendException(CatalogBackendErrorCode.unsupportedFeature,
                 "This JSON catalog does not contain torrent file-list details.");
@@ -2280,6 +2337,7 @@ private:
      */
     void reloadCatalog()
     {
+        loadFingerprint = catalogFileFingerprint(backendTarget.catalogPath);
         try
             catalog = deserializeDataClassJsonWrapperFile(backendTarget.catalogPath);
         catch (Exception failure)
@@ -2351,7 +2409,8 @@ private:
             target.checkSums = candidate.checkSums;
         if (target.fileType.length == 0)
             target.fileType = candidate.fileType;
-        if ((target.mediaInfoSig is null || target.mediaInfoSig.empty)
+        if ((target.mediaInfoSig is null
+                || !hasAnyMediaStream(target.mediaInfoSig))
             && candidate.mediaInfoSig !is null)
             target.mediaInfoSig = candidate.mediaInfoSig.dup;
         if (target.archiveSpecs is null && candidate.archiveSpecs !is null)
@@ -2552,6 +2611,37 @@ private:
     }
 
     /**
+     * Whether a media stream array contains a non-null entry.
+     *
+     * Params:
+     *     streams = Stream array to inspect.
+     * Returns: True when at least one stream reference is present.
+     */
+    private static bool anyStream(T)(T[] streams)
+    {
+        foreach (stream; streams)
+            if (stream !is null)
+                return true;
+        return false;
+    }
+
+    /**
+     * Whether a media signature contains at least one non-null stream.
+     *
+     * Params:
+     *     signature = Media signature to inspect; may be null.
+     * Returns: True when any image, video, audio, or text stream exists.
+     */
+    private static bool hasAnyMediaStream(MediaInfoSig signature)
+    {
+        return signature !is null
+            && (anyStream(signature.imageStreams)
+                || anyStream(signature.videoStreams)
+                || anyStream(signature.audioStreams)
+                || anyStream(signature.textStreams));
+    }
+
+    /**
      * Convert persisted media info into catalog media stream rows.
      *
      * Params:
@@ -2566,6 +2656,8 @@ private:
             return result;
         foreach (stream; blob.mediaInfoSig.imageStreams)
         {
+            if (stream is null)
+                continue;
             CatalogMediaStream item;
             item.kind = CatalogMediaKind.image;
             item.index = stream.index;
@@ -2576,6 +2668,8 @@ private:
         }
         foreach (stream; blob.mediaInfoSig.videoStreams)
         {
+            if (stream is null)
+                continue;
             CatalogMediaStream item;
             item.kind = CatalogMediaKind.video;
             item.index = stream.index;
@@ -2590,6 +2684,8 @@ private:
         }
         foreach (stream; blob.mediaInfoSig.audioStreams)
         {
+            if (stream is null)
+                continue;
             CatalogMediaStream item;
             item.kind = CatalogMediaKind.audio;
             item.index = stream.index;
@@ -2602,6 +2698,8 @@ private:
         }
         foreach (stream; blob.mediaInfoSig.textStreams)
         {
+            if (stream is null)
+                continue;
             CatalogMediaStream item;
             item.kind = CatalogMediaKind.text;
             item.index = stream.index;
@@ -2681,8 +2779,9 @@ private:
         mediaStatus.extractor = "mediaInfo";
         mediaStatus.state = blob.mediaInfoSig is null
             ? CatalogExtractorState.notRequested
-            : (blob.mediaInfoSig.empty ? CatalogExtractorState.empty
-                : CatalogExtractorState.completed);
+            : (hasAnyMediaStream(blob.mediaInfoSig)
+                ? CatalogExtractorState.completed
+                : CatalogExtractorState.empty);
         result.extractors ~= mediaStatus;
         CatalogExtractorStatus archiveStatus;
         archiveStatus.extractor = "archives";
@@ -3331,15 +3430,15 @@ private:
             ? CatalogReferenceAvailability.available
             : CatalogReferenceAvailability.unavailable;
         row.hasFileType = blob.fileType.length > 0;
-        row.hasMedia = blob.mediaInfoSig !is null && !blob.mediaInfoSig.empty;
+        row.hasMedia = hasAnyMediaStream(blob.mediaInfoSig);
         row.hasVideo = blob.mediaInfoSig !is null
-            && blob.mediaInfoSig.videoStreams.length > 0;
+            && anyStream(blob.mediaInfoSig.videoStreams);
         row.hasAudio = blob.mediaInfoSig !is null
-            && blob.mediaInfoSig.audioStreams.length > 0;
+            && anyStream(blob.mediaInfoSig.audioStreams);
         row.hasImage = blob.mediaInfoSig !is null
-            && blob.mediaInfoSig.imageStreams.length > 0;
+            && anyStream(blob.mediaInfoSig.imageStreams);
         row.hasText = blob.mediaInfoSig !is null
-            && blob.mediaInfoSig.textStreams.length > 0;
+            && anyStream(blob.mediaInfoSig.textStreams);
         row.hasArchive = blob.archiveIndexKnown || blob.archiveSpecs !is null;
         row.hasTorrent = blob.torrentInfo !is null;
         fileRows ~= row;
@@ -3593,16 +3692,16 @@ private:
         const prefix = directory.relativePath ~ "/";
         const start = lowerBoundPath(prefix);
         const end = lowerBoundPath(directory.relativePath ~ "0");
-        size_t count;
+        size_t immediateCount;
         ulong total;
         foreach (const index; start .. end)
         {
             auto file = fileRows[index];
-            if (matches(file, filter))
-            {
-                ++count;
-                total += file.size;
-            }
+            if (!matches(file, filter))
+                continue;
+            total += file.size;
+            if (file.directoryId == directory.id)
+                ++immediateCount;
         }
         if (filter.includeArchiveMembers)
             foreach (const index; start .. end)
@@ -3612,9 +3711,13 @@ private:
                     continue;
                 foreach (member; archiveMemberFiles(container))
                     if (matches(member, filter))
+                    {
                         total += member.size;
+                        if (container.directoryId == directory.id)
+                            ++immediateCount;
+                    }
             }
-        directory.fileCount = count;
+        directory.fileCount = immediateCount;
         directory.aggregateSize = total;
     }
 
@@ -4016,25 +4119,7 @@ private final class JsonCatalogDocument : CatalogDocument
     this(JsonCatalogBackend backend)
     {
         this.backend = backend;
-        loadedFingerprint = fingerprintFor(backend.backendTarget.catalogPath);
-    }
-
-    /**
-     * Build an on-disk fingerprint of a catalog file.
-     *
-     * Params:
-     *     path = Catalog file path.
-     * Returns: A `size:mtime` fingerprint, or an empty string when the file does
-     *     not exist.
-     */
-    private static string fingerprintFor(string path)
-    {
-        import std.file : exists, getSize, timeLastModified;
-
-        if (!exists(path))
-            return "";
-        return getSize(path).to!string ~ ":"
-            ~ timeLastModified(path).stdTime.to!string;
+        loadedFingerprint = backend.loadFingerprint;
     }
 
     /**
@@ -4193,7 +4278,8 @@ private final class JsonCatalogDocument : CatalogDocument
         result.state = OperationState.running;
         try
         {
-            const application = scanJsonCatalogInto(backend.catalog,
+            auto working = cloneCatalog(backend.catalog);
+            const application = scanJsonCatalogInto(working,
                 request.target.filesystemRoot, request.scanOptions,
                 request.metadataOptions, request.mergeDuplicates, control,
                 request.operationId);
@@ -4204,6 +4290,7 @@ private final class JsonCatalogDocument : CatalogDocument
                 ? OperationState.cancelled : OperationState.completed;
             if (!request.dryRun)
             {
+                backend.catalog = working;
                 dirty = true;
                 backend.rebuildIndex();
             }
@@ -4248,7 +4335,8 @@ private final class JsonCatalogDocument : CatalogDocument
             const auto baseRoot = backend.sourceRoot.length > 0
                 ? backend.sourceRoot
                 : dirName(backend.backendTarget.catalogPath);
-            const application = analyzeJsonCatalogInto(backend.catalog,
+            auto working = cloneCatalog(backend.catalog);
+            const application = analyzeJsonCatalogInto(working,
                 baseRoot, request.metadataOptions, request.options, control,
                 request.operationId);
             result.metadataSummary = application.metadataSummary;
@@ -4257,6 +4345,7 @@ private final class JsonCatalogDocument : CatalogDocument
                 ? OperationState.cancelled : OperationState.completed;
             if (!request.dryRun)
             {
+                backend.catalog = working;
                 dirty = true;
                 backend.rebuildIndex();
             }
@@ -4289,7 +4378,14 @@ private final class JsonCatalogDocument : CatalogDocument
         requireOpen();
         if (!dirty)
             return;
-        const current = fingerprintFor(backend.backendTarget.catalogPath);
+        /* Hold the replacement lease across the conflict check and the write so
+         * two document sessions cannot both pass the check. */
+        auto replacementLease = TargetCatalogReplacementLease.acquireJsonCatalog(
+            backend.backendTarget.catalogPath);
+        scope (exit)
+            replacementLease.release();
+        const current = catalogFileFingerprint(
+            backend.backendTarget.catalogPath);
         if (current != loadedFingerprint)
             throw new CatalogBackendException(
                 CatalogBackendErrorCode.writeConflict,
@@ -4299,9 +4395,11 @@ private final class JsonCatalogDocument : CatalogDocument
             : dirName(backend.backendTarget.catalogPath);
         normalizeJsonCatalogPaths(backend.catalog.dataArray, baseRoot,
             backend.catalog.dataVersion == DATA_CLASS_VERSION5);
-        commitJsonCatalog(backend.backendTarget.catalogPath, backend.catalog,
-            pretty);
-        loadedFingerprint = fingerprintFor(backend.backendTarget.catalogPath);
+        commitJsonCatalogUnderLease(backend.backendTarget.catalogPath,
+            backend.catalog, null, pretty);
+        loadedFingerprint = catalogFileFingerprint(
+            backend.backendTarget.catalogPath);
+        backend.loadFingerprint = loadedFingerprint;
         dirty = false;
         backend.rebuildIndex();
     }
@@ -4316,7 +4414,7 @@ private final class JsonCatalogDocument : CatalogDocument
     {
         requireOpen();
         backend.reloadCatalog();
-        loadedFingerprint = fingerprintFor(backend.backendTarget.catalogPath);
+        loadedFingerprint = backend.loadFingerprint;
         dirty = false;
     }
 
@@ -4418,6 +4516,50 @@ version (unittest)
             page.directories[0].fileCount.to!string);
         assert(page.directories[0].aggregateSize == 5,
             page.directories[0].aggregateSize.to!string);
+    }
+
+    @("JSON filtered directory counts use immediate files")
+    unittest
+    {
+        import std.datetime.systime : SysTime;
+        import dosierskanilo.model.namedbinaryblob :
+            serializeDataClassWrapperFile;
+
+        const token = randomUUID().toString();
+        const catalogPath = buildPath(tempDir(), "json-count-" ~ token ~ ".json");
+        scope (exit)
+            if (exists(catalogPath))
+                remove(catalogPath);
+        NamedBinaryBlobCatalog catalog;
+        catalog.dataVersion = DATA_CLASS_VERSION5;
+        catalog.dataArray = [
+            new NamedBinaryBlob("parent/one.txt", 1, SysTime(0)),
+            new NamedBinaryBlob("parent/child/two.txt", 2, SysTime(0)),
+            new NamedBinaryBlob("parent/child/three.txt", 3, SysTime(0))
+        ];
+        serializeDataClassWrapperFile(catalogPath, catalog);
+
+        auto backend = new JsonCatalogBackend(
+            OperationTarget.jsonTarget(catalogPath, tempDir()));
+        scope (exit)
+            backend.close();
+        CatalogPageRequest request;
+        request.limit = 10;
+        CatalogDirectoryQuery nested;
+        nested.filter.pathText = "two";
+        const nestedPage = backend.listDirectories(nested, request);
+        assert(nestedPage.directories.length == 1);
+        assert(nestedPage.directories[0].fileCount == 0,
+            "a matching nested file is not an immediate child");
+        assert(nestedPage.directories[0].aggregateSize == 2);
+
+        CatalogDirectoryQuery immediate;
+        immediate.filter.pathText = "parent";
+        const immediatePage = backend.listDirectories(immediate, request);
+        assert(immediatePage.directories.length == 1);
+        assert(immediatePage.directories[0].fileCount == 1,
+            "only parent/one.txt is an immediate child");
+        assert(immediatePage.directories[0].aggregateSize == 6);
     }
 
     @("JSON backend indexes and operates on the generated catalog without SQLite")
@@ -4602,6 +4744,23 @@ version (unittest)
                 foreach (spec; blob.fileSpecs)
                     if (spec !is null && baseName(spec.fileName) == passwordName)
                         assert(blob.archivePassword.length == 0);
+        }
+
+        /* A read failure is reported as a typed backend error and leaves the
+         * previous catalog file untouched. */
+        {
+            const auto saved = read(catalogPath);
+            scope (exit)
+                write(catalogPath, saved);
+            write(catalogPath, "not a catalog");
+            bool readFailureTyped;
+            try
+                backend.setArchivePassword(passwordName, "secret");
+            catch (CatalogBackendException failure)
+                readFailureTyped = failure.code
+                    == CatalogBackendErrorCode.backendFailure;
+            assert(readFailureTyped);
+            assert(read(catalogPath) == "not a catalog");
         }
         bool rejectedUnknownPasswordPath;
         try
@@ -5104,6 +5263,112 @@ unittest
     assert(rejected, "saving over an externally changed catalog must fail");
 }
 
+@("JSON document dry-run leaves buffer and index unchanged")
+unittest
+{
+    import dosierskanilo.model.filespec : FileSpec;
+    import dosierskanilo.model.namedbinaryblob : NamedBinaryBlobCatalog,
+        serializeDataClassWrapperFile;
+    import std.file : exists, mkdirRecurse, remove, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const root = buildPath(tempDir(), "json-document-dry-run-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    write(buildPath(root, "a.txt"), "alpha");
+    const catalogPath = buildPath(tempDir(), "json-document-dry-run-"
+        ~ randomUUID().toString() ~ ".json");
+    scope (exit)
+        if (exists(catalogPath))
+            remove(catalogPath);
+    auto blob = new NamedBinaryBlob([new FileSpec("a.txt", "")], 5);
+    NamedBinaryBlobCatalog catalog = NamedBinaryBlobCatalog(DATA_CLASS_VERSION5,
+        [blob]);
+    serializeDataClassWrapperFile(catalogPath, catalog);
+
+    auto backend = new JsonCatalogBackend(
+        OperationTarget.jsonTarget(catalogPath, root));
+    scope (exit)
+        backend.close();
+    auto document = backend.document();
+    const before = backend.listFiles(CatalogFileQuery.init).files.length;
+    assert(before == 1);
+
+    ScanOperationRequest request;
+    request.operationId = 1;
+    request.target = backend.target();
+    request.scanOptions.recursive = true;
+    request.dryRun = true;
+    assert(document.applyScan(request, new OperationControl()).state
+        == OperationState.completed);
+    assert(!document.modified());
+    assert(backend.listFiles(CatalogFileQuery.init).files.length == before,
+        "a dry-run must not update the live index");
+
+    write(buildPath(root, "b.txt"), "beta");
+    request.operationId = 2;
+    request.dryRun = false;
+    assert(document.applyScan(request, new OperationControl()).state
+        == OperationState.completed);
+    assert(document.modified());
+    assert(backend.listFiles(CatalogFileQuery.init).files.length
+        == before + 1);
+}
+
+@("JSON document save detects changes before document creation")
+unittest
+{
+    import dosierskanilo.model.filespec : FileSpec;
+    import dosierskanilo.model.namedbinaryblob : NamedBinaryBlobCatalog,
+        serializeDataClassWrapperFile;
+    import std.datetime.systime : Clock;
+    import std.file : exists, mkdirRecurse, remove, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const token = randomUUID().toString();
+    const root = buildPath(tempDir(), "json-save-race-" ~ token);
+    const catalogPath = root ~ ".json";
+    mkdirRecurse(root);
+    scope (exit)
+    {
+        if (exists(root))
+            rmdirRecurse(root);
+        if (exists(catalogPath))
+            remove(catalogPath);
+    }
+    write(buildPath(root, "a.txt"), "payload");
+    auto blob = new NamedBinaryBlob([new FileSpec("a.txt", "")], 7);
+    NamedBinaryBlobCatalog catalog = NamedBinaryBlobCatalog(DATA_CLASS_VERSION5,
+        [blob]);
+    serializeDataClassWrapperFile(catalogPath, catalog);
+
+    auto backend = new JsonCatalogBackend(
+        OperationTarget.jsonTarget(catalogPath, root));
+    scope (exit)
+        backend.close();
+
+    /* Change the file between backend load and the first document() call. */
+    write(catalogPath, "{\"dataVersion\":5,\"dataArray\":[]}");
+    auto document = backend.document();
+    AnalysisOperationRequest request;
+    request.operationId = 1;
+    request.target = backend.target();
+    assert(document.applyAnalysis(request, new OperationControl()).state
+        == OperationState.completed);
+    bool rejected;
+    try
+        document.save();
+    catch (CatalogBackendException failure)
+        rejected = failure.code == CatalogBackendErrorCode.writeConflict;
+    assert(rejected,
+        "the load-time fingerprint must survive until the first save");
+}
+
 @("JSON document save stores base-relative references and drops outside paths")
 unittest
 {
@@ -5281,4 +5546,78 @@ unittest
     assert(status.error.length > 0);
     assert(status.blobCount == 0);
     assert(!status.treeStatisticsAvailable);
+}
+
+@("JSON catalog tolerates null media stream entries")
+unittest
+{
+    import std.file : mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const root = buildPath(tempDir(), "json-null-media-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    write(buildPath(root, "a.txt"), "payload");
+    const catalogPath = buildPath(root, "catalog.json");
+    write(catalogPath, "{\"dataVersion\":5,\"dataArray\":[{"
+        ~ "\"fileSize\":7,\"fileSpecs\":[{\"fileName\":\"a.txt\"}],"
+        ~ "\"mediaInfoSig\":{\"imageStreams\":[],\"videoStreams\":[],"
+        ~ "\"audioStreams\":[null],\"textStreams\":[]}}]}");
+
+    auto backend = new JsonCatalogBackend(
+        OperationTarget.jsonTarget(catalogPath, root));
+    scope (exit)
+        backend.close();
+    const page = backend.listFiles(CatalogFileQuery.init);
+    assert(page.files.length == 1);
+    assert(!page.files[0].hasMedia);
+    assert(!page.files[0].hasAudio);
+    const status = backend.catalogStatus();
+    assert(status.blobCount == 1);
+}
+
+@("JSON empty detail pages reject a zero limit")
+unittest
+{
+    import dosierskanilo.model.filespec : FileSpec;
+    import dosierskanilo.model.namedbinaryblob : NamedBinaryBlobCatalog,
+        serializeDataClassWrapperFile;
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const root = buildPath(tempDir(), "json-zero-page-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    write(buildPath(root, "a.txt"), "payload");
+    const catalogPath = buildPath(root, "catalog.json");
+    NamedBinaryBlobCatalog catalog = NamedBinaryBlobCatalog(DATA_CLASS_VERSION5,
+        [new NamedBinaryBlob([new FileSpec("a.txt", "")], 7)]);
+    serializeDataClassWrapperFile(catalogPath, catalog);
+    auto backend = new JsonCatalogBackend(
+        OperationTarget.jsonTarget(catalogPath, root));
+    scope (exit)
+        backend.close();
+    const contentId = backend.listFiles(CatalogFileQuery.init).files[0].contentId;
+    CatalogPageRequest zero;
+    zero.limit = 0;
+    bool archiveRejected;
+    try
+        backend.listArchiveEntries(contentId, zero);
+    catch (CatalogBackendException failure)
+        archiveRejected = failure.code == CatalogBackendErrorCode.invalidCursor;
+    assert(archiveRejected);
+    bool torrentRejected;
+    try
+        backend.listTorrentEntries(contentId, zero);
+    catch (CatalogBackendException failure)
+        torrentRejected = failure.code == CatalogBackendErrorCode.invalidCursor;
+    assert(torrentRejected);
 }

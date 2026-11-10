@@ -10,7 +10,7 @@ import std.algorithm : any, filter;
 import std.array : array;
 import std.conv : to;
 import std.file : exists, getcwd, remove;
-import std.path : buildPath;
+import std.path : absolutePath, buildPath;
 import std.process : Config, execute, executeShell;
 import std.string : empty, format, indexOf, replace, split, splitLines,
     startsWith, strip;
@@ -65,7 +65,7 @@ class FileArchiveRar : FileArchive
         }
 
         auto passwordOption = password.length > 0 ? "-p" ~ password : "-p-";
-        auto rc = execute(["unrar", "lt", passwordOption, this.fileName],
+        auto rc = execute(["unrar", "lt", passwordOption, absolutePath(this.fileName)],
             null, Config.stderrPassThrough);
         /* unrar exits with 11 for a wrong password even when the diagnostic
          * goes to stderr and stdout is empty. */
@@ -157,7 +157,7 @@ class FileArchiveRar : FileArchive
     override string[] getEntries(string password = "")
     {
         auto passwordOption = password.length > 0 ? "-p" ~ password : "-p-";
-        auto rc = execute(["unrar", "lb", passwordOption, this.fileName],
+        auto rc = execute(["unrar", "lb", passwordOption, absolutePath(this.fileName)],
             null, Config.stderrPassThrough);
         if (isArchivePasswordFailure(rc.output) || rc.status == 11)
             throw new ArchivePasswordRequiredException(rc.output.length > 0
@@ -242,7 +242,7 @@ unittest
 unittest
 {
     import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
-    import std.path : buildPath;
+    import std.path : absolutePath, buildPath;
     import std.process : Config, execute, executeShell;
     import std.uuid : randomUUID;
 
@@ -271,7 +271,7 @@ unittest
 unittest
 {
     import std.file : exists, mkdirRecurse, remove, rmdirRecurse, tempDir;
-    import std.path : buildPath;
+    import std.path : absolutePath, buildPath;
     import std.process : Config, execute, executeShell;
     import std.uuid : randomUUID;
 

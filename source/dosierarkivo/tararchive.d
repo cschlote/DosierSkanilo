@@ -11,7 +11,7 @@ import std.algorithm.searching : canFind;
 import std.array : array;
 import std.conv : to;
 import std.file : exists, getcwd, remove;
-import std.path : buildPath;
+import std.path : absolutePath, buildPath;
 import std.process : execute, executeShell;
 import std.stdio : write;
 import std.string : empty, format, split;
@@ -46,7 +46,7 @@ class FileArchiveTar : FileArchive
      */
     override string[] getEntries(string password = "")
     {
-        auto rc = execute(["tar", "-tf", this.fileName]);
+        auto rc = execute(["tar", "-tf", absolutePath(this.fileName)]);
         if (rc.status != 0)
             throw new ArchiveToolException(rc.output);
         return rc.output.split("\n").filter!(a => !a.empty).array;
@@ -146,7 +146,7 @@ unittest
 unittest
 {
     import std.file : exists, mkdirRecurse, readText, rmdirRecurse, tempDir, write;
-    import std.path : buildPath;
+    import std.path : absolutePath, buildPath;
     import std.process : execute;
     import std.uuid : randomUUID;
 

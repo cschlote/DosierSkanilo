@@ -24,6 +24,7 @@ import dosierarkivo.archive : ArchivePasswordCallback,
     archivePathSeparator, escapeArchiveVirtualPath;
 import dosierskanilo.model.namedbinaryblob;
 import dosierskanilo.membercontentcache : MemberContentCache;
+import dosierskanilo.operations : OperationCallbackException;
 import dosierskanilo.options;
 import dosierskanilo.progress;
 
@@ -215,9 +216,12 @@ FileSpec[] canonicalizeFileSpecs(bool usesArchiveVirtualGrammar, FileSpec[] spec
     FileSpec[] result;
     foreach (spec; specs)
     {
-        /* Virtual member references already use the full grammar and must
-         * not be re-escaped. */
-        if (spec.fileName.canFind(archivePathSeparator()))
+        /* Virtual member references use the full grammar and must not be
+         * re-escaped. A physical name can legitimately contain the `!/`
+         * sequence (for example `dir!/sample!.zip`), so only treat it as a
+         * virtual reference when no such file exists on disk. */
+        if (spec.fileName.canFind(archivePathSeparator())
+            && !exists(spec.fileName))
         {
             result ~= spec;
             continue;
@@ -324,26 +328,26 @@ bool runScannerJobs(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCt
 
                     printProgress(i, dynObjectArray.length, obj.getFirstFileName);
 
+                    void runJob(void delegate() job, string kind)
+                    {
+                        try
+                            job();
+                        catch (OperationCallbackException failure)
+                            throw failure;
+                        catch (Exception failure)
+                            logFLine("%s job failed for '%s': %s", kind,
+                                obj.getFirstFileName, failure.msg);
+                    }
                     if (obj.task_hashme)
-                    {
-                        obj.task_hashme.workForce();
-                    }
+                        runJob({ obj.task_hashme.workForce(); }, "checksum");
                     if (obj.task_filetype)
-                    {
-                        obj.task_filetype.workForce();
-                    }
+                        runJob({ obj.task_filetype.workForce(); }, "file type");
                     if (obj.task_mediasig)
-                    {
-                        obj.task_mediasig.workForce();
-                    }
+                        runJob({ obj.task_mediasig.workForce(); }, "media info");
                     if (obj.task_archiveScan)
-                    {
-                        obj.task_archiveScan.workForce();
-                    }
+                        runJob({ obj.task_archiveScan.workForce(); }, "archive");
                     if (obj.task_torrentscan)
-                    {
-                        obj.task_torrentscan.workForce();
-                    }
+                        runJob({ obj.task_torrentscan.workForce(); }, "torrent");
 
                     /* All jobs for this blob have been joined, so replacing the
                      * specs can no longer race with a worker. Re-escape so
@@ -551,6 +555,28 @@ unittest
     assert(objs[0].checkSums.hasDigests);
     assert(!objs[0].fileType.empty);
     assert(objs[0].mediaInfoSig !is null);
+}
+
+@("legacy write-back re-escapes literal !/ in physical names")
+unittest
+{
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const root = buildPath(tempDir(), "legacy-writeback-"
+        ~ randomUUID().toString());
+    mkdirRecurse(buildPath(root, "dir!"));
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    const physical = buildPath(root, "dir!", "sample!.zip");
+    write(physical, "payload");
+
+    FileSpec[] input = [new FileSpec(physical, SysTime(1_000_000))];
+    auto canonicalized = canonicalizeFileSpecs(true, input);
+    assert(canonicalized[0].fileName == escapeArchiveVirtualPath(physical),
+        canonicalized[0].fileName);
 }
 
 @("legacy write-back keeps canonical !! escaping for v5 grammar")

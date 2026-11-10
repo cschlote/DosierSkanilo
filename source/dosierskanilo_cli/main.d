@@ -489,7 +489,8 @@ bool executeCatalogRecovery(ArgsArray options)
 				continue;
 			const candidateName = baseName(entry.name);
 			if (candidateName.startsWith(stem ~ "-")
-				|| candidateName.startsWith(stem ~ jsonFileExtension ~ ".tmp-"))
+				|| candidateName.startsWith(stem ~ jsonFileExtension ~ ".tmp-")
+				|| candidateName.startsWith(name ~ ".before-restore-"))
 				candidates ~= entry.name;
 		}
 	}
@@ -513,7 +514,7 @@ bool executeCatalogRecovery(ArgsArray options)
 			errorMessage = ex.msg;
 		logFLine("%s %s", valid ? "valid  " : "invalid", candidate);
 		if (valid)
-			logLine("    entries: %s", entries);
+			logFLine("    entries: %s", entries);
 		else
 			logLine("    %s", errorMessage);
 	}
@@ -533,6 +534,12 @@ bool executeCatalogRecovery(ArgsArray options)
 	{
 		errorFLine("Recovery file is not a valid catalog: %s", ex.msg);
 		return false;
+	}
+
+	if (options.argDryRun)
+	{
+		logFLine("Dry run: would restore '%s' from '%s'.", catalog, restoreFrom);
+		return true;
 	}
 
 	if (!exists(dirName(catalog)))
@@ -746,8 +753,16 @@ bool executeRepositoryBackup(ArgsArray options)
  */
 bool executeRepositoryRestore(ArgsArray options)
 {
-	auto repository = Repository.restore(options.argRepositoryPath,
-		options.argRestoreInput, options.argForce);
+	auto rootPath = options.argRepositoryPath.empty
+		? "." : options.argRepositoryPath;
+	/* SQLite commands discover the nearest repository from the current
+	 * directory. Restore must use the same root instead of creating a nested
+	 * repository below the caller's working directory. */
+	const discoveredRoot = Repository.findRoot(rootPath);
+	if (discoveredRoot.length > 0)
+		rootPath = discoveredRoot;
+	auto repository = Repository.restore(rootPath, options.argRestoreInput,
+		options.argForce);
 	scope (exit)
 		repository.close();
 	logFLine("Restored repository at '%s' from '%s'.", repository.rootPath,
@@ -1862,6 +1877,8 @@ OperationControl cliOperationControl(string label, string detail = "")
 	auto cancellationWatcher = new Thread({
 		while (!control.cancellationRequested)
 		{
+			if (!operationOutputActive())
+				return;
 			if (atomicLoad(gotCtrlC))
 			{
 				control.requestCancellation();
@@ -1870,9 +1887,9 @@ OperationControl cliOperationControl(string label, string detail = "")
 			Thread.sleep(100.msecs);
 		}
 	});
+	prepareOperationOutput(label, detail, control);
 	cancellationWatcher.isDaemon = true;
 	cancellationWatcher.start();
-	prepareOperationOutput(label, detail, control);
 	return control;
 }
 

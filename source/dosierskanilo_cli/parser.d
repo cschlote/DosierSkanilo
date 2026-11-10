@@ -388,6 +388,11 @@ ParsedCommandLine parseCommandLine(string[] args)
         errorLine("--input is available only with restore.");
         return ParsedCommandLine(ParseStatus.error, CliCommand.noCommand, argsarray);
     }
+    if (!argsarray.argRestoreFrom.empty && command != "recover")
+    {
+        errorLine("--restore-from is available only with recover.");
+        return ParsedCommandLine(ParseStatus.error, CliCommand.noCommand, argsarray);
+    }
     if (!argsarray.argExportJSON.empty && command != "export"
         && command != "backup")
     {
@@ -404,6 +409,10 @@ ParsedCommandLine parseCommandLine(string[] args)
             errorLine("recover requires a JSON catalog path.");
             return ParsedCommandLine(ParseStatus.error, CliCommand.noCommand, argsarray);
         }
+        if (!validateRecoveryOptions(argsarray))
+            return ParsedCommandLine(ParseStatus.error, CliCommand.noCommand, argsarray);
+        setVerboseOutputs(argsarray.argVerboseOutputs);
+        setVerboseStderr(argsarray.argVerboseOutputs);
         return ParsedCommandLine(ParseStatus.run, CliCommand.recover, argsarray);
     }
 
@@ -428,6 +437,7 @@ ParsedCommandLine parseCommandLine(string[] args)
     }
 
     setVerboseOutputs(argsarray.argVerboseOutputs);
+    setVerboseStderr(argsarray.argVerboseOutputs);
     if (command.empty)
     {
         errorLine("Choose a command. Use --help to see available commands.");
@@ -450,6 +460,47 @@ ParsedCommandLine parseCommandLine(string[] args)
     if (!validateRepositoryOptions(command, argsarray))
         return ParsedCommandLine(ParseStatus.error, CliCommand.noCommand, argsarray);
     return ParsedCommandLine(ParseStatus.run, commandToCliCommand(command), argsarray);
+}
+
+/** Validate options accepted by the JSON recovery command.
+ *
+ * Recovery is a narrow operation: it lists recovery files and optionally
+ * replaces the catalog with one selected source. Open/scan/query/metadata
+ * options must not be silently ignored.
+ *
+ * Params:
+ *     options = Parsed command-line options for `recover`.
+ * Returns: `true` when the option combination is valid, `false` after logging
+ *     a usage error.
+ */
+private bool validateRecoveryOptions(ArgsArray options)
+{
+    if (options.argAll || !options.argExportJSON.empty
+        || !options.argRestoreInput.empty || !options.argExportPath.empty
+        || !options.argBaseDir.empty || options.argInitRepository
+        || options.argScanFiles || options.argRunMetadata
+        || options.argRunAnalysis || options.argShowInfo
+        || options.argShowStatus || options.argList || options.argDuplicates
+        || options.argForce || options.argRecursive || options.argPickHidden
+        || options.argDoChecksums || options.argDoFileTypes
+        || options.argDoMediaSig || options.argRescanMediaSig
+        || options.argScanArchives != 0 || options.argScanTorrents
+        || !options.argArchiveCacheDir.empty || options.argArchiveCacheMiB != 0
+        || options.argNumberOfThreads != 1 || options.argReplaceCatalog
+        || options.argPrettyJSON || options.argMergeDuplicates
+        || !options.argQueryText.empty || options.argQueryLimit != 50
+        || options.argQueryOffset != 0 || options.argQueryVideo
+        || options.argQueryAudio || options.argQueryImage
+        || options.argQueryTextStream || options.argQueryFileType
+        || options.argQueryArchive || options.argQueryTorrent
+        || options.argDuplicateLimit != 100
+        || options.argOutputFormat != "table")
+    {
+        errorLine("recover supports only --restore-from, --dry-run, "
+            ~ "--no-input, and --verbose.");
+        return false;
+    }
+    return true;
 }
 
 /** Map a recognized command token to its typed action.
@@ -656,6 +707,13 @@ unittest
         "--text=needle"]);
     assert(invalidStatus.status == ParseStatus.error);
 
+    auto invalidPrettyList = parseCommandLine(["program", "list", "./test",
+        "--pretty"]);
+    assert(invalidPrettyList.status == ParseStatus.error);
+    auto invalidRestoreFromScan = parseCommandLine(["program", "scan",
+        "./test", "--restore-from", "./backup.json"]);
+    assert(invalidRestoreFromScan.status == ParseStatus.error);
+
     auto list = parseCommandLine(["program", "list", "./test", "--text=needle",
         "--limit=10", "--offset=1", "--video", "--format=json"]);
     assert(list.status == ParseStatus.run && list.command == CliCommand.list);
@@ -704,6 +762,19 @@ unittest
     assert(recovery.command == CliCommand.recover);
     assert(recovery.options.argJSONFile == "./test/catalog.json");
     assert(recovery.options.argRestoreFrom == "./test/backup.json");
+
+    auto recoveryDryRun = parseCommandLine(["program", "recover",
+        "./test/catalog.json", "--restore-from", "./test/backup.json",
+        "--dry-run"]);
+    assert(recoveryDryRun.status == ParseStatus.run);
+    assert(recoveryDryRun.options.argDryRun);
+
+    auto invalidRecovery = parseCommandLine(["program", "recover",
+        "./test/catalog.json", "--text=needle"]);
+    assert(invalidRecovery.status == ParseStatus.error);
+    auto invalidRecoveryMetadata = parseCommandLine(["program", "recover",
+        "./test/catalog.json", "--checksums"]);
+    assert(invalidRecoveryMetadata.status == ParseStatus.error);
 
     auto jsonScanMergeDryRun = parseCommandLine(["program", "scan",
         "./test", "--json", "./test/out.json", "--checksums",
@@ -1173,21 +1244,34 @@ private string formatTimestamp(SysTime now)
 void prepareOperationOutput(string label, string detail = "",
     OperationControl control = null)
 {
-    operationContextLabel = label;
-    operationContextDetail = detail;
-    activeOperationControl = control;
-    operationHeaderPrinted = false;
-    operationStartedAt = Clock.currTime;
-    lastOperationProgress = SysTime.init;
-    lastOperationPhase = "";
-    operationProgressLineOpen = false;
+    uint generation;
     synchronized (operationStateMutex)
     {
+        operationContextLabel = label;
+        operationContextDetail = detail;
+        activeOperationControl = control;
+        operationHeaderPrinted = false;
+        operationStartedAt = Clock.currTime;
+        lastOperationProgress = SysTime.init;
+        lastOperationPhase = "";
+        operationProgressLineOpen = false;
         operationHeartbeatGeneration++;
         operationHeartbeatActive = true;
         haveLastOperationEvent = false;
+        generation = operationHeartbeatGeneration;
     }
-    startOperationHeartbeat(operationHeartbeatGeneration);
+    startOperationHeartbeat(generation);
+}
+
+/** Whether an operation currently owns the progress output.
+ *
+ * Returns: `true` while the heartbeat and progress line belong to an active
+ *     operation.
+ */
+bool operationOutputActive()
+{
+    synchronized (operationStateMutex)
+        return operationHeartbeatActive;
 }
 
 /** Start the daemon thread that emits periodic heartbeat output.
@@ -1229,6 +1313,8 @@ private void printOperationHeartbeat(uint generation)
     OperationProgress event;
     bool haveEvent;
     SysTime lastEventTime;
+    SysTime startedAt;
+    OperationControl control;
     synchronized (operationStateMutex)
     {
         if (!operationHeartbeatActive
@@ -1237,10 +1323,12 @@ private void printOperationHeartbeat(uint generation)
         event = lastOperationEvent;
         haveEvent = haveLastOperationEvent;
         lastEventTime = lastOperationProgress;
+        startedAt = operationStartedAt;
+        control = activeOperationControl;
     }
+    ensureOperationHeader();
 
     const auto now = Clock.currTime;
-    const auto control = activeOperationControl;
     const bool cancelling = control !is null && control.cancellationRequested;
     if (!cancelling && lastEventTime != SysTime.init
         && now - lastEventTime < dur!"seconds"(3))
@@ -1251,27 +1339,29 @@ private void printOperationHeartbeat(uint generation)
         event.message = "Cancellation requested; waiting for current work to stop.";
     }
 
-    const auto elapsed = operationStartedAt == SysTime.init
-        ? Duration.zero : now - operationStartedAt;
+    const auto elapsed = startedAt == SysTime.init
+        ? Duration.zero : now - startedAt;
     const bool tty = stdoutIsTerminal();
+    string line;
     if (!haveEvent)
     {
-        auto line = format("%swaiting for first progress update  %s",
+        line = format("%swaiting for first progress update  %s",
             cancelling ? "cancelling  " : "", formatElapsed(elapsed));
-        if (tty)
-            logF("\r\x1b[K%s", line);
-        else
-            logFLine("%s%s", formatTimestamp(now), line);
-        return;
     }
-
-    auto line = formatOperationProgressLine(event, terminalColumns(),
-        tty && supportsColor(), elapsed, true);
-    if (lastEventTime != SysTime.init
-        && now - lastEventTime > dur!"seconds"(5))
-        line = "waiting  " ~ line;
-    if (tty)
+    else
+    {
+        line = formatOperationProgressLine(event, terminalColumns(),
+            tty && supportsColor(), elapsed, true);
+        if (lastEventTime != SysTime.init
+            && now - lastEventTime > dur!"seconds"(5))
+            line = "waiting  " ~ line;
+    }
+    if (tty && !isVerboseOutputs())
+    {
         logF("\r\x1b[K%s", line);
+        synchronized (operationStateMutex)
+            operationProgressLineOpen = true;
+    }
     else
         logFLine("%s%s", formatTimestamp(now), line);
 }
@@ -1452,18 +1542,26 @@ void printOperationProgress(string label, OperationProgress event)
     ensureOperationHeader();
     const auto phase = event.phase.to!string;
     const auto now = Clock.currTime;
-    const bool phaseChanged = phase != lastOperationPhase;
     const bool tty = stdoutIsTerminal();
+    bool phaseChanged;
+    SysTime previous;
+    SysTime startedAt;
+    synchronized (operationStateMutex)
+    {
+        phaseChanged = phase != lastOperationPhase;
+        previous = lastOperationProgress;
+        startedAt = operationStartedAt;
+    }
 
-    if (!phaseChanged && lastOperationProgress != SysTime.init)
+    if (!phaseChanged && previous != SysTime.init)
     {
         const auto interval = tty ? dur!"msecs"(100) : dur!"seconds"(5);
-        if (now - lastOperationProgress < interval)
+        if (now - previous < interval)
             return;
     }
 
-    const auto elapsed = operationStartedAt == SysTime.init
-        ? Duration.zero : now - operationStartedAt;
+    const auto elapsed = startedAt == SysTime.init
+        ? Duration.zero : now - startedAt;
     auto line = formatOperationProgressLine(event, terminalColumns(),
         tty && supportsColor(), elapsed, false);
     if (tty)
@@ -1471,11 +1569,11 @@ void printOperationProgress(string label, OperationProgress event)
     else
         logFLine("%s%s", formatTimestamp(now), line);
 
-    operationProgressLineOpen = tty;
-    lastOperationPhase = phase;
-    lastOperationProgress = now;
     synchronized (operationStateMutex)
     {
+        operationProgressLineOpen = tty;
+        lastOperationPhase = phase;
+        lastOperationProgress = now;
         lastOperationEvent = event;
         haveLastOperationEvent = true;
     }
@@ -1501,28 +1599,37 @@ void printVerboseOperationProgress(string label, OperationProgress event,
     ensureOperationHeader();
     const auto phase = event.phase.to!string;
     const auto now = Clock.currTime;
-    const bool phaseChanged = phase != lastOperationPhase;
+    bool phaseChanged;
+    bool lineOpen;
+    SysTime startedAt;
+    synchronized (operationStateMutex)
+    {
+        phaseChanged = phase != lastOperationPhase;
+        lineOpen = operationProgressLineOpen;
+        startedAt = operationStartedAt;
+    }
     if (haveProgress && !phaseChanged
         && now - lastProgress <= dur!"seconds"(1))
         return;
 
-    if (operationProgressLineOpen)
+    if (lineOpen)
     {
         logF("\r\x1b[K");
-        operationProgressLineOpen = false;
+        synchronized (operationStateMutex)
+            operationProgressLineOpen = false;
     }
 
-    const auto elapsed = operationStartedAt == SysTime.init
-        ? Duration.zero : now - operationStartedAt;
+    const auto elapsed = startedAt == SysTime.init
+        ? Duration.zero : now - startedAt;
     auto line = formatOperationProgressLine(event, terminalColumns(),
         supportsColor(), elapsed, true);
     logFLine("%s%s", formatTimestamp(now), line);
     lastProgress = now;
     haveProgress = true;
-    lastOperationPhase = phase;
-    lastOperationProgress = now;
     synchronized (operationStateMutex)
     {
+        lastOperationPhase = phase;
+        lastOperationProgress = now;
         lastOperationEvent = event;
         haveLastOperationEvent = true;
     }
@@ -1533,13 +1640,17 @@ void clearOperationProgress()
 {
     import dosierskanilo.logging : logF;
 
-    if (operationProgressLineOpen)
-        logF("\r\x1b[K");
-    operationProgressLineOpen = false;
-    lastOperationPhase = "";
-    activeOperationControl = null;
+    bool lineOpen;
     synchronized (operationStateMutex)
+    {
+        lineOpen = operationProgressLineOpen;
+        operationProgressLineOpen = false;
+        lastOperationPhase = "";
+        activeOperationControl = null;
         operationHeartbeatActive = false;
+    }
+    if (lineOpen)
+        logF("\r\x1b[K");
 }
 
 @("formatOperationProgressLine reports phase, counts, timing, and path")
@@ -1657,4 +1768,15 @@ unittest
     printProgress(100, 1000, "test/dummy-text-file.txt");
     printProgress(1000, 1000, "test/dummy-text-file.txt");
     logLine("");
+}
+
+@("operation output tracks the active operation")
+unittest
+{
+    clearOperationProgress();
+    assert(!operationOutputActive());
+    prepareOperationOutput("test operation", "target");
+    assert(operationOutputActive());
+    clearOperationProgress();
+    assert(!operationOutputActive());
 }

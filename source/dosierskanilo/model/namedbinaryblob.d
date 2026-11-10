@@ -560,13 +560,17 @@ class NamedBinaryBlob
 	{
 		if (spec is null || spec.fileName.length == 0)
 			return "";
+		/* Legacy v3 names may contain literal `!` characters and are not
+		 * written in the archive virtual grammar. */
+		if (!fileSpecsUseArchiveVirtualGrammar)
+			return spec.fileName;
 		try
 		{
 			auto parsed = parseArchiveVirtualPath(spec.fileName);
 			return parsed.isVirtual ? "" : parsed.physicalPath;
 		}
 		catch (Exception)
-			return "";
+			return spec.fileName;
 	}
 
 	/** Get the first existing filename from sorted file entries.
@@ -1129,16 +1133,16 @@ NamedBinaryBlob[] fixupDataClassArrayIn(NamedBinaryBlob[] dataArray,
 			with (obj.mediaInfoSig)
 			{
 				foreach (v; imageStreams)
-					if (v.index == -1)
+					if (v !is null && v.index == -1)
 						v.index = 0;
 				foreach (v; videoStreams)
-					if (v.index == -1)
+					if (v !is null && v.index == -1)
 						v.index = 0;
 				foreach (v; audioStreams)
-					if (v.index == -1)
+					if (v !is null && v.index == -1)
 						v.index = 0;
 				foreach (v; textStreams)
-					if (v.index == -1)
+					if (v !is null && v.index == -1)
 						v.index = 0;
 			}
 		}
@@ -2246,8 +2250,7 @@ void updateArchives(NamedBinaryBlob obj,
 
 	if (obj.archiveSpecs is null || rescan)
 	{
-		if (rescan)
-			obj.archiveSpecs = null;
+		bool archiveFound;
 		import std.algorithm.sorting : sort;
 		import std.file : exists;
 
@@ -2314,7 +2317,7 @@ void updateArchives(NamedBinaryBlob obj,
                     if (passwordPrompted)
                         obj.archivePassword = password;
                     logFLineVerbose("  with %d entries", archiveEntries.length);
-                    obj.archiveSpecs = [];
+                    ArchiveSpec[] scannedSpecs;
                     size_t membersWithoutFingerprint;
                     if (progressCallBack !is null)
                         progressCallBack.report(0, archiveEntries.length);
@@ -2363,7 +2366,7 @@ void updateArchives(NamedBinaryBlob obj,
                             unscannedEntry.entryIndex = idx;
                             unscannedEntry.occurrence = descriptor.occurrence;
                             unscannedEntry.hasIndexIdentity = true;
-                            obj.archiveSpecs ~= unscannedEntry;
+                            scannedSpecs ~= unscannedEntry;
                             if (progressCallBack !is null)
                                 progressCallBack.report(idx + 1, archiveEntries.length);
                             continue;
@@ -2461,7 +2464,7 @@ void updateArchives(NamedBinaryBlob obj,
                                 unscannedEntry.entryIndex = idx;
                                 unscannedEntry.occurrence = descriptor.occurrence;
                                 unscannedEntry.hasIndexIdentity = true;
-                                obj.archiveSpecs ~= unscannedEntry;
+                                scannedSpecs ~= unscannedEntry;
                                 if (progressCallBack !is null)
                                     progressCallBack.report(idx + 1,
                                         archiveEntries.length);
@@ -2543,7 +2546,7 @@ void updateArchives(NamedBinaryBlob obj,
                         aspec.fileType = memberFileType;
                         if (memberMediaInfo !is null)
                             aspec.mediaInfoSig = memberMediaInfo.dup;
-                        obj.archiveSpecs ~= aspec;
+                        scannedSpecs ~= aspec;
 
                         if (progressCallBack !is null)
                             progressCallBack.report(idx + 1, archiveEntries.length);
@@ -2551,6 +2554,8 @@ void updateArchives(NamedBinaryBlob obj,
                     if (membersWithoutFingerprint > 0)
                         logFLineVerbose("Archive '%s': stored %d member(s) without deep fingerprints after extraction failures.",
                             archiveDisplayPath, membersWithoutFingerprint);
+                    obj.archiveSpecs = scannedSpecs;
+                    archiveFound = true;
 					break;
 				}
 			}
@@ -2558,6 +2563,8 @@ void updateArchives(NamedBinaryBlob obj,
 		else if (obj.fileSpecs.length > 0)
 			logFLineVerbose("No existing file for archive scan (stored size %d, %d candidate(s)).",
 				obj.fileSize, obj.fileSpecs.length);
+		if (rescan && !archiveFound)
+			obj.archiveSpecs = null;
 	}
 }
 
@@ -2880,6 +2887,96 @@ unittest
 
 	assert(blob.archiveSpecs.length == 1);
 	assert(blob.archiveSpecs[0].fileName == "payload.txt");
+}
+
+@("failed nested archive scan preserves the previous index")
+unittest
+{
+    import std.file : exists, getSize, mkdirRecurse, rmdirRecurse, tempDir,
+        write;
+    import std.path : buildPath;
+    import std.process : execute;
+    import std.uuid : randomUUID;
+
+    const root = buildPath(tempDir(), "archive-partial-index-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    write(buildPath(root, "good.txt"), "payload");
+    write(buildPath(root, "inner.tar"), "not a tar archive");
+    const archivePath = buildPath(root, "outer.tar");
+    auto created = execute(["tar", "-cf", archivePath, "-C", root,
+        "good.txt", "inner.tar"]);
+    assert(created.status == 0, created.output);
+
+    auto blob = new NamedBinaryBlob(archivePath,
+        cast(size_t) getSize(archivePath), SysTime(1_234_567));
+    auto previous = new ArchiveSpec("previous.txt", 1, "", CheckSums());
+    blob.archiveSpecs = [previous];
+    auto cache = new MemberContentCache(buildPath(root, "cache"));
+    scope (exit)
+        cache.close();
+    bool failed;
+    try
+        updateArchives(blob, true, true, null, null, null, 0, 8, "", cache);
+    catch (Exception)
+        failed = true;
+    assert(failed, "the corrupt nested archive must fail the scan");
+    assert(blob.archiveSpecs.length == 1);
+    assert(blob.archiveSpecs[0] is previous,
+        "a failed scan must keep the previous complete index");
+}
+
+@("deep archive scan rejects symbolic link members")
+unittest
+{
+    import std.file : exists, getSize, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.process : execute;
+    import std.uuid : randomUUID;
+
+    const root = buildPath(tempDir(), "archive-symlink-scan-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    const secretPath = buildPath(root, "secret.txt");
+    const linkPath = buildPath(root, "link.txt");
+    const archivePath = buildPath(root, "links.tar");
+    write(secretPath, "TOPSECRET-CONTENT");
+    auto linked = execute(["ln", "-s", secretPath, linkPath]);
+    assert(linked.status == 0, linked.output);
+    auto created = execute(["tar", "-cf", archivePath, "-C", root,
+        "secret.txt", "link.txt"]);
+    assert(created.status == 0, created.output);
+
+    auto blob = new NamedBinaryBlob(archivePath,
+        cast(size_t) getSize(archivePath), SysTime(1_234_567));
+    auto cache = new MemberContentCache(buildPath(root, "cache"));
+    scope (exit)
+        cache.close();
+    updateArchives(blob, true, true, null, null, null, 0, 8, "", cache);
+
+    assert(blob.archiveSpecs.length == 2);
+    bool sawSecret;
+    bool sawLink;
+    foreach (entry; blob.archiveSpecs)
+        if (entry.fileName == "secret.txt")
+        {
+            sawSecret = true;
+            assert(entry.checkSums.hasDigests);
+        }
+        else if (entry.fileName == "link.txt")
+        {
+            sawLink = true;
+            assert(!entry.checkSums.hasDigests,
+                "a symlink member must not expose its target digest");
+        }
+    assert(sawSecret);
+    assert(sawLink);
 }
 
 @("deep archive scan fingerprints selectable duplicate occurrences")
@@ -3221,4 +3318,13 @@ unittest
 	invalidateDataClassObjs(dcobjs3);
 	auto dcobj4 = cleanupDataClassObjs(dcobjs3);
 	assert(dcobj4.length == 0);
+}
+
+@("legacy physical paths keep literal exclamation marks")
+unittest
+{
+    auto blob = new NamedBinaryBlob();
+    blob.fileSpecsUseArchiveVirtualGrammar = false;
+    auto spec = new FileSpec("dir!/sample!.zip", "");
+    assert(blob.physicalPathForSpec(spec) == "dir!/sample!.zip");
 }

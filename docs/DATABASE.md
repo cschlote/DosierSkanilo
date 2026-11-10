@@ -286,11 +286,12 @@ output path it writes a timestamped `catalog-*.sqlite3` file below
 export when moving a catalog to another machine or a network-mounted directory.
 
 `dosierskanilo restore [ROOT] --input FILE [--force]` validates the source
-schema and integrity before changing the target. If a database already exists,
-`--force` is required; the current database and its side files are moved into
-`backups/` before the validated source is copied into place and the repository
-is reopened. The library exposes the same operations as
-`Repository.backupTo()` and `Repository.restore()`.
+schema, migration history, and integrity, then stages and migrates the
+replacement before changing the target. If a database already exists,
+`--force` is required; the current database gets a `VACUUM INTO` safety snapshot
+under `backups/` and is restored if the swap or reopen fails. The library
+exposes the same operations as `Repository.backupTo()` and
+`Repository.restore()`.
 
 ## Corruption and Recovery
 
@@ -309,8 +310,9 @@ sqlite3 catalog-recovered.sqlite3 "PRAGMA integrity_check;"
 If the recovered database passes, replace `catalog.sqlite3` while no process is
 running it. If recovery is incomplete, re-import the source data or rebuild the
 repository with a fresh scan. `dosierskanilo init ROOT --force` preserves the
-damaged database under `backups/` and creates an empty catalog for a fresh
-scan. Do not retry the damaged repository on a network or FUSE mount.
+damaged database under `backups/` (with a consistent snapshot when SQLite can
+still read it) and creates an empty catalog for a fresh scan. Do not retry the
+damaged repository on a network or FUSE mount.
 
 ## Public API Boundary
 

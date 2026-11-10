@@ -13,9 +13,37 @@ module dosierskanilo.repository.filesystem;
 
 import std.algorithm.searching : startsWith;
 import std.array : split;
-import std.file : readText;
+import std.file : exists, readText;
 import std.path : buildNormalizedPath;
 import std.string : replace, splitLines, toLower;
+
+/** Resolve a path to its real filesystem location.
+ *
+ * Symlinks are followed so a repository root, metadata directory, or database
+ * file cannot redirect SQLite onto an unsupported mount.
+ *
+ * Params:
+ *     path = Path to resolve.
+ * Returns: The real path when it can be resolved, otherwise the input path.
+ */
+string resolvedFilesystemPath(string path) @trusted
+{
+    version (Posix)
+    {
+        import core.stdc.stdlib : free;
+        import core.sys.posix.stdlib : realpath;
+        import std.string : fromStringz, toStringz;
+
+        auto raw = realpath(path.toStringz, null);
+        if (raw is null)
+            return path;
+        scope (exit)
+            free(raw);
+        return fromStringz(raw).dup;
+    }
+    else
+        return path;
+}
 
 /** Return whether a kernel filesystem type is unsafe for SQLite repositories.
  *
@@ -73,7 +101,8 @@ string filesystemTypeForPath(string path, string mountInfo) @safe
         const mountPoint = decodeMountInfoPath(before[4]);
         if (!isPathWithin(canonical, mountPoint))
             continue;
-        if (mountPoint.length <= bestMountPoint.length)
+        /* Later mountinfo entries are the visible overmount on equal paths. */
+        if (mountPoint.length < bestMountPoint.length)
             continue;
         bestMountPoint = mountPoint;
         bestType = after[0];
@@ -112,9 +141,10 @@ string[string] unsupportedMountPoints(string mountInfo) @safe
  *     mountPoints = Mount points returned by `unsupportedMountPoints`.
  * Returns: `true` when a path probing operation must be skipped.
  */
-bool isWithinUnsupportedMount(string path, string[string] mountPoints) @safe
+bool isWithinUnsupportedMount(string path,
+    const string[string] mountPoints) @safe
 {
-    const canonical = buildNormalizedPath(path);
+    const canonical = resolvedFilesystemPath(path);
     foreach (mountPoint, _; mountPoints)
         if (isPathWithin(canonical, mountPoint))
             return true;
@@ -133,7 +163,8 @@ string repositoryFilesystemType(string path) @safe
     version (linux)
     {
         try
-            return filesystemTypeForPath(path, readText("/proc/self/mountinfo"));
+            return filesystemTypeForPath(resolvedFilesystemPath(path),
+                readText("/proc/self/mountinfo"));
         catch (Exception)
             return "";
     }
@@ -214,4 +245,38 @@ unittest
     assert(!isUnsupportedRepositoryFilesystemType("btrfs"));
     assert(!isUnsupportedRepositoryFilesystemType("overlay"));
     assert(!isUnsupportedRepositoryFilesystemType("tmpfs"));
+}
+
+@("later overmount wins for equal mount points")
+unittest
+{
+    enum mountInfo = "1 0 0:1 / / rw - ext4 /dev/root rw\n"
+        ~ "2 1 0:2 / /mnt/data rw - ext4 /dev/sdb rw\n"
+        ~ "3 1 0:3 / /mnt/data rw - fuse.sshfs host:/data rw\n";
+    assert(filesystemTypeForPath("/mnt/data/catalog", mountInfo)
+        == "fuse.sshfs");
+}
+
+@("resolved filesystem path follows symbolic links")
+unittest
+{
+    version (Posix)
+    {
+        import std.file : mkdirRecurse, rmdirRecurse, symlink, tempDir, write;
+        import std.path : buildPath;
+        import std.uuid : randomUUID;
+
+        const root = buildPath(tempDir(), "filesystem-resolve-"
+            ~ randomUUID().toString());
+        mkdirRecurse(root);
+        scope (exit)
+            if (exists(root))
+                rmdirRecurse(root);
+        const target = buildPath(root, "target");
+        const link = buildPath(root, "link");
+        write(target, "payload");
+        target.symlink(link);
+        assert(resolvedFilesystemPath(link)
+            == resolvedFilesystemPath(target));
+    }
 }

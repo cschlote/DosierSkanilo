@@ -106,6 +106,10 @@ sqlite_status=$("${BIN}" status "${synthetic_sqlite_root}" --format=json)
 [[ "${sqlite_status}" == *'"schemaVersion":6'* ]]
 [[ "${sqlite_status}" == *'"references":'"${backup_refs}"* ]]
 [[ "$("${BIN}" status "${synthetic_sqlite_root}")" == *"Catalog status"* ]]
+mkdir -p "${synthetic_sqlite_root}/sub"
+(cd "${synthetic_sqlite_root}/sub" && "${BIN}" restore \
+    --input "${backup_catalog}" --force >/dev/null)
+[[ ! -d "${synthetic_sqlite_root}/sub/.dosierskanilo" ]]
 
 pushd "${TMP_DIR}" >/dev/null
 synthetic_json_output=$("${BIN}" scan "${fixture_root}" \
@@ -116,8 +120,12 @@ assert_progress_order "${synthetic_json_output}" \
 assert_monotonic_progress checksums "${synthetic_json_output}"
 [[ ! -d "${fixture_root}/.dosierskanilo" ]]
 json_rescan_output=$("${BIN}" scan "${fixture_root}" \
-    --json "${synthetic_catalog}" --recursive --checksums --verbose)
+    --json "${synthetic_catalog}" --recursive --checksums --verbose 2>&1)
 [[ "$(grep -c "Read serialized data from JSON file" <<<"${json_rescan_output}" || true)" -eq 1 ]]
+mkdir -p "${TMP_DIR}/empty-path"
+PATH="${TMP_DIR}/empty-path" "${BIN}" scan "${fixture_root}" \
+    --json "${TMP_DIR}/no-file-tool.json" --recursive >/dev/null
+[[ -f "${TMP_DIR}/no-file-tool.json" ]]
 json_analysis_output=$("${BIN}" analyze --json "${synthetic_catalog}" \
     --base-dir "${fixture_root}")
 [[ "${json_analysis_output}" == *"Catalog analysis: 0 missing, 0 dropped, 1 duplicate groups, 1 merged blobs, 0 orphaned blobs."* ]]
@@ -130,10 +138,18 @@ recover_output=$("${BIN}" recover "${synthetic_catalog}" 2>&1)
 [[ "${recover_output}" == *"Catalog: ${synthetic_catalog}"* ]]
 restore_source="${TMP_DIR}/restore-source.json"
 cp "${synthetic_catalog}" "${restore_source}"
+recover_md5=$(md5sum "${synthetic_catalog}" | cut -d' ' -f1)
+"${BIN}" recover "${synthetic_catalog}" --restore-from "${restore_source}" \
+    --dry-run >"${TMP_DIR}/recover-dry-run.out" 2>&1
+[[ "$(md5sum "${synthetic_catalog}" | cut -d' ' -f1)" == "${recover_md5}" ]]
+grep -q "Dry run: would restore" "${TMP_DIR}/recover-dry-run.out"
+[[ "$(find "${TMP_DIR}" -maxdepth 1 -name 'synthetic-catalog.json.before-restore-*' | wc -l)" -eq 0 ]]
 "${BIN}" recover "${synthetic_catalog}" --restore-from "${restore_source}"     >"${TMP_DIR}/recover-restore.out" 2>&1
 [[ -f "${synthetic_catalog}" ]]
 [[ "$(find "${TMP_DIR}" -maxdepth 1 -name 'synthetic-catalog.json.before-restore-*' | wc -l)" -ge 1 ]]
 grep -q "Restored" "${TMP_DIR}/recover-restore.out"
+recover_after_restore=$("${BIN}" recover "${synthetic_catalog}" 2>&1)
+[[ "${recover_after_restore}" == *".before-restore-"* ]]
 
 pretty_catalog="${TMP_DIR}/pretty-catalog.json"
 "${BIN}" scan "${fixture_root}" --json "${pretty_catalog}" \
@@ -156,6 +172,9 @@ json_refs=$(grep -o '"total":[0-9]*' <<<"${json_list_output}" | cut -d: -f2)
 [[ "${json_status}" == *'"references":'"${json_refs}"* ]]
 [[ "$("${BIN}" status --json "${synthetic_catalog}" \
     --base-dir "${fixture_root}")" == *"Catalog status"* ]]
+verbose_json_status=$("${BIN}" status --json "${synthetic_catalog}" \
+    --base-dir "${fixture_root}" --format=json --verbose 2>/dev/null)
+[[ "${verbose_json_status}" == "{"* ]]
 json_duplicates_output=$("${BIN}" duplicates --json "${synthetic_catalog}" \
     --base-dir "${fixture_root}" --format=json \
     | sed -n '/^{/p' | sed -E 's/"id":[0-9]+,//g')

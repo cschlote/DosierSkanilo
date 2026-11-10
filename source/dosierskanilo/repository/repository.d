@@ -83,6 +83,8 @@ private:
     {
         ensureSupportedFilesystem(rootPath);
         auto paths = RepositoryPaths.fromRoot(rootPath);
+        ensureSupportedFilesystem(paths.metadataPath);
+        ensureSupportedFilesystem(paths.databasePath);
         if (!exists(paths.metadataPath))
             throw new RepositoryException("Not a DosierSkanilo repository: "
                 ~ rootPath);
@@ -210,24 +212,59 @@ private:
      *     reason = Short suffix describing why the backup was created.
      * Throws: `Exception` when a file cannot be moved.
      */
-    static void backupExistingCatalog(RepositoryPaths paths, string reason)
+    static string backupExistingCatalog(RepositoryPaths paths, string reason)
     {
+        import std.process : thisProcessID;
+
         if (!exists(paths.databasePath))
-            return;
+            return "";
         mkdirRecurse(paths.backupsPath);
         const stamp = currentTimestamp().replace(":", "-");
         const databaseName = baseName(paths.databasePath);
-        rename(paths.databasePath,
-            buildPath(paths.backupsPath,
-                databaseName ~ ".before-" ~ reason ~ "-" ~ stamp));
+        const backupPath = buildPath(paths.backupsPath,
+            databaseName ~ ".before-" ~ reason ~ "-" ~ stamp ~ "-"
+            ~ thisProcessID.to!string);
+
+        /* VACUUM INTO produces a consistent snapshot, including rows that are
+         * still only present in the WAL. If the database is too damaged for
+         * SQLite, fall back to moving the raw files with sidecars named so
+         * SQLite can associate them with the backup database. */
+        bool snapshotWritten;
+        try
+        {
+            auto snapshotDb = Database(paths.databasePath);
+            scope (exit)
+                snapshotDb.close();
+            snapshotDb.execute("VACUUM INTO ?", backupPath);
+            snapshotWritten = true;
+        }
+        catch (Exception)
+        {
+            if (exists(backupPath))
+                remove(backupPath);
+        }
+
+        if (snapshotWritten)
+        {
+            foreach (suffix; ["-wal", "-shm"])
+            {
+                const sideFile = paths.databasePath ~ suffix;
+                if (exists(sideFile))
+                    remove(sideFile);
+            }
+            remove(paths.databasePath);
+            return backupPath;
+        }
+
+        /* Raw fallback: move sidecars first, then the main database last. */
         foreach (suffix; ["-wal", "-shm"])
         {
             const sideFile = paths.databasePath ~ suffix;
             if (exists(sideFile))
-                rename(sideFile,
-                    buildPath(paths.backupsPath,
-                        databaseName ~ suffix ~ ".before-" ~ reason ~ "-" ~ stamp));
+                rename(sideFile, backupPath ~ suffix);
         }
+        rename(paths.databasePath, backupPath);
+        return backupPath;
     }
 
     /** Throw when this handle has been closed. */
@@ -264,11 +301,21 @@ public:
         mkdirRecurse(paths.logsPath);
         mkdirRecurse(paths.exportsPath);
         mkdirRecurse(paths.backupsPath);
+        ensureSupportedFilesystem(paths.metadataPath);
+        ensureSupportedFilesystem(paths.databasePath);
         TargetWriteLease targetLease;
-        if (force && exists(paths.databasePath))
+        if (force)
         {
             targetLease = TargetWriteLease.acquireRepositoryRoot(rootPath);
-            backupExistingCatalog(paths, "reinit");
+            if (exists(paths.databasePath))
+                backupExistingCatalog(paths, "reinit");
+            else
+                foreach (suffix; ["-wal", "-shm"])
+                {
+                    const sideFile = paths.databasePath ~ suffix;
+                    if (exists(sideFile))
+                        remove(sideFile);
+                }
         }
         scope (exit)
         {
@@ -303,6 +350,8 @@ public:
                 bool hasRepository;
                 bool hasBlobs;
                 bool hasFileRefs;
+                bool hasDirectories;
+                bool hasMigrations;
                 foreach (row; db.execute(
                     "SELECT name FROM sqlite_master WHERE type = 'table'"))
                 {
@@ -310,8 +359,11 @@ public:
                     hasRepository = hasRepository || name == "repository";
                     hasBlobs = hasBlobs || name == "blobs";
                     hasFileRefs = hasFileRefs || name == "file_refs";
+                    hasDirectories = hasDirectories || name == "directories";
+                    hasMigrations = hasMigrations || name == "schema_migrations";
                 }
-                if (!hasRepository || !hasBlobs || !hasFileRefs)
+                if (!hasRepository || !hasBlobs || !hasFileRefs
+                    || !hasDirectories || !hasMigrations)
                     throw new RepositoryException(
                         "File is not a DosierSkanilo repository backup: " ~ backupPath);
 
@@ -321,6 +373,18 @@ public:
                     throw new RepositoryException(
                         "Repository metadata row is missing from backup: " ~ backupPath);
                 const schemaVersion = cast(ulong) versionResult.front.peek!long(0);
+                auto migrationResult = db.execute(
+                    "SELECT max(version) FROM schema_migrations");
+                if (migrationResult.empty
+                    || migrationResult.front.peek!(Nullable!long)(0).isNull)
+                    throw new RepositoryException(
+                        "Backup has no schema migration history: " ~ backupPath);
+                const migrationVersion = cast(ulong) migrationResult.front
+                    .peek!long(0);
+                if (migrationVersion != schemaVersion)
+                    throw new RepositoryException(
+                        "Backup schema version and migration history disagree: "
+                        ~ backupPath);
                 if (schemaVersion > currentRepositorySchemaVersion)
                     throw new RepositoryException(
                         "Backup schema is newer than this application: "
@@ -358,10 +422,14 @@ public:
      */
     static Repository restore(string rootPath, string backupPath, bool force = false)
     {
+        import std.uuid : randomUUID;
+
         rootPath = canonicalDirectory(rootPath);
         ensureSupportedFilesystem(rootPath);
         validateRestoreSource(backupPath);
         auto paths = RepositoryPaths.fromRoot(rootPath);
+        ensureSupportedFilesystem(paths.metadataPath);
+        ensureSupportedFilesystem(paths.databasePath);
         if (buildNormalizedPath(absolutePath(backupPath)) == paths.databasePath)
             throw new RepositoryException(
                 "Restore source must differ from the repository database.");
@@ -375,12 +443,38 @@ public:
         scope (exit)
             targetLease.release();
 
+        /* Prepare and validate the replacement before the live database is
+         * touched. Older backups are migrated in the staged copy. */
+        const staging = paths.databasePath ~ ".restore-"
+            ~ randomUUID().toString() ~ ".tmp";
+        scope (failure)
+            if (exists(staging))
+                remove(staging);
+        copy(backupPath, staging);
+        try
+        {
+            auto stagedDb = Database(staging);
+            try
+            {
+                migrate(stagedDb, currentTimestamp());
+                validateStagedRestore(stagedDb, staging);
+            }
+            finally
+                stagedDb.close();
+        }
+        catch (Exception failure)
+        {
+            throw new RepositoryException(
+                "Backup cannot be prepared for restore: " ~ failure.msg);
+        }
+
+        string safetyBackup;
         if (exists(paths.databasePath))
         {
             if (!force)
                 throw new RepositoryException(
                     "Repository already has a database. Use --force to replace it.");
-            backupExistingCatalog(paths, "restore");
+            safetyBackup = backupExistingCatalog(paths, "restore");
         }
         foreach (suffix; ["-wal", "-shm"])
         {
@@ -389,13 +483,73 @@ public:
                 remove(sideFile);
         }
 
-        const staging = paths.databasePath ~ ".restore-"
-            ~ currentTimestamp().replace(":", "-") ~ ".tmp";
-        copy(backupPath, staging);
-        rename(staging, paths.databasePath);
-        auto restored = openRoot(rootPath, RepositoryOptions());
-        restored.appendLog("repository.restore", backupPath);
-        return restored;
+        try
+        {
+            rename(staging, paths.databasePath);
+            auto restored = openRoot(rootPath, RepositoryOptions());
+            restored.appendLog("repository.restore", backupPath);
+            return restored;
+        }
+        catch (Exception failure)
+        {
+            /* Put the safety snapshot back so a failed reopen does not remove
+             * the previously working catalog. */
+            try
+            {
+                if (exists(paths.databasePath))
+                    remove(paths.databasePath);
+                foreach (suffix; ["-wal", "-shm"])
+                {
+                    const sideFile = paths.databasePath ~ suffix;
+                    if (exists(sideFile))
+                        remove(sideFile);
+                }
+                if (safetyBackup.length > 0 && exists(safetyBackup))
+                {
+                    rename(safetyBackup, paths.databasePath);
+                    foreach (suffix; ["-wal", "-shm"])
+                        if (exists(safetyBackup ~ suffix))
+                            rename(safetyBackup ~ suffix,
+                                paths.databasePath ~ suffix);
+                }
+            }
+            catch (Exception)
+            {
+            }
+            throw failure;
+        }
+    }
+
+    /** Validate a staged restore database after migration.
+     *
+     * Params:
+     *     db = Open staged database.
+     *     stagingPath = Staged path used in diagnostics.
+     * Throws: `RepositoryException` when required tables or the generated
+     *     virtual-reference column are missing.
+     */
+    private static void validateStagedRestore(ref Database db, string stagingPath)
+    {
+        bool hasVirtualColumn;
+        foreach (row; db.execute("PRAGMA table_xinfo(file_refs)"))
+            if (row.peek!string(1) == "is_virtual")
+                hasVirtualColumn = true;
+        if (!hasVirtualColumn)
+            throw new RepositoryException(
+                "Restored database has no virtual-reference column: "
+                ~ stagingPath);
+
+        bool[string] tables;
+        foreach (row; db.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"))
+            tables[row.peek!string(0)] = true;
+        foreach (required; ["repository", "blobs", "file_refs", "directories",
+            "metadata_status", "media_signatures", "torrent_info",
+            "schema_migrations"])
+            if (required !in tables)
+                throw new RepositoryException(
+                    "Restored database is missing table '" ~ required ~ "': "
+                    ~ stagingPath);
     }
 
     /** Open the repository containing `startPath`.
@@ -730,25 +884,35 @@ public:
         if (exists(target))
             throw new RepositoryException("Backup target already exists: " ~ target);
         mkdirRecurse(dirName(target));
+        ensureSupportedFilesystem(dirName(target));
 
         auto targetLease = TargetWriteLease.acquireRepositoryRoot(
             repositoryPaths.rootPath);
         scope (exit)
             targetLease.release();
 
-        database.execute("VACUUM INTO ?", target);
-        auto verificationDb = Database(target);
         try
         {
-            auto result = verificationDb.execute("PRAGMA integrity_check");
-            const status = result.empty ? "" : result.front.peek!string(0);
-            if (status != "ok")
-                throw new RepositoryException("Backup integrity check failed: "
-                    ~ status);
+            database.execute("VACUUM INTO ?", target);
+            auto verificationDb = Database(target);
+            try
+            {
+                auto result = verificationDb.execute("PRAGMA integrity_check");
+                const status = result.empty ? "" : result.front.peek!string(0);
+                if (status != "ok")
+                    throw new RepositoryException(
+                        "Backup integrity check failed: " ~ status);
+            }
+            finally
+            {
+                verificationDb.close();
+            }
         }
-        finally
+        catch (Exception failure)
         {
-            verificationDb.close();
+            if (exists(target))
+                remove(target);
+            throw failure;
         }
         appendLog("repository.backup", target);
     }
@@ -788,7 +952,7 @@ public:
         JsonExportOptions options = JsonExportOptions())
     {
         requireOpen();
-        enforce(limit > 0, "Repository page size must be greater than zero.");
+        enforce!RepositoryException(limit > 0, "Repository page size must be greater than zero.");
         return loadCatalogPageFromDatabase(database, repositoryPaths.rootPath,
             offset, limit, options);
     }
@@ -804,7 +968,7 @@ public:
         JsonExportOptions exportOptions = JsonExportOptions())
     {
         requireOpen();
-        enforce(options.limit > 0,
+        enforce!RepositoryException(options.limit > 0,
             "Repository query page size must be greater than zero.");
         return loadCatalogQueryPageFromDatabase(database, repositoryPaths.rootPath,
             options, exportOptions);
@@ -987,7 +1151,7 @@ public:
     RepositoryDirectory[] listDirectories(RepositoryDirectoryQuery options = RepositoryDirectoryQuery())
     {
         requireOpen();
-        enforce(options.limit > 0, "Directory page size must be greater than zero.");
+        enforce!RepositoryException(options.limit > 0, "Directory page size must be greater than zero.");
         return listDirectoriesFromDatabase(database, options);
     }
 
@@ -1022,7 +1186,7 @@ public:
     RepositoryFile[] listFiles(RepositoryFileQuery options = RepositoryFileQuery())
     {
         requireOpen();
-        enforce(options.limit > 0, "File page size must be greater than zero.");
+        enforce!RepositoryException(options.limit > 0, "File page size must be greater than zero.");
         return listFilesFromDatabase(database, options);
     }
 
@@ -1036,7 +1200,7 @@ public:
     RepositoryFilePage listFilesPage(RepositoryFileQuery options = RepositoryFileQuery())
     {
         requireOpen();
-        enforce(options.limit > 0, "File page size must be greater than zero.");
+        enforce!RepositoryException(options.limit > 0, "File page size must be greater than zero.");
         return listFilesPageFromDatabase(database, options);
     }
 
@@ -1126,7 +1290,7 @@ public:
     RepositoryArchiveEntry[] listArchiveEntries(RepositoryArchiveQuery options)
     {
         requireOpen();
-        enforce(options.limit > 0, "Archive entry page size must be greater than zero.");
+        enforce!RepositoryException(options.limit > 0, "Archive entry page size must be greater than zero.");
         return listArchiveEntriesFromDatabase(database, options);
     }
 
@@ -1167,7 +1331,7 @@ public:
     RepositoryTorrentFile[] listTorrentFiles(RepositoryTorrentQuery options)
     {
         requireOpen();
-        enforce(options.limit > 0, "Torrent file page size must be greater than zero.");
+        enforce!RepositoryException(options.limit > 0, "Torrent file page size must be greater than zero.");
         return listTorrentFilesFromDatabase(database, options);
     }
 
@@ -1203,7 +1367,7 @@ public:
             targetLease = TargetWriteLease.acquireRepositoryRoot(
                 repositoryPaths.rootPath);
         else
-            enforce(targetLease.owns(OperationTarget.repositoryTarget(
+            enforce!RepositoryException(targetLease.owns(OperationTarget.repositoryTarget(
                 repositoryPaths.rootPath)), "Operation lease target does not match repository.");
         scope (exit)
             if (ownsLease)
@@ -1245,7 +1409,7 @@ public:
             targetLease = TargetWriteLease.acquireRepositoryRoot(
                 repositoryPaths.rootPath);
         else
-            enforce(targetLease.owns(OperationTarget.repositoryTarget(
+            enforce!RepositoryException(targetLease.owns(OperationTarget.repositoryTarget(
                 repositoryPaths.rootPath)), "Operation lease target does not match repository.");
         scope (exit)
             if (ownsLease)
@@ -1287,7 +1451,7 @@ public:
             targetLease = TargetWriteLease.acquireRepositoryRoot(
                 repositoryPaths.rootPath);
         else
-            enforce(targetLease.owns(OperationTarget.repositoryTarget(
+            enforce!RepositoryException(targetLease.owns(OperationTarget.repositoryTarget(
                 repositoryPaths.rootPath)), "Operation lease target does not match repository.");
         scope (exit)
             if (ownsLease)
@@ -1304,7 +1468,7 @@ public:
     RepositoryDuplicateGroup[] queryDuplicates(size_t limit = 100)
     {
         requireOpen();
-        enforce(limit > 0, "Duplicate query limit must be greater than zero.");
+        enforce!RepositoryException(limit > 0, "Duplicate query limit must be greater than zero.");
         return queryDuplicateGroups(database, limit);
     }
 
@@ -1508,6 +1672,77 @@ unittest
     assert(status.missingReferenceCount == 1);
 }
 
+@("force reinitialization removes stale sidecars without a database")
+unittest
+{
+    import std.file : exists, mkdirRecurse, remove, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const root = buildPath(tempDir(), "repository-stale-sidecars-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    auto repository = Repository.initialize(root);
+    repository.close();
+    const databasePath = buildPath(root, ".dosierskanilo", "catalog.sqlite3");
+    remove(databasePath);
+    write(databasePath ~ "-wal", "stale wal");
+    write(databasePath ~ "-shm", "stale shm");
+
+    auto reinitialized = Repository.initialize(root, RepositoryOptions(), true);
+    reinitialized.close();
+    assert(!exists(databasePath ~ "-wal"));
+    assert(!exists(databasePath ~ "-shm"));
+}
+
+@("force reinitialization snapshots uncheckpointed WAL rows")
+unittest
+{
+    import std.algorithm.searching : canFind;
+    import std.file : SpanMode, dirEntries, mkdirRecurse, rmdirRecurse,
+        tempDir;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const root = buildPath(tempDir(), "repository-wal-backup-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+
+    auto initial = Repository.initialize(root);
+    initial.close();
+    const databasePath = buildPath(root, ".dosierskanilo", "catalog.sqlite3");
+    auto live = Database(databasePath);
+    scope (exit)
+        live.close();
+    live.execute("PRAGMA journal_mode = WAL");
+    live.execute("INSERT INTO blobs (id, file_size) VALUES (1, 5)");
+    live.execute("INSERT INTO file_refs "
+        ~ "(id, blob_id, relative_path, exists_on_disk) "
+        ~ "VALUES (1, 1, 'wal-only.txt', 1)");
+    /* Keep the connection open so the committed row stays in the WAL. */
+    auto reinitialized = Repository.initialize(root, RepositoryOptions(), true);
+    reinitialized.close();
+
+    string backupPath;
+    foreach (entry; dirEntries(buildPath(root, ".dosierskanilo", "backups"),
+        SpanMode.shallow))
+        if (entry.name.canFind(".before-reinit-"))
+            backupPath = entry.name;
+    assert(backupPath.length > 0, "force init must write a safety snapshot");
+    auto backup = Database(backupPath);
+    scope (exit)
+        backup.close();
+    assert(backup.execute("SELECT count(*) FROM file_refs")
+        .oneValue!long == 1,
+        "the safety snapshot must include committed WAL rows");
+}
+
 @("repository backup and restore round-trip")
 unittest
 {
@@ -1555,6 +1790,34 @@ unittest
         if (exists(invalid))
             remove(invalid);
     assertThrown!RepositoryException(Repository.restore(root, invalid, true));
+
+    /* A foreign database with matching table names but no migration history
+     * must be rejected before the live catalog is moved. */
+    const foreign = buildPath(tempDir(), "foreign-backup-"
+        ~ randomUUID().toString() ~ ".sqlite3");
+    scope (exit)
+        if (exists(foreign))
+            remove(foreign);
+    {
+        auto foreignDb = Database(foreign);
+        foreignDb.execute("CREATE TABLE repository (id INTEGER PRIMARY KEY, "
+            ~ "root_path TEXT, schema_version INTEGER, created_at TEXT, "
+            ~ "updated_at TEXT)");
+        foreignDb.execute("INSERT INTO repository VALUES "
+            ~ "(1, '.', 6, '2026-01-01', '2026-01-01')");
+        foreignDb.execute("CREATE TABLE blobs (id INTEGER PRIMARY KEY, "
+            ~ "file_size INTEGER)");
+        foreignDb.execute("CREATE TABLE file_refs (id INTEGER PRIMARY KEY, "
+            ~ "blob_id INTEGER, relative_path TEXT)");
+        foreignDb.execute("CREATE TABLE directories (id INTEGER PRIMARY KEY)");
+        foreignDb.close();
+    }
+    assertThrown!RepositoryException(Repository.restore(root, foreign, true));
+    auto unchanged = Repository.open(root);
+    scope (exit)
+        unchanged.close();
+    assert(unchanged.blobCount == 1,
+        "a rejected restore must leave the live catalog untouched");
 }
 
 @("repository opens at a new mount path and rebinds the advisory root")

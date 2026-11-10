@@ -282,6 +282,28 @@ bool commitJsonCatalog(string catalogPath, ref NamedBinaryBlobCatalog catalog,
         catalogPath);
     scope (exit)
         replacementLease.release();
+    return commitJsonCatalogUnderLease(catalogPath, catalog, cancelCheck, pretty);
+}
+
+/** Persist a JSON catalog while the caller already owns the replacement lease.
+ *
+ * This is the inner write used by `commitJsonCatalog` and by document sessions
+ * that must re-check the on-disk fingerprint after acquiring the lease.
+ *
+ * Params:
+ *     catalogPath = Destination path of the JSON catalog.
+ *     catalog = Catalog data to serialize.
+ *     cancelCheck = Predicate polled during serialization; may be null.
+ *     pretty = Pretty-print the JSON output when true.
+ * Returns: `true` when the canonical catalog file was written; `false` when
+ *     cancellation prevented the write.
+ * Throws: `CatalogWriteException` when the write produced only a recovery file
+ *     or otherwise failed.
+ */
+package(dosierskanilo) bool commitJsonCatalogUnderLease(string catalogPath,
+    ref NamedBinaryBlobCatalog catalog, bool delegate() cancelCheck,
+    bool pretty = false)
+{
     auto result = writeCatalogJsonFile(catalogPath, catalog, ".json",
         Clock.currTime.toISOExtString(), "", cancelCheck, pretty);
     if (result.cancelled)

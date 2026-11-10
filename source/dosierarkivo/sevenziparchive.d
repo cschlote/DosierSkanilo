@@ -7,7 +7,7 @@
 module dosierarkivo.sevenziparchive;
 
 import std.file : exists, getcwd, remove;
-import std.path : buildPath;
+import std.path : absolutePath, buildPath;
 import std.process : execute, executeShell;
 import std.regex : matchFirst;
 import std.string : empty, format, splitLines, strip;
@@ -49,7 +49,8 @@ class FileArchive7z : FileArchive
     {
         auto passwordOption = password.length > 0
             ? "-p" ~ password : "-p__dosierskanilo_no_password__";
-        auto rc = execute(["7z", "l", passwordOption, "-ba", this.fileName]);
+        auto rc = execute(["7z", "l", passwordOption, "-ba",
+            absolutePath(this.fileName)]);
         if (rc.status != 0 && isArchivePasswordFailure(rc.output))
             throw new ArchivePasswordRequiredException(rc.output);
         if (rc.status != 0)
@@ -68,7 +69,7 @@ class FileArchive7z : FileArchive
             if (attrs.length > 0 && attrs[0] == 'D')
                 continue;
 
-            auto entryName = m.captures[6].strip;
+            auto entryName = m.captures[6];
             if (!entryName.empty)
                 entries ~= entryName;
         }
@@ -137,7 +138,7 @@ unittest
 unittest
 {
     import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
-    import std.path : buildPath;
+    import std.path : absolutePath, buildPath;
     import std.process : execute, executeShell;
     import std.uuid : randomUUID;
 

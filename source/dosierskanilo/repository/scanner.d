@@ -79,36 +79,52 @@ ScanExecutionResult scanRepositoryControlled(ref Database db, string rootPath,
     {
         const virtualContainers = virtualContainerPaths(db);
         auto statements = ScanStatements(db);
-        foreach (entry; dirEntries(rootPath,
-            options.recursive ? SpanMode.depth : SpanMode.shallow))
+        const metadataPath = buildNormalizedPath(
+            buildPath(rootPath, repositoryDirectoryName));
+        const unsafeMounts = unsupportedMountTable();
+        void visitDirectory(string directory)
         {
-            auto relative = repositoryRelativePath(rootPath, entry.name);
-            if (!options.pickHidden && hasHiddenComponent(relative))
-                continue;
+            foreach (entry; dirEntries(directory, SpanMode.shallow))
+            {
+                if (buildNormalizedPath(entry.name) == metadataPath)
+                    continue;
+                auto relative = repositoryRelativePath(rootPath, entry.name);
+                if (!options.pickHidden && hasHiddenComponent(relative))
+                    continue;
 
-            if (isFile(entry.name))
-            {
-                execution.summary.filesFound++;
-                auto modified = entry.timeLastModified.toISOExtString;
-                const auto canonicalRelative = escapeArchiveVirtualPath(relative);
-                statements.stageFile.inject(canonicalRelative,
-                    cast(long) entry.size, modified);
-                statements.removeMissingCandidate.inject(canonicalRelative);
-            }
-            else
-            {
-                execution.summary.directoriesFound++;
-                statements.stageDirectory.inject(relative);
-            }
+                if (isFile(entry.name))
+                {
+                    execution.summary.filesFound++;
+                    auto modified = entry.timeLastModified.toISOExtString;
+                    const auto canonicalRelative = escapeArchiveVirtualPath(
+                        relative);
+                    statements.stageFile.inject(canonicalRelative,
+                        cast(long) entry.size, modified);
+                    statements.removeMissingCandidate.inject(canonicalRelative);
+                }
+                else
+                {
+                    execution.summary.directoriesFound++;
+                    statements.stageDirectory.inject(relative);
+                    /* Never descend into a stale network/FUSE/autofs mount. */
+                    if (options.recursive
+                        && !isWithinUnsupportedMount(entry.name, unsafeMounts))
+                        visitDirectory(entry.name);
+                }
 
-            if (!reportScanProgress(control, operationId, OperationPhase.scanning,
-                execution.summary.filesFound + execution.summary.directoriesFound,
-                relative))
-            {
-                execution.cancelled = true;
-                return execution;
+                if (!reportScanProgress(control, operationId,
+                    OperationPhase.scanning,
+                    execution.summary.filesFound
+                        + execution.summary.directoriesFound, relative))
+                {
+                    execution.cancelled = true;
+                    return;
+                }
             }
         }
+        visitDirectory(rootPath);
+        if (execution.cancelled)
+            return execution;
 
         if (!stageMissingReferences(db, rootPath, options.recursive,
             options.pickHidden, control, operationId,
@@ -130,10 +146,16 @@ ScanExecutionResult scanRepositoryControlled(ref Database db, string rootPath,
 
         auto now = currentTimestamp();
         db.begin();
+        /* Remove self-references written by older --pick-hidden scans. */
+        db.execute("DELETE FROM file_refs WHERE relative_path = ? "
+            ~ "OR (relative_path >= ? AND relative_path < ?)",
+            repositoryDirectoryName, repositoryDirectoryName ~ "/",
+            repositoryDirectoryName ~ "0");
         applyStagedDirectories(db);
         applyStagedFiles(db, now, execution.summary, virtualContainers,
             statements);
         applyStagedMissing(db, virtualContainers);
+        deleteUnreachableBlobs(db);
         if (options.dropMissing)
         {
             execution.summary.filesDropped = cast(size_t) db.execute(
@@ -285,7 +307,6 @@ private void upsertFileReference(ref Database db, string relativePath,
         db.execute("DELETE FROM blobs WHERE id = ? AND NOT EXISTS "
             ~ "(SELECT 1 FROM file_refs WHERE blob_id = ?)",
             oldBlobId, oldBlobId);
-        deleteUnreachableBlobs(db);
         summary.filesChanged++;
     }
     else
@@ -575,15 +596,7 @@ private bool stageMissingReferences(ref Database db, string rootPath,
      * overhead dominates the phase and makes progress look stalled. */
     import std.string : indexOf;
 
-    string[string] unsafeMounts;
-    version (linux)
-    {
-        try
-            unsafeMounts = unsupportedMountPoints(readText("/proc/self/mountinfo"));
-        catch (Exception)
-        {
-        }
-    }
+    const unsafeMounts = unsupportedMountTable();
 
     long[] missingIds;
     {
@@ -662,6 +675,26 @@ private void applyStagedFiles(ref Database db, string now,
         upsertFileReference(db, row.peek!string(0),
             cast(ulong) row.peek!long(1), row.peek!string(2), now, summary,
             virtualContainers, statements);
+}
+
+/** Return the mount points that must not be entered or probed.
+ *
+ * Returns: Mount-point-to-filesystem-type map; empty when the platform does
+ *     not expose a mount table or it cannot be read.
+ */
+private string[string] unsupportedMountTable()
+{
+    string[string] unsafeMounts;
+    version (linux)
+    {
+        try
+            unsafeMounts = unsupportedMountPoints(
+                readText("/proc/self/mountinfo"));
+        catch (Exception)
+        {
+        }
+    }
+    return unsafeMounts;
 }
 
 /** Mark staged references as missing and refresh their virtual members.
@@ -883,4 +916,31 @@ unittest
         ~ "relative_path >= 'sample.zip!/'").oneValue!long == 0);
     assert(db.execute("SELECT count(*) FROM file_refs WHERE "
         ~ "relative_path = 'other.zip!/keep.txt'").oneValue!long == 1);
+}
+
+@("repository scans exclude their own metadata directory")
+unittest
+{
+    import dosierskanilo : Repository;
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const root = buildPath(tempDir(), "scanner-metadata-exclude-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    write(buildPath(root, "visible.txt"), "payload");
+
+    auto repository = Repository.initialize(root);
+    scope (exit)
+        if (repository !is null)
+            repository.close();
+    repository.scan(RepositoryScanOptions(true, true, false));
+    foreach (blob; repository.loadCatalog())
+        foreach (spec; blob.fileSpecs)
+            assert(!spec.fileName.startsWith(repositoryDirectoryName ~ "/"),
+                spec.fileName);
 }

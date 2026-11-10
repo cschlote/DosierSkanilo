@@ -69,6 +69,12 @@ bool validateRepositoryOptions(string command, ref ArgsArray options)
         errorLine("--output is available only with export or backup.");
         return false;
     }
+    if (options.argPrettyJSON && (command == "info" || command == "status"
+        || command == "list" || command == "duplicates"))
+    {
+        errorLine("--pretty is available only for scan, analyze, and export.");
+        return false;
+    }
     if (options.argMergeDuplicates && command != "scan")
     {
         errorLine("--merge-duplicates is available only with scan.");
