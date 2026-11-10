@@ -1348,7 +1348,7 @@ NamedBinaryBlobCatalog deserializeDataClassJsonWrapperFile(string fileName,
 {
 	import std.file : exists, readText;
 
-	logFLine("Read serialized data from JSON file %s", fileName);
+	logFLineVerbose("Read serialized data from JSON file %s", fileName);
 	if (!exists(fileName))
 		return NamedBinaryBlobCatalog(DATA_CLASS_VERSION3, []);
 
@@ -1395,7 +1395,7 @@ NamedBinaryBlob[] deserializeDataClassJsonFile(string fileName, bool verbose = f
 {
 	import std.file : exists, readText;
 
-	logFLine("Read serialized data from JSON file %s", fileName);
+	logFLineVerbose("Read serialized data from JSON file %s", fileName);
 	//enforce(exists(fileName), "File %s does not exist!".format(fileName));
 	if (!exists(fileName))
 		return [];

@@ -14,16 +14,19 @@ import std.array : array;
 import std.datetime.systime : Clock;
 import std.conv : to;
 import std.exception : enforce;
-import std.file : copy, exists, isDir, isFile, mkdirRecurse, remove, rename;
+import std.file : SpanMode, copy, dirEntries, exists, getSize, isDir, isFile,
+    mkdirRecurse, remove, rename;
 import std.path : absolutePath, baseName, buildNormalizedPath, buildPath, dirName, isAbsolute;
-import std.string : empty, replace, startsWith, toLower;
+import std.string : empty, endsWith, replace, startsWith, toLower;
 import std.stdio : File;
 import std.typecons : Nullable;
 
 import dosierarkivo.archive : archivePathSeparator,
     escapeArchiveVirtualPath, nativePathToStoragePath;
+import dosierskanilo.catalogstatus : CatalogStatus;
 import dosierskanilo.model.namedbinaryblob : NamedBinaryBlob;
-import dosierskanilo.operations : OperationControl, OperationTarget;
+import dosierskanilo.operations : OperationControl, OperationStorageMode,
+    OperationTarget;
 import dosierskanilo.operationlease : TargetWriteLease;
 import dosierskanilo.repository.errors;
 import dosierskanilo.repository.filesystem : isUnsupportedRepositoryFilesystemType,
@@ -537,6 +540,93 @@ public:
                 ? "" : row.peek!(Nullable!string)(4).get,
             row.peek!(Nullable!string)(5).isNull
                 ? "" : row.peek!(Nullable!string)(5).get);
+    }
+
+    /** Return aggregate counters and storage facts for this repository.
+     *
+     * The counters are read in one aggregate statement. File sizes describe
+     * the live database and its side files; the backup count includes every
+     * regular file below the repository backup directory.
+     *
+     * Returns: The current repository status.
+     * Throws: `RepositoryException` when the repository metadata row is
+     *     missing.
+     */
+    CatalogStatus catalogStatus()
+    {
+        requireOpen();
+        auto result = CatalogStatus();
+        const repositoryInfo = info();
+        result.storageMode = OperationStorageMode.repository;
+        result.sourcePath = repositoryInfo.rootPath;
+        result.databasePath = repositoryPaths.databasePath;
+        result.schemaVersion = repositoryInfo.schemaVersion;
+        result.createdAt = repositoryInfo.createdAt;
+        result.updatedAt = repositoryInfo.updatedAt;
+        result.mediaInfoVersion = repositoryInfo.mediaInfoVersion;
+        result.fileUtilityVersion = repositoryInfo.fileUtilityVersion;
+        result.treeStatisticsAvailable = true;
+
+        auto row = database.execute(
+            "SELECT "
+            ~ "(SELECT count(*) FROM blobs), "
+            ~ "(SELECT count(*) FROM file_refs), "
+            ~ "(SELECT count(*) FROM file_refs WHERE is_virtual = 0), "
+            ~ "(SELECT count(*) FROM file_refs WHERE is_virtual = 1), "
+            ~ "(SELECT count(*) FROM directories), "
+            ~ "COALESCE((SELECT sum(b.file_size) FROM file_refs f "
+            ~ "JOIN blobs b ON b.id = f.blob_id WHERE f.is_virtual = 0), 0), "
+            ~ "(SELECT count(*) FROM file_refs WHERE exists_on_disk = 0 "
+            ~ "AND is_virtual = 0), "
+            ~ "(SELECT count(*) FROM blobs WHERE md5 IS NOT NULL "
+            ~ "AND sha1 IS NOT NULL AND xxh64 IS NOT NULL), "
+            ~ "(SELECT count(*) FROM blobs WHERE file_type IS NOT NULL "
+            ~ "AND length(file_type) > 0), "
+            ~ "(SELECT count(*) FROM media_signatures), "
+            ~ "(SELECT count(*) FROM metadata_status WHERE metadata_kind = "
+            ~ "'archives' AND state IN ('completed', 'empty')), "
+            ~ "(SELECT count(*) FROM torrent_info), "
+            ~ "(SELECT count(*) FROM (SELECT 1 FROM blobs b "
+            ~ "WHERE b.md5 IS NOT NULL AND b.sha1 IS NOT NULL "
+            ~ "AND b.xxh64 IS NOT NULL AND EXISTS (SELECT 1 FROM file_refs f "
+            ~ "WHERE f.blob_id = b.id) GROUP BY b.file_size, b.md5, b.sha1, "
+            ~ "b.xxh64 HAVING count(*) > 1))").front;
+        result.blobCount = cast(size_t) row.peek!long(0);
+        result.referenceCount = cast(size_t) row.peek!long(1);
+        result.physicalReferenceCount = cast(size_t) row.peek!long(2);
+        result.archiveMemberCount = cast(size_t) row.peek!long(3);
+        result.directoryCount = cast(size_t) row.peek!long(4);
+        result.aggregateSize = cast(ulong) row.peek!long(5);
+        result.missingReferenceCount = cast(size_t) row.peek!long(6);
+        result.checksumBlobCount = cast(size_t) row.peek!long(7);
+        result.fileTypeBlobCount = cast(size_t) row.peek!long(8);
+        result.mediaBlobCount = cast(size_t) row.peek!long(9);
+        result.archiveBlobCount = cast(size_t) row.peek!long(10);
+        result.torrentBlobCount = cast(size_t) row.peek!long(11);
+        result.duplicateGroupCount = cast(size_t) row.peek!long(12);
+
+        result.catalogSize = fileSizeOrZero(repositoryPaths.databasePath);
+        result.walSize = fileSizeOrZero(repositoryPaths.databasePath ~ "-wal");
+        result.sharedMemorySize = fileSizeOrZero(
+            repositoryPaths.databasePath ~ "-shm");
+        if (exists(repositoryPaths.backupsPath)
+            && isDir(repositoryPaths.backupsPath))
+            foreach (entry; dirEntries(repositoryPaths.backupsPath,
+                SpanMode.shallow))
+                if (isFile(entry.name))
+                    ++result.backupCount;
+        return result;
+    }
+
+    /** Return a file size, or zero when the file does not exist.
+     *
+     * Params:
+     *     path = File path to inspect.
+     * Returns: Size in bytes, or zero for a missing file.
+     */
+    private static ulong fileSizeOrZero(string path)
+    {
+        return exists(path) && isFile(path) ? getSize(path) : 0;
     }
 
     /** Replace the repository catalog with data from a JSON file.
@@ -1368,6 +1458,54 @@ unittest
             foundBackup = true;
     }
     assert(foundBackup, "force initialization must preserve the old database");
+}
+
+@("repository catalog status reports aggregate counters")
+unittest
+{
+    import std.file : mkdirRecurse, remove, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const root = buildPath(tempDir(), "repository-status-"
+        ~ randomUUID().toString());
+    mkdirRecurse(buildPath(root, "sub"));
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    write(buildPath(root, "a.txt"), "alpha");
+    write(buildPath(root, "sub", "b.txt"), "beta");
+
+    auto repository = Repository.initialize(root);
+    scope (exit)
+        if (repository !is null)
+            repository.close();
+    repository.scan(RepositoryScanOptions(true, false, false));
+    MetadataScanOptions metadata;
+    metadata.calculateChecksums = true;
+    repository.updateMetadata(metadata);
+
+    auto status = repository.catalogStatus();
+    assert(status.storageMode == OperationStorageMode.repository);
+    assert(status.sourcePath == root);
+    assert(status.databasePath.endsWith(".sqlite3"));
+    assert(status.schemaVersion > 0);
+    assert(status.blobCount == 2);
+    assert(status.referenceCount == 2);
+    assert(status.physicalReferenceCount == 2);
+    assert(status.archiveMemberCount == 0);
+    assert(status.directoryCount == 1);
+    assert(status.aggregateSize == 9);
+    assert(status.missingReferenceCount == 0);
+    assert(status.checksumBlobCount == 2);
+    assert(status.fileTypeBlobCount == 0);
+    assert(status.catalogSize > 0);
+    assert(status.treeStatisticsAvailable);
+
+    remove(buildPath(root, "sub", "b.txt"));
+    repository.scan(RepositoryScanOptions(true, false, false));
+    status = repository.catalogStatus();
+    assert(status.missingReferenceCount == 1);
 }
 
 @("repository backup and restore round-trip")

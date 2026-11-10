@@ -98,6 +98,6 @@ metadata. The build must complete without missing-symbol or broken-link errors.
 
 ## Current baseline
 
-On 2026-11-09 the full suite reported 222 passing tests and 89.10 % coverage.
+On 2026-11-10 the full suite reported 225 passing tests and 89.21 % coverage.
 Treat these numbers as a recorded snapshot, not a permanent contract; update
 them when the test set changes.

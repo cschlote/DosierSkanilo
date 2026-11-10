@@ -167,6 +167,8 @@ private string commandDisplayName(CliCommand command)
 		return "analyze";
 	case CliCommand.info:
 		return "info";
+	case CliCommand.status:
+		return "status";
 	case CliCommand.list:
 		return "list";
 	case CliCommand.duplicates:
@@ -218,7 +220,7 @@ private string settingsTarget(ArgsArray options, CliCommand command)
 		return options.argJSONFile.empty ? "(missing)" : options.argJSONFile;
 	case CliCommand.noCommand, CliCommand.init, CliCommand.scan,
 		CliCommand.metadata, CliCommand.analyze, CliCommand.info,
-		CliCommand.list, CliCommand.duplicates:
+		CliCommand.status, CliCommand.list, CliCommand.duplicates:
 		break;
 	}
 	if (!options.argJSONFile.empty)
@@ -335,7 +337,8 @@ private string[] flagSettings(ArgsArray options)
  */
 private string[] querySettings(ArgsArray options, CliCommand command)
 {
-	if (command != CliCommand.list && command != CliCommand.duplicates)
+	if (command != CliCommand.list && command != CliCommand.duplicates
+		&& command != CliCommand.status)
 		return [];
 	string[] labels;
 	if (!options.argQueryText.empty)
@@ -660,6 +663,11 @@ bool executeRepositoryOperation(ArgsArray options)
 		if (options.argShowInfo)
 		{
 			executeRepositoryInfo(backend, sourceRoot, options);
+			return true;
+		}
+		if (options.argShowStatus)
+		{
+			executeCatalogStatus(backend, options);
 			return true;
 		}
 		if (options.argList)
@@ -1174,6 +1182,150 @@ void executeRepositoryInfo(CatalogBackend backend, string repositoryRoot,
 	logFLine("Updated: %s", info.updatedAt);
 	logFLine("Blobs: %d", page.total);
 	logFLine("References: %d", references);
+}
+
+/** Report aggregate catalog status and statistics.
+ *
+ * The command is read-only for catalog content. It prints a compact table or a
+ * single JSON object, depending on `--format`.
+ *
+ * Params:
+ *     backend = Open catalog backend selected by the storage mode.
+ *     options = Parsed command-line options carrying the output format.
+ * Throws:
+ *     `CatalogBackendException` with `unsupportedFeature` when the backend does
+ *     not implement the optional status provider.
+ */
+void executeCatalogStatus(CatalogBackend backend, ArgsArray options)
+{
+	import std.json : JSONValue;
+
+	auto provider = cast(CatalogStatusProvider) backend;
+	if (provider is null)
+		throw new CatalogBackendException(
+			CatalogBackendErrorCode.unsupportedFeature,
+			"This catalog backend does not provide status statistics.");
+	const auto source = backend.sourceInfo();
+	const auto capabilities = backend.capabilities();
+	const auto catalogInfo = backend.repositoryInfo();
+	const auto status = provider.catalogStatus();
+	const bool jsonOutput = options.argOutputFormat == "json";
+	const bool repositoryStorage = source.storageMode
+		== OperationStorageMode.repository;
+	const string storage = repositoryStorage ? "repository" : "JSON";
+	const string persistence = capabilities.persistence
+		== CatalogPersistence.transactionalStore
+		? "transactional store" : "in-memory document";
+
+	if (jsonOutput)
+	{
+		JSONValue[string] document;
+		document["storage"] = JSONValue(repositoryStorage
+			? "repository" : "json");
+		document["persistence"] = JSONValue(
+			capabilities.persistence == CatalogPersistence.transactionalStore
+				? "transactionalStore" : "inMemoryDocument");
+		document["root"] = JSONValue(status.sourcePath);
+		document["baseDirectory"] = JSONValue(repositoryStorage
+			? "" : catalogInfo.rootPath);
+		document["database"] = JSONValue(status.databasePath);
+		document["schemaVersion"] = JSONValue(
+			cast(long) status.schemaVersion);
+		document["createdAt"] = JSONValue(status.createdAt);
+		document["updatedAt"] = JSONValue(status.updatedAt);
+		document["mediaInfoVersion"] = JSONValue(
+			status.mediaInfoVersion);
+		document["fileUtilityVersion"] = JSONValue(
+			status.fileUtilityVersion);
+		document["error"] = JSONValue(status.error);
+		document["blobs"] = JSONValue(cast(long) status.blobCount);
+		document["references"] = JSONValue(
+			cast(long) status.referenceCount);
+		document["physicalReferences"] = JSONValue(
+			cast(long) status.physicalReferenceCount);
+		document["archiveMembers"] = JSONValue(
+			cast(long) status.archiveMemberCount);
+		document["directories"] = JSONValue(
+			cast(long) status.directoryCount);
+		document["size"] = JSONValue(cast(long) status.aggregateSize);
+		document["missingReferences"] = JSONValue(
+			cast(long) status.missingReferenceCount);
+		document["checksums"] = JSONValue(
+			cast(long) status.checksumBlobCount);
+		document["fileTypes"] = JSONValue(
+			cast(long) status.fileTypeBlobCount);
+		document["media"] = JSONValue(
+			cast(long) status.mediaBlobCount);
+		document["archives"] = JSONValue(
+			cast(long) status.archiveBlobCount);
+		document["torrents"] = JSONValue(
+			cast(long) status.torrentBlobCount);
+		document["duplicateGroups"] = JSONValue(
+			cast(long) status.duplicateGroupCount);
+		document["catalogSize"] = JSONValue(
+			cast(long) status.catalogSize);
+		document["walSize"] = JSONValue(cast(long) status.walSize);
+		document["sharedMemorySize"] = JSONValue(
+			cast(long) status.sharedMemorySize);
+		document["backups"] = JSONValue(
+			cast(long) status.backupCount);
+		document["treeStatisticsAvailable"] = JSONValue(
+			status.treeStatisticsAvailable);
+		logFLine("%s", JSONValue(document).toString);
+		return;
+	}
+
+	const auto schemaLabel = repositoryStorage
+		? "Schema version" : "Catalog version";
+	logFLine("Catalog status");
+	logFLine("Storage: %s (%s)", storage, persistence);
+	logFLine("%s: %s", repositoryStorage ? "Root" : "Catalog",
+		status.sourcePath);
+	if (!repositoryStorage && catalogInfo.rootPath != status.sourcePath)
+		logFLine("Base directory: %s", catalogInfo.rootPath);
+	if (status.databasePath.length > 0)
+		logFLine("Database: %s", status.databasePath);
+	logFLine("%s: %d", schemaLabel, status.schemaVersion);
+	if (status.createdAt.length > 0)
+		logFLine("Created: %s", status.createdAt);
+	if (status.updatedAt.length > 0)
+		logFLine("Updated: %s", status.updatedAt);
+	if (status.mediaInfoVersion.length > 0)
+		logFLine("MediaInfo: %s", status.mediaInfoVersion);
+	if (status.fileUtilityVersion.length > 0)
+		logFLine("file utility: %s", status.fileUtilityVersion);
+	if (status.error.length > 0)
+		logFLine("Error: %s", status.error);
+	logLine("");
+	logFLine("Content");
+	logFLine("  Blobs: %s", formatProgressCount(status.blobCount));
+	logFLine("  References: %s (physical %s, archive members %s)",
+		formatProgressCount(status.referenceCount),
+		formatProgressCount(status.physicalReferenceCount),
+		formatProgressCount(status.archiveMemberCount));
+	logFLine("  Directories: %s", formatProgressCount(status.directoryCount));
+	logFLine("  Size: %s", formatProgressBytes(status.aggregateSize));
+	logFLine("  Missing physical references: %s",
+		status.treeStatisticsAvailable
+			? formatProgressCount(status.missingReferenceCount) : "n/a");
+	logLine("");
+	logFLine("Metadata");
+	logFLine("  Checksums: %s", formatProgressCount(status.checksumBlobCount));
+	logFLine("  File types: %s", formatProgressCount(status.fileTypeBlobCount));
+	logFLine("  Media info: %s", formatProgressCount(status.mediaBlobCount));
+	logFLine("  Archives: %s", formatProgressCount(status.archiveBlobCount));
+	logFLine("  Torrents: %s", formatProgressCount(status.torrentBlobCount));
+	logFLine("  Duplicate groups: %s",
+		formatProgressCount(status.duplicateGroupCount));
+	logLine("");
+	logFLine("Storage");
+	logFLine("  Catalog size: %s", formatProgressBytes(status.catalogSize));
+	if (status.databasePath.length > 0)
+	{
+		logFLine("  WAL size: %s", formatProgressBytes(status.walSize));
+		logFLine("  SHM size: %s", formatProgressBytes(status.sharedMemorySize));
+		logFLine("  Backups: %s", formatProgressCount(status.backupCount));
+	}
 }
 
 /** Build the shared catalog filter from query command-line options.

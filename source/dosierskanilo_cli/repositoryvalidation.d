@@ -29,7 +29,8 @@ bool validateRepositoryOptions(string command, ref ArgsArray options)
 {
     if (!options.argJSONFile.empty && command != "import" && command != "export")
     {
-        errorLine("--json is available only with scan, analyze, import, or export.");
+        errorLine("--json is available only with scan, analyze, status, import, "
+            ~ "or export.");
         return false;
     }
     if (!options.argBaseDir.empty)
@@ -72,6 +73,31 @@ bool validateRepositoryOptions(string command, ref ArgsArray options)
     {
         errorLine("--merge-duplicates is available only with scan.");
         return false;
+    }
+    if (command == "status")
+    {
+        if (!options.argExportJSON.empty || !options.argImportJSON.empty
+            || options.argInitRepository || options.argShowInfo
+            || options.argList || options.argDuplicates
+            || options.argDropMissing || options.argMergeDuplicates
+            || options.argDryRun || options.argRecursive
+            || options.argPickHidden || options.argDoChecksums
+            || options.argDoFileTypes || options.argDoMediaSig
+            || options.argScanArchives || options.argScanTorrents
+            || options.argRescanMediaSig || options.argNumberOfThreads != 1
+            || options.argPrettyJSON || !options.argQueryText.empty
+            || options.argQueryLimit != 50 || options.argQueryOffset != 0
+            || options.argQueryVideo || options.argQueryAudio
+            || options.argQueryImage || options.argQueryTextStream
+            || options.argQueryFileType || options.argQueryArchive
+            || options.argQueryTorrent || options.argDuplicateLimit != 100
+            || !options.argExportPath.empty
+            || (options.argOutputFormat != "table"
+                && options.argOutputFormat != "json"))
+        {
+            errorLine("Status supports only --format and --verbose.");
+            return false;
+        }
     }
     if (options.argRepositoryPath.empty)
         options.argRepositoryPath = options.argScanPath;
@@ -143,6 +169,19 @@ unittest
     auto infoOptions = ArgsArray();
     assert(validateRepositoryOptions("info", infoOptions));
     assert(infoOptions.argRepositoryPath == ".");
+
+    auto statusOptions = ArgsArray();
+    statusOptions.argOutputFormat = "json";
+    assert(validateRepositoryOptions("status", statusOptions));
+    assert(statusOptions.argRepositoryPath == ".");
+
+    auto invalidStatus = ArgsArray();
+    invalidStatus.argQueryText = "needle";
+    assert(!validateRepositoryOptions("status", invalidStatus));
+
+    auto invalidStatusMetadata = ArgsArray();
+    invalidStatusMetadata.argDoChecksums = true;
+    assert(!validateRepositoryOptions("status", invalidStatusMetadata));
 
     auto importOptions = ArgsArray();
     importOptions.argImportJSON = buildPath(baseDir, "catalog.json");
@@ -270,6 +309,16 @@ private bool validateRepositoryCommand(string command, ArgsArray options)
         if (hasStorageAction || hasMetadataAction || options.argDropMissing
             || options.argReplaceCatalog || hasRepositoryListFilters(options)
             || options.argDuplicateLimit != 100)
+            return invalidCommandOptions(command);
+        break;
+    case "status":
+        if (hasStorageAction || hasMetadataAction || options.argDropMissing
+            || options.argReplaceCatalog || hasRepositoryListFilters(options)
+            || options.argRecursive || options.argPickHidden
+            || !options.argRestoreFrom.empty
+            || options.argDuplicateLimit != 100
+            || (options.argOutputFormat != "table"
+                && options.argOutputFormat != "json"))
             return invalidCommandOptions(command);
         break;
     case "list":

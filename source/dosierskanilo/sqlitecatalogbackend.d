@@ -18,6 +18,7 @@ import std.uuid : randomUUID;
 import dosierarkivo.archive : archiveDisplayBaseName, archivePathSeparator,
     parseArchiveVirtualPath;
 import dosierskanilo.catalogbackend;
+import dosierskanilo.catalogstatus : CatalogStatus, CatalogStatusProvider;
 import dosierskanilo.membercontentcache : MemberContentLease;
 import dosierskanilo.membercontentcache : MemberContentCancelledException;
 import dosierskanilo.memberextraction : ArchiveExtractionStep,
@@ -52,7 +53,7 @@ private struct ArchiveContainerSource
 }
 
 /** SQLite-backed adapter over the public repository facade. */
-final class SqliteCatalogBackend : CatalogBackend
+final class SqliteCatalogBackend : CatalogBackend, CatalogStatusProvider
 {
 private:
     /// Canonical repository target this backend was opened with.
@@ -133,6 +134,18 @@ public:
     {
         return withRepository((Repository repository) {
             return repository.info;
+        });
+    }
+
+    /** Return aggregate counters for the SQLite repository.
+     *
+     * Returns: The repository status produced by one aggregate read.
+     * Throws: `CatalogBackendException` with `closed` or `backendFailure`.
+     */
+    override CatalogStatus catalogStatus()
+    {
+        return withRepository((Repository repository) {
+            return repository.catalogStatus();
         });
     }
 

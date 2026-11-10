@@ -9,6 +9,12 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- New `status` command reports aggregate catalog statistics for SQLite
+  repositories and direct JSON catalogs: storage mode, schema/catalog version,
+  timestamps, blob and reference counts, physical size, missing physical
+  references, metadata coverage, duplicate groups, and SQLite database/WAL/SHM
+  sizes and backup count. `--format=json` emits one machine-readable object.
+
 - CLI operations now switch the progress line to `cancelling` immediately
   after Ctrl-C and report whether a completed metadata batch was committed.
   A watcher propagates the signal even when an operation is between progress

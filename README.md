@@ -22,6 +22,7 @@ while multiple file names can reference that same payload.
 - Duplicate detection and merge by size + digest
 - JSON storage with migration/fixup for older schema variants
 - Local `.dosierskanilo` SQLite repositories with JSON import/export
+- Aggregate `status` reports for SQLite repositories and JSON catalogs
 
 ## Storage Modes
 
@@ -167,6 +168,7 @@ dosierskanilo scan [ROOT] [OPTIONS]
 dosierskanilo metadata [ROOT] [OPTIONS]
 dosierskanilo analyze [ROOT] [OPTIONS]
 dosierskanilo info [ROOT]
+dosierskanilo status [ROOT] [--format=table|json]
 dosierskanilo list [ROOT] [FILTERS]
 dosierskanilo duplicates [ROOT]
 dosierskanilo import [ROOT] INPUT.json [--replace]
@@ -177,6 +179,7 @@ dosierskanilo recover CATALOG.json [--restore-from FILE]
 
 dosierskanilo scan [ROOT] --json CATALOG.json [--base-dir DIR] [OPTIONS]
 dosierskanilo analyze [ROOT] --json CATALOG.json [--base-dir DIR] [OPTIONS]
+dosierskanilo status --json CATALOG.json [--base-dir DIR] [--format=table|json]
 dosierskanilo list [ROOT] --json CATALOG.json [FILTERS]
 dosierskanilo duplicates [ROOT] --json CATALOG.json
 ```
@@ -185,9 +188,9 @@ Common options use kebab-case: `--recursive`, `--checksums`, `--file-types`,
 `--media-info`, `--scan-archives`, `--scan-torrents`, `--all`, `--drop-missing`,
 `--pick-hidden`, `--threads`, `--verbose`, `--pretty`,
 `--force` (init/restore), `--output` (export/backup), `--input` (restore), and
-`--format=table|json` for query commands. `--all` enables checksums, file
-types, media info, one shallow archive scan, and torrent scanning; repeating
-`--scan-archives` still
+`--format=table|json` for query and status commands. `--all` enables checksums,
+file types, media info, one shallow archive scan, and torrent scanning;
+repeating `--scan-archives` still
 selects a deep archive scan. On `analyze`, requested metadata runs before the
 duplicate and missing-file analysis. Saved JSON catalogs are compact by
 default; `--pretty` indents them for human reading. Archive scans and metadata
@@ -203,6 +206,12 @@ snapshot before replacing the current database and preserves the previous one
 under `backups/`. SQLite repositories must reside on a local filesystem. For
 catalogs on network or FUSE mounts, keep SQLite local and `export` the catalog
 to JSON locally before copying it to the other machine.
+`status` reports storage mode, schema or catalog version, timestamps, blob and
+reference counts (physical and archive members), directory count, physical
+size, missing physical references, metadata coverage for checksums, file types,
+media info, archives and torrents, duplicate groups, and for SQLite the
+database, WAL and SHM sizes plus the backup count. `--format=json` emits one
+machine-readable object for scripts and the GUI.
 Help is `--help`; version is `--version`. Normal commands print
 `DosierSkanilo <version>` and a compact one-line `Settings:` summary to stderr at
 startup so stdout stays usable for command output and JSON formats. `--verbose`
