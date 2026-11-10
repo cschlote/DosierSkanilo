@@ -15,7 +15,7 @@
 | WP-13 catalog backend | Complete | JSON v5, SQLite schema v6, `CatalogBackend`, shared cache, GUI integration |
 | WP-14 review remediation | Complete | `docs/reviews/2026-10-28-code-review.md` closeout and regression tests |
 | Persistence/document sessions | Complete | `CatalogDocument`, JSON save/discard, conflict handling |
-| Current backend release | Released | `26.15.1`, tag `v26.15.1`, package and Flatpak metadata updated |
+| Current backend release | Released | `26.16.0`, tag `v26.16.0`, package and Flatpak metadata updated |
 | Documentation/DDoc | Complete | All documentable declarations and module headers are documented |
 
 The checkboxes below are the historical implementation record. Open work is
