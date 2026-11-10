@@ -570,7 +570,7 @@ class NamedBinaryBlob
 			return parsed.isVirtual ? "" : parsed.physicalPath;
 		}
 		catch (Exception)
-			return spec.fileName;
+			return "";
 	}
 
 	/** Get the first existing filename from sorted file entries.
