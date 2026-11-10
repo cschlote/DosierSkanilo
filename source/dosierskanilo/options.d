@@ -36,6 +36,7 @@ struct ArgsArray
 	bool argRunAnalysis; ///< Run duplicate and cleanup analysis.
 	bool argRunMetadata; ///< Run repository metadata extraction.
 	bool argShowInfo; ///< Show repository metadata and catalog counts.
+	bool argShowStatus; ///< Show aggregate catalog status and statistics.
 	bool argList; ///< List repository blobs.
 	bool argDuplicates; ///< List duplicate blob groups.
 	uint argDuplicateLimit = 100; ///< Maximum number of duplicate groups.

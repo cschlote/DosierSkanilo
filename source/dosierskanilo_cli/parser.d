@@ -60,6 +60,7 @@ Commands:
     metadata   Extract metadata in a catalog
     analyze    Analyze a catalog
     info       Show catalog information
+    status     Show aggregate catalog status and statistics
     list       List catalog content references, including virtual members
     duplicates List duplicate blob groups
     import     Import JSON v0-v5 into a catalog
@@ -110,7 +111,7 @@ Option scope keys use the fixed columns `S A M I L D R G J` (`-` means not
 available for that scope):
 
     S Scan (repository or JSON)      A Analyze (repository or JSON)
-    M Metadata extraction            I Catalog info
+    M Metadata extraction            I Catalog info/status
     L List catalog content           D Duplicate groups
     R Init/import/export/backup/restore  G Global options
     J JSON catalog workflows
@@ -131,6 +132,8 @@ Examples:
     dosierskanilo analyze /data/library --all
     dosierskanilo scan --json CATALOG.json --checksums --merge-duplicates --dry-run
     dosierskanilo analyze --json CATALOG.json --dry-run
+    dosierskanilo status /data/library --format=json
+    dosierskanilo status --json CATALOG.json --base-dir /data/library
 
 EOS";
 
@@ -149,6 +152,8 @@ enum CliCommand
     analyze,
     /// Show repository or catalog information.
     info,
+    /// Show aggregate catalog status and statistics.
+    status,
     /// List catalog content references, including archive and torrent members.
     list,
     /// List groups of blobs with duplicate content.
@@ -208,8 +213,8 @@ ParsedCommandLine parseCommandLine(string[] args)
     {
         switch (args[1])
         {
-            case "init", "scan", "metadata", "analyze", "info", "list",
-                "duplicates", "import", "export", "backup", "restore",
+            case "init", "scan", "metadata", "analyze", "info", "status",
+                "list", "duplicates", "import", "export", "backup", "restore",
                 "recover":
                 command = args[1];
                 commandIndex = 1;
@@ -265,8 +270,8 @@ ParsedCommandLine parseCommandLine(string[] args)
             "output", "------R-- Output JSON file for export or SQLite backup", &argsarray.argExportJSON,
             "input", "------R-- SQLite backup file for restore", &argsarray.argRestoreInput,
             "path", "------R-- Export only the selected path prefix", &argsarray.argExportPath,
-            "json", "S-------J JSON catalog to read/write", &argsarray.argJSONFile,
-            "base-dir", "S-------J Base directory for JSON paths", &argsarray.argBaseDir,
+            "json", "SA-IL-D-J JSON catalog to read/write", &argsarray.argJSONFile,
+            "base-dir", "SA-IL-D-J Base directory for JSON paths", &argsarray.argBaseDir,
             "recursive", "S-------- Recursively scan directories", &argsarray.argRecursive,
             "checksums", "SAM------ Calculate the checksums", &argsarray.argDoChecksums,
             "file-types", "SAM------ Query file type with 'file' utility", &argsarray.argDoFileTypes,
@@ -299,7 +304,7 @@ ParsedCommandLine parseCommandLine(string[] args)
             "archive", "----L---- Require a known archive index", &argsarray.argQueryArchive,
             "torrent", "----L---- Require torrent metadata", &argsarray.argQueryTorrent,
             "duplicate-limit", "-----D--- Maximum number of duplicate groups", &argsarray.argDuplicateLimit,
-            "format", "---ILD--- Catalog query output format: table or json", &argsarray.argOutputFormat,
+            "format", "---ILD--- Catalog query/status output format: table or json", &argsarray.argOutputFormat,
             "version", "-------G- Show the application version", &argsarray.argVersion);
     }
     catch (GetOptException ex)
@@ -322,6 +327,9 @@ ParsedCommandLine parseCommandLine(string[] args)
         break;
     case "info":
         argsarray.argShowInfo = true;
+        break;
+    case "status":
+        argsarray.argShowStatus = true;
         break;
     case "list":
         argsarray.argList = true;
@@ -400,7 +408,8 @@ ParsedCommandLine parseCommandLine(string[] args)
     }
 
     const bool jsonMode = (command == "scan" || command == "analyze"
-        || command == "list" || command == "duplicates")
+        || command == "list" || command == "duplicates"
+        || command == "status")
         && !argsarray.argJSONFile.empty;
     if (jsonMode)
     {
@@ -461,6 +470,8 @@ private CliCommand commandToCliCommand(string command)
         return CliCommand.metadata;
     case "info":
         return CliCommand.info;
+    case "status":
+        return CliCommand.status;
     case "list":
         return CliCommand.list;
     case "duplicates":
@@ -625,6 +636,25 @@ unittest
     auto info = parseCommandLine(["program", "info", "./test", "--format=json"]);
     assert(info.status == ParseStatus.run && info.command == CliCommand.info);
     assert(info.options.argOutputFormat == "json");
+
+    auto status = parseCommandLine(["program", "status", "./test",
+        "--format=json"]);
+    assert(status.status == ParseStatus.run
+        && status.command == CliCommand.status);
+    assert(status.options.argShowStatus);
+    assert(status.options.argOutputFormat == "json");
+
+    auto jsonStatus = parseCommandLine(["program", "status", "--json",
+        "./test/json_file_v2.json", "--base-dir", "./test", "--format=json"]);
+    assert(jsonStatus.status == ParseStatus.run
+        && jsonStatus.command == CliCommand.status);
+    assert(jsonStatus.options.argJSONFile == "./test/json_file_v2.json");
+    assert(jsonStatus.options.argBaseDir == "./test");
+    assert(jsonStatus.options.argShowStatus);
+
+    auto invalidStatus = parseCommandLine(["program", "status", "./test",
+        "--text=needle"]);
+    assert(invalidStatus.status == ParseStatus.error);
 
     auto list = parseCommandLine(["program", "list", "./test", "--text=needle",
         "--limit=10", "--offset=1", "--video", "--format=json"]);
@@ -1061,7 +1091,7 @@ private string operationPhaseLabel(OperationPhase phase)
  *   bytes = raw byte count.
  * Returns: Value with one decimal place and a unit from `B` through `TiB`.
  */
-private string formatProgressBytes(ulong bytes)
+string formatProgressBytes(ulong bytes)
 {
     immutable string[] units = ["B", "KiB", "MiB", "GiB", "TiB"];
     real value = bytes;

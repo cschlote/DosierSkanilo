@@ -101,6 +101,11 @@ grep -q "Restored repository" "${TMP_DIR}/sqlite-restore.out"
 restored_refs=$("${BIN}" info "${synthetic_sqlite_root}" --format=json \
     | grep -o '"references":[0-9]*' | cut -d: -f2)
 [[ "${restored_refs}" == "${backup_refs}" ]]
+sqlite_status=$("${BIN}" status "${synthetic_sqlite_root}" --format=json)
+[[ "${sqlite_status}" == *'"storage":"repository"'* ]]
+[[ "${sqlite_status}" == *'"schemaVersion":6'* ]]
+[[ "${sqlite_status}" == *'"references":'"${backup_refs}"* ]]
+[[ "$("${BIN}" status "${synthetic_sqlite_root}")" == *"Catalog status"* ]]
 
 pushd "${TMP_DIR}" >/dev/null
 synthetic_json_output=$("${BIN}" scan "${fixture_root}" \
@@ -111,7 +116,7 @@ assert_progress_order "${synthetic_json_output}" \
 assert_monotonic_progress checksums "${synthetic_json_output}"
 [[ ! -d "${fixture_root}/.dosierskanilo" ]]
 json_rescan_output=$("${BIN}" scan "${fixture_root}" \
-    --json "${synthetic_catalog}" --recursive --checksums)
+    --json "${synthetic_catalog}" --recursive --checksums --verbose)
 [[ "$(grep -c "Read serialized data from JSON file" <<<"${json_rescan_output}" || true)" -eq 1 ]]
 json_analysis_output=$("${BIN}" analyze --json "${synthetic_catalog}" \
     --base-dir "${fixture_root}")
@@ -143,6 +148,14 @@ json_list_output=$("${BIN}" list --json "${synthetic_catalog}" \
 sqlite_list_output=$("${BIN}" list "${TMP_DIR}/synthetic-sqlite-catalog" \
     --format=json | sed -E 's/"id":[0-9]+,//g')
 [[ "${json_list_output}" == "${sqlite_list_output}" ]]
+json_status=$("${BIN}" status --json "${synthetic_catalog}" \
+    --base-dir "${fixture_root}" --format=json | sed -n '/^{/p')
+[[ "${json_status}" == *'"storage":"json"'* ]]
+[[ "${json_status}" == *'"schemaVersion":5'* ]]
+json_refs=$(grep -o '"total":[0-9]*' <<<"${json_list_output}" | cut -d: -f2)
+[[ "${json_status}" == *'"references":'"${json_refs}"* ]]
+[[ "$("${BIN}" status --json "${synthetic_catalog}" \
+    --base-dir "${fixture_root}")" == *"Catalog status"* ]]
 json_duplicates_output=$("${BIN}" duplicates --json "${synthetic_catalog}" \
     --base-dir "${fixture_root}" --format=json \
     | sed -n '/^{/p' | sed -E 's/"id":[0-9]+,//g')

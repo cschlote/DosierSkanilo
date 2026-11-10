@@ -10,7 +10,8 @@ import std.algorithm.searching : canFind, startsWith;
 import std.algorithm.sorting : sort;
 import std.conv : to;
 import std.exception : enforce;
-import std.file : exists;
+import std.datetime.systime : SysTime;
+import std.file : exists, getSize, timeLastModified;
 import std.path : absolutePath, baseName, buildNormalizedPath, buildPath,
     isAbsolute,
     dirName, isAbsolute;
@@ -24,6 +25,7 @@ import dosierarkivo.archive : appendArchiveVirtualPath,
     nativePathToStoragePath, normalizeArchiveEntryPath,
     parseArchiveVirtualPath, ParsedArchiveVirtualPath;
 import dosierskanilo.catalogbackend;
+import dosierskanilo.catalogstatus : CatalogStatus, CatalogStatusProvider;
 import dosierskanilo.logging : logLineVerbose;
 import dosierskanilo.membercontentcache : MemberContentCancelledException,
     MemberContentLease;
@@ -166,7 +168,7 @@ private struct ArchiveMemberRows
 }
 
 /** JSON-backed catalog adapter for legacy and version-5 catalogs. */
-final class JsonCatalogBackend : CatalogBackend
+final class JsonCatalogBackend : CatalogBackend, CatalogStatusProvider
 {
 private:
     /// Normalized operation target the backend was opened with.
@@ -327,6 +329,112 @@ public:
         RepositoryInfo result;
         result.rootPath = sourceRoot.length > 0 ? sourceRoot : backendTarget.catalogPath;
         result.schemaVersion = catalog.dataVersion;
+        return result;
+    }
+
+    /** Return aggregate counters for the loaded JSON document.
+     *
+     * The counts are derived from one pass over the in-memory record array and
+     * the already-built tree index. Directory and availability counters are
+     * flagged unavailable when the index could not be built.
+     *
+     * Returns: The current catalog status.
+     * Throws: `CatalogBackendException` with `closed`.
+     */
+    override CatalogStatus catalogStatus()
+    {
+        requireOpen();
+        CatalogStatus result;
+        result.storageMode = OperationStorageMode.jsonCatalog;
+        result.sourcePath = backendTarget.catalogPath;
+        result.schemaVersion = catalog.dataVersion;
+        result.mediaInfoVersion = catalog.mediaInfoVersion;
+        result.fileUtilityVersion = catalog.fileUtilityVersion;
+        result.error = catalogLoadError;
+        result.treeStatisticsAvailable = catalogLoadError.length == 0
+            && sourceRoot.length > 0 && treeQueriesAvailable;
+
+        bool[string] directoryPaths;
+        size_t[string] fingerprintCounts;
+        foreach (blob; catalog.dataArray)
+        {
+            if (blob is null)
+                continue;
+            ++result.blobCount;
+            if (blob.checkSums.hasDigests)
+                ++result.checksumBlobCount;
+            if (blob.fileType.length > 0)
+                ++result.fileTypeBlobCount;
+            if (blob.mediaInfoSig !is null)
+                ++result.mediaBlobCount;
+            if (blob.archiveIndexKnown || blob.archiveSpecs !is null)
+                ++result.archiveBlobCount;
+            if (blob.torrentInfo !is null)
+                ++result.torrentBlobCount;
+            if (blob.checkSums.hasDigests
+                && blob.getFirstFileName().length > 0)
+            {
+                const key = blob.fileSize.to!string ~ "\0"
+                    ~ blob.checkSums.md5sum_b64 ~ "\0"
+                    ~ blob.checkSums.sha1sum_b64 ~ "\0"
+                    ~ blob.checkSums.xxh64sum_b64;
+                ++fingerprintCounts[key];
+            }
+
+            const bool parseVirtual = catalog.dataVersion == DATA_CLASS_VERSION5
+                || blob.fileSpecsUseArchiveVirtualGrammar;
+            foreach (spec; blob.fileSpecs)
+            {
+                if (spec is null || spec.fileName.length == 0)
+                    continue;
+                bool virtualPath;
+                string physicalPath = spec.fileName;
+                if (parseVirtual)
+                {
+                    try
+                    {
+                        const parsed = parseArchiveVirtualPath(spec.fileName);
+                        virtualPath = parsed.isVirtual;
+                        physicalPath = parsed.physicalPath;
+                    }
+                    catch (Exception)
+                    {
+                        /* Keep unparsable legacy names as physical references. */
+                    }
+                }
+                if (virtualPath)
+                {
+                    ++result.archiveMemberCount;
+                    continue;
+                }
+                ++result.physicalReferenceCount;
+                result.aggregateSize += blob.fileSize;
+                const parent = parentPath(
+                    nativePathToStoragePath(physicalPath));
+                if (parent.length > 0)
+                    directoryPaths[parent] = true;
+            }
+        }
+        result.referenceCount = result.physicalReferenceCount
+            + result.archiveMemberCount;
+        result.directoryCount = directoryPaths.length;
+        if (result.treeStatisticsAvailable)
+        {
+            result.directoryCount = directoryRows.length;
+            foreach (row; fileRows)
+                if (row.availability == CatalogReferenceAvailability.unavailable)
+                    ++result.missingReferenceCount;
+        }
+        foreach (count; fingerprintCounts)
+            if (count > 1)
+                ++result.duplicateGroupCount;
+
+        if (exists(backendTarget.catalogPath))
+        {
+            result.catalogSize = getSize(backendTarget.catalogPath);
+            result.updatedAt = timeLastModified(
+                backendTarget.catalogPath).toISOExtString;
+        }
         return result;
     }
 
@@ -5086,4 +5194,91 @@ unittest
     assert(directories.directories[0].relativePath == "media");
     document.bindFilesystemRoot("");
     assert(!backend.capabilities().supportsTreeQueries);
+}
+
+@("JSON catalog status reports aggregate counters")
+unittest
+{
+    import dosierskanilo.metadata.mediainfosig : MediaInfoAudio, MediaInfoSig;
+    import dosierskanilo.metadata.torrentinfo : TorrentInfo;
+    import std.file : mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const root = buildPath(tempDir(), "json-status-" ~ randomUUID().toString());
+    mkdirRecurse(buildPath(root, "sub"));
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    write(buildPath(root, "a.txt"), "alpha");
+    write(buildPath(root, "sub", "b.txt"), "beta");
+
+    auto rich = new NamedBinaryBlob(
+        [new FileSpec("a.txt", "")], 5);
+    rich.checkSums.set_md5sum([1]);
+    rich.checkSums.set_sha1sum([2]);
+    rich.checkSums.set_xxh64([3]);
+    rich.fileType = "ASCII text";
+    rich.mediaInfoSig = new MediaInfoSig([], [],
+        [new MediaInfoAudio(1, "de", "AAC", 6, 200_000, "1h")], []);
+    rich.archiveIndexKnown = true;
+    rich.torrentInfo = new TorrentInfo();
+    rich.torrentInfo.name = "sample";
+    rich.torrentInfo.magnetURI = "magnet:?xt=urn:btih:0000";
+    rich.torrentInfo.totalSize = 5;
+    auto plain = new NamedBinaryBlob(
+        [new FileSpec("sub/b.txt", "")], 4);
+
+    const catalogPath = buildPath(root, "catalog.json");
+    auto catalog = NamedBinaryBlobCatalog(DATA_CLASS_VERSION5, [rich, plain]);
+    serializeDataClassWrapperFile(catalogPath, catalog);
+
+    auto backend = new JsonCatalogBackend(
+        OperationTarget.jsonTarget(catalogPath, root));
+    scope (exit)
+        backend.close();
+    const status = backend.catalogStatus();
+    assert(status.storageMode == OperationStorageMode.jsonCatalog);
+    assert(status.sourcePath == catalogPath);
+    assert(status.databasePath.length == 0);
+    assert(status.schemaVersion == DATA_CLASS_VERSION5);
+    assert(status.blobCount == 2);
+    assert(status.referenceCount == 2);
+    assert(status.physicalReferenceCount == 2);
+    assert(status.archiveMemberCount == 0);
+    assert(status.directoryCount == 1);
+    assert(status.aggregateSize == 9);
+    assert(status.missingReferenceCount == 0);
+    assert(status.checksumBlobCount == 1);
+    assert(status.fileTypeBlobCount == 1);
+    assert(status.mediaBlobCount == 1);
+    assert(status.archiveBlobCount == 1);
+    assert(status.torrentBlobCount == 1);
+    assert(status.duplicateGroupCount == 0);
+    assert(status.catalogSize > 0);
+    assert(status.treeStatisticsAvailable);
+}
+
+@("JSON catalog status reports a load error")
+unittest
+{
+    import std.file : remove, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const catalogPath = buildPath(tempDir(), "json-status-error-"
+        ~ randomUUID().toString() ~ ".json");
+    write(catalogPath, "not a catalog");
+    scope (exit)
+        if (exists(catalogPath))
+            remove(catalogPath);
+
+    auto backend = new JsonCatalogBackend(
+        OperationTarget.jsonTarget(catalogPath));
+    scope (exit)
+        backend.close();
+    const status = backend.catalogStatus();
+    assert(status.error.length > 0);
+    assert(status.blobCount == 0);
+    assert(!status.treeStatisticsAvailable);
 }

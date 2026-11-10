@@ -13,15 +13,15 @@ import std.string : empty, endsWith;
 import dosierskanilo;
 import dosierskanilo_cli.logging : errorFLine, errorLine;
 
-/** Validate a JSON-target scan, analysis, list, or duplicate command.
+/** Validate a JSON-target scan, analysis, status, list, or duplicate command.
  *
  * Checks that the JSON catalog path is usable, fills in a default base
  * directory, and rejects repository-only options that the command does not
  * support. Diagnostics are written through the CLI logging helpers.
  *
  * Params:
- *     command = Command name to validate (`scan`, `analyze`, `list`, or
- *         `duplicates`).
+ *     command = Command name to validate (`scan`, `analyze`, `status`,
+ *         `list`, or `duplicates`).
  *     options = Parsed command-line options; `argBaseDir` may be defaulted.
  * Returns: `true` when the options are valid for the command, `false` after
  *     reporting a validation error.
@@ -49,7 +49,8 @@ bool validateJsonOptions(string command, ref ArgsArray options)
         return false;
     }
 
-    if ((command == "analyze" || command == "list" || command == "duplicates")
+    if ((command == "analyze" || command == "status"
+        || command == "list" || command == "duplicates")
         && (!exists(options.argJSONFile) || !isFile(options.argJSONFile)))
     {
         errorFLine("JSON catalog '%s' does not exist.", options.argJSONFile);
@@ -62,6 +63,7 @@ bool validateJsonOptions(string command, ref ArgsArray options)
     case "analyze":
         if (!options.argExportJSON.empty || !options.argImportJSON.empty
             || options.argInitRepository || options.argShowInfo
+            || options.argShowStatus
             || options.argList || options.argDuplicates
             || options.argOutputFormat != "table"
             || options.argQueryLimit != 50 || options.argQueryOffset != 0
@@ -105,6 +107,7 @@ bool validateJsonOptions(string command, ref ArgsArray options)
     case "list":
         if (!options.argExportJSON.empty || !options.argImportJSON.empty
             || options.argInitRepository || options.argShowInfo
+            || options.argShowStatus
             || options.argDuplicates || options.argDropMissing
             || options.argMergeDuplicates || options.argDryRun
             || options.argRecursive || options.argPickHidden
@@ -124,6 +127,7 @@ bool validateJsonOptions(string command, ref ArgsArray options)
     case "duplicates":
         if (!options.argExportJSON.empty || !options.argImportJSON.empty
             || options.argInitRepository || options.argShowInfo
+            || options.argShowStatus
             || options.argList || options.argDropMissing
             || options.argMergeDuplicates || options.argDryRun
             || options.argRecursive || options.argPickHidden
@@ -149,8 +153,38 @@ bool validateJsonOptions(string command, ref ArgsArray options)
         }
         return true;
 
+    case "status":
+        if (!options.argExportJSON.empty || !options.argImportJSON.empty
+            || options.argInitRepository || options.argShowInfo
+            || options.argList || options.argDuplicates
+            || options.argDropMissing || options.argMergeDuplicates
+            || options.argDryRun || options.argRecursive
+            || options.argPickHidden || options.argDoChecksums
+            || options.argDoFileTypes || options.argDoMediaSig
+            || options.argScanArchives || options.argScanTorrents
+            || options.argRescanMediaSig || options.argPrettyJSON
+            || options.argNumberOfThreads != 1
+            || options.argReplaceCatalog || !options.argRestoreFrom.empty
+            || !options.argRestoreInput.empty || options.argForce
+            || !options.argQueryText.empty || options.argQueryLimit != 50
+            || options.argQueryOffset != 0 || options.argQueryVideo
+            || options.argQueryAudio || options.argQueryImage
+            || options.argQueryTextStream || options.argQueryFileType
+            || options.argQueryArchive || options.argQueryTorrent
+            || options.argDuplicateLimit != 100
+            || !options.argExportPath.empty
+            || (options.argOutputFormat != "table"
+                && options.argOutputFormat != "json"))
+        {
+            errorLine("JSON status supports only --base-dir, --format, and "
+                ~ "--verbose.");
+            return false;
+        }
+        return true;
+
     default:
-        errorLine("JSON mode supports scan, analyze, list, and duplicates.");
+        errorLine("JSON mode supports scan, analyze, status, list, and "
+            ~ "duplicates.");
         return false;
     }
 }
@@ -183,6 +217,22 @@ unittest
     invalidJsonPath.argJSONFile = analyzeOptions.argJSONFile;
     invalidJsonPath.argExportPath = "archives";
     assert(!validateJsonOptions("list", invalidJsonPath));
+
+    auto statusOptions = ArgsArray();
+    statusOptions.argJSONFile = analyzeOptions.argJSONFile;
+    statusOptions.argBaseDir = baseDir;
+    statusOptions.argOutputFormat = "json";
+    assert(validateJsonOptions("status", statusOptions));
+
+    auto invalidStatus = ArgsArray();
+    invalidStatus.argJSONFile = analyzeOptions.argJSONFile;
+    invalidStatus.argQueryText = "needle";
+    assert(!validateJsonOptions("status", invalidStatus));
+
+    auto invalidStatusFormat = ArgsArray();
+    invalidStatusFormat.argJSONFile = analyzeOptions.argJSONFile;
+    invalidStatusFormat.argOutputFormat = "xml";
+    assert(!validateJsonOptions("status", invalidStatusFormat));
 
     auto cachedScan = ArgsArray();
     cachedScan.argJSONFile = buildPath(baseDir, "cached.json");

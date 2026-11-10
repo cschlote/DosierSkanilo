@@ -10,6 +10,7 @@
 module dosierskanilo;
 
 public import dosierskanilo.catalogbackend;
+public import dosierskanilo.catalogstatus;
 public import dosierskanilo.jsoncatalogbackend;
 public import dosierskanilo.logging;
 public import dosierskanilo.metadata.digests;
