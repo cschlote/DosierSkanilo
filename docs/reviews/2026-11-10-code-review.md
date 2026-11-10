@@ -610,6 +610,10 @@ The 2026-10-28 items now have this status:
 
 ## Recommended remediation order
 
+The maintained, itemized execution plan with acceptance criteria and release
+gates is in [`TODO.md`](../TODO.md) under "P0 - Review remediation for the next
+release". The waves below only give the order.
+
 **Wave 1 - security and data safety.** C1 (symlink members), C2 (WAL backup),
 C3 (document save race), M1 (restore rollback), M7 (password write), M14
 (optional `file` dependency). Add the probes named in each item as regression
