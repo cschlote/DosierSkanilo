@@ -464,3 +464,27 @@ memory usage, script portability items, packaging sha256 verification.
       release.
 - [ ] Decide on the legacy `scanning.d` module: delete it or gate its
       fileSpecs write-back behind the M5 fix.
+
+## Status update - 2026-11-10
+
+Reviewed against unreleased `main` at `a3a28dd` (`v26.15.1` plus 13 commits);
+full suite `222 passed`, `89.10 %` coverage, CLI checks and lint green.
+
+The "Prior items resolved" section above overstates four items after the
+`26.13`-`26.15` refactors. Corrected status:
+
+| Item | Status on 2026-11-10 | Evidence |
+| --- | --- | --- |
+| M1 JSON per-blob metadata isolation | Fixed | `service/jsonoperations.d:1004-1069` |
+| M2 member-cache stale leases and close-under-lease | Fixed | `membercontentcache.d:219-225`, `:329-340`, `:442-461`; test `:877-928` |
+| M3 null MediaInfo streams | Partial | `mediainfosig.d` is null-safe, but `jsoncatalogbackend.d:2454-2508` still dereferences null entries; 2026-11-10 M8 |
+| M4 zero-limit paging | Partial | `pageSlice()` validates, but `listArchiveEntries()`/`listTorrentEntries()` empty-detail early returns bypass it; 2026-11-10 Minor |
+| M5 `!!` round-trip in `getExistingFiles` | Partial | `sample!.zip` works, `dir!/file` is still misclassified; 2026-11-10 M11 |
+| M6 JSON directory filter counts | Partial | Counts are recomputed, but with descendant instead of immediate-file semantics; 2026-11-10 M10 |
+| Flatpak `sha256` verification | Verified | Manifest hash matches the published `v26.15.1` tarball |
+| Legacy `scanning.d` decision | Still open | `TODO.md` P1 |
+
+New findings since this review are tracked in
+[`2026-11-10-code-review.md`](2026-11-10-code-review.md), including the archive
+symlink member exposure (Critical), force/restore WAL backup loss (Critical),
+document-save conflict race (Critical), and the restore/recover CLI gaps.

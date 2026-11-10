@@ -772,3 +772,25 @@ the
 
 Verification: `DC=ldc2 dub test --config=library` - 151 passed, 0 failed;
 `./scripts/test-cli.sh` - passed; `./scripts/lint.sh` - passed.
+
+## Status update - 2026-11-10
+
+Reviewed against unreleased `main` at `a3a28dd` (`v26.15.1` plus 13 commits);
+full suite `222 passed`, `89.10 %` coverage, CLI checks and lint green.
+
+- All Wave 1-4 remediation items remain fixed in the current tree.
+- Wave 5's last open item is now complete: pages with
+  `includeArchiveMembers` build one member order per directory and cache it in
+  `archiveMemberOrderByDirectory` (`jsoncatalogbackend.d:3270-3328`).
+- The operation progress callback is now safe against recursive reports:
+  `callbackMutex` is documented and used as a recursive druntime mutex
+  (`operations.d:355-366`, `:556-564`), so the 2026-10-21 Minor no longer
+  applies.
+- Two Wave 3 scalability claims were superseded by later refactors and are
+  open again: per-changed-file `deleteUnreachableBlobs()` makes rescans
+  `O(changed × blobs)` (`scanner.d:276-289`), and `listArchiveEntries()`
+  materializes the full archive and uses two SQL bind variables per container
+  reference (`transfer.d:930-1007`). See the 2026-11-10 review, M5 and M6.
+- New findings in the same areas (archive symlink members, force/restore WAL
+  backups, document-save conflicts) are tracked in
+  [`2026-11-10-code-review.md`](2026-11-10-code-review.md).
