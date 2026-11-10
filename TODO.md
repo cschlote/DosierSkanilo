@@ -11,7 +11,7 @@ user-visible changes are listed in [`CHANGELOG.md`](CHANGELOG.md).
   v6, explicit JSON `CatalogDocument` sessions, shared operation API, member
   cache, recovery writer, and tag-driven release validation are implemented.
 - WP-09, WP-13, WP-14, and the persistence/document-session work are complete.
-- Backend verification: 225 tests, coverage 89.21 %, CLI checks and
+- Backend verification: 243 tests, coverage 89.41 %, CLI checks and
   `scripts/lint.sh` pass; CI is green on `main`, and `testing` mirrors the same
   commit without deployments.
 - The read-only `status` command reports aggregate SQLite and JSON catalog
@@ -41,7 +41,7 @@ Rules:
 
 ### Wave 1 — Security, data safety, destructive commands
 
-- [ ] **R1.1 (C1) - Reject archive link members.**
+- [x] **R1.1 (C1) - Reject archive link members.**
       Reject symlink and hardlink entries in the tar, zip, rar, and 7z
       adapters, and add a central `MemberContentCache` guard that rejects
       `isSymlink(path)` and paths whose `realPath()` escapes the entry
@@ -49,43 +49,43 @@ Rules:
       external file are indexed without following the target; preview returns
       an unextractable-member error, and the catalog contains no digest of the
       target.
-- [ ] **R1.2 (C2) - Make force/restore safety backups WAL-safe.**
+- [x] **R1.2 (C2) - Make force/restore safety backups WAL-safe.**
       Replace the raw rename in `backupExistingCatalog()` with a `VACUUM INTO`
       snapshot of the live connection (or move sidecars next to the renamed
       database under `<backupDb>-wal`/`<backupDb>-shm` and move the main file
       last). Acceptance: with a second connection holding uncheckpointed
       committed WAL frames, `init --force` and `restore --force` produce a
       safety backup that reopens with the expected row count.
-- [ ] **R1.3 (C3) - Close the document-save conflict race.**
+- [x] **R1.3 (C3) - Close the document-save conflict race.**
       Capture the catalog fingerprint when the backend loads the file, acquire
       the replacement lease before comparing, then re-read the fingerprint
       under the lease. Acceptance: two document sessions on the same path
       cannot both save; the second receives `writeConflict`, and an external
       rewrite between load and save is detected.
-- [ ] **R1.4 (M1) - Make `restore()` staged and rollback-safe.**
+- [x] **R1.4 (M1) - Make `restore()` staged and rollback-safe.**
       Copy the source next to the target, run `migrate()` and the schema
       assertions on the staged file, then swap old-to-backup and
       staging-to-target. Restore the old database if any step fails. Validate
       `schema_migrations`, `file_refs.is_virtual`, and the required tables.
       Acceptance: an invalid foreign database and an injected rename failure
       leave the live catalog usable. Depends on R1.2 for the safety snapshot.
-- [ ] **R1.5 (M7) - Route archive-password writes through the staged writer.**
+- [x] **R1.5 (M7) - Route archive-password writes through the staged writer.**
       Wrap the read in `setArchivePassword()` and use
       `commitJsonCatalog()`/`writeCatalogJsonFile()` instead of the
       truncate-in-place writer. Acceptance: a parse failure raises
       `CatalogBackendException`; a simulated write failure leaves the previous
       catalog readable.
-- [ ] **R1.6 (M14) - Tolerate a missing optional `file` utility.**
+- [x] **R1.6 (M14) - Tolerate a missing optional `file` utility.**
       Catch process errors in `getFileUtilityVersion()` and `getFileType()` and
       return `"unknown"`/`null`. Acceptance: `scan --json` succeeds with a
       `PATH` that contains no `file` executable.
-- [ ] **R1.7 (M15) - Validate `recover` and honor `--dry-run`.**
+- [x] **R1.7 (M15) - Validate `recover` and honor `--dry-run`.**
       Add a dedicated validator that rejects options other than
       `--restore-from` and `--no-input`, or implement `--dry-run` as a
       listing-only operation. Acceptance: `recover --dry-run --restore-from`
       does not change the catalog or create a backup; unsupported options exit
       with usage status 2.
-- [ ] **R1.8 (M16) - Discover the repository root in `restore`.**
+- [x] **R1.8 (M16) - Discover the repository root in `restore`.**
       Resolve `findRoot()` before choosing the target and require an explicit
       root when the user wants a new repository. Acceptance: `restore` from a
       repository subdirectory restores the discovered parent and does not
@@ -93,88 +93,88 @@ Rules:
 
 ### Wave 2 — Guard correctness and document/archive integrity
 
-- [ ] **R2.1 (M2) - Close the filesystem-guard bypasses.**
+- [x] **R2.1 (M2) - Close the filesystem-guard bypasses.**
       Classify `realPath()` of the database file and its parent, and process
       mountinfo in order so a later overmount wins. Treat an unclassifiable
       filesystem as an explicit warning or opt-in. Acceptance: unit tests
       cover a symlinked root/database and an overmount on an existing mount
       point; local ext4/xfs/btrfs/tmpfs/overlay/zfs remain accepted.
-- [ ] **R2.2 (M3) - Prune unsupported mounts during the scan walk.**
+- [x] **R2.2 (M3) - Prune unsupported mounts during the scan walk.**
       Build the unsupported-mount table before `dirEntries` and skip recursion
       into those directories. Acceptance: a stale FUSE/autofs subtree is not
       entered during discovering; existing references below it stay unchanged.
-- [ ] **R2.3 (M4) - Always exclude the repository metadata directory.**
+- [x] **R2.3 (M4) - Always exclude the repository metadata directory.**
       Exclude the resolved `.dosierskanilo` path from repository scans even
       with `--pick-hidden`. Acceptance: `catalog.sqlite3`, `-wal`, `-shm`, and
       `logs/operations.jsonl` never appear as file references.
-- [ ] **R2.4 (M8) - Skip null MediaInfo streams in the JSON adapter.**
+- [x] **R2.4 (M8) - Skip null MediaInfo streams in the JSON adapter.**
       Make `mediaStreamsFor()`, snapshot flags, and content-row flags tolerate
       null entries and compute media state from non-null streams. Acceptance: a
       catalog with a null stream opens, lists, and exports without a
       `NullReferenceError`, and does not report phantom media.
-- [ ] **R2.5 (M9) - Isolate document dry-run and failures.**
+- [x] **R2.5 (M9) - Isolate document dry-run and failures.**
       Reject `dryRun` on document sessions with `unsupportedFeature`, or run
       the helper against a deep copy and swap only on success. Acceptance:
       dry-run and failed operations leave `modified()`, the buffer, and the
       query index unchanged.
-- [ ] **R2.6 (M10) - Correct filtered JSON directory counts.**
+- [x] **R2.6 (M10) - Correct filtered JSON directory counts.**
       Count only rows whose `directoryId` equals the directory, plus matching
       members when `includeArchiveMembers`. Acceptance: filtered JSON counts
       equal unfiltered counts and SQLite counts for the same query.
-- [ ] **R2.7 (M11) - Fix the `dir!/file` round-trip.**
+- [x] **R2.7 (M11) - Fix the `dir!/file` round-trip.**
       Keep the original canonical spec for non-virtual paths in
       `getExistingFiles()` or re-escape based on parsed identity instead of
       `canFind("!/")`. Acceptance: a `dir!/sample!.zip` record survives a
       legacy scan, metadata run, and JSON export/import without changing
       identity.
-- [ ] **R2.8 (M12) - Do not promote partial archive indexes.**
+- [x] **R2.8 (M12) - Do not promote partial archive indexes.**
       Build `archiveSpecs` locally and assign it only after the archive
       succeeds; catch digest/stat/nested failures and keep an index-only entry.
       Acceptance: a member that disappears during hashing leaves the previous
       complete index or a failed item, never a truncated index marked
       complete.
-- [ ] **R2.9 (M13) - Extract ZIP members by index.**
+- [x] **R2.9 (M13) - Extract ZIP members by index.**
       Use the Python `zipfile` path for all ZIP entries, or reject glob
       metacharacters. Acceptance: an archive with `foo*` and `foo1` extracts
       only the requested member and never restores symlinks.
 
 ### Wave 3 — Scalability, robustness, and UX
 
-- [ ] **R3.1 (M5) - Clean unreachable blobs once per scan.**
+- [x] **R3.1 (M5) - Clean unreachable blobs once per scan.**
       Remove the per-changed-file `deleteUnreachableBlobs()` call and run one
       cleanup after the staged files and missing references are applied.
       Acceptance: a rescan of many changed files executes one orphan query;
       record before/after timing in `docs/BENCHMARKS.md`.
-- [ ] **R3.2 (M6) - Bound archive-member listing.**
+- [x] **R3.2 (M6) - Bound archive-member listing.**
       Batch container paths through a temporary table or bounded variable
       chunks, and apply identity deduplication and pagination in SQL.
       Acceptance: a container with more than the SQLite variable limit and an
       archive with one million synthetic members list a page without loading
       the full member set.
-- [ ] **R3.3 - Harden backup and force-init edge cases.**
+- [x] **R3.3 - Harden backup and force-init edge cases.**
       Move or remove stale `-wal`/`-shm` on `init --force` even when the main
       database is absent; delete a partial `backupTo` target on failure and
       validate the destination filesystem; give force/restore backups a
       collision-free name. Acceptance: tests cover the missing-main-file case,
       an injected `VACUUM INTO` failure, and two backups in one second.
-- [ ] **R3.4 - Unify repository errors and page validation.**
+- [x] **R3.4 - Unify repository errors and page validation.**
       Use `enforce!RepositoryException` in the public repository methods and
       validate `limit`/cursor before empty-detail early returns in the JSON
       backend. Acceptance: no public repository method throws
       `EnforceException`; JSON and SQLite reject `limit == 0` identically.
-- [ ] **R3.5 - Fix the remaining CLI UX gaps.**
+- [x] **R3.5 - Fix the remaining CLI UX gaps.**
       Add `.before-restore-` to the recovery candidates; reject
       `--restore-from` outside `recover`; reject `--pretty` for `info`/`list`/
       `duplicates`; send verbose query diagnostics to stderr. Acceptance:
       `recover` lists its own safety copy, JSON query output stays valid with
       `--verbose`, and unsupported options exit 2.
-- [ ] **R3.6 - Repair progress state and watcher lifetime.**
+- [x] **R3.6 - Repair progress state and watcher lifetime.**
       Let the heartbeat use the shared line-state and header helpers, route
       verbose heartbeats to newline records, guard all heartbeat fields with
       `operationStateMutex`, and stop the cancellation watcher when the
       operation finishes. Acceptance: a heartbeat-only operation is erased
       before the summary, and a completed command leaves no polling thread.
-- [ ] **R3.7 - Close the model/archive minors.**
+- [x] **R3.7 - Close the model/archive minors.**
       Handle v3 `!` names in `physicalPathForSpec()`; reject negative torrent
       `piece length` and use checked size addition; pass archive paths after
       `--` in listing commands; preserve leading/trailing whitespace in
@@ -183,23 +183,23 @@ Rules:
       directories with `scope (exit)`. Acceptance: each item has a focused
       regression test, and the legacy scanner decision from P1 is applied
       first.
-- [ ] **R3.8 - Update documentation for the repaired boundaries.**
+- [x] **R3.8 - Update documentation for the repaired boundaries.**
       Document WAL-safe force/restore backups, the real filesystem-guard
       scope, exit codes in help/README, `--duplicate-limit` and `--format`,
       and the new test baseline. Acceptance: `DATABASE.md`, `README.md`, and
       `docs/development/testing.md` match the implemented behavior and pass
       Markdown lint.
-- [ ] **R3.9 - Defer the `is_virtual` storage change.**
+- [x] **R3.9 - Defer the `is_virtual` storage change.**
       Keep the generated `VIRTUAL` column for schema v6 and move the
       `STORED`/indexed form into the Major 27 baseline. Acceptance: no schema
       migration is added in this cycle and Major 27 lists the change.
 
 ### Release gate
 
-- [ ] Re-run every targeted probe from the review and record the result in
+- [x] Re-run every targeted probe from the review and record the result in
       `docs/development/testing.md`.
-- [ ] Full suite, CLI integration, lint, and the Ddoc build are green.
-- [ ] `CHANGELOG.md` under `## Unreleased` covers every user-visible fix.
+- [x] Full suite, CLI integration, lint, and the Ddoc build are green.
+- [x] `CHANGELOG.md` under `## Unreleased` covers every user-visible fix.
 - [ ] `VERSION` and all packaging metadata use the chosen patch/minor version.
 - [ ] Re-run [`docs/RELEASE-CHECKLIST.md`](docs/RELEASE-CHECKLIST.md), including
       the paired GUI release.

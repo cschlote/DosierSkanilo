@@ -71,7 +71,15 @@ void calculatesDigests(
 			xxh64.put(chunk);
 
 		if (gotCtrlC !is null && atomicLoad(*gotCtrlC))
+		{
+			if (md5sum !is null)
+				*md5sum = null;
+			if (sha1sum !is null)
+				*sha1sum = null;
+			if (xxh64sum !is null)
+				*xxh64sum = null;
 			return;
+		}
 
 		pos += chunk.length;
 		if (progressCallBack)
@@ -172,4 +180,27 @@ unittest
 		158, 54, 211, 145, 192
 	]);
 	assert(xxh64sum == [131, 45, 231, 248, 88, 105, 250, 187]);
+}
+
+@("digest cancellation clears output buffers")
+unittest
+{
+    import std.file : exists, remove, tempDir, write;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const filePath = buildPath(tempDir(), "digest-cancel-"
+        ~ randomUUID().toString());
+    write(filePath, "payload");
+    scope (exit)
+        if (exists(filePath))
+            remove(filePath);
+    shared bool cancelled = true;
+    ubyte[] md5 = [1];
+    ubyte[] sha1 = [2];
+    ubyte[] xxh = [3];
+    calculatesDigests(&cancelled, filePath, &md5, &sha1, &xxh, null);
+    assert(md5 is null);
+    assert(sha1 is null);
+    assert(xxh is null);
 }

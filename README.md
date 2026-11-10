@@ -175,7 +175,7 @@ dosierskanilo import [ROOT] INPUT.json [--replace]
 dosierskanilo export [ROOT] --output OUTPUT.json [--path VIRTUAL_PATH]
 dosierskanilo backup [ROOT] [--output OUTPUT.sqlite3]
 dosierskanilo restore [ROOT] --input INPUT.sqlite3 [--force]
-dosierskanilo recover CATALOG.json [--restore-from FILE]
+dosierskanilo recover CATALOG.json [--restore-from FILE] [--dry-run]
 
 dosierskanilo scan [ROOT] --json CATALOG.json [--base-dir DIR] [OPTIONS]
 dosierskanilo analyze [ROOT] --json CATALOG.json [--base-dir DIR] [OPTIONS]
@@ -197,15 +197,18 @@ default; `--pretty` indents them for human reading. Archive scans and metadata
 extraction accept
 `--archive-cache-dir` and `--archive-cache-size` (MiB) to control the temporary
 member cache; each run uses an owned session directory and removes it on exit.
-`init --force` moves `catalog.sqlite3` and its `-wal`/`-shm` side files into
-`.dosierskanilo/backups/` and starts a new empty catalog; stop other processes
-using the repository first. `backup` writes a consistent, integrity-checked
-SQLite snapshot via `VACUUM INTO`; without `--output` it uses a timestamped file
-below `.dosierskanilo/backups/`. `restore --input FILE --force` validates the
-snapshot before replacing the current database and preserves the previous one
-under `backups/`. SQLite repositories must reside on a local filesystem. For
-catalogs on network or FUSE mounts, keep SQLite local and `export` the catalog
-to JSON locally before copying it to the other machine.
+`init --force` creates a `VACUUM INTO` safety snapshot (including committed WAL
+rows) under `.dosierskanilo/backups/` and starts a new empty catalog; stop other
+processes using the repository first. `backup` writes a consistent,
+integrity-checked SQLite snapshot; without `--output` it uses a timestamped file
+below `.dosierskanilo/backups/`. `restore --input FILE --force` stages and
+validates the replacement before swapping it in, preserves the previous database
+under `backups/`, and restores it if the reopen fails. SQLite repositories must
+reside on a local filesystem; the guard follows symlinks and overmounts. Scans
+prune unsupported network/FUSE/autofs mounts and never catalog the repository's
+own `.dosierskanilo` directory, even with `--pick-hidden`. For catalogs on
+network or FUSE mounts, keep SQLite local and `export` the catalog to JSON
+locally before copying it to the other machine.
 `status` reports storage mode, schema or catalog version, timestamps, blob and
 reference counts (physical and archive members), directory count, physical
 size, missing physical references, metadata coverage for checksums, file types,
@@ -216,7 +219,8 @@ Help is `--help`; version is `--version`. Normal commands print
 `DosierSkanilo <version>` and a compact one-line `Settings:` summary to stderr at
 startup so stdout stays usable for command output and JSON formats. `--verbose`
 expands the settings into command, target, storage, scope, metadata, worker,
-cache, and flag details. Long-running operations print the operation and
+cache, and flag details; verbose diagnostics go to stderr so JSON output remains
+machine-readable. Long-running operations print the operation and
 target once, followed by compact phase, count, elapsed-time, and path updates.
 On a terminal the progress line is rewritten in place and colored; redirected
 output emits timestamped records every few seconds, and a heartbeat marks long

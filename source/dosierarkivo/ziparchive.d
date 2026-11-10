@@ -7,10 +7,11 @@
 module dosierarkivo.ziparchive;
 
 import std.algorithm : filter, map;
+import std.algorithm.searching : canFind;
 import std.array : array;
 import std.conv : to;
 import std.file : exists, getcwd, remove;
-import std.path : buildPath, isAbsolute;
+import std.path : absolutePath, buildPath, isAbsolute;
 import std.process : execute, executeShell;
 import std.regex : matchFirst;
 import std.stdio : stderr, write;
@@ -66,7 +67,7 @@ class FileArchiveZip : FileArchive
             if (m.empty)
                 continue;
 
-            auto entryName = m.captures[1].strip;
+            auto entryName = m.captures[1];
             if (!entryName.empty)
                 entries ~= entryName;
         }
@@ -96,13 +97,13 @@ class FileArchiveZip : FileArchive
      */
     override string[] getEntries(string password = "")
     {
-        auto rcMachineReadable = execute(["unzip", "-Z1", this.fileName]);
+        auto rcMachineReadable = execute(["unzip", "-Z1",
+            absolutePath(this.fileName)]);
         if (rcMachineReadable.status == 0)
         {
             return rcMachineReadable.output
                 .splitLines
-                .map!(line => line.strip)
-                .filter!(line => !line.empty)
+                .filter!(line => line.length > 0)
                 .array;
         }
         if (isArchivePasswordFailure(rcMachineReadable.output))
@@ -111,7 +112,8 @@ class FileArchiveZip : FileArchive
         stderr.writeln("WARNING: unzip -Z1 failed for '", this.fileName,
             "'. Falling back to parsing unzip -l output.");
 
-        auto rcLongList = execute(["unzip", "-l", this.fileName]);
+        auto rcLongList = execute(["unzip", "-l",
+            absolutePath(this.fileName)]);
         if (rcLongList.status != 0)
         {
             if (isArchivePasswordFailure(rcLongList.output))
@@ -142,6 +144,13 @@ class FileArchiveZip : FileArchive
      */
     override bool extractEntry(string filename, string destDir, string password = "")
     {
+        /* Info-ZIP expands filename operands as glob patterns. The descriptor
+         * overload uses index-based extraction; reject ambiguous names here. */
+        if (filename.canFind("*") || filename.canFind("?")
+            || filename.canFind("["))
+            throw new ArchiveToolException(
+                "ZIP member names with glob metacharacters require index-based "
+                ~ "extraction: " ~ filename);
         auto zipPath = buildPath(getcwd(), this.fileName);
         auto rc = execute(["unzip", "-P", password, "-d", destDir, "--", zipPath, filename]);
         if (rc.status != 0 && isArchivePasswordFailure(rc.output))
@@ -181,10 +190,18 @@ class FileArchiveZip : FileArchive
     override bool extractEntry(ArchiveEntryDescriptor descriptor, string destDir,
         string password = "")
     {
-        if (!descriptor.hasDuplicateName)
-            return extractEntry(descriptor.name, destDir, password);
-        if (!supportsEntryOccurrence)
+        if (!descriptor.hasSafePath)
             return false;
+        if (!supportsEntryOccurrence)
+        {
+            /* Without Python, fall back to name extraction only for names
+             * that cannot be expanded as a pattern. */
+            if (descriptor.hasDuplicateName || descriptor.name.canFind("*")
+                || descriptor.name.canFind("?")
+                || descriptor.name.canFind("["))
+                return false;
+            return extractEntry(descriptor.name, destDir, password);
+        }
 
         enum extractionScript = "import os, shutil, sys, zipfile\n"
             ~ "archive, index, dest, member, expected, password = sys.argv[1:]\n"
@@ -358,4 +375,44 @@ unittest
     auto archive = new FileArchiveZip(archivePath);
     assert(archive.extractEntry("-d", output));
     assert(exists(buildPath(output, "-d")));
+}
+
+@("zip extraction does not expand wildcard member names")
+unittest
+{
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir;
+    import std.path : buildPath;
+    import std.process : execute, executeShell;
+    import std.uuid : randomUUID;
+
+    if (executeShell("command -v python3").status != 0)
+        return;
+    const auto root = buildPath(tempDir(), "zip-wildcard-member-"
+        ~ randomUUID().toString());
+    const auto archivePath = buildPath(root, "wildcard.zip");
+    const auto output = buildPath(root, "output");
+    mkdirRecurse(root);
+    mkdirRecurse(output);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+
+    const auto createScript = "import sys, zipfile; z=zipfile.ZipFile(sys.argv[1], 'w'); "
+        ~ "z.writestr('foo*', 'literal star'); z.writestr('foo1', 'other'); z.close()";
+    const auto created = execute(["python3", "-c", createScript, archivePath]);
+    assert(created.status == 0, created.output);
+    auto archive = new FileArchiveZip(archivePath);
+    ArchiveEntryDescriptor target;
+    bool found;
+    foreach (entry; archive.getEntryDescriptors())
+        if (entry.name == "foo*")
+        {
+            target = entry;
+            found = true;
+        }
+    assert(found);
+    assert(archive.extractEntry(target, output));
+    assert(exists(buildPath(output, "foo*")));
+    assert(!exists(buildPath(output, "foo1")),
+        "wildcard members must not extract sibling names");
 }

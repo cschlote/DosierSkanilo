@@ -110,6 +110,7 @@ bool validateJsonOptions(string command, ref ArgsArray options)
             || options.argShowStatus
             || options.argDuplicates || options.argDropMissing
             || options.argMergeDuplicates || options.argDryRun
+            || options.argPrettyJSON
             || options.argRecursive || options.argPickHidden
             || options.argDoChecksums || options.argDoFileTypes
             || options.argDoMediaSig || options.argScanArchives
@@ -130,6 +131,7 @@ bool validateJsonOptions(string command, ref ArgsArray options)
             || options.argShowStatus
             || options.argList || options.argDropMissing
             || options.argMergeDuplicates || options.argDryRun
+            || options.argPrettyJSON
             || options.argRecursive || options.argPickHidden
             || options.argDoChecksums || options.argDoFileTypes
             || options.argDoMediaSig || options.argScanArchives

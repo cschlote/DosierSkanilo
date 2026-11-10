@@ -98,6 +98,17 @@ metadata. The build must complete without missing-symbol or broken-link errors.
 
 ## Current baseline
 
-On 2026-11-10 the full suite reported 225 passing tests and 89.21 % coverage.
+On 2026-11-10 the full suite reported 243 passing tests and 89.41 % coverage.
+
+### 2026-11-10 review remediation
+
+The P0 review remediation was verified with the complete local gate:
+`243 passed`, `89.41 %` coverage, CLI integration checks, `scripts/lint.sh`,
+and `scripts/build-docs.sh`. Focused regression coverage includes archive
+symlink rejection, WAL-safe force/restore snapshots, staged restore rollback,
+recovery dry-run and root discovery, missing optional `file`, null media
+streams, document dry-run isolation, filtered directory counts, `dir!/file`
+round-trips, partial archive indexes, ZIP wildcard members, archive page
+pagination, and progress/watcher lifetime.
 Treat these numbers as a recorded snapshot, not a permanent contract; update
 them when the test set changes.

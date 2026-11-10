@@ -27,18 +27,22 @@ string getFileType(const string filename)
         logFLineVerbose("\nFile '%s' does not exist", filename);
         return null;
     }
-    auto rc = execute(["file", "-b", filename]);
-    // assert(rc.status == 0, rc.output);
-    if (rc.status)
+    try
     {
-        logFLine("\n'file' utility failed with rc %d on file '%s'", rc.status, filename);
+        auto rc = execute(["file", "-b", "--", filename]);
+        if (rc.status)
+        {
+            logFLine("\n'file' utility failed with rc %d on file '%s'",
+                rc.status, filename);
+            return null;
+        }
+        return rc.output.strip;
+    }
+    catch (Exception)
+    {
+        logFLineVerbose("\nThe optional 'file' utility is not available.");
         return null;
     }
-    // writeln(rc.output);
-    auto rv = rc.output.strip;
-    // if (rv == "data")
-    //     rv = null;
-    return rv;
 }
 
 /** Query the installed `file` utility version string.
@@ -51,13 +55,20 @@ string getFileUtilityVersion()
     import std.process : execute;
     import std.string : indexOf, strip;
 
-    auto rc = execute(["file", "--version"]);
-    if (rc.status != 0 || rc.output.strip.length == 0)
+    try
+    {
+        auto rc = execute(["file", "--version"]);
+        if (rc.status != 0 || rc.output.strip.length == 0)
+            return "unknown";
+        auto versionText = rc.output.strip;
+        auto newlineIndex = versionText.indexOf('\n');
+        return (newlineIndex < 0 ? versionText
+            : versionText[0 .. newlineIndex]).strip;
+    }
+    catch (Exception)
+    {
         return "unknown";
-
-    auto versionText = rc.output.strip;
-    auto newlineIndex = versionText.indexOf('\n');
-    return (newlineIndex < 0 ? versionText : versionText[0 .. newlineIndex]).strip;
+    }
 }
 
 @("getFileType")

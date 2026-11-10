@@ -200,7 +200,10 @@ TorrentInfo getTorrentInfo(string filePath)
     {
         long pieceLength;
         if (tryGetLong(infoDict["piece length"].value, pieceLength))
+        {
+            enforce(pieceLength >= 0, "Invalid negative piece length");
             ti.pieceLength = cast(ulong) pieceLength;
+        }
     }
 
     if ("pieces" in infoDict)
@@ -268,6 +271,8 @@ TorrentInfo getTorrentInfo(string filePath)
             fe.path = [ti.name] ~ relativePath;
 
             ti.files ~= fe;
+            enforce(fe.length <= ulong.max - sum,
+                "Torrent file sizes overflow the total size");
             sum += fe.length;
         }
         ti.totalSize = sum;

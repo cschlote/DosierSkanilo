@@ -9,6 +9,54 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- Archive scanning rejects symbolic-link members instead of reading and
+  hashing their local targets.
+
+- Filesystem safety checks resolve symlinks and later overmounts. Scans prune
+  unsupported network/FUSE/autofs mounts during the walk and never catalog the
+  repository's own `.dosierskanilo` directory, even with `--pick-hidden`.
+
+- JSON catalogs tolerate null media-stream entries from older files; document
+  dry-runs and failed apply operations leave the live buffer and query index
+  unchanged. Filtered directory counts now use immediate files, and legacy
+  `dir!/file` names survive the write-back round-trip.
+
+- A failed nested archive scan keeps the previous complete index, and ZIP
+  extraction uses index-based member selection instead of wildcard expansion.
+
+- Repository scans run orphan cleanup once after applying the staged changes
+  instead of once per changed file. Archive entry pages use SQL-side
+  deduplication and pagination, so large archives no longer materialize every
+  member or hit the SQLite bind-variable limit.
+
+- Backup and force-init edge cases are hardened: stale sidecars are removed
+  when the main database is absent, failed backups leave no partial target, and
+  backup destinations are checked like repository roots.
+
+- Repository validation errors are consistently typed, JSON empty-detail pages
+  reject a zero limit, `recover` lists its own pre-restore backup, and
+  `--restore-from`/`--pretty` are rejected outside their supported commands.
+  Verbose diagnostics now go to stderr, while `--status`/`list`/`duplicates`
+  JSON output stays machine-readable. Heartbeat state and cancellation
+  watchers are synchronized and stop with the operation.
+
+- Model and archive edge cases are closed: legacy literal `!` names resolve,
+  torrent integer fields are validated, archive listing paths are absolute,
+  ZIP/7z listing preserves name whitespace, the legacy scanner isolates
+  per-item failures, and cancelled digest reads clear their outputs.
+
+- `init --force` and `restore --force` safety backups use `VACUUM INTO`, so
+  committed rows still living in the WAL are preserved. Restore prepares and
+  validates a staged database before replacing the live one and rolls back on
+  failure.
+
+- `recover` validates its options and supports `--dry-run`. Restore discovers
+  the nearest repository root, like the other SQLite commands.
+
+- JSON document saves hold the replacement lease across the conflict check, and
+  archive-password updates use the staged catalog writer. A missing optional
+  `file` utility no longer aborts JSON writes.
+
 - New `status` command reports aggregate catalog statistics for SQLite
   repositories and direct JSON catalogs: storage mode, schema/catalog version,
   timestamps, blob and reference counts, physical size, missing physical

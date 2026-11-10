@@ -6,10 +6,12 @@
  */
 module dosierskanilo.logging;
 
-import std.stdio : stdout, write, writef, writefln, writeln;
+import std.stdio : stderr, stdout, write, writef, writefln, writeln;
 
 /** Global verbose-output flag used by logging helpers. */
 __gshared bool verboseEnabled;
+/** Whether verbose diagnostics go to stderr instead of stdout. */
+__gshared bool verboseToStderr;
 
 /** Enable or disable verbose log output.
  *
@@ -30,6 +32,19 @@ void setVerboseOutputs(bool enabled) nothrow
 bool isVerboseOutputs() nothrow
 {
 	return verboseEnabled;
+}
+
+/** Select the stream used by verbose logging helpers.
+ *
+ * The CLI enables stderr so machine-readable stdout stays clean. Library
+ * callers keep the historical stdout default unless they opt in.
+ *
+ * Params:
+ *   enabled = `true` to send verbose diagnostics to stderr.
+ */
+void setVerboseStderr(bool enabled) nothrow
+{
+	verboseToStderr = enabled;
 }
 
 /** Write formatted text without a trailing newline.
@@ -127,8 +142,16 @@ void logFVerbose(T...)(T args)
 	else
 	{
 		if (verboseEnabled)
-			writef(args);
-		stdout.flush;
+		{
+			if (verboseToStderr)
+				stderr.writef(args);
+			else
+				writef(args);
+		}
+		if (verboseToStderr)
+			stderr.flush;
+		else
+			stdout.flush;
 	}
 }
 
@@ -147,8 +170,16 @@ void logFLineVerbose(T...)(T args)
 	else
 	{
 		if (verboseEnabled)
-			writefln(args);
-		stdout.flush;
+		{
+			if (verboseToStderr)
+				stderr.writefln(args);
+			else
+				writefln(args);
+		}
+		if (verboseToStderr)
+			stderr.flush;
+		else
+			stdout.flush;
 	}
 }
 
@@ -167,8 +198,16 @@ void logLineVerbose(T...)(T args)
 	else
 	{
 		if (verboseEnabled)
-			writeln(args);
-		stdout.flush;
+		{
+			if (verboseToStderr)
+				stderr.writeln(args);
+			else
+				writeln(args);
+		}
+		if (verboseToStderr)
+			stderr.flush;
+		else
+			stdout.flush;
 	}
 }
 
@@ -188,8 +227,14 @@ void logVerbose(T...)(T args)
 	{
 		if (verboseEnabled)
 		{
-			write(args);
-			stdout.flush;
+			if (verboseToStderr)
+				stderr.write(args);
+			else
+				write(args);
+			if (verboseToStderr)
+				stderr.flush;
+			else
+				stdout.flush;
 		}
 	}
 }

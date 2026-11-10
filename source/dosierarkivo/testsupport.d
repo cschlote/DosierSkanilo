@@ -56,7 +56,7 @@ version (unittest)
     void testAbstractImpl(FileArchive obj)
     {
         mkdirRecurse(getTmpDirPrefix);
-        scope (success)
+        scope (exit)
             if (getTmpDirPrefix.exists)
                 rmdirRecurse(getTmpDirPrefix);
 

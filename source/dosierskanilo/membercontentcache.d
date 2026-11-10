@@ -14,7 +14,8 @@ import core.time : dur;
 
 import std.conv : to;
 import std.exception : enforce;
-import std.file : exists, getSize, isFile, mkdirRecurse, rmdirRecurse;
+import std.file : exists, getSize, isFile, isSymlink, mkdirRecurse,
+    rmdirRecurse;
 import std.path : baseName, buildPath, dirName, extension;
 import std.process : thisProcessID;
 import std.string : empty, replace, startsWith, toLower;
@@ -371,6 +372,12 @@ public:
             if (!extracted)
                 throw new MemberContentNotExtractableException(
                     "Archive adapter could not select this member occurrence.");
+            /* Archive extraction may preserve symbolic links. Never expose the
+             * link target as member content, and never accept a path that
+             * resolves outside the session directory. */
+            if (isSymlink(entry.filePath))
+                throw new MemberContentNotExtractableException(
+                    "Archive member is a symbolic link; refusing to read its target.");
             if (!exists(entry.filePath) || !isFile(entry.filePath))
                 throw new MemberContentNotExtractableException(
                     "Archive member materializer produced no file.");
