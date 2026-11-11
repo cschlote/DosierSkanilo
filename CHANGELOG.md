@@ -7,6 +7,12 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
+## Unreleased
+
+- CLI commands print a final `Elapsed time: ...` line after execution.
+  Machine-readable `--format=json` query output keeps the timing line on
+  stderr so stdout remains valid JSON.
+
 ## Release 26.16.0 - 2026-11-10
 
 - Archive scanning rejects symbolic-link members instead of reading and

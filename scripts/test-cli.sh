@@ -72,6 +72,7 @@ cp -a "${fixture_root}" "${synthetic_sqlite_root}"
 sqlite_scan_output=$("${BIN}" scan "${synthetic_sqlite_root}" \
     --recursive --checksums)
 [[ "${sqlite_scan_output}" == *"Catalog scan: 12 files, 12 added"* ]]
+[[ "${sqlite_scan_output}" == *"Elapsed time:"* ]]
 assert_progress_order "${sqlite_scan_output}" \
     validating discovering checksums
 assert_monotonic_progress checksums "${sqlite_scan_output}"
@@ -105,7 +106,12 @@ sqlite_status=$("${BIN}" status "${synthetic_sqlite_root}" --format=json)
 [[ "${sqlite_status}" == *'"storage":"repository"'* ]]
 [[ "${sqlite_status}" == *'"schemaVersion":6'* ]]
 [[ "${sqlite_status}" == *'"references":'"${backup_refs}"* ]]
-[[ "$("${BIN}" status "${synthetic_sqlite_root}")" == *"Catalog status"* ]]
+status_table=$("${BIN}" status "${synthetic_sqlite_root}")
+[[ "${status_table}" == *"Catalog status"* ]]
+[[ "${status_table}" == *"Elapsed time:"* ]]
+[[ "${sqlite_status}" != *"Elapsed time:"* ]]
+status_stderr=$("${BIN}" status "${synthetic_sqlite_root}" --format=json 2>&1 >/dev/null)
+[[ "${status_stderr}" == *"Elapsed time:"* ]]
 mkdir -p "${synthetic_sqlite_root}/sub"
 (cd "${synthetic_sqlite_root}/sub" && "${BIN}" restore \
     --input "${backup_catalog}" --force >/dev/null)

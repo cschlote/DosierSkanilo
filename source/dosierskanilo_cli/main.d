@@ -66,6 +66,33 @@ immutable string appName = "DosierSkanilo";
 /** Build version embedded from the generated `build-version.txt` at compile time. */
 immutable string appVersion = import("build/bin/build-version.txt").strip;
 
+/** Print the final elapsed-time line for one CLI invocation.
+ *
+ * Machine-readable query output keeps stdout clean by sending the line to
+ * stderr; human-readable commands receive it on stdout.
+ *
+ * Params:
+ *     startedAt = Timestamp captured before command dispatch.
+ *     command = Selected CLI command.
+ *     options = Parsed options controlling the output format.
+ *     failed = Whether the command failed; failed timing goes to stderr.
+ */
+private void reportOperationElapsed(SysTime startedAt, CliCommand command,
+	ArgsArray options, bool failed = false)
+{
+	if (command == CliCommand.noCommand)
+		return;
+	const auto line = "Elapsed time: "
+		~ formatOperationDuration(Clock.currTime - startedAt);
+	const bool jsonQuery = options.argOutputFormat == "json"
+		&& (command == CliCommand.info || command == CliCommand.status
+			|| command == CliCommand.list || command == CliCommand.duplicates);
+	if (failed || jsonQuery)
+		noticeFLine("%s", line);
+	else
+		logFLine("%s", line);
+}
+
 /** Main Entry
  *
  * Decode command-line parameters and run the scanner workflow.
@@ -100,8 +127,13 @@ int main(string[] args)
 			return 2;
 		case ParseStatus.run:
 			auto options = parsed.options;
+			const auto commandStartedAt = Clock.currTime;
 			if (!configureArchiveCache(options))
+			{
+				reportOperationElapsed(commandStartedAt, parsed.command,
+					options, true);
 				return 1;
+			}
 			noticeFLine("%s %s", appName, appVersion);
 			printRunSettings(options, parsed.command);
 			if (options.argDoMediaSig && options.argVerboseOutputs)
@@ -137,8 +169,12 @@ int main(string[] args)
 				errorLine("Operation failed: ", ex.msg);
 				if (isVerboseOutputs())
 					errorLine(ex.toString());
+				reportOperationElapsed(commandStartedAt, parsed.command,
+					options, true);
 				return 1;
 			}
+			reportOperationElapsed(commandStartedAt, parsed.command, options,
+				!rc);
 			return rc ? 0 : 1;
 		}
 	}
