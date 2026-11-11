@@ -1194,6 +1194,15 @@ string formatProgressCount(ulong value)
     return result;
 }
 
+@("formatOperationDuration formats final operation timing")
+unittest
+{
+    assert(formatOperationDuration(dur!"msecs"(123)) == "123ms");
+    assert(formatOperationDuration(dur!"msecs"(1500)) == "1.5s");
+    assert(formatOperationDuration(dur!"seconds"(65)) == "1m05s");
+    assert(formatOperationDuration(dur!"seconds"(3665)) == "1h01m");
+}
+
 @("formatProgressCount groups thousands")
 unittest
 {
@@ -1201,6 +1210,27 @@ unittest
     assert(formatProgressCount(999) == "999");
     assert(formatProgressCount(1000) == "1,000");
     assert(formatProgressCount(2600000) == "2,600,000");
+}
+
+/** Format an operation duration for the final shell line.
+ *
+ * Sub-second durations use milliseconds, short durations keep one decimal
+ * place, and longer durations use the compact minute/hour form.
+ *
+ * Params:
+ *     elapsed = Measured operation duration.
+ * Returns: A compact duration string such as `123ms`, `1.5s`, or `1m05s`.
+ */
+string formatOperationDuration(Duration elapsed)
+{
+    const long milliseconds = elapsed.total!"msecs";
+    if (milliseconds < 0)
+        return "0ms";
+    if (milliseconds < 1000)
+        return format("%dms", milliseconds);
+    if (milliseconds < 60_000)
+        return format("%.1fs", milliseconds / 1000.0);
+    return formatElapsed(elapsed);
 }
 
 /** Format an elapsed duration compactly.

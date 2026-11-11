@@ -192,16 +192,13 @@ class FileArchiveZip : FileArchive
     {
         if (!descriptor.hasSafePath)
             return false;
-        if (!supportsEntryOccurrence)
-        {
-            /* Without Python, fall back to name extraction only for names
-             * that cannot be expanded as a pattern. */
-            if (descriptor.hasDuplicateName || descriptor.name.canFind("*")
-                || descriptor.name.canFind("?")
-                || descriptor.name.canFind("["))
-                return false;
+        const bool needsIndexSelection = descriptor.hasDuplicateName
+            || descriptor.name.canFind("*") || descriptor.name.canFind("?")
+            || descriptor.name.canFind("[");
+        if (!needsIndexSelection)
             return extractEntry(descriptor.name, destDir, password);
-        }
+        if (!supportsEntryOccurrence)
+            return false;
 
         enum extractionScript = "import os, shutil, sys, zipfile\n"
             ~ "archive, index, dest, member, expected, password = sys.argv[1:]\n"
