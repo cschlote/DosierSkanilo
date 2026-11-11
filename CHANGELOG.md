@@ -13,6 +13,9 @@ They represent the functional evolution and are intentionally summarized.
   Machine-readable `--format=json` query output keeps the timing line on
   stderr so stdout remains valid JSON.
 
+- `info` counts references with SQL aggregates, so large repositories no
+  longer walk every file reference before printing the summary.
+
 ## Release 26.16.0 - 2026-11-10
 
 - Archive scanning rejects symbolic-link members instead of reading and

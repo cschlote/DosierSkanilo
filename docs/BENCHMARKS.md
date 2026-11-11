@@ -35,6 +35,13 @@ model; catalog writes now stream records with memory bounded by one record.
 SQLite becomes advantageous for the intended GUI path because repository page
 queries apply filters and `LIMIT/OFFSET` before domain objects are created.
 
+## Catalog summary performance
+
+`dosierskanilo info` now asks SQL for the total reference count and aggregate
+size instead of walking every reference through the paged API. On a synthetic
+SQLite repository with 200,000 physical references the command completed in
+about `77 ms` (including process startup and the `Elapsed time` line).
+
 ## Reproduction
 
 ```bash
