@@ -1165,6 +1165,29 @@ public:
         return loadRootSummaryFromDatabase(database);
     }
 
+    /** Count all file references, including virtual archive members.
+     *
+     * Returns: Total number of stored file references.
+     */
+    size_t fileReferenceCount()
+    {
+        requireOpen();
+        return cast(size_t) database.execute(
+            "SELECT count(*) FROM file_refs").oneValue!long;
+    }
+
+    /** Aggregate the sizes of all file references, including members.
+     *
+     * Returns: Sum of referenced blob sizes in bytes.
+     */
+    ulong referenceAggregateSize()
+    {
+        requireOpen();
+        return cast(ulong) database.execute(
+            "SELECT COALESCE(sum(b.file_size), 0) FROM file_refs f "
+            ~ "JOIN blobs b ON b.id = f.blob_id").oneValue!long;
+    }
+
     /** Count all non-virtual file references in one SQL query.
      *
      * Returns: Number of file references that are not archive or torrent

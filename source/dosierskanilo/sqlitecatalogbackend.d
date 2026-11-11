@@ -186,16 +186,30 @@ public:
     {
         return withRepository((Repository repository) {
             CatalogRootSummary result;
-            if (!hasActiveFilter(filter))
+            /* `includeArchiveMembers` alone must not force a page-by-page walk
+             * over every physical reference. Large repositories spend minutes
+             * in that path; SQL can count all references and their sizes. */
+            const bool membersOnly = filter.includeArchiveMembers
+                && filter.pathText.length == 0 && !filter.video
+                && !filter.audio && !filter.image && !filter.text
+                && !filter.fileType && !filter.archive && !filter.torrent
+                && !filter.availableOnly;
+            if (!hasActiveFilter(filter) || membersOnly)
             {
-                /* The normalized repository summary already counts every
-                 * physical reference and aggregates its content size in SQL.
-                 * Walking millions of rows through the page API here made the
-                 * initial tree load take minutes on large repositories. */
                 auto summary = repository.rootSummary();
                 result.childDirectoryCount = summary.childDirectoryCount;
-                result.fileReferenceCount = repository.physicalFileReferenceCount();
-                result.aggregateSize = summary.aggregateSize;
+                if (membersOnly)
+                {
+                    result.fileReferenceCount =
+                        repository.fileReferenceCount();
+                    result.aggregateSize = repository.referenceAggregateSize();
+                }
+                else
+                {
+                    result.fileReferenceCount =
+                        repository.physicalFileReferenceCount();
+                    result.aggregateSize = summary.aggregateSize;
+                }
                 return result;
             }
 
@@ -3198,6 +3212,17 @@ version (unittest)
             sqliteBackend.rootSummary(typeUnionFilter).fileReferenceCount.to!string);
         assert(sqliteBackend.rootSummary(typeUnionFilter).fileReferenceCount
             == jsonBackend.rootSummary(typeUnionFilter).fileReferenceCount);
+
+        CatalogFilter membersFilter;
+        membersFilter.includeArchiveMembers = true;
+        const sqliteMembers = sqliteBackend.rootSummary(membersFilter);
+        const jsonMembers = jsonBackend.rootSummary(membersFilter);
+        assert(sqliteMembers.fileReferenceCount == jsonMembers.fileReferenceCount,
+            sqliteMembers.fileReferenceCount.to!string ~ " != "
+            ~ jsonMembers.fileReferenceCount.to!string);
+        assert(sqliteMembers.aggregateSize == jsonMembers.aggregateSize,
+            sqliteMembers.aggregateSize.to!string ~ " != "
+            ~ jsonMembers.aggregateSize.to!string);
 
         CatalogSubsetQuery memberSubset;
         memberSubset.pathPrefix = "archives/sample.zip!/payload/copy.txt";
