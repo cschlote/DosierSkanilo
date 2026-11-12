@@ -1845,6 +1845,7 @@ bool executeRepositoryMetadata(CatalogBackend backend, string repositoryRoot,
 	metadataOptions.deepArchiveScan = options.argScanArchives > 1;
 	metadataOptions.scanTorrents = options.argScanTorrents;
 	metadataOptions.rescan = options.argRescanMediaSig;
+	metadataOptions.archiveLimit = options.argArchiveLimit;
 	metadataOptions.threads = options.argNumberOfThreads > 1
 		? cast(size_t) options.argNumberOfThreads : 1;
 	MetadataOperationRequest request;

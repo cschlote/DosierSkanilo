@@ -72,6 +72,7 @@ bool validateJsonOptions(string command, ref ArgsArray options)
             || options.argQueryTextStream || options.argQueryFileType
             || options.argQueryArchive || options.argQueryTorrent
             || options.argDuplicateLimit != 100
+            || options.argArchiveLimit != 0
             || !options.argExportPath.empty)
         {
             errorLine("Repository query/transfer options are not valid in JSON scan or analysis.");
@@ -116,6 +117,7 @@ bool validateJsonOptions(string command, ref ArgsArray options)
             || options.argDoMediaSig || options.argScanArchives
             || options.argScanTorrents || options.argRescanMediaSig
             || options.argDuplicateLimit != 100
+            || options.argArchiveLimit != 0
             || !options.argExportPath.empty
             || (options.argOutputFormat != "table"
                 && options.argOutputFormat != "json"))
@@ -141,6 +143,7 @@ bool validateJsonOptions(string command, ref ArgsArray options)
             || options.argQueryAudio || options.argQueryImage
             || options.argQueryTextStream || options.argQueryFileType
             || options.argQueryArchive || options.argQueryTorrent
+            || options.argArchiveLimit != 0
             || !options.argExportPath.empty
             || (options.argOutputFormat != "table"
                 && options.argOutputFormat != "json"))
@@ -174,6 +177,7 @@ bool validateJsonOptions(string command, ref ArgsArray options)
             || options.argQueryTextStream || options.argQueryFileType
             || options.argQueryArchive || options.argQueryTorrent
             || options.argDuplicateLimit != 100
+            || options.argArchiveLimit != 0
             || !options.argExportPath.empty
             || (options.argOutputFormat != "table"
                 && options.argOutputFormat != "json"))

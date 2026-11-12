@@ -79,7 +79,8 @@ Metadata options (at least one is required for `metadata`):
     --checksums --file-types --media-info --scan-archives --scan-torrents
     --all enables the standard set: checksums, file types, media info, one
     archive scan, and torrent scanning. Repeating --scan-archives still
-    selects a deep archive scan.
+    selects a deep archive scan. --archive-limit N limits an archive-only
+    metadata run to N pending archives; completed archives are skipped.
     --rescan-media-info forces media metadata extraction again
 
 Archive member cache options (scan and metadata):
@@ -278,6 +279,7 @@ ParsedCommandLine parseCommandLine(string[] args)
             "media-info", "SAM------ Calculate the media signature", &argsarray.argDoMediaSig,
             "rescan-media-info", "SAM------ Rescan all files for media signature", &argsarray.argRescanMediaSig,
             "scan-archives+", "SAM------ Get the contents of archives (repeat for deep scanning)", &argsarray.argScanArchives,
+            "archive-limit", "--M------ Maximum pending archive blobs per metadata run", &argsarray.argArchiveLimit,
             "scan-torrents", "SAM------ Get the contents of torrent files", &argsarray.argScanTorrents,
             "all", "SAM------ Enable checksums, file types, media info, and shallow archive/torrent scans", &argsarray.argAll,
             "archive-cache-dir", "S-M------ Root directory for archive member extraction", &argsarray.argArchiveCacheDir,
@@ -628,6 +630,19 @@ unittest
     assert(deepArchive.status == ParseStatus.run);
     assert(deepArchive.options.argScanArchives == 2);
     assert(deepArchive.options.argScanArchivesOption);
+    auto archiveLimit = parseCommandLine(["program", "metadata", "./test",
+        "--scan-archives", "--scan-archives", "--archive-limit", "5"]);
+    assert(archiveLimit.status == ParseStatus.run);
+    assert(archiveLimit.options.argArchiveLimit == 5);
+    auto invalidArchiveLimitScan = parseCommandLine(["program", "scan",
+        "./test", "--archive-limit", "5"]);
+    assert(invalidArchiveLimitScan.status == ParseStatus.error);
+    auto invalidArchiveLimitNoScan = parseCommandLine(["program", "metadata",
+        "./test", "--checksums", "--archive-limit", "5"]);
+    assert(invalidArchiveLimitNoScan.status == ParseStatus.error);
+    auto invalidArchiveLimitMixed = parseCommandLine(["program", "metadata",
+        "./test", "--scan-archives", "--checksums", "--archive-limit", "5"]);
+    assert(invalidArchiveLimitMixed.status == ParseStatus.error);
     auto cachedArchive = parseCommandLine(["program", "scan", "./test",
         "--scan-archives", "--archive-cache-dir", "./cache",
         "--archive-cache-size", "64"]);
