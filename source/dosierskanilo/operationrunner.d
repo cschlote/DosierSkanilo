@@ -889,6 +889,7 @@ unittest
         if (event.operation == OperationKind.metadata
             && event.phase == OperationPhase.checksums
             && event.state == OperationState.running
+            && event.subtaskCompleted > 0
             && !atomicLoad(cancellationSent))
         {
             control.requestCancellation();
@@ -899,20 +900,25 @@ unittest
     request.operationId = 212;
     request.target = OperationTarget.repositoryTarget(root);
     request.options.calculateChecksums = true;
-    request.options.threads = 2;
+    request.options.threads = 1;
     auto result = runOperation(request, control);
 
     assert(result.state == OperationState.cancelled);
     assert(atomicLoad(cancellationSent));
     assert(result.changesCommitted,
-        "completed per-blob metadata commits remain visible after cancellation");
-    assert(result.metadataSummary.checksumsUpdated == 2,
-        "the drained active batch persists only full blob results");
+        "a finished file remains committed after cancellation");
+    assert(result.metadataSummary.checksumsUpdated == 1,
+        "the current file finishes; the next file is not started");
+    assert(result.metadataSummary.blobsVisited == 2,
+        "both batch candidates are visited while the active file finishes");
     repository = Repository.open(root);
     scope (exit)
         repository.close();
+    size_t withDigests;
     foreach (blob; repository.loadCatalog())
-        assert(blob.checkSums.hasDigests);
+        if (blob.checkSums.hasDigests)
+            ++withDigests;
+    assert(withDigests == 1);
 }
 
 @("controlled analysis pause preserves transaction atomicity")

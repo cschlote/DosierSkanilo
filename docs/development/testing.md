@@ -98,7 +98,7 @@ metadata. The build must complete without missing-symbol or broken-link errors.
 
 ## Current baseline
 
-On 2026-11-10 the full suite reported 244 passing tests and 89.50 % coverage.
+On 2026-11-10 the full suite reported 245 passing tests and 89.49 % coverage.
 
 ### 2026-11-10 review remediation
 
@@ -109,6 +109,7 @@ symlink rejection, WAL-safe force/restore snapshots, staged restore rollback,
 recovery dry-run and root discovery, missing optional `file`, null media
 streams, document dry-run isolation, filtered directory counts, `dir!/file`
 round-trips, partial archive indexes, ZIP wildcard members, archive page
-pagination, and progress/watcher lifetime.
+pagination, progress/watcher lifetime, archive-only cancellation/resume, and
+`--archive-limit` pending selection.
 Treat these numbers as a recorded snapshot, not a permanent contract; update
 them when the test set changes.

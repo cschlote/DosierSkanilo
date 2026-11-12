@@ -176,6 +176,8 @@ struct MetadataScanOptions
     ArchivePasswordCallback archivePasswordCallback;
     /// Optional repository-relative path restricting metadata work to one blob.
     string filePath;
+    /// Maximum pending archive blobs for an archive-only run; zero means all.
+    size_t archiveLimit;
 }
 
 /** Counters returned by a repository metadata update. */

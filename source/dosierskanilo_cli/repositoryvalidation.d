@@ -124,6 +124,26 @@ bool validateRepositoryOptions(string command, ref ArgsArray options)
             ~ "or --scan-torrents.");
         return false;
     }
+    if (options.argArchiveLimit > 0)
+    {
+        if (command != "metadata")
+        {
+            errorLine("--archive-limit is available only with metadata.");
+            return false;
+        }
+        if (options.argScanArchives == 0)
+        {
+            errorLine("--archive-limit requires --scan-archives.");
+            return false;
+        }
+        if (options.argDoChecksums || options.argDoFileTypes
+            || options.argDoMediaSig || options.argScanTorrents
+            || options.argRescanMediaSig)
+        {
+            errorLine("--archive-limit requires an archive-only metadata run.");
+            return false;
+        }
+    }
     if (command == "import" && options.argImportJSON.empty)
     {
         errorLine("Import requires a JSON catalog filename.");

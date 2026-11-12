@@ -11,11 +11,13 @@ user-visible changes are listed in [`CHANGELOG.md`](CHANGELOG.md).
   v6, explicit JSON `CatalogDocument` sessions, shared operation API, member
   cache, recovery writer, and tag-driven release validation are implemented.
 - WP-09, WP-13, WP-14, and the persistence/document-session work are complete.
-- Backend verification: 244 tests, coverage 89.50 %, CLI checks,
+- Backend verification: 245 tests, coverage 89.49 %, CLI checks,
   `scripts/lint.sh`, and the Ddoc build pass locally; `testing` mirrors `main`
   without deployments.
 - The read-only `status` command reports aggregate SQLite and JSON catalog
   statistics, including metadata coverage and storage sizes.
+- Archive-only metadata runs resume pending deep scans and support
+  `--archive-limit N`; Ctrl-C finishes the current archive jobs first.
 - Documentation and Ddoc headers are complete: every documentable public,
   package, and private declaration has Ddoc (verified 2026-11-08).
 - The 2026-11-10 review remediation is complete and released as `26.16.0`.

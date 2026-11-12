@@ -16,6 +16,12 @@ They represent the functional evolution and are intentionally summarized.
 - `info` counts references with SQL aggregates, so large repositories no
   longer walk every file reference before printing the summary.
 
+- Archive-only metadata runs can be resumed: completed deep indexes are skipped
+  and non-archive blobs are filtered out in SQL. `--archive-limit N` processes
+  at most N pending archives per run. The first Ctrl-C finishes the currently
+  running archive jobs, commits their complete results, and stops before
+  starting new ones.
+
 ## Release 26.16.0 - 2026-11-10
 
 - Archive scanning rejects symbolic-link members instead of reading and

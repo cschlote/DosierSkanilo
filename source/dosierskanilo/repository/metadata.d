@@ -6,6 +6,8 @@
  */
 module dosierskanilo.repository.metadata;
 
+import core.atomic : atomicLoad;
+
 import d2sqlite3;
 
 import std.array : join;
@@ -59,6 +61,22 @@ private class MetadataWorkItem
     MetadataScanOptions options;
     /// Operation control for reporting and cancellation, or null when uncontrolled.
     OperationControl control;
+    /// Shared cancellation flag mirrored from the operation control.
+    shared(bool)* cancellationFlag;
+    /// Whether at least one selected job was attempted for this item.
+    bool executed;
+    /// Whether cancellation skipped this item before any job completed.
+    bool cancelled;
+    /// Whether the checksum job finished and may be persisted.
+    bool checksumsDone;
+    /// Whether the file-type job finished and may be persisted.
+    bool fileTypeDone;
+    /// Whether the media-info job finished and may be persisted.
+    bool mediaInfoDone;
+    /// Whether the archive job finished and may be persisted.
+    bool archivesDone;
+    /// Whether the torrent job finished and may be persisted.
+    bool torrentsDone;
     /// Operation ID included in reported progress events.
     ulong operationId;
     /// Number of blobs completed before this item, used for progress.
@@ -125,6 +143,18 @@ private void reportMetadataWorkProgress(MetadataWorkItem item,
  */
 private void runMetadataWork(MetadataWorkItem item)
 {
+    bool cancelled()
+    {
+        return item.cancellationFlag !is null
+            && atomicLoad(*item.cancellationFlag);
+    }
+
+    if (cancelled())
+    {
+        item.cancelled = true;
+        return;
+    }
+
     void attempt(string kind, void delegate() action)
     {
         try
@@ -138,6 +168,12 @@ private void runMetadataWork(MetadataWorkItem item)
     if (item.doChecksums)
     {
         reportMetadataWorkProgress(item, OperationPhase.checksums);
+        if (cancelled())
+        {
+            item.cancelled = true;
+            return;
+        }
+        item.executed = true;
         ProgressCallBack checksumProgress;
         if (item.control !is null)
         {
@@ -152,20 +188,42 @@ private void runMetadataWork(MetadataWorkItem item)
             else
                 updateDigests(item.blob, null, &checksumProgress);
         });
+        item.checksumsDone = true;
     }
+    if (cancelled())
+        return;
     if (item.doFileType)
     {
         reportMetadataWorkProgress(item, OperationPhase.fileTypes);
+        if (cancelled())
+            return;
+        item.executed = true;
         attempt("file_type", { updateFileType(item.blob); });
+        item.fileTypeDone = true;
     }
+    if (cancelled())
+        return;
     if (item.doMediaInfo)
     {
         reportMetadataWorkProgress(item, OperationPhase.mediaInfo);
+        if (cancelled())
+            return;
+        item.executed = true;
         attempt("media_info", { updateMediaInfo(item.blob, item.options.rescan); });
+        item.mediaInfoDone = true;
     }
+    if (cancelled())
+        return;
     if (item.doArchives)
     {
         reportMetadataWorkProgress(item, OperationPhase.archives);
+        if (cancelled())
+        {
+            if (!item.executed)
+                item.cancelled = true;
+            return;
+        }
+        item.executed = true;
         ProgressCallBack archiveProgress;
         if (item.control !is null)
         {
@@ -175,17 +233,26 @@ private void runMetadataWork(MetadataWorkItem item)
             };
         }
         attempt("archives", {
+            /* Finish the currently running archive; cancellation stops the
+             * run before the next archive starts. */
             updateArchives(item.blob, item.options.rescan,
                 item.options.deepArchiveScan, null,
                 item.control is null ? null : &archiveProgress,
                 item.options.archivePasswordCallback, 0, 8, "", null,
                 item.options.detectFileTypes, item.options.extractMediaInfo);
         });
+        item.archivesDone = true;
     }
+    if (cancelled())
+        return;
     if (item.doTorrents)
     {
         reportMetadataWorkProgress(item, OperationPhase.torrents);
+        if (cancelled())
+            return;
+        item.executed = true;
         attempt("torrents", { updateTorrentInfo(item.blob, item.options.rescan); });
+        item.torrentsDone = true;
     }
 }
 
@@ -218,6 +285,67 @@ private long[] metadataBlobIds(ref Database db, string filePath)
             blobIds ~= row.peek!long(0);
     }
     return blobIds;
+}
+
+/** Return archive blobs that still need archive metadata work.
+ *
+ * Only known archive extensions are considered, and already-current shallow or
+ * deep indexes are skipped unless a rescan is requested. This keeps resumed
+ * deep scans from walking every non-archive blob in a large catalog.
+ *
+ * Params:
+ *     db = Open repository database.
+ *     filePath = Optional repository file path; empty selects all archives.
+ *     requireDeep = Whether only deep indexes count as current.
+ *     rescan = Include archives whose index is already current.
+ *     limit = Maximum number of blobs, or zero for no limit.
+ * Returns: Distinct blob IDs ordered by ID.
+ */
+private long[] metadataArchiveBlobIds(ref Database db, string filePath,
+    bool requireDeep, bool rescan, size_t limit)
+{
+    string sql = "SELECT DISTINCT b.id FROM blobs b "
+        ~ "JOIN file_refs f ON f.blob_id = b.id "
+        ~ "LEFT JOIN metadata_status ms ON ms.blob_id = b.id "
+        ~ "AND ms.metadata_kind = 'archives' WHERE "
+        ~ "NOT (" ~ isVirtualFileReferenceSql("f.relative_path") ~ ")";
+    if (!filePath.empty)
+        sql ~= " AND f.relative_path = :path";
+    else
+        sql ~= " AND (lower(f.relative_path) LIKE '%.zip' "
+            ~ "OR lower(f.relative_path) LIKE '%.tar' "
+            ~ "OR lower(f.relative_path) LIKE '%.rar' "
+            ~ "OR lower(f.relative_path) LIKE '%.7z')";
+    if (!rescan)
+        sql ~= " AND (ms.blob_id IS NULL "
+            ~ "OR ms.state NOT IN ('completed','empty','not_archive') "
+            ~ "OR ((ms.state = 'completed' OR ms.state = 'empty') "
+            ~ "AND (ms.extractor_version IS NULL "
+            ~ "OR ms.extractor_version NOT LIKE :version_prefix)) "
+            ~ "OR (:require_deep = 1 "
+            ~ "AND (ms.state = 'completed' OR ms.state = 'empty') "
+            ~ "AND (ms.extractor_version IS NULL "
+            ~ "OR ms.extractor_version NOT LIKE :deep_suffix)))";
+    sql ~= " ORDER BY b.id";
+    if (limit > 0)
+        sql ~= " LIMIT :limit";
+
+    auto statement = db.prepare(sql);
+    if (!filePath.empty)
+        statement.bind(":path", escapeArchiveVirtualPath(
+            nativePathToStoragePath(filePath)));
+    if (!rescan)
+    {
+        statement.bind(":version_prefix", archiveIndexVersion ~ ":%");
+        statement.bind(":deep_suffix", "%:deep");
+        statement.bind(":require_deep", requireDeep ? 1 : 0);
+    }
+    if (limit > 0)
+        statement.bind(":limit", cast(long) limit);
+    long[] ids;
+    foreach (row; statement.execute())
+        ids ~= row.peek!long(0);
+    return ids;
 }
 
 /** Persist one metadata result atomically, rolling back partial writes.
@@ -467,7 +595,19 @@ MetadataExecutionResult updateRepositoryMetadataControlled(ref Database db,
     scope (exit)
         finalizeMetadataRun(db, options, completed);
     MetadataExecutionResult execution;
-    auto blobIds = metadataBlobIds(db, options.filePath);
+    shared(bool) cancellationFlag;
+    if (control !is null)
+        control.bindCancellationMirror(&cancellationFlag);
+    scope (exit)
+        if (control !is null)
+            control.unbindCancellationMirror();
+    const bool archivesOnly = options.scanArchives
+        && !options.calculateChecksums && !options.detectFileTypes
+        && !options.extractMediaInfo && !options.scanTorrents;
+    auto blobIds = archivesOnly
+        ? metadataArchiveBlobIds(db, options.filePath,
+            options.deepArchiveScan, options.rescan, options.archiveLimit)
+        : metadataBlobIds(db, options.filePath);
     auto batchSize = options.threads > 0 ? options.threads * 4 : 1;
     if (batchSize == 0)
         batchSize = 1;
@@ -499,6 +639,7 @@ MetadataExecutionResult updateRepositoryMetadataControlled(ref Database db,
             item.blob = blob;
             item.options = options;
             item.control = control;
+            item.cancellationFlag = control is null ? null : &cancellationFlag;
             item.operationId = operationId;
             item.progressCompleted = cast(ulong) nextIndex;
             item.progressTotal = cast(ulong) blobIds.length;
@@ -540,7 +681,7 @@ MetadataExecutionResult updateRepositoryMetadataControlled(ref Database db,
             transactionOpen = true;
             foreach (item; items)
             {
-                if (hasMetadataWork(item))
+                if (hasFinishedMetadataWork(item))
                 {
                     persistMetadataWork(db, item, execution.summary);
                     persistedWork = true;
@@ -580,16 +721,21 @@ MetadataExecutionResult updateRepositoryMetadataControlled(ref Database db,
     return execution;
 }
 
-/** Return whether the work item has at least one metadata job selected.
+/** Return whether the work item has at least one finished metadata job.
+ *
+ * Jobs skipped by cancellation are not persisted.
  *
  * Params:
  *     item = work item to inspect.
- * Returns: `true` when any metadata kind should run for the blob.
+ * Returns: `true` when any metadata kind finished for the blob.
  */
-private bool hasMetadataWork(MetadataWorkItem item)
+private bool hasFinishedMetadataWork(MetadataWorkItem item)
 {
-    return item.doChecksums || item.doFileType || item.doMediaInfo
-        || item.doArchives || item.doTorrents;
+    return (item.doChecksums && item.checksumsDone)
+        || (item.doFileType && item.fileTypeDone)
+        || (item.doMediaInfo && item.mediaInfoDone)
+        || (item.doArchives && item.archivesDone)
+        || (item.doTorrents && item.torrentsDone);
 }
 
 /** Run one metadata batch sequentially or on a bounded worker pool.
@@ -1019,21 +1165,25 @@ private void persistMetadataWork(ref Database db, MetadataWorkItem item,
         }
     }
 
-    finish("checksums", item.doChecksums, item.blob.checkSums.hasDigests,
+    finish("checksums", item.doChecksums && item.checksumsDone,
+        item.blob.checkSums.hasDigests,
         { persistChecksums(db, item.blobId, item.blob); });
-    finish("file_type", item.doFileType, item.blob.fileType.length > 0,
+    finish("file_type", item.doFileType && item.fileTypeDone,
+        item.blob.fileType.length > 0,
         { db.execute("UPDATE blobs SET file_type = ? WHERE id = ?",
             item.blob.fileType, item.blobId); });
-    finish("media_info", item.doMediaInfo,
+    finish("media_info", item.doMediaInfo && item.mediaInfoDone,
         item.blob.mediaInfoSig !is null && !item.blob.mediaInfoSig.empty,
         { persistMediaInfo(db, item.blobId, item.blob.mediaInfoSig); });
-    finish("archives", item.doArchives, item.blob.archiveSpecs !is null,
+    finish("archives", item.doArchives && item.archivesDone,
+        item.blob.archiveSpecs !is null,
         {
             persistArchives(db, item.blobId, item.blob.archiveSpecs,
                 item.options.deepArchiveScan, summary);
             persistArchivePassword(db, item.blobId, item.blob.archivePassword);
         });
-    finish("torrents", item.doTorrents, item.blob.torrentInfo !is null,
+    finish("torrents", item.doTorrents && item.torrentsDone,
+        item.blob.torrentInfo !is null,
         { persistTorrentInfo(db, item.blobId, item.blob.torrentInfo); });
 }
 

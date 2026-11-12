@@ -3108,6 +3108,73 @@ unittest
     assert(entries[0].name == "inside.txt");
 }
 
+@("archive-only metadata cancellation finishes the current archive and resumes")
+unittest
+{
+    import dosierskanilo.operations : OperationPhase, OperationProgress,
+        OperationState;
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.process : execute;
+    import std.uuid : randomUUID;
+
+    const root = buildPath(tempDir(), "repository-archive-resume-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    write(buildPath(root, "one.txt"), "one");
+    write(buildPath(root, "two.txt"), "two");
+    assert(execute(["zip", "-q", "-j", buildPath(root, "one.zip"),
+        buildPath(root, "one.txt")]).status == 0);
+    assert(execute(["zip", "-q", "-j", buildPath(root, "two.zip"),
+        buildPath(root, "two.txt")]).status == 0);
+
+    auto repository = Repository.initialize(root);
+    scope (exit)
+        repository.close();
+    repository.scan();
+
+    MetadataScanOptions options;
+    options.scanArchives = true;
+    options.deepArchiveScan = true;
+    options.threads = 1;
+
+    size_t archiveEvents;
+    OperationControl control;
+    control = new OperationControl((OperationProgress event) {
+        if (event.phase == OperationPhase.archives
+            && event.state == OperationState.running)
+        {
+            ++archiveEvents;
+            if (archiveEvents == 2)
+                control.requestCancellation();
+        }
+    });
+    auto first = repository.updateMetadataControlled(options, control, 1);
+    assert(first.cancelled);
+    assert(first.committed);
+    assert(first.summary.archivesUpdated == 1,
+        first.summary.archivesUpdated.to!string);
+    assert(first.summary.blobsVisited == 2,
+        first.summary.blobsVisited.to!string);
+
+    options.archiveLimit = 1;
+    auto second = repository.updateMetadataControlled(options, null, 2);
+    assert(!second.cancelled);
+    assert(second.summary.archivesUpdated == 1,
+        second.summary.archivesUpdated.to!string);
+    assert(second.summary.blobsVisited == 1,
+        second.summary.blobsVisited.to!string);
+
+    auto third = repository.updateMetadataControlled(options, null, 3);
+    assert(!third.cancelled);
+    assert(third.summary.archivesUpdated == 0);
+    assert(third.summary.blobsVisited == 0,
+        "a finished archive-only run must select no pending archives");
+}
+
 @("deep archive scans persist encrypted member metadata on content blobs")
 unittest
 {

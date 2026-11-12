@@ -186,7 +186,7 @@ dosierskanilo duplicates [ROOT] --json CATALOG.json
 
 Common options use kebab-case: `--recursive`, `--checksums`, `--file-types`,
 `--media-info`, `--scan-archives`, `--scan-torrents`, `--all`, `--drop-missing`,
-`--pick-hidden`, `--threads`, `--verbose`, `--pretty`,
+`--pick-hidden`, `--threads`, `--archive-limit`, `--verbose`, `--pretty`,
 `--force` (init/restore), `--output` (export/backup), `--input` (restore), and
 `--format=table|json` for query and status commands. `--all` enables checksums,
 file types, media info, one shallow archive scan, and torrent scanning;
@@ -209,6 +209,19 @@ prune unsupported network/FUSE/autofs mounts and never catalog the repository's
 own `.dosierskanilo` directory, even with `--pick-hidden`. For catalogs on
 network or FUSE mounts, keep SQLite local and `export` the catalog to JSON
 locally before copying it to the other machine.
+Deep archive scans can be resumed. Completed archives are recorded with a deep
+archive index and are skipped on the next run. With `--archive-limit N` an
+archive-only metadata run stops after N pending archives:
+
+```bash
+dosierskanilo metadata /data/library --scan-archives --scan-archives \
+  --archive-limit 50 --threads 4
+```
+
+The first Ctrl-C finishes the currently running archive jobs, commits their
+complete results, and stops before the next batch. A second Ctrl-C terminates
+immediately without committing the active batch.
+
 `status` reports storage mode, schema or catalog version, timestamps, blob and
 reference counts (physical and archive members), directory count, physical
 size, missing physical references, metadata coverage for checksums, file types,
