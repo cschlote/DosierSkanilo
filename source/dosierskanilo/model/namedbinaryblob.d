@@ -2473,9 +2473,12 @@ void updateArchives(NamedBinaryBlob obj,
 
                             import dosierskanilo.metadata.digests;
                             ubyte[] md5sum_s, sha1sum_s, xxh64sum_s;
+                            /* The archive progress channel counts entries, not
+                             * bytes. Do not feed member digest byte progress
+                             * into it or concurrent workers display changing
+                             * byte totals under an "entries" label. */
                             calculatesDigests(gotCtrlC, extractedPath,
-                                &md5sum_s, &sha1sum_s, &xxh64sum_s,
-                                progressCallBack);
+                                &md5sum_s, &sha1sum_s, &xxh64sum_s, null);
                             if (progressCallBack !is null)
                                 progressCallBack.report(idx, archiveEntries.length);
 
@@ -2927,6 +2930,45 @@ unittest
     assert(blob.archiveSpecs.length == 1);
     assert(blob.archiveSpecs[0] is previous,
         "a failed scan must keep the previous complete index");
+}
+
+@("archive progress reports entry counts, not member byte counts")
+unittest
+{
+    import std.file : exists, getSize, mkdirRecurse, rmdirRecurse, tempDir,
+        write;
+    import std.path : buildPath;
+    import std.process : execute;
+    import std.uuid : randomUUID;
+
+    const root = buildPath(tempDir(), "archive-progress-units-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    write(buildPath(root, "small.txt"), "x");
+    write(buildPath(root, "large.txt"), new char[4096]);
+    const archivePath = buildPath(root, "progress.zip");
+    auto created = execute(["zip", "-q", "-j", archivePath,
+        buildPath(root, "small.txt"), buildPath(root, "large.txt")]);
+    assert(created.status == 0, created.output);
+
+    auto blob = new NamedBinaryBlob(archivePath,
+        cast(size_t) getSize(archivePath), SysTime(1_234_567));
+    auto cache = new MemberContentCache(buildPath(root, "cache"));
+    scope (exit)
+        cache.close();
+    size_t[] maxima;
+    ProgressCallBack progress;
+    progress.contextual = (size_t completed, size_t total) {
+        maxima ~= total;
+    };
+    updateArchives(blob, true, true, null, &progress, null, 0, 8, "", cache);
+    assert(maxima.length > 0);
+    foreach (maximum; maxima)
+        assert(maximum == 2,
+            "archive progress must stay in entry units");
 }
 
 @("deep archive scan rejects symbolic link members")
