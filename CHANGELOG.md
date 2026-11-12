@@ -22,6 +22,11 @@ They represent the functional evolution and are intentionally summarized.
   running archive jobs, commits their complete results, and stops before
   starting new ones.
 
+- Deep archive scan progress keeps the `entries` counter in entry units.
+  Member digest byte counts are no longer mixed into that counter, so
+  multi-threaded scans do not show changing byte-sized totals next to
+  `entries`.
+
 ## Release 26.16.0 - 2026-11-10
 
 - Archive scanning rejects symbolic-link members instead of reading and
