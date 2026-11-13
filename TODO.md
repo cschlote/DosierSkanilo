@@ -296,6 +296,26 @@ baseline, and the documentation no longer implies that old formats are readable.
       WAL shared memory, atomic rename, durable sync, and hard links (or the
       documented copy fallback). The current decision remains: unsupported;
       `Repository` now rejects these mount types before opening SQLite.
+- [ ] Evaluate a TTY-only, bitbake-style multi-line progress block for
+      parallel metadata and deep-archive workers. Design notes:
+      - Add an additive `workerId`/slot to `OperationProgress` and report
+        start/finish events from repository and JSON metadata workers. The
+        current single callback has no stable worker identity.
+      - Keep one stable line per active worker with phase, entry/byte counts,
+        current archive or member path, rate, and pause/cancel state. Limit
+        the block to the terminal height and show a `+N more` summary.
+      - Redraw with ANSI cursor movement and line clearing; handle terminal
+        resize. Do not add an ncurses dependency.
+      - Keep diagnostics on stderr and clear/redraw around log output so the
+        block cannot be corrupted. Non-TTY output and `--verbose` keep the
+        existing newline-record format; scans stay single-line.
+      - Rough effort: one line per worker is 0.5-1 day; the robust version
+        with log-safe redraw, resize, and tests is 2-4 days; a full dashboard
+        with operation history and separate log panes is a week or more.
+      - Acceptance: `metadata --scan-archives --scan-archives --threads 4`
+        shows one stable line per active worker on a TTY, redirected output
+        is unchanged, cancellation/pause is visible per line, and synthetic
+        slot plus pseudo-TTY tests pass.
 
 ## Completed work (compact record)
 
