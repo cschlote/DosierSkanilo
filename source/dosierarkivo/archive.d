@@ -595,35 +595,56 @@ abstract class FileArchive
         auto names = getEntries(password);
         if (names is null)
             return null;
-        size_t[string] occurrences;
         ArchiveEntryDescriptor[] result;
-        foreach (index, name; names)
+        foreach (name; names)
         {
             ArchiveEntryDescriptor descriptor;
-            descriptor.index = index;
             descriptor.name = name;
-            descriptor.relativePath = normalizeArchiveEntryPath(name,
-                descriptor.hasSafePath, descriptor.isDirectory);
-            auto occurrenceKey = descriptor.hasSafePath
-                ? descriptor.relativePath : name;
-            descriptor.occurrence = occurrences.get(occurrenceKey, 0);
-            occurrences[occurrenceKey] = descriptor.occurrence + 1;
             result ~= descriptor;
         }
+        return finalizeDescriptors(result);
+    }
+
+    /** Normalize names, assign indexes, and compute duplicate occurrences.
+     *
+     * Adapters that parse size and timestamp metadata call this once after
+     * pairing their listing rows with `getEntries()` names. Metadata flags and
+     * values survive the normalization.
+     *
+     * Params:
+     *     input = Descriptors with at least `name` populated, in listing order.
+     * Returns: The normalized descriptors with occurrence and duplicate flags.
+     */
+    protected ArchiveEntryDescriptor[] finalizeDescriptors(
+        ArchiveEntryDescriptor[] input)
+    {
+        size_t[string] occurrences;
+        foreach (index, ref descriptor; input)
+        {
+            descriptor.index = index;
+            bool nameIsDirectory;
+            descriptor.relativePath = normalizeArchiveEntryPath(descriptor.name,
+                descriptor.hasSafePath, nameIsDirectory);
+            descriptor.isDirectory = descriptor.isDirectory || nameIsDirectory;
+            const auto occurrenceKey = descriptor.hasSafePath
+                ? descriptor.relativePath : descriptor.name;
+            descriptor.occurrence = occurrences.get(occurrenceKey, 0);
+            occurrences[occurrenceKey] = descriptor.occurrence + 1;
+        }
         size_t[string] pathCounts;
-        foreach (descriptor; result)
+        foreach (descriptor; input)
         {
             const auto identityPath = descriptor.hasSafePath
                 ? descriptor.relativePath : descriptor.name;
             pathCounts[identityPath] = pathCounts.get(identityPath, 0) + 1;
         }
-        foreach (ref descriptor; result)
+        foreach (ref descriptor; input)
         {
             const auto identityPath = descriptor.hasSafePath
                 ? descriptor.relativePath : descriptor.name;
             descriptor.hasDuplicateName = pathCounts.get(identityPath, 0) > 1;
         }
-        return result;
+        return input;
     }
 
     /** Extract entry from archive to destination directory. The destination file is the same as the entry name.

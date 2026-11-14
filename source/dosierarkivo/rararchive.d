@@ -65,8 +65,10 @@ class FileArchiveRar : FileArchive
         }
 
         auto passwordOption = password.length > 0 ? "-p" ~ password : "-p-";
+        string[string] environment;
+        environment["LC_ALL"] = "C";
         auto rc = execute(["unrar", "lt", passwordOption, absolutePath(this.fileName)],
-            null, Config.stderrPassThrough);
+            environment, Config.stderrPassThrough);
         /* unrar exits with 11 for a wrong password even when the diagnostic
          * goes to stderr and stdout is empty. */
         if (isArchivePasswordFailure(rc.output) || rc.status == 11)
@@ -157,8 +159,10 @@ class FileArchiveRar : FileArchive
     override string[] getEntries(string password = "")
     {
         auto passwordOption = password.length > 0 ? "-p" ~ password : "-p-";
+        string[string] environment;
+        environment["LC_ALL"] = "C";
         auto rc = execute(["unrar", "lb", passwordOption, absolutePath(this.fileName)],
-            null, Config.stderrPassThrough);
+            environment, Config.stderrPassThrough);
         if (isArchivePasswordFailure(rc.output) || rc.status == 11)
             throw new ArchivePasswordRequiredException(rc.output.length > 0
                 ? rc.output : password.length > 0

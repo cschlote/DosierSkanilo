@@ -26,6 +26,10 @@ They represent the functional evolution and are intentionally summarized.
   Member digest byte counts are no longer mixed into that counter, so
   multi-threaded scans do not show changing byte-sized totals next to
   `entries`.
+- Shallow archive scans now record member sizes and timestamps for ZIP, TAR,
+  and 7z from their verbose listings. Adapter descriptors share one
+  normalization path, and the archive support matrix is documented in
+  `docs/ARCHIVE-SUPPORT.md`.
 
 ## Release 26.16.0 - 2026-11-10
 
