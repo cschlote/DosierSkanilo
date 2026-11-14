@@ -52,7 +52,8 @@ the package recipes below are the authoritative distribution metadata.
 | --- | --- |
 | `file` | file-type signatures (`--file-types`, `--all`) |
 | `unzip` | ZIP listing and member extraction |
-| `tar` | TAR listing and member extraction |
+| `tar` | TAR listing and member extraction, including compressed tar variants |
+| `gzip`, `bzip2`, `xz`, `zstd`, `lzip`/`lzma` | decompression for compressed tar archives when not built into `tar` |
 | `unrar` | RAR listing and member extraction |
 | `p7zip` / `7z` | 7z listing and member extraction |
 | `python3` | exact extraction of duplicate-name ZIP members |
@@ -64,7 +65,7 @@ or work with files and SQLite repositories.
 ### Package mapping
 
 - **Debian/Ubuntu:** `Depends: libmediainfo0v5`; `${shlibs:Depends}` adds
-  SQLite. `Recommends: file, unzip, tar, unrar, p7zip-full | 7zip`;
+  SQLite. `Recommends: file, unzip, tar, gzip, bzip2, xz, zstd, unrar, p7zip-full | 7zip`;
   `Suggests: python3`.
 - **Arch:** `depends=('libmediainfo' 'sqlite')`; the archive and file tools are
   listed in `optdepends`.

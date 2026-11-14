@@ -9,12 +9,14 @@ boundaries of member extraction.
 | Format | Extension | Listing tool | Shallow metadata | Deep extraction |
 |---|---|---|---|---|
 | ZIP | `.zip` | `unzip` | names, sizes, timestamps | `unzip` or index-based Python `zipfile` |
-| TAR | `.tar` | `tar` | names, sizes, timestamps | `tar` |
+| TAR | `.tar`, `.tar.gz`, `.tgz`, `.tar.bz2`, `.tbz2`, `.tbz`, `.tar.xz`, `.txz`, `.tar.zst`, `.tzst`, `.tar.lz`, `.tlz`, `.tar.lzma`, `.tar.Z`, `.taz` | `tar` plus the matching decompressor | names, sizes, timestamps | `tar` |
 | RAR | `.rar` | `unrar` | names, sizes, timestamps | `unrar` |
 | 7z | `.7z` | `7z` | names, sizes, timestamps | `7z` |
 
-`fileArchive()` selects an adapter by extension only. Files with other
-extensions are not treated as archives, even when their content looks like one.
+`fileArchive()` matches the longest known suffix case-insensitively. Compressed
+tar variants use the same TAR adapter; the `tar` tool performs decompression
+transparently. Plain single-file `.gz`, `.xz`, or `.zst` archives are not
+supported; only tar containers are.
 
 ## Descriptor Model
 
@@ -66,6 +68,16 @@ references, and the cache session removes them when closed. Damaged or
 non-extractable members remain in the index without a deep fingerprint.
 Cancellation finishes the currently running archive jobs, commits their
 complete results, and stops before starting new ones.
+
+### Compressed TAR Variants
+
+Recognized suffixes include `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz2`/`.tbz`,
+`.tar.xz`/`.txz`, `.tar.zst`/`.tzst`, `.tar.lz`/`.tlz`, `.tar.lzma`, and
+`.tar.Z`/`.taz`. The corresponding decompressor (`gzip`, `bzip2`, `xz`,
+`zstd`, `lzip`/`lzma`, or `compress`) must be available to `tar`. If the local
+`tar` build does not support a compressor, the adapter reports
+`ArchiveToolException` for that archive and the scanner records a per-item
+failure instead of aborting the run.
 
 ## Tool Output and Fallbacks
 

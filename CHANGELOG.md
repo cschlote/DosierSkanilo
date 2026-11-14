@@ -30,6 +30,10 @@ They represent the functional evolution and are intentionally summarized.
   and 7z from their verbose listings. Adapter descriptors share one
   normalization path, and the archive support matrix is documented in
   `docs/ARCHIVE-SUPPORT.md`.
+- Compressed tar archives are recognized by suffix, including `.tar.gz`,
+  `.tgz`, `.tar.bz2`, `.tbz2`, `.tbz`, `.tar.xz`, `.txz`, `.tar.zst`, `.tzst`,
+  `.tar.lz`, `.tlz`, `.tar.lzma`, `.tar.Z`, and `.taz`. The regular TAR adapter
+  handles them; `tar` performs decompression.
 
 ## Release 26.16.0 - 2026-11-10
 

@@ -351,3 +351,58 @@ unittest
     assert(descriptors[0].modifiedAt.length >= 19,
         descriptors[0].modifiedAt);
 }
+
+@("compressed tar variants use the tar adapter")
+unittest
+{
+    import std.file : exists, getSize, mkdirRecurse, rmdirRecurse, tempDir,
+        write;
+    import std.path : buildPath;
+    import std.process : execute, executeShell;
+    import std.uuid : randomUUID;
+
+    struct Variant
+    {
+        string suffix;
+        string[] tarOptions;
+        string tool;
+    }
+    const variants = [
+        Variant(".tar.gz", ["-czf"], "gzip"),
+        Variant(".tar.xz", ["-cJf"], "xz"),
+        Variant(".tar.zst", ["--zstd", "-cf"], "zstd"),
+    ];
+    foreach (variant; variants)
+    {
+        if (executeShell("command -v " ~ variant.tool).status != 0)
+            continue;
+        const root = buildPath(tempDir(), "tar-compressed-"
+            ~ randomUUID().toString());
+        mkdirRecurse(root);
+        scope (exit)
+            if (exists(root))
+                rmdirRecurse(root);
+        const payload = buildPath(root, "payload.txt");
+        write(payload, "compressed-payload");
+        const archivePath = root ~ variant.suffix;
+        auto created = execute(["tar"] ~ variant.tarOptions
+            ~ [archivePath, "-C", root, "payload.txt"]);
+        if (created.status != 0)
+            continue; // this tar build lacks the requested compressor
+
+        auto archive = fileArchive(archivePath);
+        assert(archive !is null, variant.suffix);
+        assert(archive.fileType == ArchiveType.tar, variant.suffix);
+        auto descriptors = archive.getEntryDescriptors();
+        assert(descriptors.length == 1, variant.suffix);
+        assert(descriptors[0].hasSize);
+        assert(descriptors[0].size == getSize(payload));
+        assert(descriptors[0].hasModifiedAt);
+
+        const output = buildPath(root, "output");
+        mkdirRecurse(output);
+        assert(archive.extractEntry(descriptors[0], output),
+            variant.suffix);
+        assert(exists(buildPath(output, "payload.txt")), variant.suffix);
+    }
+}
