@@ -154,7 +154,8 @@ Run the same stage order locally:
 - Archive tools used by `source/dosierarkivo/archive.d` and the
   format-specific archive modules:
   - `unzip`
-  - `tar`
+  - `tar` plus the decompressor for compressed tar archives (`gzip`,
+    `bzip2`, `xz`, `zstd`, `lzip`/`lzma`)
   - `unrar`
   - `7z`
 

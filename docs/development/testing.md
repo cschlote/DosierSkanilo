@@ -98,7 +98,7 @@ metadata. The build must complete without missing-symbol or broken-link errors.
 
 ## Current baseline
 
-On 2026-11-10 the full suite reported 250 passing tests and 89.53 % coverage.
+On 2026-11-10 the full suite reported 252 passing tests and 89.52 % coverage.
 
 ### 2026-11-10 review remediation
 
@@ -111,6 +111,8 @@ streams, document dry-run isolation, filtered directory counts, `dir!/file`
 round-trips, partial archive indexes, ZIP wildcard members, archive page
 pagination, progress/watcher lifetime, archive-only cancellation/resume, and
 `--archive-limit` pending selection. ZIP, TAR, and 7z shallow scans also
-record member sizes and timestamps from their verbose listings.
+record member sizes and timestamps from their verbose listings. Compressed tar
+suffixes (`.tar.gz`, `.tgz`, `.tar.xz`, `.txz`, `.tar.zst`, `.tzst`, and
+related aliases) use the same TAR adapter.
 Treat these numbers as a recorded snapshot, not a permanent contract; update
 them when the test set changes.

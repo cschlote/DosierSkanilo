@@ -40,6 +40,14 @@ Names remain authoritative from the names-only listing, so spaces and symlink
 decorations such as `-> target` cannot shift the descriptor identity. If the
 row count differs, the adapter falls back to names-only descriptors.
 
+#### A3 - Compressed tar suffixes were not recognized
+
+`factory.d` selected adapters from the final extension only, so `.tar.gz`,
+`.tar.xz`, `.tar.zst`, `.tgz`, `.txz`, and similar names were not treated as
+tar archives. Detection now uses a case-insensitive longest-suffix table and
+maps every compressed tar variant to `FileArchiveTar`; the `tar` tool performs
+decompression. Plain single-file `.gz`/`.xz`/`.zst` archives remain unsupported.
+
 #### A2 - Descriptor finalization was duplicated
 
 The occurrence, path normalization, and duplicate-name calculation lived in the
