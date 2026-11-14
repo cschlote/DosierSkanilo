@@ -162,7 +162,14 @@ private void runMetadataWork(MetadataWorkItem item)
         catch (OperationCallbackException ex)
             throw ex;
         catch (Exception ex)
+        {
+            if (cancelled())
+            {
+                item.cancelled = true;
+                return;
+            }
             item.errors[kind] = ex.msg;
+        }
     }
 
     if (item.doChecksums)
@@ -188,7 +195,7 @@ private void runMetadataWork(MetadataWorkItem item)
             else
                 updateDigests(item.blob, null, &checksumProgress);
         });
-        item.checksumsDone = true;
+        item.checksumsDone = !item.cancelled;
     }
     if (cancelled())
         return;
@@ -199,7 +206,7 @@ private void runMetadataWork(MetadataWorkItem item)
             return;
         item.executed = true;
         attempt("file_type", { updateFileType(item.blob); });
-        item.fileTypeDone = true;
+        item.fileTypeDone = !item.cancelled;
     }
     if (cancelled())
         return;
@@ -210,7 +217,7 @@ private void runMetadataWork(MetadataWorkItem item)
             return;
         item.executed = true;
         attempt("media_info", { updateMediaInfo(item.blob, item.options.rescan); });
-        item.mediaInfoDone = true;
+        item.mediaInfoDone = !item.cancelled;
     }
     if (cancelled())
         return;
@@ -233,16 +240,16 @@ private void runMetadataWork(MetadataWorkItem item)
             };
         }
         attempt("archives", {
-            /* Finish the currently running archive; cancellation stops the
-             * run before the next archive starts. */
+            /* Abort the current archive promptly. Its partial index is not
+             * published, and already committed blobs stay committed. */
             updateArchives(item.blob, item.options.rescan,
-                item.options.deepArchiveScan, null,
+                item.options.deepArchiveScan, item.cancellationFlag,
                 item.control is null ? null : &archiveProgress,
                 item.options.archivePasswordCallback, 0, 8, "", null,
                 item.options.detectFileTypes, item.options.extractMediaInfo,
                 item.options.archiveBulkMode);
         });
-        item.archivesDone = true;
+        item.archivesDone = !item.cancelled;
     }
     if (cancelled())
         return;
@@ -253,7 +260,7 @@ private void runMetadataWork(MetadataWorkItem item)
             return;
         item.executed = true;
         attempt("torrents", { updateTorrentInfo(item.blob, item.options.rescan); });
-        item.torrentsDone = true;
+        item.torrentsDone = !item.cancelled;
     }
 }
 

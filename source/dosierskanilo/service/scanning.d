@@ -337,8 +337,12 @@ bool runScannerJobs(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCt
                         catch (OperationCallbackException failure)
                             throw failure;
                         catch (Exception failure)
+                        {
+                            if (atomicLoad(gotCtrlC))
+                                return;
                             logFLine("%s job failed for '%s': %s", kind,
                                 obj.getFirstFileName, failure.msg);
+                        }
                     }
                     if (obj.task_hashme)
                         runJob({ obj.task_hashme.workForce(); }, "checksum");

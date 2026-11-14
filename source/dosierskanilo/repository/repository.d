@@ -3141,16 +3141,12 @@ unittest
     options.deepArchiveScan = true;
     options.threads = 1;
 
-    size_t archiveEvents;
     OperationControl control;
     control = new OperationControl((OperationProgress event) {
         if (event.phase == OperationPhase.archives
-            && event.state == OperationState.running)
-        {
-            ++archiveEvents;
-            if (archiveEvents == 2)
-                control.requestCancellation();
-        }
+            && event.state == OperationState.running
+            && event.completed == 2)
+            control.requestCancellation();
     });
     auto first = repository.updateMetadataControlled(options, control, 1);
     assert(first.cancelled);

@@ -930,6 +930,8 @@ private struct JsonMetadataWork
     ulong progressTotal;
     /// Optional shared cancellation flag mirrored from the operation control.
     shared(bool)* cancellationFlag;
+    /// True when cancellation interrupted one of this item's jobs.
+    bool cancelled;
     /// True when checksums still need to be computed.
     bool doChecksums;
     /// True when the file type still needs to be detected.
@@ -995,7 +997,14 @@ private void attemptJsonMetadataWork(JsonMetadataWork* item, string kind,
     catch (OperationCallbackException ex)
         throw ex;
     catch (Exception ex)
+    {
+        if (jsonWorkCancelled(item))
+        {
+            item.cancelled = true;
+            return;
+        }
         item.errors[kind] = ex.msg;
+    }
 }
 
 /** Query the work item's shared cancellation flag.
@@ -1262,6 +1271,11 @@ private JsonMetadataExecutionResult updateJsonMetadata(ref NamedBinaryBlob[] blo
         foreach (item; batch)
         {
             execution.summary.blobsVisited++;
+            if (item.cancelled)
+            {
+                execution.cancelled = true;
+                continue;
+            }
             if (item.errors.length > 0)
             {
                 execution.summary.failed++;
@@ -1660,4 +1674,21 @@ unittest
         blobs[0].fileSpecs[0].fileName);
     assert(blobs[0].fileSpecs[1].fileName == "relative.txt",
         blobs[0].fileSpecs[1].fileName);
+}
+
+@("JSON metadata cancellation is not recorded as a job failure")
+unittest
+{
+    import core.atomic : atomicStore;
+
+    shared bool cancelled;
+    JsonMetadataWork item;
+    item.cancellationFlag = &cancelled;
+    atomicStore(cancelled, true);
+    attemptJsonMetadataWork(&item, "archives", {
+        throw new Exception("Archive scan was cancelled.");
+    });
+    assert(item.cancelled);
+    assert(item.errors.length == 0,
+        "a cancelled job must stay pending instead of becoming a failure");
 }

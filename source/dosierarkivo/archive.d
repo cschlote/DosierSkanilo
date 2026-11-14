@@ -84,6 +84,136 @@ bool isArchivePasswordFailure(string output)
         || message.canFind("passphrase");
 }
 
+/** Combined result of one cancellable archive-tool invocation. */
+package struct ArchiveToolResult
+{
+    /// Process exit status; negative when terminated by a signal.
+    int status;
+    /// Bounded tail of the combined standard output and standard error.
+    string output;
+    /// Whether the runner killed the process because cancellation was requested.
+    bool cancelled;
+}
+
+/** Run an external archive tool and stop it when cancellation is requested.
+ *
+ * Standard output and standard error are redirected to one temporary log so
+ * the child cannot block on a full pipe. Only the tail of that log is returned,
+ * which keeps diagnostics bounded for tools that print one line per member.
+ *
+ * Params:
+ *     command = Program and arguments to run.
+ *     cancellation = Optional cooperative cancellation flag.
+ * Returns: Exit status and bounded diagnostic output.
+ * Throws: `ProcessException` when the process cannot be started or waited for.
+ */
+package ArchiveToolResult runArchiveTool(string[] command,
+    shared(bool)* cancellation = null)
+{
+    import core.atomic : atomicLoad;
+    import core.thread : Thread;
+    import core.time : MonoTime, msecs, seconds;
+    import std.file : exists, remove, tempDir;
+    import std.path : buildPath;
+    import std.process : Config, ProcessException, kill, spawnProcess, tryWait;
+    import std.stdio : File, stdin;
+    import std.uuid : randomUUID;
+
+    if (cancellation !is null && atomicLoad(*cancellation))
+        return ArchiveToolResult(-1, "archive tool cancelled", true);
+
+    const logPath = buildPath(tempDir(),
+        "dosierarkivo-tool-" ~ randomUUID().toString() ~ ".log");
+    auto logFile = File(logPath, "w");
+    ArchiveToolResult result;
+    try
+    {
+        auto pid = spawnProcess(command, stdin, logFile, logFile, null,
+            Config.none);
+        MonoTime forceKillAt;
+        while (true)
+        {
+            auto state = tryWait(pid);
+            if (state.terminated)
+            {
+                result.status = state.status;
+                break;
+            }
+            if (cancellation !is null && atomicLoad(*cancellation))
+            {
+                if (!result.cancelled)
+                {
+                    result.cancelled = true;
+                    try
+                        kill(pid);
+                    catch (ProcessException)
+                    {
+                    }
+                    forceKillAt = MonoTime.currTime + 2.seconds;
+                }
+                else if (MonoTime.currTime >= forceKillAt)
+                {
+                    try
+                        kill(pid, 9);
+                    catch (ProcessException)
+                    {
+                    }
+                    forceKillAt = MonoTime.currTime + 2.seconds;
+                }
+            }
+            Thread.sleep(10.msecs);
+        }
+        logFile.close();
+        result.output = readArchiveToolTail(logPath);
+        return result;
+    }
+    finally
+    {
+        if (logFile.isOpen)
+            logFile.close();
+        removeArchiveToolLog(logPath);
+    }
+}
+
+/** Remove a temporary archive-tool log without masking the original failure.
+ *
+ * Params:
+ *     path = Log path to remove; missing files are ignored.
+ */
+private void removeArchiveToolLog(string path) nothrow
+{
+    import std.file : exists, remove;
+
+    try
+        if (exists(path))
+            remove(path);
+    catch (Exception)
+    {
+    }
+}
+
+/** Read the last bounded portion of an archive-tool log.
+ *
+ * Params:
+ *     path = Temporary log written by `runArchiveTool`.
+ * Returns: Up to 64 KiB of the log tail, or an empty string for an empty log.
+ */
+private string readArchiveToolTail(string path)
+{
+    import std.stdio : File;
+
+    enum maxTailBytes = 64 * 1024;
+    auto logFile = File(path, "rb");
+    scope (exit)
+        logFile.close();
+    const size = logFile.size;
+    if (size > maxTailBytes)
+        logFile.seek(size - maxTailBytes);
+    auto buffer = new ubyte[cast(size_t)(logFile.size - logFile.tell)];
+    auto read = logFile.rawRead(buffer);
+    return cast(string) read;
+}
+
 /** Types of archives we support. */
 enum ArchiveType
 {
@@ -691,6 +821,8 @@ abstract class FileArchive
      * Params:
      *     destDir = directory that receives the complete archive tree
      *     password = optional archive password
+     *     cancellation = optional cooperative cancellation flag; adapters stop
+     *         the external tool when it becomes set
      * Returns:
      *     true on success, false when the adapter does not support bulk
      *     extraction
@@ -698,7 +830,8 @@ abstract class FileArchive
      *     `ArchivePasswordRequiredException` when a password is missing or
      *     rejected, `ArchiveToolException` for other tool failures.
      */
-    bool extractAllTo(string destDir, string password = "")
+    bool extractAllTo(string destDir, string password = "",
+        shared(bool)* cancellation = null)
     {
         return false;
     }
@@ -837,4 +970,40 @@ unittest
     assert(archivePathMatchesText("container.zip!/member!!.txt",
         "container.zip!/member!.txt"));
     assert(!archivePathMatchesText("dir!!/clip!!.mp4", "clip!.exe"));
+}
+
+@("runArchiveTool captures combined standard output and error")
+unittest
+{
+    version (Posix)
+    {
+        auto result = runArchiveTool(["sh", "-c", "echo stdout; echo stderr >&2"]);
+        assert(result.status == 0);
+        assert(result.output.canFind("stdout"), result.output);
+        assert(result.output.canFind("stderr"), result.output);
+    }
+}
+
+@("runArchiveTool terminates a cancelled child")
+unittest
+{
+    version (Posix)
+    {
+        import core.atomic : atomicStore;
+        import core.thread : Thread;
+        import core.time : MonoTime, msecs, seconds;
+
+        shared bool cancelled;
+        auto canceller = new Thread({
+            Thread.sleep(100.msecs);
+            atomicStore(cancelled, true);
+        });
+        const startedAt = MonoTime.currTime;
+        canceller.start();
+        auto result = runArchiveTool(["sleep", "30"], &cancelled);
+        canceller.join();
+        assert(result.cancelled, "cancellation must kill the child process");
+        assert(MonoTime.currTime - startedAt < 5.seconds,
+            "cancellation must not wait for the full child runtime");
+    }
 }

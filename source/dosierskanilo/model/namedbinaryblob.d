@@ -2348,7 +2348,8 @@ void updateArchives(NamedBinaryBlob obj,
                                         throw new Exception(
                                             "Archive scan was cancelled.");
                                     if (!archiveObj.extractAllTo(
-                                            bulkReservation.path, password))
+                                            bulkReservation.path, password,
+                                            gotCtrlC))
                                         bulkFailure =
                                             "archive adapter does not support bulk extraction";
                                     else
@@ -2396,6 +2397,8 @@ void updateArchives(NamedBinaryBlob obj,
 
                     foreach (idx, descriptor; archiveEntries)
                     {
+                        if (gotCtrlC !is null && atomicLoad(*gotCtrlC))
+                            throw new Exception("Archive scan was cancelled.");
                         const auto arcfile = descriptor.name;
                         logFLineVerbose("  with archive file '%s'", arcfile);
 
@@ -2558,6 +2561,9 @@ void updateArchives(NamedBinaryBlob obj,
                              * byte totals under an "entries" label. */
                             calculatesDigests(gotCtrlC, extractedPath,
                                 &md5sum_s, &sha1sum_s, &xxh64sum_s, null);
+                            if (gotCtrlC !is null && atomicLoad(*gotCtrlC))
+                                throw new Exception(
+                                    "Archive scan was cancelled.");
                             if (progressCallBack !is null)
                                 progressCallBack.report(idx, archiveEntries.length);
 
@@ -3109,6 +3115,57 @@ unittest
                 ++fallbackFiles;
     assert(fallbackFiles == 2,
         "the never policy must use the per-member cache");
+}
+
+@("bulk deep scan stops promptly when cancellation is requested")
+unittest
+{
+    import core.atomic : atomicStore;
+    import std.conv : to;
+    import std.exception : assertThrown;
+    import std.file : exists, getSize, mkdirRecurse, rmdirRecurse, tempDir,
+        write;
+    import std.path : buildPath;
+    import std.process : execute, executeShell;
+    import std.uuid : randomUUID;
+    import dosierskanilo.archivebulk : ArchiveBulkMode;
+
+    if (executeShell("command -v zip").status != 0)
+        return;
+    const root = buildPath(tempDir(), "archive-bulk-cancel-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    string[] members;
+    foreach (index; 0 .. 8)
+    {
+        const name = "member-" ~ index.to!string ~ ".txt";
+        write(buildPath(root, name), "payload-" ~ index.to!string);
+        members ~= name;
+    }
+    const archivePath = buildPath(root, "cancel.zip");
+    auto created = execute(["zip", "-q", "-j", archivePath]
+        ~ members.map!(name => buildPath(root, name)).array);
+    assert(created.status == 0, created.output);
+
+    auto blob = new NamedBinaryBlob(archivePath,
+        cast(size_t) getSize(archivePath), SysTime(1_234_567));
+    auto cache = new MemberContentCache(buildPath(root, "cache"));
+    scope (exit)
+        cache.close();
+    shared bool cancelled;
+    ProgressCallBack progress;
+    progress.contextual = (size_t completed, size_t total) {
+        if (completed > 0)
+            atomicStore(cancelled, true);
+    };
+    assertThrown!Exception(updateArchives(blob, true, true, &cancelled,
+        &progress, null, 0, 8, "", cache, false, false,
+        ArchiveBulkMode.always));
+    assert(blob.archiveSpecs is null,
+        "a cancelled archive scan must not publish a partial index");
 }
 
 @("archive progress reports entry counts, not member byte counts")

@@ -224,9 +224,12 @@ dosierskanilo metadata /data/library --scan-archives --scan-archives \
   --archive-limit 50 --threads 4
 ```
 
-The first Ctrl-C finishes the currently running archive jobs, commits their
-complete results, and stops before the next batch. A second Ctrl-C terminates
-immediately without committing the active batch.
+The first Ctrl-C aborts the archive currently being scanned and stops before
+the next batch. Blobs that were already complete stay committed, the partial
+archive index is discarded, and the interrupted archive remains pending for the
+next run. Bulk extraction kills its external archive tool as part of the same
+cancellation. A second Ctrl-C terminates immediately without committing the
+active batch.
 
 `status` reports storage mode, schema or catalog version, timestamps, blob and
 reference counts (physical and archive members), directory count, physical

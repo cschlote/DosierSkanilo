@@ -333,20 +333,22 @@ class FileArchiveZip : FileArchive
      * Params:
      *     destDir = directory that receives the complete archive tree
      *     password = archive password; empty selects the tool's default
+     *     cancellation = optional cooperative cancellation flag
      * Returns: `true` on success.
      * Throws: `ArchivePasswordRequiredException` when a password is missing or
      *     rejected, `ArchiveToolException` for any other tool failure.
      */
-    override bool extractAllTo(string destDir, string password = "")
+    override bool extractAllTo(string destDir, string password = "",
+        shared(bool)* cancellation = null)
     {
         auto zipPath = isAbsolute(this.fileName) ? this.fileName
             : buildPath(getcwd(), this.fileName);
-        auto rc = execute(["unzip", "-P", password, "-o", "-q", "-d", destDir,
-            "--", zipPath]);
-        if (rc.status != 0 && isArchivePasswordFailure(rc.output))
-            throw new ArchivePasswordRequiredException(rc.output);
-        if (rc.status != 0)
-            throw new ArchiveToolException(rc.output);
+        auto result = runArchiveTool(["unzip", "-P", password, "-o", "-q",
+            "-d", destDir, "--", zipPath], cancellation);
+        if (result.status != 0 && isArchivePasswordFailure(result.output))
+            throw new ArchivePasswordRequiredException(result.output);
+        if (result.status != 0)
+            throw new ArchiveToolException(result.output);
         return true;
     }
 
