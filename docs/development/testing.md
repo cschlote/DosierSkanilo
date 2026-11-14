@@ -98,7 +98,7 @@ metadata. The build must complete without missing-symbol or broken-link errors.
 
 ## Current baseline
 
-On 2026-11-10 the full suite reported 252 passing tests and 89.52 % coverage.
+On 2026-11-14 the full suite reported 262 passing tests and 89.33 % coverage.
 
 ### 2026-11-10 review remediation
 
@@ -113,6 +113,10 @@ pagination, progress/watcher lifetime, archive-only cancellation/resume, and
 `--archive-limit` pending selection. ZIP, TAR, and 7z shallow scans also
 record member sizes and timestamps from their verbose listings. Compressed tar
 suffixes (`.tar.gz`, `.tgz`, `.tar.xz`, `.txz`, `.tar.zst`, `.tzst`, and
-related aliases) use the same TAR adapter.
+related aliases) use the same TAR adapter. Deep scans bulk-extract one
+archive into a bounded staging tree by default, with per-member cache fallback
+for duplicate, symlink, unsafe, or missing members. Staging and cache limits
+adapt to the available temporary space; `--archive-bulk`,
+`--archive-staging-dir`, and `--archive-staging-size` control the policy.
 Treat these numbers as a recorded snapshot, not a permanent contract; update
 them when the test set changes.

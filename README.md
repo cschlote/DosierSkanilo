@@ -197,7 +197,12 @@ duplicate and missing-file analysis. Saved JSON catalogs are compact by
 default; `--pretty` indents them for human reading. Archive scans and metadata
 extraction accept
 `--archive-cache-dir` and `--archive-cache-size` (MiB) to control the temporary
-member cache; each run uses an owned session directory and removes it on exit.
+member cache. The default cache limit adapts to free space (one eighth, with an
+8 GiB ceiling). Deep scans also use a separate bulk staging area for whole
+archives: `--archive-bulk=auto|always|never`, `--archive-staging-dir`, and
+`--archive-staging-size` (MiB). The default staging limit is half of the free
+space, capped at 16 GiB. Each run uses owned session directories and removes
+them on exit.
 `init --force` creates a `VACUUM INTO` safety snapshot (including committed WAL
 rows) under `.dosierskanilo/backups/` and starts a new empty catalog; stop other
 processes using the repository first. `backup` writes a consistent,

@@ -681,6 +681,28 @@ abstract class FileArchive
         return extractEntry(descriptor.name, destDir, password);
     }
 
+    /** Extract every member of the archive into one destination directory.
+     *
+     * Bulk extraction is a deep-scan fast path. The caller is responsible for
+     * providing an empty, bounded staging directory and for validating the
+     * extracted paths before reading them. The base implementation returns
+     * `false` and is meant to be overridden by concrete archive handlers.
+     *
+     * Params:
+     *     destDir = directory that receives the complete archive tree
+     *     password = optional archive password
+     * Returns:
+     *     true on success, false when the adapter does not support bulk
+     *     extraction
+     * Throws:
+     *     `ArchivePasswordRequiredException` when a password is missing or
+     *     rejected, `ArchiveToolException` for other tool failures.
+     */
+    bool extractAllTo(string destDir, string password = "")
+    {
+        return false;
+    }
+
     /** Whether this adapter can select a particular duplicate-name occurrence.
      *
      * Returns: `true` when occurrence-aware extraction is implemented; the

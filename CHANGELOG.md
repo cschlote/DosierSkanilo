@@ -34,6 +34,15 @@ They represent the functional evolution and are intentionally summarized.
   `.tgz`, `.tar.bz2`, `.tbz2`, `.tbz`, `.tar.xz`, `.txz`, `.tar.zst`, `.tzst`,
   `.tar.lz`, `.tlz`, `.tar.lzma`, `.tar.Z`, and `.taz`. The regular TAR adapter
   handles them; `tar` performs decompression.
+- Deep archive scans bulk-extract one archive into a bounded staging tree by
+  default and hash members from that tree. This avoids one tool process per
+  member and repeated decompression of compressed tar and solid RAR/7z
+  archives. Duplicate, symlink, unsafe, or missing members fall back to the
+  per-member cache. Use `--archive-bulk=auto|always|never` to select the
+  policy. `--archive-staging-dir` and `--archive-staging-size` control the
+  staging area; its default limit is half of the free space, capped at 16 GiB.
+- The default archive member cache limit now adapts to free space (one eighth,
+  capped at 8 GiB) instead of a fixed 1 GiB.
 
 ## Release 26.16.0 - 2026-11-10
 

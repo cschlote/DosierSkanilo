@@ -1078,7 +1078,8 @@ private void runJsonMetadataWork(JsonMetadataWork* item)
                 item.control is null ? null : &progress,
                 item.options.archivePasswordCallback,
                 0, 8, "", null, item.options.detectFileTypes,
-                item.options.extractMediaInfo);
+                item.options.extractMediaInfo,
+                item.options.archiveBulkMode);
         });
     }
     if (jsonWorkCancelled(item))

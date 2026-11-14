@@ -34,6 +34,9 @@ struct ArgsArray
 	bool argScanTorrents; ///< Scan torrent contents.
 	string argArchiveCacheDir; ///< Root directory for archive member extraction.
 	uint argArchiveCacheMiB; ///< Archive member cache size in MiB (0 = default).
+	string argArchiveBulk = "auto"; ///< Deep-scan bulk extraction mode.
+	string argArchiveStagingDir; ///< Root directory for bulk archive extraction.
+	uint argArchiveStagingMiB; ///< Bulk staging limit in MiB (0 = adaptive).
 	bool argRunAnalysis; ///< Run duplicate and cleanup analysis.
 	bool argRunMetadata; ///< Run repository metadata extraction.
 	bool argShowInfo; ///< Show repository metadata and catalog counts.

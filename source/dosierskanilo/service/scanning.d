@@ -19,6 +19,7 @@ import std.string;
 import std.stdio;
 import std.uuid;
 
+import dosierskanilo.archivebulk : archiveBulkModeFromOption;
 import dosierskanilo.logging;
 import dosierarkivo.archive : ArchivePasswordCallback,
     archivePathSeparator, escapeArchiveVirtualPath;
@@ -303,7 +304,8 @@ bool runScannerJobs(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCt
                         &gotCtrlC, cast(ProgressCallBack*) null,
                         cast(ArchivePasswordCallback) null, cast(size_t) 0,
                         cast(size_t) 8, "", cast(MemberContentCache) null,
-                        argsArray.argDoFileTypes, argsArray.argDoMediaSig);
+                        argsArray.argDoFileTypes, argsArray.argDoMediaSig,
+                        archiveBulkModeFromOption(argsArray.argArchiveBulk));
                     myTaskPool.put(obj.task_archiveScan);
                 }
                 if (argsArray.argScanTorrents && obj.torrentInfo is null)
@@ -402,7 +404,8 @@ bool runScannerJobs(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCt
 
                     updateArchives(obj, false, argsArray.argScanArchives > 1,
                         &gotCtrlC, &cb, null, 0, 8, "", null,
-                        argsArray.argDoFileTypes, argsArray.argDoMediaSig);
+                        argsArray.argDoFileTypes, argsArray.argDoMediaSig,
+                        archiveBulkModeFromOption(argsArray.argArchiveBulk));
                 }
                 if (argsArray.argScanTorrents && obj.torrentInfo is null)
                 {

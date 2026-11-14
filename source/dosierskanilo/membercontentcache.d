@@ -22,6 +22,7 @@ import std.string : empty, replace, startsWith, toLower;
 import std.uuid : randomUUID;
 
 import dosierarkivo.archive : normalizeArchiveEntryPath;
+import dosierskanilo.diskspace : availableBytes;
 import dosierskanilo.catalogbackend : ArchiveEntryId, ContentId,
     ContentLocator, ReferenceId;
 import dosierskanilo.operationlease : OperationTargetBusyException,
@@ -30,8 +31,33 @@ import dosierskanilo.operationlease : OperationTargetBusyException,
 /// Materialize one safely normalized member into the provided directory.
 alias MemberContentMaterializer = bool delegate(string destinationDirectory);
 
-/// Default byte limit for one member cache session.
+/// Fallback byte limit when the filesystem cannot be queried.
 enum ulong defaultMemberCacheByteLimit = 1_073_741_824;
+
+/** Derive the default byte limit for a cache session.
+ *
+ * The limit uses one eighth of the available space, with a small floor for
+ * constrained filesystems and an 8 GiB ceiling. This keeps a large temporary
+ * filesystem useful without letting previews consume the whole disk.
+ *
+ * Params:
+ *     root = Existing cache root directory.
+ * Returns: The derived limit, or the fallback when free space is unknown.
+ */
+ulong defaultMemberCacheByteLimitFor(string root) @safe
+{
+    const free = availableBytes(root);
+    if (free == 0)
+        return defaultMemberCacheByteLimit;
+    auto limit = free / 8;
+    if (limit < 256UL * 1024UL * 1024UL)
+        limit = free / 2;
+    if (limit > 8UL * 1024UL * 1024UL * 1024UL)
+        limit = 8UL * 1024UL * 1024UL * 1024UL;
+    if (limit == 0)
+        limit = defaultMemberCacheByteLimit;
+    return limit;
+}
 
 /** Base class for member cache failures. */
 class MemberContentCacheException : Exception
@@ -228,11 +254,18 @@ private:
     bool closed;
 
 public:
-    /** Create a cache session below `root`, or in a unique temporary session. */
-    this(string root = "", ulong byteLimit = defaultMemberCacheByteLimit,
+    /** Create a cache session below `root`, or in a unique temporary session.
+     *
+     * Params:
+     *     root = Parent directory; empty selects the system temporary
+     *         directory.
+     *     byteLimit = Hard limit in bytes; zero derives it from available
+     *         space.
+     *     concurrentExtractions = Maximum concurrent materializations.
+     */
+    this(string root = "", ulong byteLimit = 0,
         size_t concurrentExtractions = 4)
     {
-        enforce(byteLimit > 0, "Member cache byte limit must be positive.");
         enforce(concurrentExtractions > 0,
             "Member cache concurrency limit must be positive.");
         mutex = new Mutex();
@@ -247,7 +280,8 @@ public:
         cleanupStaleSessions(root);
         sessionRoot = buildPath(root, "session-" ~ thisProcessID.to!string
             ~ "-" ~ randomUUID().toString());
-        maximumBytes = byteLimit;
+        maximumBytes = byteLimit > 0 ? byteLimit
+            : defaultMemberCacheByteLimitFor(root);
         /* Lease this session before it becomes visible to cleanupStaleSessions
          * of other processes: the flock makes concurrent cleaners skip it, and
          * racing stale-session cleanup cannot see an unleased directory. */
@@ -669,7 +703,8 @@ MemberContentCache sharedMemberContentCache()
  * Params:
  *     root = Parent directory for the new session; an empty string selects the
  *         system temporary directory.
- *     byteLimit = Maximum number of bytes the session may retain.
+ *     byteLimit = Maximum number of bytes the session may retain; zero
+ *         derives it from available space.
  */
 void configureSharedMemberContentCache(string root, ulong byteLimit)
 {

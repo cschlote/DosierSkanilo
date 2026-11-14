@@ -11,6 +11,7 @@ import std.path : buildPath;
 import std.string : empty, endsWith;
 
 import dosierskanilo;
+import dosierskanilo.archivebulk : ArchiveBulkMode, parseArchiveBulkMode;
 import dosierskanilo_cli.logging : errorFLine, errorLine;
 
 /** Validate repository target, command options, and transfer filenames.
@@ -47,6 +48,21 @@ bool validateRepositoryOptions(string command, ref ArgsArray options)
         && command != "scan" && command != "metadata")
     {
         errorLine("--archive-cache options are available only with scan or metadata.");
+        return false;
+    }
+    ArchiveBulkMode bulkMode;
+    if (!parseArchiveBulkMode(options.argArchiveBulk, bulkMode))
+    {
+        errorLine("--archive-bulk must be 'auto', 'always', or 'never'.");
+        return false;
+    }
+    if ((bulkMode != ArchiveBulkMode.automatic
+        || !options.argArchiveStagingDir.empty
+        || options.argArchiveStagingMiB != 0)
+        && command != "scan" && command != "metadata")
+    {
+        errorLine("--archive-bulk and --archive-staging options are available "
+            ~ "only with scan or metadata.");
         return false;
     }
     if (options.argDryRun)

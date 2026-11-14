@@ -43,6 +43,7 @@ import std.typecons;
 import std.utf;
 
 import dosierskanilo;
+import dosierskanilo.archivebulk : archiveBulkModeFromOption;
 import dosierarkivo;
 
 import dosierskanilo_cli.parser;
@@ -128,7 +129,8 @@ int main(string[] args)
 		case ParseStatus.run:
 			auto options = parsed.options;
 			const auto commandStartedAt = Clock.currTime;
-			if (!configureArchiveCache(options))
+			if (!configureArchiveCache(options)
+				|| !configureArchiveStaging(options))
 			{
 				reportOperationElapsed(commandStartedAt, parsed.command,
 					options, true);
@@ -147,6 +149,12 @@ int main(string[] args)
 			scope (exit)
 				if (oldhandler != SIG_ERR)
 					signal(SIGINT, oldhandler);
+			scope (exit)
+			{
+				import dosierskanilo.archivebulk :
+					closeSharedArchiveBulkStaging;
+				closeSharedArchiveBulkStaging();
+			}
 
 			bool rc;
 			try
@@ -417,6 +425,25 @@ private string archiveCacheSetting(ArgsArray options)
 	return "default";
 }
 
+/** Describe the bulk archive staging area for verbose diagnostics.
+ *
+ * Params:
+ *     options = Parsed command-line options.
+ * Returns: The configured directory and limit, or `"default (adaptive)"`.
+ */
+private string archiveStagingSetting(ArgsArray options)
+{
+	if (!options.argArchiveStagingDir.empty)
+		return options.argArchiveStagingDir
+			~ (options.argArchiveStagingMiB > 0
+				? " (" ~ options.argArchiveStagingMiB.to!string ~ " MiB)"
+				: " (adaptive)");
+	if (options.argArchiveStagingMiB > 0)
+		return "default directory (" ~ options.argArchiveStagingMiB.to!string
+			~ " MiB)";
+	return "default (adaptive)";
+}
+
 /** Print the active settings before any MediaInfo version banner.
  *
  * Compact mode emits one line so redirected logs stay small. Verbose mode
@@ -461,6 +488,8 @@ private void printRunSettings(ArgsArray options, CliCommand command)
 		metadata.length > 0 ? metadata.join(", ") : "none");
 	noticeFLine("  workers: %d", options.argNumberOfThreads);
 	noticeFLine("  archive cache: %s", archiveCacheSetting(options));
+	noticeFLine("  archive staging: %s", archiveStagingSetting(options));
+	noticeFLine("  archive bulk: %s", options.argArchiveBulk);
 	if (flags.length > 0)
 		noticeFLine("  flags: %s", flags.join(", "));
 	if (query.length > 0)
@@ -627,11 +656,11 @@ bool executeCatalogRecovery(ArgsArray options)
 private bool configureArchiveCache(ArgsArray options)
 {
 	import dosierskanilo.membercontentcache :
-		configureSharedMemberContentCache, defaultMemberCacheByteLimit;
+		configureSharedMemberContentCache;
 
 	if (options.argArchiveCacheDir.empty && options.argArchiveCacheMiB == 0)
 		return true;
-	ulong byteLimit = defaultMemberCacheByteLimit;
+	ulong byteLimit;
 	if (options.argArchiveCacheMiB > 0)
 		byteLimit = cast(ulong) options.argArchiveCacheMiB * 1_048_576UL;
 	try
@@ -642,6 +671,38 @@ private bool configureArchiveCache(ArgsArray options)
 	catch (Exception ex)
 	{
 		errorFLine("Cannot configure archive cache: %s", ex.msg);
+		return false;
+	}
+}
+
+/** Configure the shared bulk archive staging session from CLI options.
+ *
+ * Does nothing when neither a staging directory nor a size limit was
+ * requested. A zero size limit selects the adaptive free-space default.
+ *
+ * Params:
+ *     options = Parsed command-line options.
+ * Returns: `true` when staging is configured or no staging option was
+ *     requested; `false` after logging an error when configuration fails.
+ */
+private bool configureArchiveStaging(ArgsArray options)
+{
+	import dosierskanilo.archivebulk : configureSharedArchiveBulkStaging;
+
+	if (options.argArchiveStagingDir.empty && options.argArchiveStagingMiB == 0)
+		return true;
+	ulong byteLimit;
+	if (options.argArchiveStagingMiB > 0)
+		byteLimit = cast(ulong) options.argArchiveStagingMiB * 1_048_576UL;
+	try
+	{
+		configureSharedArchiveBulkStaging(options.argArchiveStagingDir,
+			byteLimit);
+		return true;
+	}
+	catch (Exception ex)
+	{
+		errorFLine("Cannot configure archive staging: %s", ex.msg);
 		return false;
 	}
 }
@@ -1846,6 +1907,8 @@ bool executeRepositoryMetadata(CatalogBackend backend, string repositoryRoot,
 	metadataOptions.scanTorrents = options.argScanTorrents;
 	metadataOptions.rescan = options.argRescanMediaSig;
 	metadataOptions.archiveLimit = options.argArchiveLimit;
+	metadataOptions.archiveBulkMode = archiveBulkModeFromOption(
+		options.argArchiveBulk);
 	metadataOptions.threads = options.argNumberOfThreads > 1
 		? cast(size_t) options.argNumberOfThreads : 1;
 	MetadataOperationRequest request;
@@ -1993,6 +2056,7 @@ MetadataScanOptions metadataOptionsFromCli(ArgsArray options)
 	metadata.deepArchiveScan = options.argScanArchives > 1;
 	metadata.scanTorrents = options.argScanTorrents;
 	metadata.rescan = options.argRescanMediaSig;
+	metadata.archiveBulkMode = archiveBulkModeFromOption(options.argArchiveBulk);
 	metadata.threads = options.argNumberOfThreads > 1
 		? cast(size_t) options.argNumberOfThreads : 1;
 	return metadata;

@@ -56,18 +56,61 @@ deeply inspected", not necessarily an empty member.
 
 ## Deep Scans
 
-A deep scan extracts each member through the shared member-content cache and
-records:
+A deep scan extracts member bytes and records:
 
 - MD5, SHA1, and XXH64 digests,
 - optional file type and MediaInfo,
 - optional nested archive indexes, up to the configured depth.
 
-The extracted files are scratch data: cache paths are never stored as catalog
-references, and the cache session removes them when closed. Damaged or
-non-extractable members remain in the index without a deep fingerprint.
-Cancellation finishes the currently running archive jobs, commits their
-complete results, and stops before starting new ones.
+By default the scanner extracts one archive once into a bounded staging tree,
+hashes the members from that tree, and removes the tree when the archive is
+done. This is the **bulk extraction** path. If bulk extraction is unavailable
+or unsafe, the scanner falls back to the shared member-content cache and
+extracts one member at a time.
+
+The extracted files are scratch data: staging and cache paths are never stored
+as catalog references. Damaged or non-extractable members remain in the index
+without a deep fingerprint. Cancellation finishes the currently running
+archive jobs, commits their complete results, and stops before starting new
+ones.
+
+### Bulk Extraction
+
+Bulk extraction avoids one archive-tool process per member and avoids
+re-decompressing sequential streams from the beginning for every member. It is
+especially effective for:
+
+- compressed tar archives (`.tar.gz`, `.tar.xz`, `.tar.zst`, and aliases),
+- solid RAR archives,
+- solid 7z archives,
+- archives with many small members.
+
+Policy:
+
+- `--archive-bulk=auto` (default) bulk-extracts archives with at least two
+  file members and known sizes. Archives with unsafe member paths, unknown
+  member sizes, or no member bytes stay on the per-member path.
+- `--archive-bulk=always` bulk-extracts every eligible archive regardless of
+  member count.
+- `--archive-bulk=never` keeps the per-member cache path for every archive.
+
+The staging area is a session directory below the system temporary directory,
+or below `--archive-staging-dir`. Its default limit is half of the currently
+available space, capped at 16 GiB. `--archive-staging-size MiB` sets an
+explicit limit. A reservation is rejected when the declared member sizes plus
+slack exceed the limit or half of the current free space.
+
+Duplicate-name members, symlink members, and members that are missing from the
+staged tree are not read from bulk extraction. They use the per-member cache
+fallback, which preserves occurrence selection and the symlink guard.
+
+The preview path does not use bulk staging. It keeps using the member cache,
+so a future GUI prefetch feature can reuse the same cache API without coupling
+previews to scanner staging.
+
+The CLI closes the staging session after its workers stop. A crashed or killed
+process may leave a `session-*` directory behind; the next process removes it
+after acquiring the session lease.
 
 ### Compressed TAR Variants
 
@@ -97,10 +140,13 @@ failure instead of aborting the run.
   drive-qualified names.
 - Listing commands receive absolute archive paths; extraction commands use an
   explicit `--` end-of-options marker where the tool supports it.
-- The member-content cache rejects symbolic-link members and never follows a
-  link target as member content. This protects the scanner and preview paths;
-  direct `FileArchive` consumers must still treat extraction as untrusted
-  input.
+- The member-content cache and the bulk staging reader reject symbolic-link
+  members and never follow a link target as member content. This protects the
+  scanner and preview paths; direct `FileArchive` consumers must still treat
+  extraction as untrusted input.
+- Bulk extraction is disabled for archives that declare unsafe member paths.
+  After extraction, each candidate path is checked component by component for
+  symlinks and must resolve to a regular file inside the staging tree.
 - Archive passwords are passed through the adapter API and are not persisted
   in logs.
 
@@ -112,7 +158,9 @@ Adapter tests cover:
 - ZIP/TAR/7z shallow sizes and timestamps,
 - shallow persistence in the blob model without fabricated checksums,
 - option-like member names, duplicate ZIP occurrences, and wildcard names,
-- symlink rejection in the shared cache.
+- bulk extraction for ZIP, TAR, RAR, and 7z,
+- bulk policy selection, staging budgets, and reservation cleanup,
+- symlink rejection in the shared cache and the bulk staging reader.
 
 Run the focused tests with:
 

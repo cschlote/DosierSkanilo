@@ -328,6 +328,28 @@ class FileArchiveZip : FileArchive
         return rc.status == 0;
     }
 
+    /** Extract the complete archive into one staging directory with `unzip`.
+     *
+     * Params:
+     *     destDir = directory that receives the complete archive tree
+     *     password = archive password; empty selects the tool's default
+     * Returns: `true` on success.
+     * Throws: `ArchivePasswordRequiredException` when a password is missing or
+     *     rejected, `ArchiveToolException` for any other tool failure.
+     */
+    override bool extractAllTo(string destDir, string password = "")
+    {
+        auto zipPath = isAbsolute(this.fileName) ? this.fileName
+            : buildPath(getcwd(), this.fileName);
+        auto rc = execute(["unzip", "-P", password, "-o", "-q", "-d", destDir,
+            "--", zipPath]);
+        if (rc.status != 0 && isArchivePasswordFailure(rc.output))
+            throw new ArchivePasswordRequiredException(rc.output);
+        if (rc.status != 0)
+            throw new ArchiveToolException(rc.output);
+        return true;
+    }
+
     version (unittest)
     {
         /** Test archive file name produced by the unittest fixture. */
@@ -555,4 +577,36 @@ unittest
     assert(descriptors[0].hasModifiedAt);
     assert(descriptors[0].modifiedAt.length >= 16,
         descriptors[0].modifiedAt);
+}
+
+@("zip bulk extraction writes all members")
+unittest
+{
+    import std.file : exists, mkdirRecurse, readText, rmdirRecurse, tempDir,
+        write;
+    import std.path : buildPath;
+    import std.process : execute, executeShell;
+    import std.uuid : randomUUID;
+
+    if (executeShell("command -v zip").status != 0)
+        return;
+    const root = buildPath(tempDir(), "zip-bulk-extract-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    write(buildPath(root, "first.txt"), "first");
+    write(buildPath(root, "second.txt"), "second");
+    const archivePath = buildPath(root, "bulk.zip");
+    auto created = execute(["zip", "-q", "-j", archivePath,
+        buildPath(root, "first.txt"), buildPath(root, "second.txt")]);
+    assert(created.status == 0, created.output);
+
+    const output = buildPath(root, "output");
+    mkdirRecurse(output);
+    auto archive = new FileArchiveZip(archivePath);
+    assert(archive.extractAllTo(output));
+    assert(readText(buildPath(output, "first.txt")) == "first");
+    assert(readText(buildPath(output, "second.txt")) == "second");
 }
