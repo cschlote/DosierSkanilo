@@ -182,19 +182,22 @@ class FileArchiveRar : FileArchive
      *     filename = Member name exactly as reported by the archive listing.
      *     destDir = Directory that receives the extracted member.
      *     password = Archive password; empty disables password prompting.
+     *     cancellation = Optional cooperative cancellation flag.
      * Returns: `true` on success.
      * Throws: `ArchivePasswordRequiredException` when a password is missing or
      *     rejected, `ArchiveToolException` for any other tool failure.
      */
-    override bool extractEntry(string filename, string destDir, string password = "")
+    override bool extractEntry(string filename, string destDir, string password = "",
+        shared(bool)* cancellation = null)
     {
         auto tarPath = buildPath(getcwd(), this.fileName);
         auto passwordOption = password.length > 0 ? "-p" ~ password : "-p-";
-        auto rc = execute(["unrar", "x", passwordOption, tarPath, "--", filename, destDir]);
-        if (rc.status != 0 && isArchivePasswordFailure(rc.output))
-            throw new ArchivePasswordRequiredException(rc.output);
-        if (rc.status != 0)
-            throw new ArchiveToolException(rc.output);
+        auto result = runArchiveTool(["unrar", "x", passwordOption, tarPath,
+            "--", filename, destDir], cancellation);
+        if (result.status != 0 && isArchivePasswordFailure(result.output))
+            throw new ArchivePasswordRequiredException(result.output);
+        if (result.status != 0)
+            throw new ArchiveToolException(result.output);
         return true;
     }
 
