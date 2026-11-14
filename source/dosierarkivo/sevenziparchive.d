@@ -151,21 +151,23 @@ class FileArchive7z : FileArchive
      * Params:
      *     destDir = directory that receives the complete archive tree
      *     password = archive password; empty suppresses interactive prompting
+     *     cancellation = optional cooperative cancellation flag
      * Returns: `true` on success.
      * Throws: `ArchivePasswordRequiredException` when a password is missing or
      *     rejected, `ArchiveToolException` for any other tool failure.
      */
-    override bool extractAllTo(string destDir, string password = "")
+    override bool extractAllTo(string destDir, string password = "",
+        shared(bool)* cancellation = null)
     {
         auto tarPath = buildPath(getcwd(), this.fileName);
         auto passwordOption = password.length > 0
             ? "-p" ~ password : "-p__dosierskanilo_no_password__";
-        auto rc = execute(["7z", "x", passwordOption, "-y", "-bd",
-            "-o" ~ destDir, tarPath]);
-        if (rc.status != 0 && isArchivePasswordFailure(rc.output))
-            throw new ArchivePasswordRequiredException(rc.output);
-        if (rc.status != 0)
-            throw new ArchiveToolException(rc.output);
+        auto result = runArchiveTool(["7z", "x", passwordOption, "-y", "-bd",
+            "-o" ~ destDir, tarPath], cancellation);
+        if (result.status != 0 && isArchivePasswordFailure(result.output))
+            throw new ArchivePasswordRequiredException(result.output);
+        if (result.status != 0)
+            throw new ArchiveToolException(result.output);
         return true;
     }
 

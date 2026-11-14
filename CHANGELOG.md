@@ -43,6 +43,10 @@ They represent the functional evolution and are intentionally summarized.
   staging area; its default limit is half of the free space, capped at 16 GiB.
 - The default archive member cache limit now adapts to free space (one eighth,
   capped at 8 GiB) instead of a fixed 1 GiB.
+- Ctrl-C now interrupts deep archive scans promptly, including bulk
+  extraction. The running archive tool is terminated, the partial archive
+  index is discarded, completed blobs stay committed, and the interrupted
+  archive remains pending for the next run.
 
 ## Release 26.16.0 - 2026-11-10
 

@@ -70,9 +70,10 @@ extracts one member at a time.
 
 The extracted files are scratch data: staging and cache paths are never stored
 as catalog references. Damaged or non-extractable members remain in the index
-without a deep fingerprint. Cancellation finishes the currently running
-archive jobs, commits their complete results, and stops before starting new
-ones.
+without a deep fingerprint. Cancellation aborts the currently running archive,
+discards its partial index, keeps already committed blobs, and leaves the
+interrupted archive pending for the next run. Bulk extraction stops its
+external archive tool when cancellation is requested.
 
 ### Bulk Extraction
 

@@ -179,15 +179,17 @@ class FileArchiveTar : FileArchive
      *     destDir = directory that receives the complete archive tree
      *     password = accepted for interface compatibility; TAR extraction does
      *         not use it
+     *     cancellation = optional cooperative cancellation flag
      * Returns: `true` on success.
      * Throws: `ArchiveToolException` when `tar` fails.
      */
-    override bool extractAllTo(string destDir, string password = "")
+    override bool extractAllTo(string destDir, string password = "",
+        shared(bool)* cancellation = null)
     {
-        auto tarPath = absolutePath(this.fileName);
-        auto rc = execute(["tar", "-xf", tarPath, "-C", destDir]);
-        if (rc.status != 0)
-            throw new ArchiveToolException(rc.output);
+        auto result = runArchiveTool(["tar", "-xf",
+            absolutePath(this.fileName), "-C", destDir], cancellation);
+        if (result.status != 0)
+            throw new ArchiveToolException(result.output);
         return true;
     }
 
