@@ -86,7 +86,17 @@ Metadata options (at least one is required for `metadata`):
 Archive member cache options (scan and metadata):
 
     --archive-cache-dir DIR   Root directory for extraction sessions
-    --archive-cache-size MiB  Maximum cached member bytes (default 1024)
+    --archive-cache-size MiB  Maximum cached member bytes (default: adaptive)
+
+Deep archive bulk extraction options (scan and metadata):
+
+    --archive-bulk MODE       Bulk extraction for deep scans: auto, always,
+                              or never (default: auto)
+    --archive-staging-dir DIR
+                              Root directory for bulk extraction sessions
+    --archive-staging-size MiB
+                              Bulk staging limit (default: half of free space,
+                              capped at 16 GiB)
 
 JSON output:
 
@@ -284,6 +294,9 @@ ParsedCommandLine parseCommandLine(string[] args)
             "all", "SAM------ Enable checksums, file types, media info, and shallow archive/torrent scans", &argsarray.argAll,
             "archive-cache-dir", "S-M------ Root directory for archive member extraction", &argsarray.argArchiveCacheDir,
             "archive-cache-size", "S-M------ Archive member cache size in MiB", &argsarray.argArchiveCacheMiB,
+            "archive-bulk", "S-M------ Deep archive bulk extraction mode: auto, always, or never", &argsarray.argArchiveBulk,
+            "archive-staging-dir", "S-M------ Root directory for bulk archive extraction", &argsarray.argArchiveStagingDir,
+            "archive-staging-size", "S-M------ Bulk archive staging size in MiB (0 = adaptive)", &argsarray.argArchiveStagingMiB,
             "drop-missing", "SA------- Drop missing files from database", &argsarray.argDropMissing,
             "threads", "SAM------ Number of worker threads", &argsarray.argNumberOfThreads,
             "replace", "S-----R-- Replace existing data (JSON scan or import)", &argsarray.argReplaceCatalog,
@@ -488,6 +501,9 @@ private bool validateRecoveryOptions(ArgsArray options)
         || options.argDoMediaSig || options.argRescanMediaSig
         || options.argScanArchives != 0 || options.argScanTorrents
         || !options.argArchiveCacheDir.empty || options.argArchiveCacheMiB != 0
+        || options.argArchiveBulk != "auto"
+        || !options.argArchiveStagingDir.empty
+        || options.argArchiveStagingMiB != 0
         || options.argNumberOfThreads != 1 || options.argReplaceCatalog
         || options.argPrettyJSON || options.argMergeDuplicates
         || !options.argQueryText.empty || options.argQueryLimit != 50
@@ -649,6 +665,16 @@ unittest
     assert(cachedArchive.status == ParseStatus.run);
     assert(cachedArchive.options.argArchiveCacheDir == "./cache");
     assert(cachedArchive.options.argArchiveCacheMiB == 64);
+    auto bulkArchive = parseCommandLine(["program", "scan", "./test",
+        "--scan-archives", "--archive-bulk", "always",
+        "--archive-staging-dir", "./staging", "--archive-staging-size", "128"]);
+    assert(bulkArchive.status == ParseStatus.run);
+    assert(bulkArchive.options.argArchiveBulk == "always");
+    assert(bulkArchive.options.argArchiveStagingDir == "./staging");
+    assert(bulkArchive.options.argArchiveStagingMiB == 128);
+    auto invalidBulkMode = parseCommandLine(["program", "scan", "./test",
+        "--scan-archives", "--archive-bulk", "sometimes"]);
+    assert(invalidBulkMode.status == ParseStatus.error);
     auto prettyExport = parseCommandLine(["program", "export", "./test",
         "--output=./test/export.json", "--pretty"]);
     assert(prettyExport.status == ParseStatus.run);
@@ -661,6 +687,9 @@ unittest
     assert(helpText.canFind("--scan-torrents"));
     assert(helpText.canFind("--archive-cache-dir"));
     assert(helpText.canFind("--archive-cache-size"));
+    assert(helpText.canFind("--archive-bulk"));
+    assert(helpText.canFind("--archive-staging-dir"));
+    assert(helpText.canFind("--archive-staging-size"));
     assert(helpText.canFind("--pretty"));
     assert(helpText.canFind("--no-input"));
     assert(helpText.canFind("--force"));

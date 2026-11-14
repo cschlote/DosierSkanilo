@@ -11,6 +11,7 @@ import std.path : buildPath;
 import dosierskanilo.model.checksums : CheckSums;
 import dosierskanilo.model.namedbinaryblob : NamedBinaryBlob;
 import dosierarkivo.archive : ArchivePasswordCallback;
+import dosierskanilo.archivebulkpolicy : ArchiveBulkMode;
 
 /** Name of the repository metadata directory. */
 enum repositoryDirectoryName = ".dosierskanilo";
@@ -178,6 +179,8 @@ struct MetadataScanOptions
     string filePath;
     /// Maximum pending archive blobs for an archive-only run; zero means all.
     size_t archiveLimit;
+    /// Bulk-extraction policy for deep archive scans.
+    ArchiveBulkMode archiveBulkMode = ArchiveBulkMode.automatic;
 }
 
 /** Counters returned by a repository metadata update. */

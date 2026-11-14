@@ -11,7 +11,7 @@ user-visible changes are listed in [`CHANGELOG.md`](CHANGELOG.md).
   v6, explicit JSON `CatalogDocument` sessions, shared operation API, member
   cache, recovery writer, and tag-driven release validation are implemented.
 - WP-09, WP-13, WP-14, and the persistence/document-session work are complete.
-- Backend verification: 252 tests, coverage 89.52 %, CLI checks,
+- Backend verification: 262 tests, coverage 89.33 %, CLI checks,
   `scripts/lint.sh`, and the Ddoc build pass locally; `testing` mirrors `main`
   without deployments.
 - The read-only `status` command reports aggregate SQLite and JSON catalog
@@ -291,6 +291,9 @@ baseline, and the documentation no longer implies that old formats are readable.
 - [x] Support common compressed tar suffixes (`.tar.gz`, `.tgz`, `.tar.xz`,
       `.txz`, `.tar.zst`, `.tzst`, and related aliases) through the TAR
       adapter.
+- [x] Add deep-scan bulk extraction with an `auto|always|never` policy and a
+      bounded staging area. The member cache remains the preview and fallback
+      path; see [`docs/ARCHIVE-SUPPORT.md`](docs/ARCHIVE-SUPPORT.md).
 - [ ] Decide whether direct JSON browsing needs a streaming reader/index for
       multi-million-record catalogs, or an explicit size guard that recommends
       repository import. Current direct JSON tabs hold the complete catalog and

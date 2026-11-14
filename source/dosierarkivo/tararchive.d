@@ -173,6 +173,24 @@ class FileArchiveTar : FileArchive
         return true;
     }
 
+    /** Extract the complete archive into one staging directory with `tar`.
+     *
+     * Params:
+     *     destDir = directory that receives the complete archive tree
+     *     password = accepted for interface compatibility; TAR extraction does
+     *         not use it
+     * Returns: `true` on success.
+     * Throws: `ArchiveToolException` when `tar` fails.
+     */
+    override bool extractAllTo(string destDir, string password = "")
+    {
+        auto tarPath = absolutePath(this.fileName);
+        auto rc = execute(["tar", "-xf", tarPath, "-C", destDir]);
+        if (rc.status != 0)
+            throw new ArchiveToolException(rc.output);
+        return true;
+    }
+
     /** Report whether the local `tar` supports `--occurrence`.
      *
      * Returns: `true` when `tar --help` advertises the occurrence option.
@@ -405,4 +423,34 @@ unittest
             variant.suffix);
         assert(exists(buildPath(output, "payload.txt")), variant.suffix);
     }
+}
+
+@("tar bulk extraction writes all members")
+unittest
+{
+    import std.file : exists, mkdirRecurse, readText, rmdirRecurse, tempDir,
+        write;
+    import std.path : buildPath;
+    import std.process : execute;
+    import std.uuid : randomUUID;
+
+    const root = buildPath(tempDir(), "tar-bulk-extract-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    write(buildPath(root, "first.txt"), "first");
+    write(buildPath(root, "second.txt"), "second");
+    const archivePath = buildPath(root, "bulk.tar");
+    auto created = execute(["tar", "-cf", archivePath, "-C", root,
+        "first.txt", "second.txt"]);
+    assert(created.status == 0, created.output);
+
+    const output = buildPath(root, "output");
+    mkdirRecurse(output);
+    auto archive = new FileArchiveTar(archivePath);
+    assert(archive.extractAllTo(output));
+    assert(readText(buildPath(output, "first.txt")) == "first");
+    assert(readText(buildPath(output, "second.txt")) == "second");
 }

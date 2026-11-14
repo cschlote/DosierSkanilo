@@ -10,7 +10,7 @@ import std.algorithm : any, filter;
 import std.array : array;
 import std.conv : to;
 import std.file : exists, getcwd, remove;
-import std.path : absolutePath, buildPath;
+import std.path : absolutePath, buildPath, dirSeparator;
 import std.process : Config, execute, executeShell;
 import std.string : empty, format, indexOf, replace, split, splitLines,
     startsWith, strip;
@@ -198,6 +198,29 @@ class FileArchiveRar : FileArchive
         return true;
     }
 
+    /** Extract the complete archive into one staging directory with `unrar`.
+     *
+     * Params:
+     *     destDir = directory that receives the complete archive tree
+     *     password = archive password; empty disables password prompting
+     * Returns: `true` on success.
+     * Throws: `ArchivePasswordRequiredException` when a password is missing or
+     *     rejected, `ArchiveToolException` for any other tool failure.
+     */
+    override bool extractAllTo(string destDir, string password = "")
+    {
+        auto archivePath = buildPath(getcwd(), this.fileName);
+        auto passwordOption = password.length > 0 ? "-p" ~ password : "-p-";
+        auto rc = execute(["unrar", "x", "-o+", passwordOption, archivePath,
+            "--", ".", destDir ~ dirSeparator], null,
+            Config.stderrPassThrough);
+        if (rc.status != 0 && isArchivePasswordFailure(rc.output))
+            throw new ArchivePasswordRequiredException(rc.output);
+        if (rc.status != 0)
+            throw new ArchiveToolException(rc.output);
+        return true;
+    }
+
     version (unittest)
     {
         /** Test archive file name produced by the unittest fixture. */
@@ -246,7 +269,7 @@ unittest
 unittest
 {
     import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
-    import std.path : absolutePath, buildPath;
+    import std.path : absolutePath, buildPath, dirSeparator;
     import std.process : Config, execute, executeShell;
     import std.uuid : randomUUID;
 
@@ -275,7 +298,7 @@ unittest
 unittest
 {
     import std.file : exists, mkdirRecurse, remove, rmdirRecurse, tempDir;
-    import std.path : absolutePath, buildPath;
+    import std.path : absolutePath, buildPath, dirSeparator;
     import std.process : Config, execute, executeShell;
     import std.uuid : randomUUID;
 
@@ -302,4 +325,37 @@ unittest
             foundDirectory = true;
         }
     assert(foundDirectory);
+}
+
+@("rar bulk extraction writes all members")
+unittest
+{
+    import std.file : exists, mkdirRecurse, readText, rmdirRecurse, tempDir,
+        write;
+    import std.path : buildPath;
+    import std.process : Config, execute, executeShell;
+    import std.uuid : randomUUID;
+
+    if (executeShell("command -v rar").status != 0
+        || executeShell("command -v unrar").status != 0)
+        return;
+    const root = buildPath(tempDir(), "rar-bulk-extract-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    write(buildPath(root, "first.txt"), "first");
+    write(buildPath(root, "second.txt"), "second");
+    const archivePath = buildPath(root, "bulk.rar");
+    auto created = execute(["rar", "a", "-idq", "-ep1", archivePath,
+        "first.txt", "second.txt"], null, Config.none, size_t.max, root);
+    assert(created.status == 0, created.output);
+
+    const output = buildPath(root, "output");
+    mkdirRecurse(output);
+    auto archive = new FileArchiveRar(archivePath);
+    assert(archive.extractAllTo(output));
+    assert(readText(buildPath(output, "first.txt")) == "first");
+    assert(readText(buildPath(output, "second.txt")) == "second");
 }

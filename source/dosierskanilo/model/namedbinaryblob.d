@@ -25,6 +25,9 @@ import dosierarkivo.archive : appendArchiveVirtualPath,
     archivePathOccurrenceMarker, archivePathSeparator,
     escapeArchiveVirtualPath, nativePathToStoragePath,
     normalizeArchiveEntryPath, parseArchiveVirtualPath;
+import dosierskanilo.archivebulk : ArchiveBulkMode, ArchiveBulkReservation,
+    bulkExtractedMemberPath, planArchiveBulkExtraction,
+    sharedArchiveBulkStaging;
 import dosierskanilo.catalogbackend : ArchiveEntryId, ContentId,
     ContentLocator, ReferenceId;
 import dosierskanilo.logging;
@@ -100,7 +103,7 @@ mixin template payloadHelpers()
 	Task!(updateMediaInfo, NamedBinaryBlob, bool)* task_mediasig; ///< Pointer to mediasig job
 	Task!(updateArchives, NamedBinaryBlob, bool, bool, shared(bool)*, ProgressCallBack*,
 		ArchivePasswordCallback, size_t, size_t, string, MemberContentCache, bool,
-		bool)* task_archiveScan; ///< Pointer to archive scan job
+		bool, ArchiveBulkMode)* task_archiveScan; ///< Pointer to archive scan job
 	Task!(updateTorrentInfo, NamedBinaryBlob)* task_torrentscan; ///< Pointer to torrent scan job
 }
 
@@ -2222,6 +2225,7 @@ private string archiveCacheIdentity(NamedBinaryBlob blob,
  *   memberCache = shared member-content cache; a process default is used when null.
  *   inspectMemberFileType = run file-type detection on extracted members.
  *   inspectMemberMediaInfo = extract MediaInfo signatures for members.
+ *   archiveBulkMode = bulk-extraction policy for deep scans.
  * Throws:
  *   `ArchivePasswordRequiredException`/`ArchivePasswordCancelledException` when
  *   a password is needed and cannot be supplied, or extraction errors that are
@@ -2238,7 +2242,8 @@ void updateArchives(NamedBinaryBlob obj,
 	string displayArchivePath = "",
 	MemberContentCache memberCache = null,
 	bool inspectMemberFileType = false,
-	bool inspectMemberMediaInfo = false)
+	bool inspectMemberMediaInfo = false,
+	ArchiveBulkMode archiveBulkMode = ArchiveBulkMode.automatic)
 {
 	import std.conv : to;
 	import core.atomic : atomicLoad;
@@ -2317,6 +2322,73 @@ void updateArchives(NamedBinaryBlob obj,
                     if (passwordPrompted)
                         obj.archivePassword = password;
                     logFLineVerbose("  with %d entries", archiveEntries.length);
+
+                    ArchiveBulkReservation bulkReservation;
+                    bool bulkExtracted;
+                    scope (exit)
+                        if (bulkReservation !is null)
+                            bulkReservation.release();
+                    if (deep)
+                    {
+                        const auto bulkPlan = planArchiveBulkExtraction(
+                            archiveEntries, archiveBulkMode, archiveObj.fileType);
+                        if (bulkPlan.useBulk)
+                        {
+                            string bulkFailure;
+                            try
+                            {
+                                bulkReservation = sharedArchiveBulkStaging()
+                                    .reserve(bulkPlan.requiredBytes);
+                                if (bulkReservation is null)
+                                    bulkFailure =
+                                        "staging budget or free space unavailable";
+                                else
+                                {
+                                    if (gotCtrlC !is null && atomicLoad(*gotCtrlC))
+                                        throw new Exception(
+                                            "Archive scan was cancelled.");
+                                    if (!archiveObj.extractAllTo(
+                                            bulkReservation.path, password))
+                                        bulkFailure =
+                                            "archive adapter does not support bulk extraction";
+                                    else
+                                    {
+                                        bulkExtracted = true;
+                                        logFLineVerbose(
+                                            "  bulk extracted %d entries into '%s'",
+                                            archiveEntries.length,
+                                            bulkReservation.path);
+                                    }
+                                }
+                            }
+                            catch (ArchivePasswordRequiredException ex)
+                            {
+                                bulkFailure = oneLineFailure(ex.msg);
+                            }
+                            catch (Exception ex)
+                            {
+                                if (gotCtrlC !is null && atomicLoad(*gotCtrlC))
+                                    throw new Exception(
+                                        "Archive scan was cancelled.");
+                                bulkFailure = oneLineFailure(ex.msg);
+                            }
+                            if (bulkFailure.length > 0)
+                            {
+                                if (bulkReservation !is null)
+                                {
+                                    bulkReservation.release();
+                                    bulkReservation = null;
+                                }
+                                logFLineVerbose(
+                                    "  bulk extraction skipped: %s; using per-member extraction.",
+                                    bulkFailure);
+                            }
+                        }
+                        else
+                            logFLineVerbose("  bulk extraction not selected: %s",
+                                bulkPlan.reason);
+                    }
+
                     ArchiveSpec[] scannedSpecs;
                     size_t membersWithoutFingerprint;
                     if (progressCallBack !is null)
@@ -2374,101 +2446,108 @@ void updateArchives(NamedBinaryBlob obj,
 
                         if (deep)
                         {
-                            bool exOk;
-                            bool extractionPasswordPrompted;
-                            string extractionFailure;
-                            size_t extractionPasswordAttempts;
-                            while (true)
+                            if (bulkExtracted)
+                                extractedPath = bulkExtractedMemberPath(
+                                    bulkReservation.path, descriptor);
+                            if (extractedPath.length == 0)
                             {
-                                try
+                                bool exOk;
+                                bool extractionPasswordPrompted;
+                                string extractionFailure;
+                                size_t extractionPasswordAttempts;
+                                while (true)
                                 {
-                                    const auto occurrence = descriptor.occurrence
-                                        .to!string;
-                                    const auto fallbackIdentity = containerCacheKey
-                                        ~ archivePathSeparator() ~ descriptor.relativePath
-                                        ~ archivePathOccurrenceMarker() ~ occurrence;
-                                    const auto cacheContainer = ReferenceId(
-                                        "scanner-container:" ~ containerCacheKey);
-                                    const auto cacheEntry = ArchiveEntryId(
-                                        "scanner-entry:" ~ descriptor.relativePath
-                                        ~ ":" ~ occurrence);
-                                    const auto locator = ContentLocator.entry(
-                                        cacheContainer, cacheEntry);
-                                    extractionLease = memberCache.acquire(locator,
-                                        ContentId.init, fallbackIdentity,
-                                        descriptor.relativePath,
-                                        descriptor.hasSize ? descriptor.size : 0,
-                                        (string destinationDirectory) {
-                                            if (gotCtrlC !is null
-                                                && atomicLoad(*gotCtrlC))
-                                                return false;
-                                            return archiveObj.extractEntry(descriptor,
-                                                destinationDirectory, password);
-                                        }, gotCtrlC);
-                                    exOk = extractionLease !is null;
-                                    extractedPath = extractionLease.path;
-                                    break;
+                                    try
+                                    {
+                                        const auto occurrence = descriptor.occurrence
+                                            .to!string;
+                                        const auto fallbackIdentity = containerCacheKey
+                                            ~ archivePathSeparator() ~ descriptor.relativePath
+                                            ~ archivePathOccurrenceMarker() ~ occurrence;
+                                        const auto cacheContainer = ReferenceId(
+                                            "scanner-container:" ~ containerCacheKey);
+                                        const auto cacheEntry = ArchiveEntryId(
+                                            "scanner-entry:" ~ descriptor.relativePath
+                                            ~ ":" ~ occurrence);
+                                        const auto locator = ContentLocator.entry(
+                                            cacheContainer, cacheEntry);
+                                        extractionLease = memberCache.acquire(locator,
+                                            ContentId.init, fallbackIdentity,
+                                            descriptor.relativePath,
+                                            descriptor.hasSize ? descriptor.size : 0,
+                                            (string destinationDirectory) {
+                                                if (gotCtrlC !is null
+                                                    && atomicLoad(*gotCtrlC))
+                                                    return false;
+                                                return archiveObj.extractEntry(descriptor,
+                                                    destinationDirectory, password);
+                                            }, gotCtrlC);
+                                        exOk = extractionLease !is null;
+                                        extractedPath = extractionLease.path;
+                                        break;
+                                    }
+                                    catch (ArchivePasswordRequiredException ex)
+                                    {
+                                        if (++extractionPasswordAttempts >= 3)
+                                            throw new ArchivePasswordRequiredException(
+                                                "Archive password rejected repeatedly for '"
+                                                ~ archiveDisplayPath ~ "'.");
+                                        requestPassword(ex.msg, archiveDisplayPath,
+                                            passwordCallback, password);
+                                        extractionPasswordPrompted = true;
+                                    }
+                                    catch (MemberContentCancelledException failure)
+                                    {
+                                        throw failure;
+                                    }
+                                    catch (MemberContentCacheClosedException failure)
+                                    {
+                                        throw failure;
+                                    }
+                                    catch (MemberContentCacheException failure)
+                                    {
+                                        if (gotCtrlC !is null && atomicLoad(*gotCtrlC))
+                                            throw new Exception("Archive scan was cancelled.");
+                                        extractionFailure = oneLineFailure(failure.msg);
+                                        break;
+                                    }
+                                    catch (Exception failure)
+                                    {
+                                        /* A damaged or unsupported member must not
+                                         * discard the complete archive index. Keep
+                                         * the entry metadata and let preview fail
+                                         * for that member only. */
+                                        if (gotCtrlC !is null && atomicLoad(*gotCtrlC))
+                                            throw new Exception("Archive scan was cancelled.");
+                                        extractionFailure = oneLineFailure(failure.msg);
+                                        break;
+                                    }
                                 }
-                                catch (ArchivePasswordRequiredException ex)
+                                if (extractionPasswordPrompted)
+                                    obj.archivePassword = password;
+                                if (extractionFailure.length == 0 && !exOk)
+                                    extractionFailure = "Archive adapter produced no file.";
+                                if (extractionFailure.length > 0)
                                 {
-                                    if (++extractionPasswordAttempts >= 3)
-                                        throw new ArchivePasswordRequiredException(
-                                            "Archive password rejected repeatedly for '"
-                                            ~ archiveDisplayPath ~ "'.");
-                                    requestPassword(ex.msg, archiveDisplayPath,
-                                        passwordCallback, password);
-                                    extractionPasswordPrompted = true;
+                                    ++membersWithoutFingerprint;
+                                    logFLineVerbose("Could not extract archive member '%s' from '%s': %s; storing index metadata only.",
+                                        arcfile, archiveDisplayPath, extractionFailure);
+                                    auto unscannedEntry = new ArchiveSpec(arcfile,
+                                        descriptor.hasSize
+                                            ? descriptor.size : arcFileSize,
+                                        descriptor.hasModifiedAt
+                                            ? descriptor.modifiedAt : arcModTimeStr,
+                                        sums);
+                                    unscannedEntry.entryIndex = idx;
+                                    unscannedEntry.occurrence = descriptor.occurrence;
+                                    unscannedEntry.hasIndexIdentity = true;
+                                    scannedSpecs ~= unscannedEntry;
+                                    if (progressCallBack !is null)
+                                        progressCallBack.report(idx + 1,
+                                            archiveEntries.length);
+                                    continue;
                                 }
-                                catch (MemberContentCancelledException failure)
-                                {
-                                    throw failure;
-                                }
-                                catch (MemberContentCacheClosedException failure)
-                                {
-                                    throw failure;
-                                }
-                                catch (MemberContentCacheException failure)
-                                {
-                                    if (gotCtrlC !is null && atomicLoad(*gotCtrlC))
-                                        throw new Exception("Archive scan was cancelled.");
-                                    extractionFailure = oneLineFailure(failure.msg);
-                                    break;
-                                }
-                                catch (Exception failure)
-                                {
-                                    /* A damaged or unsupported member must not
-                                     * discard the complete archive index. Keep
-                                     * the entry metadata and let preview fail
-                                     * for that member only. */
-                                    if (gotCtrlC !is null && atomicLoad(*gotCtrlC))
-                                        throw new Exception("Archive scan was cancelled.");
-                                    extractionFailure = oneLineFailure(failure.msg);
-                                    break;
-                                }
-                            }
-                            if (extractionPasswordPrompted)
-                                obj.archivePassword = password;
-                            if (extractionFailure.length == 0 && !exOk)
-                                extractionFailure = "Archive adapter produced no file.";
-                            if (extractionFailure.length > 0)
-                            {
-                                ++membersWithoutFingerprint;
-                                logFLineVerbose("Could not extract archive member '%s' from '%s': %s; storing index metadata only.",
-                                    arcfile, archiveDisplayPath, extractionFailure);
-                                auto unscannedEntry = new ArchiveSpec(arcfile,
-                                    descriptor.hasSize
-                                        ? descriptor.size : arcFileSize,
-                                    descriptor.hasModifiedAt
-                                        ? descriptor.modifiedAt : arcModTimeStr,
-                                    sums);
-                                unscannedEntry.entryIndex = idx;
-                                unscannedEntry.occurrence = descriptor.occurrence;
-                                unscannedEntry.hasIndexIdentity = true;
-                                scannedSpecs ~= unscannedEntry;
-                                if (progressCallBack !is null)
-                                    progressCallBack.report(idx + 1,
-                                        archiveEntries.length);
-                                continue;
+
                             }
 
                             import dosierskanilo.metadata.digests;
@@ -2529,7 +2608,8 @@ void updateArchives(NamedBinaryBlob obj,
                                 updateArchives(nestedBlob, true, deep, gotCtrlC,
                                     progressCallBack, passwordCallback, depth + 1,
                                     maxDepth, nestedDisplayPath, memberCache,
-                                    inspectMemberFileType, inspectMemberMediaInfo);
+                                    inspectMemberFileType, inspectMemberMediaInfo,
+                                    archiveBulkMode);
                                 nestedEntries = nestedBlob.archiveSpecs;
                                 nestedPassword = nestedBlob.archivePassword;
                             }
@@ -2967,6 +3047,68 @@ unittest
         blob.archiveSpecs[0].timeLastModified);
     assert(!blob.archiveSpecs[0].checkSums.hasDigests,
         "a shallow scan must not fabricate checksums");
+}
+
+@("deep archive scan can use bulk extraction instead of the member cache")
+unittest
+{
+    import std.file : DirEntry, SpanMode, dirEntries, exists, getSize,
+        isFile, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.process : execute, executeShell;
+    import std.uuid : randomUUID;
+    import dosierskanilo.archivebulk : ArchiveBulkMode;
+
+    if (executeShell("command -v zip").status != 0)
+        return;
+    const root = buildPath(tempDir(), "archive-bulk-scan-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    write(buildPath(root, "first.txt"), "first payload");
+    write(buildPath(root, "second.txt"), "second payload");
+    const archivePath = buildPath(root, "bulk.zip");
+    auto created = execute(["zip", "-q", "-j", archivePath,
+        buildPath(root, "first.txt"), buildPath(root, "second.txt")]);
+    assert(created.status == 0, created.output);
+
+    auto blob = new NamedBinaryBlob(archivePath,
+        cast(size_t) getSize(archivePath), SysTime(1_234_567));
+    auto cache = new MemberContentCache(buildPath(root, "cache"));
+    scope (exit)
+        cache.close();
+    updateArchives(blob, true, true, null, null, null, 0, 8, "", cache,
+        false, false, ArchiveBulkMode.always);
+    assert(blob.archiveSpecs.length == 2);
+    foreach (entry; blob.archiveSpecs)
+        assert(entry.checkSums.hasDigests,
+            "bulk-extracted members must receive checksums");
+
+    size_t cachedFiles;
+    if (exists(cache.rootPath))
+        foreach (DirEntry entry; dirEntries(cache.rootPath, SpanMode.depth))
+            if (isFile(entry.name))
+                ++cachedFiles;
+    assert(cachedFiles == 0,
+        "bulk extraction must not populate the per-member cache");
+
+    auto perMemberBlob = new NamedBinaryBlob(archivePath,
+        cast(size_t) getSize(archivePath), SysTime(1_234_567));
+    updateArchives(perMemberBlob, true, true, null, null, null, 0, 8, "",
+        cache, false, false, ArchiveBulkMode.never);
+    assert(perMemberBlob.archiveSpecs.length == 2);
+    foreach (entry; perMemberBlob.archiveSpecs)
+        assert(entry.checkSums.hasDigests,
+            "the per-member fallback must still calculate checksums");
+    size_t fallbackFiles;
+    if (exists(cache.rootPath))
+        foreach (DirEntry entry; dirEntries(cache.rootPath, SpanMode.depth))
+            if (isFile(entry.name))
+                ++fallbackFiles;
+    assert(fallbackFiles == 2,
+        "the never policy must use the per-member cache");
 }
 
 @("archive progress reports entry counts, not member byte counts")

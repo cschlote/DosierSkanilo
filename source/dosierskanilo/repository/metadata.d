@@ -239,7 +239,8 @@ private void runMetadataWork(MetadataWorkItem item)
                 item.options.deepArchiveScan, null,
                 item.control is null ? null : &archiveProgress,
                 item.options.archivePasswordCallback, 0, 8, "", null,
-                item.options.detectFileTypes, item.options.extractMediaInfo);
+                item.options.detectFileTypes, item.options.extractMediaInfo,
+                item.options.archiveBulkMode);
         });
         item.archivesDone = true;
     }
@@ -525,7 +526,8 @@ MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
             {
                 updateArchives(blob, options.rescan, options.deepArchiveScan,
                     null, null, options.archivePasswordCallback, 0, 8, "", null,
-                    options.detectFileTypes, options.extractMediaInfo);
+                    options.detectFileTypes, options.extractMediaInfo,
+                    options.archiveBulkMode);
                 commitMetadataWork(db, {
                     persistArchives(db, blobId, blob.archiveSpecs,
                         options.deepArchiveScan, summary);

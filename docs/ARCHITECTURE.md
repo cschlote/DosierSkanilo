@@ -155,10 +155,12 @@ content identity when known and otherwise the structured container/entry chain.
 `dosierarkivo.FileArchive` returns typed entry descriptors and extracts entries
 to a destination path. ZIP and TAR can select exact duplicate occurrences when
 their runtime tools support it; RAR and 7z cannot, so those occurrences remain
-without deep fingerprints. Scraping, MediaInfo, and preview consume the same
-shared bounded session cache; cache paths are never persisted as source
-references. Listing remains lazy and selected-entry extraction remains on
-demand.
+without deep fingerprints. Deep scans bulk-extract one archive through
+`extractAllTo()` into a bounded staging session and hash members directly from
+that tree; the shared bounded member cache remains the per-member fallback and
+the only path used by scraping, MediaInfo, and preview. Cache and staging paths
+are never persisted as source references. Listing remains lazy and
+selected-entry extraction remains on demand.
 
 ## Layer Order for API Refinement
 
@@ -349,12 +351,16 @@ The implementation sequence is tracked in
 - `getEntries()` for names and `getEntryDescriptors()` for normalized
   descriptors with shallow size/timestamp metadata
 - `extractEntry()` for on-demand member extraction
+- `extractAllTo()` for one-shot bulk extraction in deep scans
 
 Shallow descriptors use the archive tool's names-only listing plus a verbose
 listing for size and timestamp columns. ZIP and TAR fall back to names-only
 descriptors when the two listings cannot be paired. RAR and 7z expose duplicate
 names but cannot select a specific duplicate occurrence for deep extraction.
-See [`ARCHIVE-SUPPORT.md`](ARCHIVE-SUPPORT.md) for the format and tool matrix.
+Deep scans use the shared, budgeted staging session in
+`dosierskanilo/archivebulk.d`; duplicate, symlink, and missing members fall back
+to the per-member cache. See [`ARCHIVE-SUPPORT.md`](ARCHIVE-SUPPORT.md) for the
+format and tool matrix.
 
 `FileArchive` returns typed entry descriptors and can extract members to a
 destination directory. Deep `updateArchives()` recursively indexes nested

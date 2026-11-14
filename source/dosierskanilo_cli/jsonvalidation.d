@@ -11,6 +11,7 @@ import std.path : buildPath;
 import std.string : empty, endsWith;
 
 import dosierskanilo;
+import dosierskanilo.archivebulk : ArchiveBulkMode, parseArchiveBulkMode;
 import dosierskanilo_cli.logging : errorFLine, errorLine;
 
 /** Validate a JSON-target scan, analysis, status, list, or duplicate command.
@@ -46,6 +47,21 @@ bool validateJsonOptions(string command, ref ArgsArray options)
         && (!options.argArchiveCacheDir.empty || options.argArchiveCacheMiB != 0))
     {
         errorLine("--archive-cache options are available only for JSON scan.");
+        return false;
+    }
+    ArchiveBulkMode bulkMode;
+    if (!parseArchiveBulkMode(options.argArchiveBulk, bulkMode))
+    {
+        errorLine("--archive-bulk must be 'auto', 'always', or 'never'.");
+        return false;
+    }
+    if (command != "scan"
+        && (bulkMode != ArchiveBulkMode.automatic
+            || !options.argArchiveStagingDir.empty
+            || options.argArchiveStagingMiB != 0))
+    {
+        errorLine("--archive-bulk and --archive-staging options are available "
+            ~ "only for JSON scan.");
         return false;
     }
 

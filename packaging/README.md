@@ -62,6 +62,12 @@ Without these commands the corresponding metadata or archive feature is
 unavailable or degrades gracefully; they are not required to start the scanner
 or work with files and SQLite repositories.
 
+Deep archive scans bulk-extract one archive into a temporary staging tree by
+default. The limit is half of the available space, capped at 16 GiB, so the
+scanner needs temporary disk space roughly equal to the largest uncompressed
+archive it processes. `--archive-staging-dir` and `--archive-staging-size`
+control this separately from the member cache.
+
 ### Package mapping
 
 - **Debian/Ubuntu:** `Depends: libmediainfo0v5`; `${shlibs:Depends}` adds
