@@ -786,10 +786,13 @@ abstract class FileArchive
      *   filename = name of entry in archive
      *   destDir = directory to extract to
      *   password = optional archive password
+     *   cancellation = optional cooperative cancellation flag; adapters stop
+     *       the external tool when it becomes set
      * Returns:
      *   true on success, false on failure
      */
-    bool extractEntry(string filename, string destDir, string password = "")
+    bool extractEntry(string filename, string destDir, string password = "",
+        shared(bool)* cancellation = null)
     {
         return false;
     }
@@ -800,15 +803,16 @@ abstract class FileArchive
      *     descriptor = Entry identity from `getEntryDescriptors`.
      *     destDir = Directory that receives the extracted member.
      *     password = Optional archive password.
+     *     cancellation = Optional cooperative cancellation flag.
      * Returns: `true` on success; `false` when the entry has a duplicate name
      *     or the underlying extraction fails.
      */
     bool extractEntry(ArchiveEntryDescriptor descriptor, string destDir,
-        string password = "")
+        string password = "", shared(bool)* cancellation = null)
     {
         if (descriptor.hasDuplicateName)
             return false;
-        return extractEntry(descriptor.name, destDir, password);
+        return extractEntry(descriptor.name, destDir, password, cancellation);
     }
 
     /** Extract every member of the archive into one destination directory.

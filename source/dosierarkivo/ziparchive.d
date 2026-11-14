@@ -246,11 +246,13 @@ class FileArchiveZip : FileArchive
      *     filename = Member name exactly as reported by the archive listing.
      *     destDir = Directory that receives the extracted file.
      *     password = Archive password; empty selects the tool's default.
+     *     cancellation = Optional cooperative cancellation flag.
      * Returns: `true` on success.
      * Throws: `ArchivePasswordRequiredException` when a password is missing or
      *     rejected, `ArchiveToolException` for any other tool failure.
      */
-    override bool extractEntry(string filename, string destDir, string password = "")
+    override bool extractEntry(string filename, string destDir, string password = "",
+        shared(bool)* cancellation = null)
     {
         /* Info-ZIP expands filename operands as glob patterns. The descriptor
          * overload uses index-based extraction; reject ambiguous names here. */
@@ -260,11 +262,12 @@ class FileArchiveZip : FileArchive
                 "ZIP member names with glob metacharacters require index-based "
                 ~ "extraction: " ~ filename);
         auto zipPath = buildPath(getcwd(), this.fileName);
-        auto rc = execute(["unzip", "-P", password, "-d", destDir, "--", zipPath, filename]);
-        if (rc.status != 0 && isArchivePasswordFailure(rc.output))
-            throw new ArchivePasswordRequiredException(rc.output);
-        if (rc.status != 0)
-            throw new ArchiveToolException(rc.output);
+        auto result = runArchiveTool(["unzip", "-P", password, "-d", destDir,
+            "--", zipPath, filename], cancellation);
+        if (result.status != 0 && isArchivePasswordFailure(result.output))
+            throw new ArchivePasswordRequiredException(result.output);
+        if (result.status != 0)
+            throw new ArchiveToolException(result.output);
         return true;
     }
 
@@ -290,13 +293,14 @@ class FileArchiveZip : FileArchive
      *     descriptor = Entry identity returned by `getEntryDescriptors`.
      *     destDir = Directory that receives the extracted member.
      *     password = Archive password; empty means no password.
+     *     cancellation = Optional cooperative cancellation flag.
      * Returns: `true` on success, `false` when duplicate selection is needed
      *     but `python3` is unavailable or the extraction script fails.
      * Throws: `ArchivePasswordRequiredException` when a password is missing or
      *     rejected.
      */
     override bool extractEntry(ArchiveEntryDescriptor descriptor, string destDir,
-        string password = "")
+        string password = "", shared(bool)* cancellation = null)
     {
         if (!descriptor.hasSafePath)
             return false;
@@ -304,7 +308,8 @@ class FileArchiveZip : FileArchive
             || descriptor.name.canFind("*") || descriptor.name.canFind("?")
             || descriptor.name.canFind("[");
         if (!needsIndexSelection)
-            return extractEntry(descriptor.name, destDir, password);
+            return extractEntry(descriptor.name, destDir, password,
+                cancellation);
         if (!supportsEntryOccurrence)
             return false;
 
@@ -320,12 +325,12 @@ class FileArchiveZip : FileArchive
             ~ "            shutil.copyfileobj(src, out)\n";
         auto zipPath = isAbsolute(this.fileName) ? this.fileName
             : buildPath(getcwd(), this.fileName);
-        auto rc = execute(["python3", "-c", extractionScript, zipPath,
+        auto result = runArchiveTool(["python3", "-c", extractionScript, zipPath,
             descriptor.index.to!string, destDir, descriptor.relativePath,
-            descriptor.name, password]);
-        if (rc.status != 0 && isArchivePasswordFailure(rc.output))
-            throw new ArchivePasswordRequiredException(rc.output);
-        return rc.status == 0;
+            descriptor.name, password], cancellation);
+        if (result.status != 0 && isArchivePasswordFailure(result.output))
+            throw new ArchivePasswordRequiredException(result.output);
+        return result.status == 0;
     }
 
     /** Extract the complete archive into one staging directory with `unzip`.

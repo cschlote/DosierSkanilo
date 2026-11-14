@@ -161,15 +161,18 @@ class FileArchiveTar : FileArchive
      *     destDir = Directory that receives the extracted member.
      *     password = Accepted for interface compatibility; TAR extraction does
      *         not use it.
+     *     cancellation = Optional cooperative cancellation flag.
      * Returns: `true` on success.
      * Throws: `ArchiveToolException` when `tar` exits unsuccessfully.
      */
-    override bool extractEntry(string filename, string destDir, string password = "")
+    override bool extractEntry(string filename, string destDir, string password = "",
+        shared(bool)* cancellation = null)
     {
         auto tarPath = buildPath(getcwd(), this.fileName);
-        auto rc = execute(["tar", "-xf", tarPath, "-C", destDir, "--", filename]);
-        if (rc.status != 0)
-            throw new ArchiveToolException(rc.output);
+        auto result = runArchiveTool(["tar", "-xf", tarPath, "-C", destDir,
+            "--", filename], cancellation);
+        if (result.status != 0)
+            throw new ArchiveToolException(result.output);
         return true;
     }
 
@@ -212,22 +215,25 @@ class FileArchiveTar : FileArchive
      *     destDir = Directory that receives the extracted member.
      *     password = Accepted for interface compatibility; TAR extraction does
      *         not use it.
+     *     cancellation = Optional cooperative cancellation flag.
      * Returns: `true` on success, `false` when duplicate selection is needed
      *     but the local `tar` lacks `--occurrence`.
      */
     override bool extractEntry(ArchiveEntryDescriptor descriptor, string destDir,
-        string password = "")
+        string password = "", shared(bool)* cancellation = null)
     {
         if (!descriptor.hasDuplicateName)
-            return extractEntry(descriptor.name, destDir, password);
+            return extractEntry(descriptor.name, destDir, password,
+                cancellation);
         if (!supportsEntryOccurrence)
             return false;
         const auto tarPath = buildPath(getcwd(), this.fileName);
         const auto occurrenceOption = "--occurrence="
             ~ (descriptor.occurrence + 1).to!string;
-        const auto rc = execute(["tar", "--extract", "--file=" ~ tarPath,
-            "--directory=" ~ destDir, occurrenceOption, "--", descriptor.name]);
-        return rc.status == 0;
+        const auto result = runArchiveTool(["tar", "--extract",
+            "--file=" ~ tarPath, "--directory=" ~ destDir, occurrenceOption,
+            "--", descriptor.name], cancellation);
+        return result.status == 0;
     }
 
     version (unittest)

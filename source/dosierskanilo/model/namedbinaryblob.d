@@ -2483,7 +2483,8 @@ void updateArchives(NamedBinaryBlob obj,
                                                     && atomicLoad(*gotCtrlC))
                                                     return false;
                                                 return archiveObj.extractEntry(descriptor,
-                                                    destinationDirectory, password);
+                                                    destinationDirectory, password,
+                                                    gotCtrlC);
                                             }, gotCtrlC);
                                         exOk = extractionLease !is null;
                                         extractedPath = extractionLease.path;
