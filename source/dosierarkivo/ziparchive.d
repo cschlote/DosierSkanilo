@@ -75,6 +75,114 @@ class FileArchiveZip : FileArchive
         return entries;
     }
 
+    /** Metadata parsed from one `unzip -l` row. */
+    private struct ZipMetadata
+    {
+        ulong size; /// Uncompressed member size.
+        string modifiedAt; /// ISO-like timestamp when the listing supplied one.
+        bool hasSize; /// Whether `size` is meaningful.
+        bool hasModifiedAt; /// Whether `modifiedAt` is meaningful.
+    }
+
+    /** Parse size and timestamp columns from `unzip -l` output.
+     *
+     * Names are deliberately ignored; callers pair these rows with the exact
+     * names returned by `getEntries()` so spaces and duplicate names cannot
+     * shift the descriptor identity.
+     *
+     * Params:
+     *     output = Complete standard output of `unzip -l`.
+     * Returns: Metadata rows in listing order.
+     */
+    private ZipMetadata[] parseUnzipLongListMetadata(string output) const
+    {
+        ZipMetadata[] entries;
+        bool inEntrySection;
+        foreach (line; output.splitLines)
+        {
+            const trimmed = line.strip;
+            if (trimmed.empty)
+                continue;
+            if (!inEntrySection)
+            {
+                if (trimmed.startsWith("---------"))
+                    inEntrySection = true;
+                continue;
+            }
+            if (trimmed.startsWith("---------"))
+                break;
+            auto match = matchFirst(line,
+                `^\s*(\d+)\s+(\S+)\s+(\S+)\s{2,}`);
+            if (match.empty)
+                continue;
+            ZipMetadata metadata;
+            try
+                metadata.size = match.captures[1].to!ulong;
+            catch (Exception)
+                continue;
+            metadata.hasSize = true;
+            const date = match.captures[2];
+            const time = match.captures[3];
+            if (date.length == 10 && date[4] == '-' && date[7] == '-')
+            {
+                metadata.modifiedAt = date ~ "T" ~ time;
+                if (metadata.modifiedAt.length == 16)
+                    metadata.modifiedAt ~= ":00";
+                metadata.hasModifiedAt = true;
+            }
+            entries ~= metadata;
+        }
+        return entries;
+    }
+
+    /** Return descriptors enriched with shallow size/timestamp metadata.
+     *
+     * Names come from `getEntries()` so whitespace and duplicate names retain
+     * their exact spelling. If the long listing cannot be parsed or has a
+     * different row count, the adapter falls back to names-only descriptors.
+     *
+     * Params:
+     *     password = Accepted for interface compatibility.
+     * Returns: Descriptors in listing order, or `null` when the base listing
+     *     returns `null`.
+     */
+    override ArchiveEntryDescriptor[] getEntryDescriptors(string password = "")
+    {
+        auto names = getEntries(password);
+        if (names is null)
+            return null;
+        string[string] environment;
+        environment["LC_ALL"] = "C";
+        auto listing = execute(["unzip", "-l", absolutePath(this.fileName)],
+            environment);
+        if (listing.status == 0)
+        {
+            auto metadata = parseUnzipLongListMetadata(listing.output);
+            if (metadata.length == names.length)
+            {
+                ArchiveEntryDescriptor[] result;
+                foreach (index, name; names)
+                {
+                    ArchiveEntryDescriptor descriptor;
+                    descriptor.name = name;
+                    if (metadata[index].hasSize)
+                    {
+                        descriptor.size = metadata[index].size;
+                        descriptor.hasSize = true;
+                    }
+                    if (metadata[index].hasModifiedAt)
+                    {
+                        descriptor.modifiedAt = metadata[index].modifiedAt;
+                        descriptor.hasModifiedAt = true;
+                    }
+                    result ~= descriptor;
+                }
+                return finalizeDescriptors(result);
+            }
+        }
+        return super.getEntryDescriptors(password);
+    }
+
     /** Create a wrapper for one ZIP file.
      *
      * Params:
@@ -412,4 +520,39 @@ unittest
     assert(exists(buildPath(output, "foo*")));
     assert(!exists(buildPath(output, "foo1")),
         "wildcard members must not extract sibling names");
+}
+
+@("zip descriptors expose shallow member metadata")
+unittest
+{
+    import std.file : exists, getSize, mkdirRecurse, rmdirRecurse, tempDir,
+        write;
+    import std.path : buildPath;
+    import std.process : execute, executeShell;
+    import std.uuid : randomUUID;
+
+    if (executeShell("command -v zip").status != 0)
+        return;
+    const root = buildPath(tempDir(), "zip-shallow-metadata-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    const payload = buildPath(root, "member with space.txt");
+    write(payload, "payload-content");
+    const archivePath = buildPath(root, "sample.zip");
+    auto created = execute(["zip", "-q", "-j", archivePath, payload]);
+    assert(created.status == 0, created.output);
+
+    auto archive = new FileArchiveZip(archivePath);
+    auto descriptors = archive.getEntryDescriptors();
+    assert(descriptors.length == 1);
+    assert(descriptors[0].name == "member with space.txt",
+        descriptors[0].name);
+    assert(descriptors[0].hasSize);
+    assert(descriptors[0].size == getSize(payload));
+    assert(descriptors[0].hasModifiedAt);
+    assert(descriptors[0].modifiedAt.length >= 16,
+        descriptors[0].modifiedAt);
 }

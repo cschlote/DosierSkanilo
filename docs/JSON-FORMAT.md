@@ -146,13 +146,16 @@ and uses a session-scoped extraction cache for deep scraping. The GTK archive
 tree expands those references lazily, and the previewer extracts selected
 members through the same leased cache service.
 
-A shallow archive scan records entry names for ZIP, TAR and 7z; RAR also records
-member size and timestamp. Checksums are populated only by deep scanning, which
-extracts entries to temporary files. An `ArchiveSpec` with zero/empty values can
-therefore mean “listed but not deeply inspected,” not necessarily an empty
-member. Typed archive descriptors report safe normalized paths and duplicate
-occurrence. V5 stores the empty-index state and shallow/deep completion
-explicitly; current SQLite schema v6 stores that state in `metadata_status`.
+A shallow archive scan records entry names and, when the format listing supplies
+them, uncompressed sizes and timestamps for ZIP, TAR, RAR and 7z. Checksums are
+populated only by deep scanning, which extracts entries to temporary files.
+Timestamps are normalized to `YYYY-MM-DDTHH:MM:SS`; listings without seconds use
+`:00`. An `ArchiveSpec` with zero/empty values can therefore mean “listed but
+not deeply inspected,” not necessarily an empty member. Typed archive
+descriptors report safe normalized paths and duplicate occurrence. V5 stores the
+empty-index state and shallow/deep completion explicitly; current SQLite schema
+v6 stores that state in `metadata_status`. See
+[`ARCHIVE-SUPPORT.md`](ARCHIVE-SUPPORT.md) for adapter and tool details.
 
 ## Version 4: Nested Archive Entries
 

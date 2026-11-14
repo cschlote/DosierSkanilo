@@ -346,7 +346,15 @@ The implementation sequence is tracked in
 
 - Factory `fileArchive()` to pick implementation by extension
 - Backends: `zip`, `tar`, `rar`, `7z`
-- `getEntries()` and `extractEntry()` interface
+- `getEntries()` for names and `getEntryDescriptors()` for normalized
+  descriptors with shallow size/timestamp metadata
+- `extractEntry()` for on-demand member extraction
+
+Shallow descriptors use the archive tool's names-only listing plus a verbose
+listing for size and timestamp columns. ZIP and TAR fall back to names-only
+descriptors when the two listings cannot be paired. RAR and 7z expose duplicate
+names but cannot select a specific duplicate occurrence for deep extraction.
+See [`ARCHIVE-SUPPORT.md`](ARCHIVE-SUPPORT.md) for the format and tool matrix.
 
 `FileArchive` returns typed entry descriptors and can extract members to a
 destination directory. Deep `updateArchives()` recursively indexes nested

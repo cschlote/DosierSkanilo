@@ -13,8 +13,9 @@ import std.conv : to;
 import std.file : exists, getcwd, remove;
 import std.path : absolutePath, buildPath;
 import std.process : execute, executeShell;
+import std.regex : matchFirst;
 import std.stdio : write;
-import std.string : empty, format, split;
+import std.string : empty, format, split, splitLines, strip;
 
 import dosierarkivo.archive;
 version (unittest)
@@ -50,6 +51,107 @@ class FileArchiveTar : FileArchive
         if (rc.status != 0)
             throw new ArchiveToolException(rc.output);
         return rc.output.split("\n").filter!(a => !a.empty).array;
+    }
+
+    /** Metadata parsed from one `tar -tvf` row. */
+    private struct TarMetadata
+    {
+        ulong size; /// Uncompressed member size.
+        string modifiedAt; /// ISO-like timestamp.
+        bool hasSize; /// Whether `size` is meaningful.
+        bool hasModifiedAt; /// Whether `modifiedAt` is meaningful.
+    }
+
+    /** Parse size and timestamp columns from `tar -tvf` output.
+     *
+     * Names are ignored; the descriptor names come from `tar -tf` so symlink
+     * decorations such as ` -> target` cannot corrupt the stored member name.
+     *
+     * Params:
+     *     output = Complete standard output of `tar -tvf`.
+     *     fullTime = Whether the listing used `--full-time`.
+     * Returns: Metadata rows in listing order.
+     */
+    private TarMetadata[] parseTarLongListMetadata(string output,
+        bool fullTime) const
+    {
+        TarMetadata[] entries;
+        foreach (line; output.splitLines)
+        {
+            if (line.strip.empty)
+                continue;
+            auto match = matchFirst(line, fullTime
+                ? `^\S+\s+\S+\s+(\d+)\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})(?:\.[0-9]+)?(?:\s+[+-]\d{4})?\s+`
+                : `^\S+\s+\S+\s+(\d+)\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\s+`);
+            if (match.empty)
+                continue;
+            TarMetadata metadata;
+            try
+                metadata.size = match.captures[1].to!ulong;
+            catch (Exception)
+                continue;
+            metadata.hasSize = true;
+            metadata.modifiedAt = match.captures[2] ~ "T"
+                ~ match.captures[3];
+            if (match.captures[3].length == 5)
+                metadata.modifiedAt ~= ":00";
+            metadata.hasModifiedAt = true;
+            entries ~= metadata;
+        }
+        return entries;
+    }
+
+    /** Return descriptors enriched with shallow size/timestamp metadata.
+     *
+     * GNU tar's `--full-time` supplies second precision. Other tar
+     * implementations fall back to the regular verbose listing. If row counts
+     * differ from `tar -tf`, names-only descriptors are returned.
+     *
+     * Params:
+     *     password = Accepted for interface compatibility.
+     * Returns: Descriptors in listing order, or `null` when the base listing
+     *     returns `null`.
+     */
+    override ArchiveEntryDescriptor[] getEntryDescriptors(string password = "")
+    {
+        auto names = getEntries(password);
+        if (names is null)
+            return null;
+        string[string] environment;
+        environment["LC_ALL"] = "C";
+        const archivePath = absolutePath(this.fileName);
+        auto listing = execute(["tar", "--full-time", "--numeric-owner",
+            "-tvf", archivePath], environment);
+        bool fullTime = listing.status == 0;
+        if (!fullTime)
+            listing = execute(["tar", "--numeric-owner", "-tvf", archivePath],
+                environment);
+        if (listing.status == 0)
+        {
+            auto metadata = parseTarLongListMetadata(listing.output, fullTime);
+            if (metadata.length == names.length)
+            {
+                ArchiveEntryDescriptor[] result;
+                foreach (index, name; names)
+                {
+                    ArchiveEntryDescriptor descriptor;
+                    descriptor.name = name;
+                    if (metadata[index].hasSize)
+                    {
+                        descriptor.size = metadata[index].size;
+                        descriptor.hasSize = true;
+                    }
+                    if (metadata[index].hasModifiedAt)
+                    {
+                        descriptor.modifiedAt = metadata[index].modifiedAt;
+                        descriptor.hasModifiedAt = true;
+                    }
+                    result ~= descriptor;
+                }
+                return finalizeDescriptors(result);
+            }
+        }
+        return super.getEntryDescriptors(password);
     }
 
     /** Extract one member into `destDir` using `tar`.
@@ -214,4 +316,38 @@ unittest
     auto archive = new FileArchiveTar(archivePath);
     assert(archive.extractEntry(member, output));
     assert(!exists(marker), "tar executed a member name as an option");
+}
+
+@("tar descriptors expose shallow member metadata")
+unittest
+{
+    import std.file : exists, getSize, mkdirRecurse, rmdirRecurse, tempDir,
+        write;
+    import std.path : buildPath;
+    import std.process : execute;
+    import std.uuid : randomUUID;
+
+    const root = buildPath(tempDir(), "tar-shallow-metadata-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    const payload = buildPath(root, "member with space.txt");
+    write(payload, "payload-content");
+    const archivePath = buildPath(root, "sample.tar");
+    auto created = execute(["tar", "-cf", archivePath, "-C", root,
+        "member with space.txt"]);
+    assert(created.status == 0, created.output);
+
+    auto archive = new FileArchiveTar(archivePath);
+    auto descriptors = archive.getEntryDescriptors();
+    assert(descriptors.length == 1);
+    assert(descriptors[0].name == "member with space.txt",
+        descriptors[0].name);
+    assert(descriptors[0].hasSize);
+    assert(descriptors[0].size == getSize(payload));
+    assert(descriptors[0].hasModifiedAt);
+    assert(descriptors[0].modifiedAt.length >= 19,
+        descriptors[0].modifiedAt);
 }

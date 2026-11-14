@@ -6,6 +6,7 @@
  */
 module dosierarkivo.sevenziparchive;
 
+import std.conv : to;
 import std.file : exists, getcwd, remove;
 import std.path : absolutePath, buildPath;
 import std.process : execute, executeShell;
@@ -32,7 +33,7 @@ class FileArchive7z : FileArchive
         super(ArchiveType._7z, filename);
     }
 
-    /** List file members using `7z l -ba`.
+    /** List members with shallow size and timestamp metadata.
      *
      * Directory rows (attribute starting with `D`) are omitted. A non-password
      * failure is treated as an empty listing.
@@ -40,23 +41,24 @@ class FileArchive7z : FileArchive
      * Params:
      *     password = Archive password; empty passes a sentinel that suppresses
      *         interactive prompting.
-     * Returns: Member names in archive order, or an empty array when the
-     *     listing fails or no file row matches the expected columns.
+     * Returns: Descriptors in archive order.
      * Throws: `ArchivePasswordRequiredException` when the tool reports a
      *     password or encryption problem.
      */
-    override string[] getEntries(string password = "")
+    private ArchiveEntryDescriptor[] listDescriptors(string password = "")
     {
         auto passwordOption = password.length > 0
             ? "-p" ~ password : "-p__dosierskanilo_no_password__";
+        string[string] environment;
+        environment["LC_ALL"] = "C";
         auto rc = execute(["7z", "l", passwordOption, "-ba",
-            absolutePath(this.fileName)]);
+            absolutePath(this.fileName)], environment);
         if (rc.status != 0 && isArchivePasswordFailure(rc.output))
             throw new ArchivePasswordRequiredException(rc.output);
         if (rc.status != 0)
             return [];
 
-        string[] entries;
+        ArchiveEntryDescriptor[] entries;
         auto lines = rc.output.splitLines;
         foreach (line; lines)
         {
@@ -69,11 +71,54 @@ class FileArchive7z : FileArchive
             if (attrs.length > 0 && attrs[0] == 'D')
                 continue;
 
-            auto entryName = m.captures[6];
-            if (!entryName.empty)
-                entries ~= entryName;
+            ArchiveEntryDescriptor descriptor;
+            descriptor.name = m.captures[6];
+            if (descriptor.name.empty)
+                continue;
+            try
+            {
+                descriptor.size = m.captures[4].to!ulong;
+                descriptor.hasSize = true;
+            }
+            catch (Exception)
+            {
+            }
+            descriptor.modifiedAt = m.captures[1] ~ "T" ~ m.captures[2];
+            descriptor.hasModifiedAt = true;
+            entries ~= descriptor;
         }
         return entries;
+    }
+
+    /** List file member names using `7z l -ba`.
+     *
+     * Params:
+     *     password = Archive password; empty passes a sentinel that suppresses
+     *         interactive prompting.
+     * Returns: Member names in archive order.
+     * Throws: `ArchivePasswordRequiredException` when the tool reports a
+     *     password or encryption problem.
+     */
+    override string[] getEntries(string password = "")
+    {
+        string[] names;
+        foreach (descriptor; listDescriptors(password))
+            names ~= descriptor.name;
+        return names;
+    }
+
+    /** Return descriptors enriched with shallow size/timestamp metadata.
+     *
+     * Params:
+     *     password = Archive password; empty passes a sentinel that suppresses
+     *         interactive prompting.
+     * Returns: Descriptors in archive order.
+     * Throws: `ArchivePasswordRequiredException` when the tool reports a
+     *     password or encryption problem.
+     */
+    override ArchiveEntryDescriptor[] getEntryDescriptors(string password = "")
+    {
+        return finalizeDescriptors(listDescriptors(password));
     }
 
     /** Extract one member into `destDir` using `7z x`.
@@ -162,4 +207,40 @@ unittest
     assert(archive.extractEntry("-oevil.txt", output));
     assert(exists(buildPath(output, "-oevil.txt")));
     assert(!exists(buildPath(output, "evil.txt")));
+}
+
+@("7z descriptors expose shallow member metadata")
+unittest
+{
+    import std.file : exists, getSize, mkdirRecurse, rmdirRecurse, tempDir,
+        write;
+    import std.path : buildPath;
+    import std.process : Config, execute, executeShell;
+    import std.uuid : randomUUID;
+
+    if (executeShell("command -v 7z").status != 0)
+        return;
+    const root = buildPath(tempDir(), "7z-shallow-metadata-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    const payload = buildPath(root, "member with space.txt");
+    write(payload, "payload-content");
+    const archivePath = buildPath(root, "sample.7z");
+    auto created = execute(["7z", "a", archivePath, "member with space.txt"],
+        null, Config.none, size_t.max, root);
+    assert(created.status == 0, created.output);
+
+    auto archive = new FileArchive7z(archivePath);
+    auto descriptors = archive.getEntryDescriptors();
+    assert(descriptors.length == 1);
+    assert(descriptors[0].name == "member with space.txt",
+        descriptors[0].name);
+    assert(descriptors[0].hasSize);
+    assert(descriptors[0].size == getSize(payload));
+    assert(descriptors[0].hasModifiedAt);
+    assert(descriptors[0].modifiedAt.length >= 19,
+        descriptors[0].modifiedAt);
 }

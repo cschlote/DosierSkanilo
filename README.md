@@ -286,6 +286,7 @@ Detailed architecture and diagrams:
 - `docs/ARCHITECTURE.md`
 - `docs/CATALOG-DOMAIN.md` - storage-neutral catalog identity and locator model
 - `docs/JSON-FORMAT.md` - current JSON import/export format and migrations
+- `docs/ARCHIVE-SUPPORT.md` - archive formats, shallow/deep scans, and tools
 - `docs/DATABASE.md` - normalized SQLite repository architecture
 - `docs/SQLITE-IMPLEMENTATION-PLAN.md` - historical implementation record
 - `docs/OPERATION-API.md` - shared CLI/GTK operation request and control contract

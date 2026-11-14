@@ -2932,6 +2932,43 @@ unittest
         "a failed scan must keep the previous complete index");
 }
 
+@("shallow archive scan stores member size and timestamp")
+unittest
+{
+    import std.file : exists, getSize, mkdirRecurse, rmdirRecurse, tempDir,
+        write;
+    import std.path : buildPath;
+    import std.process : execute, executeShell;
+    import std.uuid : randomUUID;
+
+    if (executeShell("command -v zip").status != 0)
+        return;
+    const root = buildPath(tempDir(), "shallow-member-metadata-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    const payload = buildPath(root, "member.txt");
+    write(payload, "shallow-payload");
+    const archivePath = buildPath(root, "shallow.zip");
+    auto created = execute(["zip", "-q", "-j", archivePath, payload]);
+    assert(created.status == 0, created.output);
+
+    auto blob = new NamedBinaryBlob(archivePath,
+        cast(size_t) getSize(archivePath), SysTime(1_234_567));
+    auto cache = new MemberContentCache(buildPath(root, "cache"));
+    scope (exit)
+        cache.close();
+    updateArchives(blob, true, false, null, null, null, 0, 8, "", cache);
+    assert(blob.archiveSpecs.length == 1);
+    assert(blob.archiveSpecs[0].fileSize == getSize(payload));
+    assert(blob.archiveSpecs[0].timeLastModified.length >= 16,
+        blob.archiveSpecs[0].timeLastModified);
+    assert(!blob.archiveSpecs[0].checkSums.hasDigests,
+        "a shallow scan must not fabricate checksums");
+}
+
 @("archive progress reports entry counts, not member byte counts")
 unittest
 {
