@@ -4,6 +4,21 @@ This document describes the `dosierarkivo` package: supported formats, the
 descriptor model, shallow and deep scans, tool requirements, and the safety
 boundaries of member extraction.
 
+## Package Layout
+
+- `dosierarkivo.archive`: the `FileArchive` base class, `ArchiveEntryDescriptor`,
+  the archive virtual-path grammar (`!` escaping, `!/` member separator,
+  `!~N` duplicate occurrence) with its SQL helpers, and the cancellable
+  `runArchiveTool` runner that maps tool failures to
+  `ArchivePasswordRequiredException` and `ArchiveToolException`
+  (`enforceArchiveToolResult`).
+- `dosierarkivo.factory`: `fileArchive()` selects the adapter from the longest
+  matching filename suffix.
+- `dosierarkivo.ziparchive`, `dosierarkivo.tararchive`, `dosierarkivo.rararchive`,
+  `dosierarkivo.sevenziparchive`: one adapter per format, each backed by an
+  external command-line tool.
+- `dosierarkivo.testsupport`: shared unittest fixtures.
+
 ## Supported Formats
 
 | Format | Extension | Listing tool | Shallow metadata | Deep extraction |
@@ -181,6 +196,8 @@ Adapter tests cover:
 - ZIP/TAR/7z shallow sizes and timestamps,
 - shallow persistence in the blob model without fabricated checksums,
 - option-like member names, duplicate ZIP occurrences, and wildcard names,
+- RAR listings and extraction preserving heavy UTF-8 member names,
+- plain RAR archives staying indexed by the deep archive scan,
 - bulk extraction for ZIP, TAR, RAR, and 7z,
 - bulk policy selection, staging budgets, and reservation cleanup,
 - symlink rejection in the shared cache and the bulk staging reader.

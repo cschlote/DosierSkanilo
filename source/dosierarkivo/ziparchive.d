@@ -10,12 +10,12 @@ import std.algorithm : filter, map;
 import std.algorithm.searching : canFind;
 import std.array : array;
 import std.conv : to;
-import std.file : exists, getcwd, remove;
-import std.path : absolutePath, buildPath, isAbsolute;
+import std.file : exists, remove;
+import std.path : absolutePath;
 import std.process : execute, executeShell;
 import std.regex : matchFirst;
-import std.stdio : stderr, write;
-import std.string : empty, format, splitLines, startsWith, strip;
+import std.stdio : stderr;
+import std.string : empty, splitLines, startsWith, strip;
 
 import dosierarkivo.archive;
 version (unittest)
@@ -32,6 +32,21 @@ version (unittest)
  */
 class FileArchiveZip : FileArchive
 {
+    /** Whether a member name contains an Info-ZIP glob metacharacter.
+     *
+     * Info-ZIP expands filename operands as glob patterns, so names containing
+     * `*`, `?`, or `[` cannot be extracted by name; they need index-based
+     * selection.
+     *
+     * Params:
+     *     name = Raw member name.
+     * Returns: `true` when the name contains a glob metacharacter.
+     */
+    private static bool hasGlobMetacharacter(string name)
+    {
+        return name.canFind("*") || name.canFind("?") || name.canFind("[");
+    }
+
     /** Parse the human-readable `unzip -l` listing into member names.
      *
      * Only rows between the dashed header and the dashed trailer are considered,
@@ -256,18 +271,13 @@ class FileArchiveZip : FileArchive
     {
         /* Info-ZIP expands filename operands as glob patterns. The descriptor
          * overload uses index-based extraction; reject ambiguous names here. */
-        if (filename.canFind("*") || filename.canFind("?")
-            || filename.canFind("["))
+        if (hasGlobMetacharacter(filename))
             throw new ArchiveToolException(
                 "ZIP member names with glob metacharacters require index-based "
                 ~ "extraction: " ~ filename);
-        auto zipPath = buildPath(getcwd(), this.fileName);
         auto result = runArchiveTool(["unzip", "-P", password, "-d", destDir,
-            "--", zipPath, filename], cancellation);
-        if (result.status != 0 && isArchivePasswordFailure(result.output))
-            throw new ArchivePasswordRequiredException(result.output);
-        if (result.status != 0)
-            throw new ArchiveToolException(result.output);
+            "--", absolutePath(this.fileName), filename], cancellation);
+        enforceArchiveToolResult(result);
         return true;
     }
 
@@ -285,16 +295,10 @@ class FileArchiveZip : FileArchive
     override bool extractEntriesTo(string[] members, string destDir,
         string password = "", shared(bool)* cancellation = null)
     {
-        auto zipPath = isAbsolute(this.fileName) ? this.fileName
-            : buildPath(getcwd(), this.fileName);
         auto command = ["unzip", "-P", password, "-o", "-q", "-d", destDir,
-            "--", zipPath];
+            "--", absolutePath(this.fileName)];
         command ~= members;
-        auto result = runArchiveTool(command, cancellation);
-        if (result.status != 0 && isArchivePasswordFailure(result.output))
-            throw new ArchivePasswordRequiredException(result.output);
-        if (result.status != 0)
-            throw new ArchiveToolException(result.output);
+        enforceArchiveToolResult(runArchiveTool(command, cancellation));
         return true;
     }
 
@@ -332,8 +336,7 @@ class FileArchiveZip : FileArchive
         if (!descriptor.hasSafePath)
             return false;
         const bool needsIndexSelection = descriptor.hasDuplicateName
-            || descriptor.name.canFind("*") || descriptor.name.canFind("?")
-            || descriptor.name.canFind("[");
+            || hasGlobMetacharacter(descriptor.name);
         if (!needsIndexSelection)
             return extractEntry(descriptor.name, destDir, password,
                 cancellation);
@@ -350,8 +353,7 @@ class FileArchiveZip : FileArchive
             ~ "    with z.open(info, 'r', pwd=password.encode() if password else None) as src:\n"
             ~ "        with open(os.path.join(dest, member), 'wb') as out:\n"
             ~ "            shutil.copyfileobj(src, out)\n";
-        auto zipPath = isAbsolute(this.fileName) ? this.fileName
-            : buildPath(getcwd(), this.fileName);
+        auto zipPath = absolutePath(this.fileName);
         auto result = runArchiveTool(["python3", "-c", extractionScript, zipPath,
             descriptor.index.to!string, destDir, descriptor.relativePath,
             descriptor.name, password], cancellation);
@@ -373,14 +375,9 @@ class FileArchiveZip : FileArchive
     override bool extractAllTo(string destDir, string password = "",
         shared(bool)* cancellation = null)
     {
-        auto zipPath = isAbsolute(this.fileName) ? this.fileName
-            : buildPath(getcwd(), this.fileName);
-        auto result = runArchiveTool(["unzip", "-P", password, "-o", "-q",
-            "-d", destDir, "--", zipPath], cancellation);
-        if (result.status != 0 && isArchivePasswordFailure(result.output))
-            throw new ArchivePasswordRequiredException(result.output);
-        if (result.status != 0)
-            throw new ArchiveToolException(result.output);
+        enforceArchiveToolResult(runArchiveTool(["unzip", "-P", password,
+            "-o", "-q", "-d", destDir, "--", absolutePath(this.fileName)],
+            cancellation));
         return true;
     }
 
@@ -395,7 +392,6 @@ class FileArchiveZip : FileArchive
             if (fn.exists)
                 remove(fn);
             auto rc = execute(["zip", "-q", zipFileName] ~ expectedEntries);
-            write(rc.output);
             assert(rc.status == 0, rc.output);
         }
 

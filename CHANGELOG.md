@@ -9,6 +9,10 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- `dosierarkivo` review cleanup without behavior change: one shared exception
+  mapper for failed archive-tool runs, a line-exact console-locale selector,
+  a two-pass descriptor finalizer, consistent absolute archive paths in every
+  adapter, and a documented package layout in `docs/ARCHIVE-SUPPORT.md`.
 - RAR listings keep heavy UTF-8 member names: `unrar` listing runs now use a
   UTF-8-capable C locale (`C.UTF-8`/`C.utf8`, probed once) instead of plain
   `LC_ALL=C`, which replaced every non-ASCII byte with `?`. Numeric and date
