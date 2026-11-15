@@ -51,6 +51,9 @@ They represent the functional evolution and are intentionally summarized.
   size-based chunks instead of one process per member. Chunks are capped at 512
   member names and adapt to the staging budget; `--archive-chunk-size MiB`
   selects an explicit target. Cancellation resumes at the unfinished chunk.
+- Compact progress output animates a `-\|/` spinner while a long archive
+  extraction or chunk unpack is running, so unchanged entry counts no longer
+  look like a stalled scan.
 
 ## Release 26.16.0 - 2026-11-10
 
