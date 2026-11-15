@@ -101,6 +101,15 @@ available space, capped at 16 GiB. `--archive-staging-size MiB` sets an
 explicit limit. A reservation is rejected when the declared member sizes plus
 slack exceed the limit or half of the current free space.
 
+If the whole archive does not fit, extraction falls back to bounded chunks
+instead of one member per process. A chunk contains at most 512 member names
+and targets a configurable uncompressed size. The adaptive target is one
+quarter of the staging limit, capped at 4 GiB; `--archive-chunk-size MiB`
+selects an explicit target. Each chunk is extracted once, hashed member by
+member, and removed before the next chunk starts. Solid RAR/7z archives and
+compressed tar archives benefit most because process startup and repeated
+decompression are amortized across the chunk.
+
 Duplicate-name members, symlink members, and members that are missing from the
 staged tree are not read from bulk extraction. They use the per-member cache
 fallback, which preserves occurrence selection and the symlink guard.
@@ -108,7 +117,8 @@ fallback, which preserves occurrence selection and the symlink guard.
 ### Partial and Resumed Member Scans
 
 A cancelled deep scan stores the members it already completed together with a
-`partial` archive state and a resume cursor. The next deep scan lists the
+`partial` archive state and a resume cursor. Chunked scans resume at the first
+member of the unfinished chunk; completed chunks are never extracted again. The next deep scan lists the
 archive again, skips descriptors before the cursor, and continues with the
 remaining members. For SQLite repositories this state lives in
 `metadata_status`; JSON v5 stores the optional `archiveScanCursor` field.

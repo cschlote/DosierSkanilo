@@ -58,11 +58,12 @@ bool validateRepositoryOptions(string command, ref ArgsArray options)
     }
     if ((bulkMode != ArchiveBulkMode.automatic
         || !options.argArchiveStagingDir.empty
-        || options.argArchiveStagingMiB != 0)
+        || options.argArchiveStagingMiB != 0
+        || options.argArchiveChunkMiB != 0)
         && command != "scan" && command != "metadata")
     {
-        errorLine("--archive-bulk and --archive-staging options are available "
-            ~ "only with scan or metadata.");
+        errorLine("--archive-bulk, --archive-staging, and --archive-chunk "
+            ~ "options are available only with scan or metadata.");
         return false;
     }
     if (options.argDryRun)

@@ -37,6 +37,7 @@ struct ArgsArray
 	string argArchiveBulk = "auto"; ///< Deep-scan bulk extraction mode.
 	string argArchiveStagingDir; ///< Root directory for bulk archive extraction.
 	uint argArchiveStagingMiB; ///< Bulk staging limit in MiB (0 = adaptive).
+	uint argArchiveChunkMiB; ///< Chunk target size in MiB (0 = adaptive).
 	bool argRunAnalysis; ///< Run duplicate and cleanup analysis.
 	bool argRunMetadata; ///< Run repository metadata extraction.
 	bool argShowInfo; ///< Show repository metadata and catalog counts.

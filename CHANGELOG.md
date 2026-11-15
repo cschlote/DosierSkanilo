@@ -47,6 +47,10 @@ They represent the functional evolution and are intentionally summarized.
   extraction. The running archive tool is terminated after the member in
   flight. Completed members are stored as a resumable partial index, and the
   next deep scan continues at the first unprocessed member.
+- Archives too large for whole-archive staging are deep-scanned in bounded,
+  size-based chunks instead of one process per member. Chunks are capped at 512
+  member names and adapt to the staging budget; `--archive-chunk-size MiB`
+  selects an explicit target. Cancellation resumes at the unfinished chunk.
 
 ## Release 26.16.0 - 2026-11-10
 

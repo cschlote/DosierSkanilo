@@ -58,10 +58,11 @@ bool validateJsonOptions(string command, ref ArgsArray options)
     if (command != "scan"
         && (bulkMode != ArchiveBulkMode.automatic
             || !options.argArchiveStagingDir.empty
-            || options.argArchiveStagingMiB != 0))
+            || options.argArchiveStagingMiB != 0
+            || options.argArchiveChunkMiB != 0))
     {
-        errorLine("--archive-bulk and --archive-staging options are available "
-            ~ "only for JSON scan.");
+        errorLine("--archive-bulk, --archive-staging, and --archive-chunk "
+            ~ "options are available only for JSON scan.");
         return false;
     }
 

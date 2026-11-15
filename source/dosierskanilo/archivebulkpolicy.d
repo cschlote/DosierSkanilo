@@ -10,6 +10,7 @@
  */
 module dosierskanilo.archivebulkpolicy;
 
+import std.algorithm.searching : canFind;
 import std.conv : to;
 import std.file : exists, getSize, isFile, isSymlink;
 import std.path : buildPath;
@@ -33,6 +34,15 @@ enum size_t minimumAutomaticBulkEntries = 2;
 
 /** Extra staging bytes reserved beyond the declared member sizes. */
 enum ulong archiveBulkSlackBytes = 16UL * 1024UL * 1024UL;
+
+/** Maximum number of member names passed to one chunk extraction. */
+enum size_t maximumArchiveChunkMembers = 512;
+
+/** Smallest adaptive chunk target. */
+enum ulong minimumArchiveChunkBytes = 256UL * 1024UL * 1024UL;
+
+/** Largest adaptive chunk target. */
+enum ulong maximumArchiveChunkBytes = 4UL * 1024UL * 1024UL * 1024UL;
 
 /** Fallback staging limit when the filesystem cannot be queried. */
 enum ulong fallbackArchiveStagingByteLimit = 1UL * 1024UL * 1024UL * 1024UL;
@@ -197,6 +207,99 @@ ArchiveBulkPlan planArchiveBulkExtraction(ArchiveEntryDescriptor[] entries,
     return plan;
 }
 
+/** One bounded archive-extraction chunk. */
+struct ArchiveChunkPlan
+{
+    /// First descriptor index covered by this chunk.
+    size_t startIndex;
+    /// One past the last descriptor index covered by this chunk.
+    size_t endIndex;
+    /// Estimated staging bytes, including slack, for selectable members.
+    ulong requiredBytes;
+    /// Member names passed to the adapter in one tool invocation.
+    string[] names;
+    /// Whether at least one member can be extracted by name.
+    bool eligible;
+}
+
+/** Test whether one descriptor can be selected by name for chunk extraction.
+ *
+ * Duplicate occurrences, unsafe paths, directories, unknown sizes, and names
+ * with tool wildcard or escape metacharacters stay on the per-member fallback.
+ *
+ * Params:
+ *     descriptor = Descriptor from the archive listing.
+ * Returns: `true` when the member name is safe to pass to a chunk tool.
+ */
+private bool chunkSelectable(const ArchiveEntryDescriptor descriptor) @safe
+{
+    const name = descriptor.name;
+    return descriptor.hasSafePath && !descriptor.isDirectory
+        && !descriptor.hasDuplicateName && descriptor.hasSize
+        && name.length > 0 && !name.canFind("*") && !name.canFind("?")
+        && !name.canFind("[") && !name.canFind("\\");
+}
+
+/** Build one bounded chunk starting at a descriptor index.
+ *
+ * Ineligible descriptors inside the chunk range are still covered by the
+ * range; they simply fall back to the per-member cache. At least one
+ * descriptor is always consumed so callers can make progress.
+ *
+ * Params:
+ *     entries = Complete descriptor listing.
+ *     startIndex = First descriptor to cover.
+ *     targetBytes = Preferred sum of selectable member sizes.
+ *     maximumMembers = Preferred maximum number of names in one invocation.
+ * Returns: The chunk plan. `eligible` is false when the first descriptor has
+ *     no selectable member; `endIndex` still advances by one.
+ */
+ArchiveChunkPlan planArchiveChunk(ArchiveEntryDescriptor[] entries,
+    size_t startIndex, ulong targetBytes = maximumArchiveChunkBytes,
+    size_t maximumMembers = maximumArchiveChunkMembers) @safe
+{
+    ArchiveChunkPlan plan;
+    plan.startIndex = startIndex;
+    plan.endIndex = startIndex;
+    if (startIndex >= entries.length)
+        return plan;
+
+    ulong totalBytes;
+    size_t endIndex = startIndex;
+    foreach (index; startIndex .. entries.length)
+    {
+        const descriptor = entries[index];
+        if (chunkSelectable(descriptor))
+        {
+            if (plan.names.length > 0
+                && (plan.names.length >= maximumMembers
+                    || totalBytes + descriptor.size > targetBytes))
+                break;
+            plan.names ~= descriptor.name;
+            totalBytes += descriptor.size;
+        }
+        endIndex = index + 1;
+        if (plan.names.length >= maximumMembers
+            || totalBytes >= targetBytes)
+            break;
+    }
+
+    plan.endIndex = endIndex;
+    if (plan.names.length == 0)
+    {
+        plan.endIndex = startIndex + 1;
+        return plan;
+    }
+
+    ulong slack = archiveBulkSlackBytes;
+    const proportionalSlack = totalBytes / 10;
+    if (proportionalSlack > slack)
+        slack = proportionalSlack;
+    plan.requiredBytes = totalBytes + slack;
+    plan.eligible = true;
+    return plan;
+}
+
 /** Return a fixed member path inside a bulk-extracted tree.
  *
  * Params:
@@ -288,4 +391,67 @@ unittest
     assert(parseArchiveBulkMode("never", mode));
     assert(mode == ArchiveBulkMode.never);
     assert(!parseArchiveBulkMode("sometimes", mode));
+}
+
+@("archive chunks stay within their byte and member limits")
+unittest
+{
+    ArchiveEntryDescriptor[] entries;
+    foreach (index; 0 .. 4)
+    {
+        ArchiveEntryDescriptor descriptor;
+        descriptor.index = index;
+        descriptor.name = "member-" ~ index.to!string ~ ".bin";
+        descriptor.relativePath = descriptor.name;
+        descriptor.hasSafePath = true;
+        descriptor.size = 1024;
+        descriptor.hasSize = true;
+        entries ~= descriptor;
+    }
+
+    auto first = planArchiveChunk(entries, 0, 2500, 512);
+    assert(first.eligible);
+    assert(first.names.length == 2, first.names.length.to!string);
+    assert(first.endIndex == 2, first.endIndex.to!string);
+    auto second = planArchiveChunk(entries, first.endIndex, 2500, 512);
+    assert(second.eligible);
+    assert(second.names.length == 2);
+    assert(second.endIndex == 4);
+}
+
+@("archive chunks exclude duplicate and wildcard members")
+unittest
+{
+    ArchiveEntryDescriptor duplicate;
+    duplicate.name = "same.txt";
+    duplicate.relativePath = "same.txt";
+    duplicate.hasSafePath = true;
+    duplicate.hasSize = true;
+    duplicate.size = 10;
+    duplicate.hasDuplicateName = true;
+
+    ArchiveEntryDescriptor wildcard;
+    wildcard.name = "photo*.jpg";
+    wildcard.relativePath = "photo*.jpg";
+    wildcard.hasSafePath = true;
+    wildcard.hasSize = true;
+    wildcard.size = 10;
+
+    ArchiveEntryDescriptor normal;
+    normal.name = "normal.txt";
+    normal.relativePath = "normal.txt";
+    normal.hasSafePath = true;
+    normal.hasSize = true;
+    normal.size = 10;
+
+    auto chunk = planArchiveChunk([duplicate, wildcard, normal], 0, 1_000_000,
+        512);
+    assert(chunk.eligible);
+    assert(chunk.names.length == 1 && chunk.names[0] == "normal.txt",
+        chunk.names.to!string);
+    assert(chunk.endIndex == 3);
+
+    auto noMembers = planArchiveChunk([duplicate], 0, 1_000_000, 512);
+    assert(!noMembers.eligible);
+    assert(noMembers.endIndex == 1);
 }

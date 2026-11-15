@@ -11,7 +11,7 @@ user-visible changes are listed in [`CHANGELOG.md`](CHANGELOG.md).
   v6, explicit JSON `CatalogDocument` sessions, shared operation API, member
   cache, recovery writer, and tag-driven release validation are implemented.
 - WP-09, WP-13, WP-14, and the persistence/document-session work are complete.
-- Backend verification: 269 tests, coverage about 89.3 %, CLI checks,
+- Backend verification: 273 tests, coverage about 89.3 %, CLI checks,
   `scripts/lint.sh`, and the Ddoc build pass locally; `testing` mirrors `main`
   without deployments.
 - The read-only `status` command reports aggregate SQLite and JSON catalog
@@ -297,6 +297,8 @@ baseline, and the documentation no longer implies that old formats are readable.
 - [x] Make deep archive scans resumable at member granularity. Ctrl-C saves
       completed members and a resume cursor; the next run continues with the
       remaining members.
+- [x] Extract oversized archives in bounded size-based chunks instead of one
+      process per member. `--archive-chunk-size` controls the target.
 - [ ] Decide whether direct JSON browsing needs a streaming reader/index for
       multi-million-record catalogs, or an explicit size guard that recommends
       repository import. Current direct JSON tabs hold the complete catalog and

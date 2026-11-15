@@ -1160,7 +1160,8 @@ private void runJsonMetadataWork(JsonMetadataWork* item)
                 item.options.archivePasswordCallback,
                 0, 8, "", null, item.options.detectFileTypes,
                 item.options.extractMediaInfo,
-                item.options.archiveBulkMode);
+                item.options.archiveBulkMode,
+                item.options.archiveChunkBytes);
         });
     }
     if (jsonWorkCancelled(item))

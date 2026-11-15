@@ -181,6 +181,8 @@ struct MetadataScanOptions
     size_t archiveLimit;
     /// Bulk-extraction policy for deep archive scans.
     ArchiveBulkMode archiveBulkMode = ArchiveBulkMode.automatic;
+    /// Preferred uncompressed bytes per chunk; zero derives it from staging.
+    ulong archiveChunkBytes;
 }
 
 /** Counters returned by a repository metadata update. */

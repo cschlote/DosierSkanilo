@@ -308,7 +308,8 @@ bool runScannerJobs(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCt
                         cast(ArchivePasswordCallback) null, cast(size_t) 0,
                         cast(size_t) 8, "", cast(MemberContentCache) null,
                         argsArray.argDoFileTypes, argsArray.argDoMediaSig,
-                        archiveBulkModeFromOption(argsArray.argArchiveBulk));
+                        archiveBulkModeFromOption(argsArray.argArchiveBulk),
+                        cast(ulong) argsArray.argArchiveChunkMiB * 1_048_576UL);
                     myTaskPool.put(obj.task_archiveScan);
                 }
                 if (argsArray.argScanTorrents && obj.torrentInfo is null)
@@ -415,7 +416,8 @@ bool runScannerJobs(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCt
                     updateArchives(obj, false, argsArray.argScanArchives > 1,
                         &gotCtrlC, &cb, null, 0, 8, "", null,
                         argsArray.argDoFileTypes, argsArray.argDoMediaSig,
-                        archiveBulkModeFromOption(argsArray.argArchiveBulk));
+                        archiveBulkModeFromOption(argsArray.argArchiveBulk),
+                        cast(ulong) argsArray.argArchiveChunkMiB * 1_048_576UL);
                 }
                 if (argsArray.argScanTorrents && obj.torrentInfo is null)
                 {
