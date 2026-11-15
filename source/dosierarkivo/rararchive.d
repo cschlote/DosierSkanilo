@@ -66,7 +66,12 @@ class FileArchiveRar : FileArchive
 
         auto passwordOption = password.length > 0 ? "-p" ~ password : "-p-";
         string[string] environment;
-        environment["LC_ALL"] = "C";
+        /* `unrar` encodes member names for the console locale; a plain C
+         * locale would replace every non-ASCII byte with `?`. The numeric and
+         * date fields stay stable under a UTF-8-capable C locale. */
+        const auto consoleLocale = archiveConsoleLocale();
+        if (consoleLocale.length > 0)
+            environment["LC_ALL"] = consoleLocale;
         auto rc = execute(["unrar", "lt", passwordOption, absolutePath(this.fileName)],
             environment, Config.stderrPassThrough);
         /* unrar exits with 11 for a wrong password even when the diagnostic
@@ -160,7 +165,11 @@ class FileArchiveRar : FileArchive
     {
         auto passwordOption = password.length > 0 ? "-p" ~ password : "-p-";
         string[string] environment;
-        environment["LC_ALL"] = "C";
+        /* `unrar` encodes member names for the console locale; a plain C
+         * locale would replace every non-ASCII byte with `?`. */
+        const auto consoleLocale = archiveConsoleLocale();
+        if (consoleLocale.length > 0)
+            environment["LC_ALL"] = consoleLocale;
         auto rc = execute(["unrar", "lb", passwordOption, absolutePath(this.fileName)],
             environment, Config.stderrPassThrough);
         if (isArchivePasswordFailure(rc.output) || rc.status == 11)
@@ -358,6 +367,61 @@ unittest
             foundDirectory = true;
         }
     assert(foundDirectory);
+}
+
+@("rar listings and extraction keep heavy UTF-8 member names")
+unittest
+{
+    import std.file : exists, mkdirRecurse, readText, rmdirRecurse, tempDir,
+        write;
+    import std.path : buildPath, dirSeparator;
+    import std.process : Config, execute, executeShell;
+    import std.uuid : randomUUID;
+
+    if (executeShell("command -v rar").status != 0
+        || executeShell("command -v unrar").status != 0)
+        return;
+    import std.algorithm.searching : canFind;
+    const root = buildPath(tempDir(), "rar-utf8-members-"
+        ~ randomUUID().toString());
+    const source = buildPath(root, "source");
+    const output = buildPath(root, "output");
+    mkdirRecurse(source);
+    mkdirRecurse(output);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+
+    enum firstName = "Müller-Émile_日本語_🎉.txt";
+    enum secondName = "ملف_عربي.txt";
+    write(buildPath(source, firstName), "first payload");
+    write(buildPath(source, secondName), "second payload");
+    const archivePath = buildPath(root, "utf8.rar");
+    auto created = execute(["rar", "a", "-idq", "-ep1", archivePath,
+        firstName, secondName], null, Config.none, size_t.max, source);
+    assert(created.status == 0, created.output);
+
+    auto archive = new FileArchiveRar(archivePath);
+    auto entries = archive.getEntries();
+    assert(entries.length == 2, entries.to!string);
+    assert(entries.canFind(firstName), entries.to!string);
+    assert(entries.canFind(secondName), entries.to!string);
+
+    auto descriptors = archive.getEntryDescriptors();
+    assert(descriptors.length == 2, descriptors.to!string);
+    foreach (descriptor; descriptors)
+    {
+        assert(descriptor.hasSafePath, descriptor.name);
+        assert(descriptor.hasSize, descriptor.name);
+        assert(descriptor.size == (descriptor.name == firstName
+            ? "first payload".length : "second payload".length),
+            descriptor.name);
+    }
+
+    assert(archive.extractEntry(firstName, output));
+    assert(readText(buildPath(output, firstName)) == "first payload");
+    assert(archive.extractEntriesTo([secondName], output));
+    assert(readText(buildPath(output, secondName)) == "second payload");
 }
 
 @("rar bulk extraction writes all members")

@@ -2334,9 +2334,10 @@ void updateArchives(NamedBinaryBlob obj,
 			foreach (spec; existingFiles)
 			{
 				import std.string : startsWith;
-				import std.algorithm.searching : find;
+				import std.algorithm.searching : canFind;
 
-				if (obj.fileType.startsWith("RAR") && obj.fileType.find("EncryptedBlockHeader"))
+				if (obj.fileType.startsWith("RAR")
+					&& obj.fileType.canFind("EncryptedBlockHeader"))
 				{
 					logLineVerbose();
 					logFLineVerbose(
@@ -3640,6 +3641,52 @@ unittest
         }
     assert(sawSecret);
     assert(sawLink);
+}
+
+@("deep archive scan indexes plain RAR archives")
+unittest
+{
+    import std.file : exists, getSize, mkdirRecurse, rmdirRecurse, tempDir,
+        write;
+    import std.path : buildPath;
+    import std.process : Config, execute, executeShell;
+    import std.uuid : randomUUID;
+
+    if (executeShell("command -v rar").status != 0
+        || executeShell("command -v unrar").status != 0)
+        return;
+    const root = buildPath(tempDir(), "archive-rar-deep-scan-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+
+    write(buildPath(root, "first.txt"), "first rar payload");
+    write(buildPath(root, "second.txt"), "second rar payload");
+    const archivePath = buildPath(root, "plain.rar");
+    auto created = execute(["rar", "a", "-idq", "-ep1", archivePath,
+        "first.txt", "second.txt"], null, Config.none, size_t.max, root);
+    assert(created.status == 0, created.output);
+
+    auto blob = new NamedBinaryBlob(archivePath,
+        cast(size_t) getSize(archivePath), SysTime(1_234_567));
+    auto cache = new MemberContentCache(buildPath(root, "cache"));
+    scope (exit)
+        cache.close();
+    updateArchives(blob, true, true, null, null, null, 0, 8, "", cache);
+
+    assert(blob.archiveSpecs.length == 2);
+    bool sawFirst;
+    foreach (entry; blob.archiveSpecs)
+    {
+        if (entry.fileName == "first.txt")
+        {
+            sawFirst = true;
+            assert(entry.checkSums.hasDigests, entry.fileName);
+        }
+    }
+    assert(sawFirst);
 }
 
 @("deep archive scan fingerprints selectable duplicate occurrences")
