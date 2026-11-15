@@ -5,9 +5,9 @@ SQLite repository. Historical work-package records remain in
 [`docs/SQLITE-IMPLEMENTATION-PLAN.md`](docs/SQLITE-IMPLEMENTATION-PLAN.md);
 user-visible changes are listed in [`CHANGELOG.md`](CHANGELOG.md).
 
-## Current status (2026-11-10)
+## Current status (2026-11-15)
 
-- Version `26.16.0`; storage-neutral `CatalogBackend`, JSON v5, SQLite schema
+- Version `26.17.0`; storage-neutral `CatalogBackend`, JSON v5, SQLite schema
   v6, explicit JSON `CatalogDocument` sessions, shared operation API, member
   cache, recovery writer, and tag-driven release validation are implemented.
 - WP-09, WP-13, WP-14, and the persistence/document-session work are complete.
@@ -16,11 +16,26 @@ user-visible changes are listed in [`CHANGELOG.md`](CHANGELOG.md).
   without deployments.
 - The read-only `status` command reports aggregate SQLite and JSON catalog
   statistics, including metadata coverage and storage sizes.
-- Archive-only metadata runs resume pending deep scans and support
-  `--archive-limit N`; Ctrl-C finishes the current archive jobs first.
+- Deep archive scans bulk-extract small archives, use bounded size-based
+  chunks for oversized archives, and resume at member granularity after
+  Ctrl-C. Archive-only metadata runs also support `--archive-limit N`.
 - Documentation and Ddoc headers are complete: every documentable public,
   package, and private declaration has Ddoc (verified 2026-11-08).
 - The 2026-11-10 review remediation is complete and released as `26.16.0`.
+- Archive extraction improvements are released as `26.17.0`; the paired GUI
+  remains `0.13.1` because no GUI code changed.
+
+## Release 26.17.0 — archive extraction
+
+- [x] Backend full gate: 274 tests, CLI integration, coverage about 89.3 %,
+      and `scripts/lint.sh`.
+- [x] Ddoc build and `scripts/benchmark-storage.sh ./test/json_file_v2.json 3`.
+- [x] GUI `0.13.1` unit suite, release build, Xvfb display suite, and filter
+      benchmark pass against this backend.
+- [x] `VERSION`, `CHANGELOG.md`, and package metadata use `26.17.0`;
+      `scripts/validate-release.sh v26.17.0` passes.
+- [ ] Verify installation from packaged artifacts after the Flatpak hash
+      follow-up commit.
 
 ## P0 — Review remediation for the next release
 
@@ -194,7 +209,7 @@ Rules:
       `STORED`/indexed form into the Major 27 baseline. Acceptance: no schema
       migration is added in this cycle and Major 27 lists the change.
 
-### Release gate
+### Release gate (26.16.0, historical)
 
 - [x] Re-run every targeted probe from the review and record the result in
       `docs/development/testing.md`.

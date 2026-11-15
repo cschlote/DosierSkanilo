@@ -1,3 +1,12 @@
+dosierskanilo (26.17.0-1) unstable; urgency=medium
+
+  * Release DosierSkanilo 26.17.0 with whole-archive and bounded chunk
+    extraction, resumable member scans after Ctrl-C, adaptive cache/staging
+    limits, shallow archive metadata, compressed tar support, and progress
+    spinner feedback.
+
+ -- Carsten Schlote <schlote@vahanus.net>  Sun, 15 Nov 2026 00:00:00 +0000
+
 dosierskanilo (26.16.0-1) unstable; urgency=medium
 
   * Release DosierSkanilo 26.16.0 with the status command, archive and
