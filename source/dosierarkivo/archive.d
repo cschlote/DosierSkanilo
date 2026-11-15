@@ -840,6 +840,29 @@ abstract class FileArchive
         return false;
     }
 
+    /** Extract a named subset of members into one destination directory.
+     *
+     * This is the chunked counterpart to `extractAllTo()`: callers pass a
+     * bounded list of non-ambiguous member names and receive one tool
+     * invocation. Duplicate occurrences, wildcard-like names, and unsafe paths
+     * are excluded by the caller and use the per-member cache instead.
+     *
+     * Params:
+     *     members = Member names exactly as reported by the listing.
+     *     destDir = Directory that receives the extracted files.
+     *     password = Optional archive password.
+     *     cancellation = Optional cooperative cancellation flag.
+     * Returns: `true` on success; `false` when the adapter does not support
+     *     named-subset extraction.
+     * Throws: `ArchivePasswordRequiredException` when a password is missing or
+     *     rejected, `ArchiveToolException` for other tool failures.
+     */
+    bool extractEntriesTo(string[] members, string destDir,
+        string password = "", shared(bool)* cancellation = null)
+    {
+        return false;
+    }
+
     /** Whether this adapter can select a particular duplicate-name occurrence.
      *
      * Returns: `true` when occurrence-aware extraction is implemented; the

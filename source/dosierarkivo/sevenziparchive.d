@@ -148,6 +148,34 @@ class FileArchive7z : FileArchive
         return true;
     }
 
+    /** Extract a named subset of members with one `7z` invocation.
+     *
+     * Params:
+     *     members = Member names without wildcard metacharacters.
+     *     destDir = Directory that receives the extracted files.
+     *     password = Archive password; empty suppresses interactive prompting.
+     *     cancellation = Optional cooperative cancellation flag.
+     * Returns: `true` on success.
+     * Throws: `ArchivePasswordRequiredException` when a password is missing or
+     *     rejected, `ArchiveToolException` for any other tool failure.
+     */
+    override bool extractEntriesTo(string[] members, string destDir,
+        string password = "", shared(bool)* cancellation = null)
+    {
+        auto tarPath = buildPath(getcwd(), this.fileName);
+        auto passwordOption = password.length > 0
+            ? "-p" ~ password : "-p__dosierskanilo_no_password__";
+        auto command = ["7z", "x", passwordOption, "-y", "-bd",
+            "-o" ~ destDir, tarPath, "--"];
+        command ~= members;
+        auto result = runArchiveTool(command, cancellation);
+        if (result.status != 0 && isArchivePasswordFailure(result.output))
+            throw new ArchivePasswordRequiredException(result.output);
+        if (result.status != 0)
+            throw new ArchiveToolException(result.output);
+        return true;
+    }
+
     /** Extract the complete archive into one staging directory with `7z`.
      *
      * Params:
@@ -302,4 +330,11 @@ unittest
     assert(archive.extractAllTo(output));
     assert(readText(buildPath(output, "first.txt")) == "first");
     assert(readText(buildPath(output, "second.txt")) == "second");
+
+    const subset = buildPath(root, "subset");
+    mkdirRecurse(subset);
+    assert(archive.extractEntriesTo(["first.txt"], subset));
+    assert(readText(buildPath(subset, "first.txt")) == "first");
+    assert(!exists(buildPath(subset, "second.txt")),
+        "named-subset extraction must not extract unlisted members");
 }

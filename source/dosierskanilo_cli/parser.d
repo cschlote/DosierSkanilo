@@ -97,6 +97,8 @@ Deep archive bulk extraction options (scan and metadata):
     --archive-staging-size MiB
                               Bulk staging limit (default: half of free space,
                               capped at 16 GiB)
+    --archive-chunk-size MiB  Target uncompressed bytes per chunk when the
+                              whole archive does not fit (0 = adaptive)
 
 JSON output:
 
@@ -297,6 +299,7 @@ ParsedCommandLine parseCommandLine(string[] args)
             "archive-bulk", "S-M------ Deep archive bulk extraction mode: auto, always, or never", &argsarray.argArchiveBulk,
             "archive-staging-dir", "S-M------ Root directory for bulk archive extraction", &argsarray.argArchiveStagingDir,
             "archive-staging-size", "S-M------ Bulk archive staging size in MiB (0 = adaptive)", &argsarray.argArchiveStagingMiB,
+            "archive-chunk-size", "S-M------ Target archive chunk size in MiB (0 = adaptive)", &argsarray.argArchiveChunkMiB,
             "drop-missing", "SA------- Drop missing files from database", &argsarray.argDropMissing,
             "threads", "SAM------ Number of worker threads", &argsarray.argNumberOfThreads,
             "replace", "S-----R-- Replace existing data (JSON scan or import)", &argsarray.argReplaceCatalog,
@@ -504,6 +507,7 @@ private bool validateRecoveryOptions(ArgsArray options)
         || options.argArchiveBulk != "auto"
         || !options.argArchiveStagingDir.empty
         || options.argArchiveStagingMiB != 0
+        || options.argArchiveChunkMiB != 0
         || options.argNumberOfThreads != 1 || options.argReplaceCatalog
         || options.argPrettyJSON || options.argMergeDuplicates
         || !options.argQueryText.empty || options.argQueryLimit != 50
@@ -667,11 +671,13 @@ unittest
     assert(cachedArchive.options.argArchiveCacheMiB == 64);
     auto bulkArchive = parseCommandLine(["program", "scan", "./test",
         "--scan-archives", "--archive-bulk", "always",
-        "--archive-staging-dir", "./staging", "--archive-staging-size", "128"]);
+        "--archive-staging-dir", "./staging", "--archive-staging-size", "128",
+        "--archive-chunk-size", "256"]);
     assert(bulkArchive.status == ParseStatus.run);
     assert(bulkArchive.options.argArchiveBulk == "always");
     assert(bulkArchive.options.argArchiveStagingDir == "./staging");
     assert(bulkArchive.options.argArchiveStagingMiB == 128);
+    assert(bulkArchive.options.argArchiveChunkMiB == 256);
     auto invalidBulkMode = parseCommandLine(["program", "scan", "./test",
         "--scan-archives", "--archive-bulk", "sometimes"]);
     assert(invalidBulkMode.status == ParseStatus.error);
@@ -690,6 +696,7 @@ unittest
     assert(helpText.canFind("--archive-bulk"));
     assert(helpText.canFind("--archive-staging-dir"));
     assert(helpText.canFind("--archive-staging-size"));
+    assert(helpText.canFind("--archive-chunk-size"));
     assert(helpText.canFind("--pretty"));
     assert(helpText.canFind("--no-input"));
     assert(helpText.canFind("--force"));

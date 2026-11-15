@@ -157,8 +157,10 @@ to a destination path. ZIP and TAR can select exact duplicate occurrences when
 their runtime tools support it; RAR and 7z cannot, so those occurrences remain
 without deep fingerprints. Deep scans bulk-extract one archive through
 `extractAllTo()` into a bounded staging session and hash members directly from
-that tree; the shared bounded member cache remains the per-member fallback and
-the only path used by scraping, MediaInfo, and preview. Cache and staging paths
+that tree. Archives larger than the staging budget use named-subset chunk
+extraction, so one tool invocation covers up to 512 members at a time. The
+shared bounded member cache remains the per-member fallback and the only path
+used by scraping, MediaInfo, and preview. Cache and staging paths
 are never persisted as source references. Listing remains lazy and
 selected-entry extraction remains on demand.
 

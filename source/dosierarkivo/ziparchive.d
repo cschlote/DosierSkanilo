@@ -271,6 +271,33 @@ class FileArchiveZip : FileArchive
         return true;
     }
 
+    /** Extract a named subset of members with one `unzip` invocation.
+     *
+     * Params:
+     *     members = Member names without glob metacharacters.
+     *     destDir = Directory that receives the extracted files.
+     *     password = Archive password; empty selects the tool's default.
+     *     cancellation = Optional cooperative cancellation flag.
+     * Returns: `true` on success.
+     * Throws: `ArchivePasswordRequiredException` when a password is missing or
+     *     rejected, `ArchiveToolException` for any other tool failure.
+     */
+    override bool extractEntriesTo(string[] members, string destDir,
+        string password = "", shared(bool)* cancellation = null)
+    {
+        auto zipPath = isAbsolute(this.fileName) ? this.fileName
+            : buildPath(getcwd(), this.fileName);
+        auto command = ["unzip", "-P", password, "-o", "-q", "-d", destDir,
+            "--", zipPath];
+        command ~= members;
+        auto result = runArchiveTool(command, cancellation);
+        if (result.status != 0 && isArchivePasswordFailure(result.output))
+            throw new ArchivePasswordRequiredException(result.output);
+        if (result.status != 0)
+            throw new ArchiveToolException(result.output);
+        return true;
+    }
+
     /** Report whether a specific duplicate occurrence can be extracted.
      *
      * The implementation delegates duplicate selection to Python's `zipfile`
@@ -616,4 +643,11 @@ unittest
     assert(archive.extractAllTo(output));
     assert(readText(buildPath(output, "first.txt")) == "first");
     assert(readText(buildPath(output, "second.txt")) == "second");
+
+    const subset = buildPath(root, "subset");
+    mkdirRecurse(subset);
+    assert(archive.extractEntriesTo(["first.txt"], subset));
+    assert(readText(buildPath(subset, "first.txt")) == "first");
+    assert(!exists(buildPath(subset, "second.txt")),
+        "named-subset extraction must not extract unlisted members");
 }

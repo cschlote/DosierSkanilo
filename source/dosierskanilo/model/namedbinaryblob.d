@@ -25,8 +25,10 @@ import dosierarkivo.archive : appendArchiveVirtualPath,
     archivePathOccurrenceMarker, archivePathSeparator,
     escapeArchiveVirtualPath, nativePathToStoragePath,
     normalizeArchiveEntryPath, parseArchiveVirtualPath;
-import dosierskanilo.archivebulk : ArchiveBulkMode, ArchiveBulkReservation,
-    bulkExtractedMemberPath, planArchiveBulkExtraction,
+import dosierskanilo.archivebulk : ArchiveBulkMode, ArchiveBulkPlan,
+    ArchiveBulkReservation, bulkExtractedMemberPath,
+    maximumArchiveChunkBytes, maximumArchiveChunkMembers,
+    minimumArchiveChunkBytes, planArchiveBulkExtraction, planArchiveChunk,
     sharedArchiveBulkStaging;
 import dosierskanilo.catalogbackend : ArchiveEntryId, ContentId,
     ContentLocator, ReferenceId;
@@ -121,7 +123,7 @@ mixin template payloadHelpers()
 	Task!(updateMediaInfo, NamedBinaryBlob, bool)* task_mediasig; ///< Pointer to mediasig job
 	Task!(updateArchives, NamedBinaryBlob, bool, bool, shared(bool)*, ProgressCallBack*,
 		ArchivePasswordCallback, size_t, size_t, string, MemberContentCache, bool,
-		bool, ArchiveBulkMode)* task_archiveScan; ///< Pointer to archive scan job
+		bool, ArchiveBulkMode, ulong)* task_archiveScan; ///< Pointer to archive scan job
 	Task!(updateTorrentInfo, NamedBinaryBlob)* task_torrentscan; ///< Pointer to torrent scan job
 }
 
@@ -2281,6 +2283,8 @@ private string archiveCacheIdentity(NamedBinaryBlob blob,
  *   inspectMemberFileType = run file-type detection on extracted members.
  *   inspectMemberMediaInfo = extract MediaInfo signatures for members.
  *   archiveBulkMode = bulk-extraction policy for deep scans.
+ *   archiveChunkBytes = preferred uncompressed bytes per chunk; zero derives it
+ *       from the staging limit.
  * Throws:
  *   `ArchivePasswordRequiredException`/`ArchivePasswordCancelledException` when
  *   a password is needed and cannot be supplied, or extraction errors that are
@@ -2298,7 +2302,8 @@ void updateArchives(NamedBinaryBlob obj,
 	MemberContentCache memberCache = null,
 	bool inspectMemberFileType = false,
 	bool inspectMemberMediaInfo = false,
-	ArchiveBulkMode archiveBulkMode = ArchiveBulkMode.automatic)
+	ArchiveBulkMode archiveBulkMode = ArchiveBulkMode.automatic,
+	ulong archiveChunkBytes = 0)
 {
 	import std.conv : to;
 	import core.atomic : atomicLoad;
@@ -2396,10 +2401,32 @@ void updateArchives(NamedBinaryBlob obj,
                             obj.archiveScanCursor, startIndex);
 
                     ArchiveBulkReservation bulkReservation;
+                    ArchiveBulkReservation chunkReservation;
+                    string stagedRoot;
+                    string chunkRoot;
+                    size_t chunkEndIndex;
                     bool bulkExtracted;
+                    bool chunkingEnabled;
+                    ulong chunkTargetBytes;
                     scope (exit)
+                    {
+                        if (chunkReservation !is null)
+                            chunkReservation.release();
                         if (bulkReservation !is null)
                             bulkReservation.release();
+                    }
+
+                    void releaseChunk()
+                    {
+                        if (chunkReservation !is null)
+                        {
+                            chunkReservation.release();
+                            chunkReservation = null;
+                        }
+                        chunkRoot = "";
+                        chunkEndIndex = 0;
+                        stagedRoot = "";
+                    }
 
                     ArchiveSpec[] scannedSpecs;
                     if (startIndex > 0 && obj.archiveSpecs !is null)
@@ -2425,68 +2452,97 @@ void updateArchives(NamedBinaryBlob obj,
                             ~ completed.to!string ~ " entries completed.");
                     }
 
-                    if (deep && startIndex == 0)
+                    ArchiveBulkPlan bulkPlan;
+                    if (deep)
+                        bulkPlan = planArchiveBulkExtraction(archiveEntries,
+                            archiveBulkMode, archiveObj.fileType);
+                    bool wholeBulkBudgetBlocked;
+                    const bool chunkPreferred = archiveChunkBytes > 0
+                        && bulkPlan.requiredBytes > archiveChunkBytes;
+                    if (deep && startIndex == 0 && bulkPlan.useBulk
+                        && !chunkPreferred)
                     {
-                        const auto bulkPlan = planArchiveBulkExtraction(
-                            archiveEntries, archiveBulkMode, archiveObj.fileType);
-                        if (bulkPlan.useBulk)
+                        string bulkFailure;
+                        try
                         {
-                            string bulkFailure;
-                            try
+                            bulkReservation = sharedArchiveBulkStaging()
+                                .reserve(bulkPlan.requiredBytes);
+                            if (bulkReservation is null)
                             {
-                                bulkReservation = sharedArchiveBulkStaging()
-                                    .reserve(bulkPlan.requiredBytes);
-                                if (bulkReservation is null)
-                                    bulkFailure =
-                                        "staging budget or free space unavailable";
-                                else
-                                {
-                                    if (gotCtrlC !is null && atomicLoad(*gotCtrlC))
-                                        cancelAt(startIndex);
-                                    if (!archiveObj.extractAllTo(
-                                            bulkReservation.path, password,
-                                            gotCtrlC))
-                                        bulkFailure =
-                                            "archive adapter does not support bulk extraction";
-                                    else
-                                    {
-                                        bulkExtracted = true;
-                                        logFLineVerbose(
-                                            "  bulk extracted %d entries into '%s'",
-                                            archiveEntries.length,
-                                            bulkReservation.path);
-                                    }
-                                }
+                                wholeBulkBudgetBlocked = true;
+                                bulkFailure =
+                                    "staging budget or free space unavailable";
                             }
-                            catch (ArchivePasswordRequiredException ex)
-                            {
-                                bulkFailure = oneLineFailure(ex.msg);
-                            }
-                            catch (ArchiveScanCancelledException ex)
-                            {
-                                throw ex;
-                            }
-                            catch (Exception ex)
+                            else
                             {
                                 if (gotCtrlC !is null && atomicLoad(*gotCtrlC))
                                     cancelAt(startIndex);
-                                bulkFailure = oneLineFailure(ex.msg);
-                            }
-                            if (bulkFailure.length > 0)
-                            {
-                                if (bulkReservation !is null)
+                                if (!archiveObj.extractAllTo(
+                                        bulkReservation.path, password,
+                                        gotCtrlC))
+                                    bulkFailure =
+                                        "archive adapter does not support bulk extraction";
+                                else
                                 {
-                                    bulkReservation.release();
-                                    bulkReservation = null;
+                                    bulkExtracted = true;
+                                    stagedRoot = bulkReservation.path;
+                                    logFLineVerbose(
+                                        "  bulk extracted %d entries into '%s'",
+                                        archiveEntries.length,
+                                        bulkReservation.path);
                                 }
-                                logFLineVerbose(
-                                    "  bulk extraction skipped: %s; using per-member extraction.",
-                                    bulkFailure);
                             }
                         }
-                        else
-                            logFLineVerbose("  bulk extraction not selected: %s",
-                                bulkPlan.reason);
+                        catch (ArchivePasswordRequiredException ex)
+                        {
+                            bulkFailure = oneLineFailure(ex.msg);
+                        }
+                        catch (ArchiveScanCancelledException ex)
+                        {
+                            throw ex;
+                        }
+                        catch (Exception ex)
+                        {
+                            if (gotCtrlC !is null && atomicLoad(*gotCtrlC))
+                                cancelAt(startIndex);
+                            bulkFailure = oneLineFailure(ex.msg);
+                        }
+                        if (bulkFailure.length > 0 && !bulkExtracted)
+                        {
+                            if (bulkReservation !is null)
+                            {
+                                bulkReservation.release();
+                                bulkReservation = null;
+                            }
+                            logFLineVerbose(
+                                "  bulk extraction skipped: %s; using per-member extraction.",
+                                bulkFailure);
+                        }
+                    }
+                    else if (deep && !bulkPlan.useBulk)
+                        logFLineVerbose("  bulk extraction not selected: %s",
+                            bulkPlan.reason);
+
+                    if (deep && !bulkExtracted && bulkPlan.useBulk
+                        && (startIndex > 0 || wholeBulkBudgetBlocked
+                            || chunkPreferred))
+                    {
+                        chunkingEnabled = true;
+                        const auto staging = sharedArchiveBulkStaging();
+                        chunkTargetBytes = archiveChunkBytes > 0
+                            ? archiveChunkBytes : staging.byteLimit / 4;
+                        if (archiveChunkBytes == 0)
+                        {
+                            if (chunkTargetBytes < minimumArchiveChunkBytes)
+                                chunkTargetBytes = minimumArchiveChunkBytes;
+                            if (chunkTargetBytes > maximumArchiveChunkBytes)
+                                chunkTargetBytes = maximumArchiveChunkBytes;
+                        }
+                        if (chunkTargetBytes > staging.byteLimit / 2)
+                            chunkTargetBytes = staging.byteLimit / 2;
+                        logFLineVerbose(
+                            "  using chunked extraction with a %d byte target",
+                            chunkTargetBytes);
                     }
 
                     size_t membersWithoutFingerprint;
@@ -2500,6 +2556,93 @@ void updateArchives(NamedBinaryBlob obj,
                             continue;
                         if (gotCtrlC !is null && atomicLoad(*gotCtrlC))
                             cancelAt(idx);
+                        if (chunkingEnabled && idx >= chunkEndIndex)
+                        {
+                            releaseChunk();
+                            auto chunk = planArchiveChunk(archiveEntries,
+                                idx, chunkTargetBytes,
+                                maximumArchiveChunkMembers);
+                            if (chunk.eligible)
+                            {
+                                string chunkFailure;
+                                ArchiveBulkReservation reservation;
+                                try
+                                {
+                                    reservation = sharedArchiveBulkStaging()
+                                        .reserve(chunk.requiredBytes);
+                                    if (reservation is null)
+                                        chunkFailure =
+                                            "staging budget unavailable";
+                                    else
+                                    {
+                                        if (gotCtrlC !is null
+                                            && atomicLoad(*gotCtrlC))
+                                        {
+                                            reservation.release();
+                                            reservation = null;
+                                            cancelAt(idx);
+                                        }
+                                        if (!archiveObj.extractEntriesTo(
+                                                chunk.names, reservation.path,
+                                                password, gotCtrlC))
+                                            chunkFailure =
+                                                "adapter does not support chunk extraction";
+                                        else
+                                        {
+                                            chunkReservation = reservation;
+                                            reservation = null;
+                                            chunkRoot =
+                                                chunkReservation.path;
+                                            stagedRoot = chunkRoot;
+                                            chunkEndIndex = chunk.endIndex;
+                                            logFLineVerbose(
+                                                "  chunk-extracted %d named members into '%s'",
+                                                chunk.names.length, chunkRoot);
+                                        }
+                                    }
+                                }
+                                catch (ArchivePasswordRequiredException ex)
+                                {
+                                    chunkFailure = oneLineFailure(ex.msg);
+                                }
+                                catch (ArchiveScanCancelledException ex)
+                                {
+                                    if (reservation !is null)
+                                    {
+                                        reservation.release();
+                                        reservation = null;
+                                    }
+                                    throw ex;
+                                }
+                                catch (Exception ex)
+                                {
+                                    if (reservation !is null)
+                                    {
+                                        reservation.release();
+                                        reservation = null;
+                                    }
+                                    if (gotCtrlC !is null
+                                        && atomicLoad(*gotCtrlC))
+                                        cancelAt(idx);
+                                    chunkFailure = oneLineFailure(ex.msg);
+                                }
+                                if (reservation !is null)
+                                {
+                                    reservation.release();
+                                    reservation = null;
+                                }
+                                if (chunkFailure.length > 0)
+                                {
+                                    logFLineVerbose(
+                                        "  chunk extraction skipped: %s; using per-member extraction.",
+                                        chunkFailure);
+                                    chunkingEnabled = false;
+                                    chunkEndIndex = idx;
+                                }
+                            }
+                            else
+                                chunkEndIndex = idx + 1;
+                        }
                         const auto arcfile = descriptor.name;
                         logFLineVerbose("  with archive file '%s'", arcfile);
 
@@ -2550,9 +2693,9 @@ void updateArchives(NamedBinaryBlob obj,
 
                         if (deep)
                         {
-                            if (bulkExtracted)
+                            if (stagedRoot.length > 0)
                                 extractedPath = bulkExtractedMemberPath(
-                                    bulkReservation.path, descriptor);
+                                    stagedRoot, descriptor);
                             if (extractedPath.length == 0)
                             {
                                 bool exOk;
@@ -2718,7 +2861,8 @@ void updateArchives(NamedBinaryBlob obj,
                                         passwordCallback, depth + 1, maxDepth,
                                         nestedDisplayPath, memberCache,
                                         inspectMemberFileType,
-                                        inspectMemberMediaInfo, archiveBulkMode);
+                                        inspectMemberMediaInfo, archiveBulkMode,
+                                        archiveChunkBytes);
                                 catch (ArchiveScanCancelledException)
                                     cancelAt(idx);
                                 nestedEntries = nestedBlob.archiveSpecs;
@@ -2744,6 +2888,9 @@ void updateArchives(NamedBinaryBlob obj,
 
                         if (progressCallBack !is null)
                             progressCallBack.report(idx + 1, archiveEntries.length);
+                        if (chunkReservation !is null
+                            && idx + 1 >= chunkEndIndex)
+                            releaseChunk();
 					}
                     if (membersWithoutFingerprint > 0)
                         logFLineVerbose("Archive '%s': stored %d member(s) without deep fingerprints after extraction failures.",
@@ -3289,6 +3436,121 @@ unittest
             ++completed;
     assert(completed > 0 && completed < 8,
         "only the members completed before cancellation belong to the partial index");
+}
+
+@("deep archive scan chunks large member sets")
+unittest
+{
+    import std.conv : to;
+    import std.file : DirEntry, SpanMode, dirEntries, exists, getSize,
+        isFile, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.process : execute, executeShell;
+    import std.uuid : randomUUID;
+    import dosierskanilo.archivebulk : ArchiveBulkMode;
+
+    if (executeShell("command -v zip").status != 0)
+        return;
+    const root = buildPath(tempDir(), "archive-chunk-scan-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    string[] memberPaths;
+    foreach (index; 0 .. 8)
+    {
+        const memberPath = buildPath(root,
+            "member-" ~ index.to!string ~ ".bin");
+        write(memberPath, new char[1024]);
+        memberPaths ~= memberPath;
+    }
+    const archivePath = buildPath(root, "chunks.zip");
+    auto created = execute(["zip", "-q", "-j", archivePath] ~ memberPaths);
+    assert(created.status == 0, created.output);
+
+    auto blob = new NamedBinaryBlob(archivePath,
+        cast(size_t) getSize(archivePath), SysTime(1_234_567));
+    auto cache = new MemberContentCache(buildPath(root, "cache"));
+    scope (exit)
+        cache.close();
+    updateArchives(blob, true, true, null, null, null, 0, 8, "", cache,
+        false, false, ArchiveBulkMode.always, 2048);
+    assert(blob.archiveSpecs.length == 8);
+    foreach (entry; blob.archiveSpecs)
+        assert(entry.checkSums.hasDigests,
+            "chunk-extracted members must receive checksums");
+
+    size_t cachedFiles;
+    if (exists(cache.rootPath))
+        foreach (DirEntry entry; dirEntries(cache.rootPath, SpanMode.depth))
+            if (isFile(entry.name))
+                ++cachedFiles;
+    assert(cachedFiles == 0,
+        "chunk extraction must not populate the per-member cache");
+}
+
+@("chunked archive scans resume after cancellation")
+unittest
+{
+    import core.atomic : atomicStore;
+    import std.conv : to;
+    import std.exception : assertThrown;
+    import std.file : exists, getSize, mkdirRecurse, rmdirRecurse, tempDir,
+        write;
+    import std.path : buildPath;
+    import std.process : execute, executeShell;
+    import std.uuid : randomUUID;
+    import dosierskanilo.archivebulk : ArchiveBulkMode;
+
+    if (executeShell("command -v zip").status != 0)
+        return;
+    const root = buildPath(tempDir(), "archive-chunk-resume-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    string[] memberPaths;
+    foreach (index; 0 .. 8)
+    {
+        const memberPath = buildPath(root,
+            "member-" ~ index.to!string ~ ".bin");
+        write(memberPath, new char[1024]);
+        memberPaths ~= memberPath;
+    }
+    const archivePath = buildPath(root, "chunks.zip");
+    auto created = execute(["zip", "-q", "-j", archivePath] ~ memberPaths);
+    assert(created.status == 0, created.output);
+
+    auto blob = new NamedBinaryBlob(archivePath,
+        cast(size_t) getSize(archivePath), SysTime(1_234_567));
+    auto cache = new MemberContentCache(buildPath(root, "cache"));
+    scope (exit)
+        cache.close();
+    shared bool cancelled;
+    ProgressCallBack progress;
+    progress.contextual = (size_t completed, size_t total) {
+        if (completed >= 3)
+            atomicStore(cancelled, true);
+    };
+    assertThrown!Exception(updateArchives(blob, true, true, &cancelled,
+        &progress, null, 0, 8, "", cache, false, false,
+        ArchiveBulkMode.always, 2048));
+    assert(blob.archiveScanCursor > 0);
+    assert(blob.archiveIndexKnown && !blob.archiveIndexDeep);
+    assert(blob.archiveSpecs !is null);
+    const partial = blob.archiveSpecs.length;
+    assert(partial > 0 && partial < 8, partial.to!string);
+
+    updateArchives(blob, false, true, null, null, null, 0, 8, "", cache,
+        false, false, ArchiveBulkMode.always, 2048);
+    assert(blob.archiveScanCursor == 0);
+    assert(blob.archiveIndexKnown && blob.archiveIndexDeep);
+    assert(blob.archiveSpecs.length == 8,
+        blob.archiveSpecs.length.to!string);
+    foreach (entry; blob.archiveSpecs)
+        assert(entry.checkSums.hasDigests);
 }
 
 @("archive progress reports entry counts, not member byte counts")

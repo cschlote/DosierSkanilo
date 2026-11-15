@@ -489,6 +489,8 @@ private void printRunSettings(ArgsArray options, CliCommand command)
 	noticeFLine("  workers: %d", options.argNumberOfThreads);
 	noticeFLine("  archive cache: %s", archiveCacheSetting(options));
 	noticeFLine("  archive staging: %s", archiveStagingSetting(options));
+	noticeFLine("  archive chunk: %s", options.argArchiveChunkMiB > 0
+		? options.argArchiveChunkMiB.to!string ~ " MiB" : "adaptive");
 	noticeFLine("  archive bulk: %s", options.argArchiveBulk);
 	if (flags.length > 0)
 		noticeFLine("  flags: %s", flags.join(", "));
@@ -1909,6 +1911,9 @@ bool executeRepositoryMetadata(CatalogBackend backend, string repositoryRoot,
 	metadataOptions.archiveLimit = options.argArchiveLimit;
 	metadataOptions.archiveBulkMode = archiveBulkModeFromOption(
 		options.argArchiveBulk);
+	if (options.argArchiveChunkMiB > 0)
+		metadataOptions.archiveChunkBytes =
+			cast(ulong) options.argArchiveChunkMiB * 1_048_576UL;
 	metadataOptions.threads = options.argNumberOfThreads > 1
 		? cast(size_t) options.argNumberOfThreads : 1;
 	MetadataOperationRequest request;
@@ -2057,6 +2062,9 @@ MetadataScanOptions metadataOptionsFromCli(ArgsArray options)
 	metadata.scanTorrents = options.argScanTorrents;
 	metadata.rescan = options.argRescanMediaSig;
 	metadata.archiveBulkMode = archiveBulkModeFromOption(options.argArchiveBulk);
+	if (options.argArchiveChunkMiB > 0)
+		metadata.archiveChunkBytes =
+			cast(ulong) options.argArchiveChunkMiB * 1_048_576UL;
 	metadata.threads = options.argNumberOfThreads > 1
 		? cast(size_t) options.argNumberOfThreads : 1;
 	return metadata;
