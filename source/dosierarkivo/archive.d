@@ -95,6 +95,52 @@ package struct ArchiveToolResult
     bool cancelled;
 }
 
+/// Cached UTF-8-capable "C" locale reported by `archiveConsoleLocale`.
+private string archiveConsoleLocaleCache = "";
+/// Whether `archiveConsoleLocale` already probed the available locales.
+private bool archiveConsoleLocaleProbed;
+
+/** Preferred UTF-8-capable console locale for external archive tools.
+ *
+ * Some tools, notably `unrar`, encode member names for the active console
+ * locale: under `LC_ALL=C` every non-ASCII byte becomes a literal `?`, which
+ * breaks listing and extraction of archive members with heavy UTF-8 names. The
+ * numeric and date fields these tools print are not localized, so a
+ * UTF-8-capable C locale keeps parsing stable while preserving member names.
+ *
+ * The first available locale is selected from `C.UTF-8` and `C.utf8` using a
+ * one-shot cached `locale -a` probe. When neither is installed, the returned
+ * string is empty and callers leave the child environment inherited, because
+ * the parent locale then decides the console encoding.
+ *
+ * Returns: A locale such as `C.UTF-8`, or the empty string to inherit the
+ *     parent environment.
+ */
+package string archiveConsoleLocale()
+{
+    if (archiveConsoleLocaleProbed)
+        return archiveConsoleLocaleCache;
+    archiveConsoleLocaleProbed = true;
+    try
+    {
+        import std.process : execute;
+        auto listing = execute(["locale", "-a"]);
+        if (listing.status == 0)
+        {
+            const normalized = listing.output.toLower;
+            if (normalized.canFind("c.utf-8"))
+                archiveConsoleLocaleCache = "C.UTF-8";
+            else if (normalized.canFind("c.utf8"))
+                archiveConsoleLocaleCache = "C.utf8";
+        }
+    }
+    catch (Exception)
+    {
+        /* Without a locale probe result, inherit the parent environment. */
+    }
+    return archiveConsoleLocaleCache;
+}
+
 /** Run an external archive tool and stop it when cancellation is requested.
  *
  * Standard output and standard error are redirected to one temporary log so

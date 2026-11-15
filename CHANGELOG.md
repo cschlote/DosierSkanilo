@@ -7,6 +7,16 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
+## Unreleased
+
+- RAR listings keep heavy UTF-8 member names: `unrar` listing runs now use a
+  UTF-8-capable C locale (`C.UTF-8`/`C.utf8`, probed once) instead of plain
+  `LC_ALL=C`, which replaced every non-ASCII byte with `?`. Numeric and date
+  fields stay stable because `unrar` does not localize them.
+- Deep archive scans no longer skip every RAR archive: the encrypted-header
+  check compared the `file` type with `find` instead of `canFind`, so an empty
+  (not-found) result slice was treated as a match.
+
 ## Release 26.17.0 - 2026-11-15
 
 - CLI commands print a final `Elapsed time: ...` line after execution.

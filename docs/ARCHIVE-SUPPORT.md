@@ -148,7 +148,10 @@ failure instead of aborting the run.
   `tar -tf`, `unrar lb`, `7z l -ba`).
 - ZIP and TAR pair those names with rows from a second verbose listing; if the
   row count differs, descriptors fall back to names without metadata.
-- Listing commands use `LC_ALL=C` so date and size columns are stable.
+- Listing commands use a stable numeric locale so date and size columns do not
+  drift: `LC_ALL=C` for `unzip`, `tar`, and `7z`; a UTF-8-capable C locale
+  (`C.UTF-8`/`C.utf8`, probed once) for `unrar`, whose member-name output
+  follows the console encoding and would otherwise lose every non-ASCII byte.
 - ZIP duplicate names and glob-like member names use index-based extraction
   through Python `zipfile` when `python3` is available.
 - RAR and 7z cannot select duplicate-name occurrences; those entries remain
