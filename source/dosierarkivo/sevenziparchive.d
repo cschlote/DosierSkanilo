@@ -7,8 +7,8 @@
 module dosierarkivo.sevenziparchive;
 
 import std.conv : to;
-import std.file : exists, getcwd, remove;
-import std.path : absolutePath, buildPath;
+import std.file : exists, remove;
+import std.path : absolutePath;
 import std.process : execute, executeShell;
 import std.regex : matchFirst;
 import std.string : empty, format, splitLines, strip;
@@ -136,15 +136,11 @@ class FileArchive7z : FileArchive
     override bool extractEntry(string filename, string destDir, string password = "",
         shared(bool)* cancellation = null)
     {
-        auto tarPath = buildPath(getcwd(), this.fileName);
         auto passwordOption = password.length > 0
             ? "-p" ~ password : "-p__dosierskanilo_no_password__";
-        auto result = runArchiveTool(["7z", "x", passwordOption,
-            "-o" ~ destDir, tarPath, "--", filename], cancellation);
-        if (result.status != 0 && isArchivePasswordFailure(result.output))
-            throw new ArchivePasswordRequiredException(result.output);
-        if (result.status != 0)
-            throw new ArchiveToolException(result.output);
+        enforceArchiveToolResult(runArchiveTool(["7z", "x", passwordOption,
+            "-o" ~ destDir, absolutePath(this.fileName), "--", filename],
+            cancellation));
         return true;
     }
 
@@ -162,17 +158,12 @@ class FileArchive7z : FileArchive
     override bool extractEntriesTo(string[] members, string destDir,
         string password = "", shared(bool)* cancellation = null)
     {
-        auto tarPath = buildPath(getcwd(), this.fileName);
         auto passwordOption = password.length > 0
             ? "-p" ~ password : "-p__dosierskanilo_no_password__";
         auto command = ["7z", "x", passwordOption, "-y", "-bd",
-            "-o" ~ destDir, tarPath, "--"];
+            "-o" ~ destDir, absolutePath(this.fileName), "--"];
         command ~= members;
-        auto result = runArchiveTool(command, cancellation);
-        if (result.status != 0 && isArchivePasswordFailure(result.output))
-            throw new ArchivePasswordRequiredException(result.output);
-        if (result.status != 0)
-            throw new ArchiveToolException(result.output);
+        enforceArchiveToolResult(runArchiveTool(command, cancellation));
         return true;
     }
 
@@ -189,15 +180,11 @@ class FileArchive7z : FileArchive
     override bool extractAllTo(string destDir, string password = "",
         shared(bool)* cancellation = null)
     {
-        auto tarPath = buildPath(getcwd(), this.fileName);
         auto passwordOption = password.length > 0
             ? "-p" ~ password : "-p__dosierskanilo_no_password__";
-        auto result = runArchiveTool(["7z", "x", passwordOption, "-y", "-bd",
-            "-o" ~ destDir, tarPath], cancellation);
-        if (result.status != 0 && isArchivePasswordFailure(result.output))
-            throw new ArchivePasswordRequiredException(result.output);
-        if (result.status != 0)
-            throw new ArchiveToolException(result.output);
+        enforceArchiveToolResult(runArchiveTool(["7z", "x", passwordOption,
+            "-y", "-bd", "-o" ~ destDir, absolutePath(this.fileName)],
+            cancellation));
         return true;
     }
 

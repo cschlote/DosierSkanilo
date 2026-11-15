@@ -69,14 +69,13 @@ version (unittest)
             auto destFile = buildPath(getTmpDirPrefix, listEntry);
             auto rv = obj.extractEntry(listEntry, getTmpDirPrefix);
             assert(rv);
-            auto expectedFile = buildPath(destFile);
-            assert(expectedFile.exists, expectedFile);
+            assert(destFile.exists, destFile);
 
             import dosierskanilo.metadata.digests : calculatesDigests;
 
             ubyte[] sha1sum_s, sha1sum_d;
             calculatesDigests(null, listEntry, null, &sha1sum_s, null, null);
-            calculatesDigests(null, expectedFile, null, &sha1sum_d, null, null);
+            calculatesDigests(null, destFile, null, &sha1sum_d, null, null);
             assert(sha1sum_s == sha1sum_d);
         }
     }

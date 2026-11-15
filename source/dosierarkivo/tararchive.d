@@ -10,11 +10,10 @@ import std.algorithm : filter;
 import std.algorithm.searching : canFind;
 import std.array : array;
 import std.conv : to;
-import std.file : exists, getcwd, remove;
-import std.path : absolutePath, buildPath;
+import std.file : exists, remove;
+import std.path : absolutePath;
 import std.process : execute, executeShell;
 import std.regex : matchFirst;
-import std.stdio : write;
 import std.string : empty, format, split, splitLines, strip;
 
 import dosierarkivo.archive;
@@ -168,9 +167,8 @@ class FileArchiveTar : FileArchive
     override bool extractEntry(string filename, string destDir, string password = "",
         shared(bool)* cancellation = null)
     {
-        auto tarPath = buildPath(getcwd(), this.fileName);
-        auto result = runArchiveTool(["tar", "-xf", tarPath, "-C", destDir,
-            "--", filename], cancellation);
+        auto result = runArchiveTool(["tar", "-xf", absolutePath(this.fileName),
+            "-C", destDir, "--", filename], cancellation);
         if (result.status != 0)
             throw new ArchiveToolException(result.output);
         return true;
@@ -249,12 +247,11 @@ class FileArchiveTar : FileArchive
                 cancellation);
         if (!supportsEntryOccurrence)
             return false;
-        const auto tarPath = buildPath(getcwd(), this.fileName);
         const auto occurrenceOption = "--occurrence="
             ~ (descriptor.occurrence + 1).to!string;
         const auto result = runArchiveTool(["tar", "--extract",
-            "--file=" ~ tarPath, "--directory=" ~ destDir, occurrenceOption,
-            "--", descriptor.name], cancellation);
+            "--file=" ~ absolutePath(this.fileName), "--directory=" ~ destDir,
+            occurrenceOption, "--", descriptor.name], cancellation);
         return result.status == 0;
     }
 
@@ -268,7 +265,6 @@ class FileArchiveTar : FileArchive
         {
             deleteTestArchive;
             auto rc = execute(["tar", "-cf", tarFileName] ~ expectedEntries);
-            write(rc.output);
             assert(rc.status == 0, rc.output);
         }
 

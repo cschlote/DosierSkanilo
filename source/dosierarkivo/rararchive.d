@@ -9,8 +9,8 @@ module dosierarkivo.rararchive;
 import std.algorithm : any, filter;
 import std.array : array;
 import std.conv : to;
-import std.file : exists, getcwd, remove;
-import std.path : absolutePath, buildPath, dirSeparator;
+import std.file : exists, remove;
+import std.path : absolutePath, dirSeparator;
 import std.process : Config, execute, executeShell;
 import std.string : empty, format, indexOf, replace, split, splitLines,
     startsWith, strip;
@@ -33,6 +33,35 @@ class FileArchiveRar : FileArchive
     this(string filename)
     {
         super(ArchiveType.rar, filename);
+    }
+
+    /** Build the `unrar` password option for a supplied password.
+     *
+     * Params:
+     *     password = Archive password; empty disables password prompting.
+     * Returns: `-pPASSWORD`, or `-p-` for the empty password.
+     */
+    private string unrarPasswordOption(string password) const pure
+    {
+        return password.length > 0 ? "-p" ~ password : "-p-";
+    }
+
+    /** Build the child environment for one `unrar` listing run.
+     *
+     * The environment pins the UTF-8-capable C locale from
+     * `archiveConsoleLocale()` so member names survive; when no such locale is
+     * installed the map stays empty and the child inherits the parent
+     * environment.
+     *
+     * Returns: Environment map for `std.process.execute`.
+     */
+    private string[string] unrarListingEnvironment() const
+    {
+        string[string] environment;
+        const auto consoleLocale = archiveConsoleLocale();
+        if (consoleLocale.length > 0)
+            environment["LC_ALL"] = consoleLocale;
+        return environment;
     }
 
     /** Like `FileArchive.getEntryDescriptors`, enriched with `unrar lt` metadata.
@@ -64,16 +93,9 @@ class FileArchiveRar : FileArchive
             bool isDirectory;
         }
 
-        auto passwordOption = password.length > 0 ? "-p" ~ password : "-p-";
-        string[string] environment;
-        /* `unrar` encodes member names for the console locale; a plain C
-         * locale would replace every non-ASCII byte with `?`. The numeric and
-         * date fields stay stable under a UTF-8-capable C locale. */
-        const auto consoleLocale = archiveConsoleLocale();
-        if (consoleLocale.length > 0)
-            environment["LC_ALL"] = consoleLocale;
+        auto passwordOption = unrarPasswordOption(password);
         auto rc = execute(["unrar", "lt", passwordOption, absolutePath(this.fileName)],
-            environment, Config.stderrPassThrough);
+            unrarListingEnvironment(), Config.stderrPassThrough);
         /* unrar exits with 11 for a wrong password even when the diagnostic
          * goes to stderr and stdout is empty. */
         if (isArchivePasswordFailure(rc.output) || rc.status == 11)
@@ -163,15 +185,9 @@ class FileArchiveRar : FileArchive
      */
     override string[] getEntries(string password = "")
     {
-        auto passwordOption = password.length > 0 ? "-p" ~ password : "-p-";
-        string[string] environment;
-        /* `unrar` encodes member names for the console locale; a plain C
-         * locale would replace every non-ASCII byte with `?`. */
-        const auto consoleLocale = archiveConsoleLocale();
-        if (consoleLocale.length > 0)
-            environment["LC_ALL"] = consoleLocale;
+        auto passwordOption = unrarPasswordOption(password);
         auto rc = execute(["unrar", "lb", passwordOption, absolutePath(this.fileName)],
-            environment, Config.stderrPassThrough);
+            unrarListingEnvironment(), Config.stderrPassThrough);
         if (isArchivePasswordFailure(rc.output) || rc.status == 11)
             throw new ArchivePasswordRequiredException(rc.output.length > 0
                 ? rc.output : password.length > 0
@@ -199,14 +215,9 @@ class FileArchiveRar : FileArchive
     override bool extractEntry(string filename, string destDir, string password = "",
         shared(bool)* cancellation = null)
     {
-        auto tarPath = buildPath(getcwd(), this.fileName);
-        auto passwordOption = password.length > 0 ? "-p" ~ password : "-p-";
-        auto result = runArchiveTool(["unrar", "x", passwordOption, tarPath,
-            "--", filename, destDir], cancellation);
-        if (result.status != 0 && isArchivePasswordFailure(result.output))
-            throw new ArchivePasswordRequiredException(result.output);
-        if (result.status != 0)
-            throw new ArchiveToolException(result.output);
+        auto result = runArchiveTool(["unrar", "x", unrarPasswordOption(password),
+            absolutePath(this.fileName), "--", filename, destDir], cancellation);
+        enforceArchiveToolResult(result);
         return true;
     }
 
@@ -224,17 +235,11 @@ class FileArchiveRar : FileArchive
     override bool extractEntriesTo(string[] members, string destDir,
         string password = "", shared(bool)* cancellation = null)
     {
-        auto archivePath = buildPath(getcwd(), this.fileName);
-        auto passwordOption = password.length > 0 ? "-p" ~ password : "-p-";
-        auto command = ["unrar", "x", "-o+", "-idq", passwordOption,
-            archivePath, "--"];
+        auto command = ["unrar", "x", "-o+", "-idq", unrarPasswordOption(password),
+            absolutePath(this.fileName), "--"];
         command ~= members;
         command ~= destDir ~ dirSeparator;
-        auto result = runArchiveTool(command, cancellation);
-        if (result.status != 0 && isArchivePasswordFailure(result.output))
-            throw new ArchivePasswordRequiredException(result.output);
-        if (result.status != 0)
-            throw new ArchiveToolException(result.output);
+        enforceArchiveToolResult(runArchiveTool(command, cancellation));
         return true;
     }
 
@@ -251,15 +256,9 @@ class FileArchiveRar : FileArchive
     override bool extractAllTo(string destDir, string password = "",
         shared(bool)* cancellation = null)
     {
-        auto archivePath = buildPath(getcwd(), this.fileName);
-        auto passwordOption = password.length > 0 ? "-p" ~ password : "-p-";
-        auto result = runArchiveTool(["unrar", "x", "-o+", "-idq",
-            passwordOption, archivePath, "--", ".", destDir ~ dirSeparator],
-            cancellation);
-        if (result.status != 0 && isArchivePasswordFailure(result.output))
-            throw new ArchivePasswordRequiredException(result.output);
-        if (result.status != 0)
-            throw new ArchiveToolException(result.output);
+        enforceArchiveToolResult(runArchiveTool(["unrar", "x", "-o+", "-idq",
+            unrarPasswordOption(password), absolutePath(this.fileName), "--",
+            ".", destDir ~ dirSeparator], cancellation));
         return true;
     }
 

@@ -84,6 +84,24 @@ bool isArchivePasswordFailure(string output)
         || message.canFind("passphrase");
 }
 
+/** Re-raise a failed cancellable archive-tool run as documented exceptions.
+ *
+ * Params:
+ *     result = Result of a `runArchiveTool` invocation; a zero status returns
+ *         without throwing.
+ * Throws: `ArchivePasswordRequiredException` when the tool output indicates a
+ *     missing or rejected password, `ArchiveToolException` for any other
+ *     non-zero exit status.
+ */
+package void enforceArchiveToolResult(ArchiveToolResult result)
+{
+    if (result.status == 0)
+        return;
+    if (isArchivePasswordFailure(result.output))
+        throw new ArchivePasswordRequiredException(result.output);
+    throw new ArchiveToolException(result.output);
+}
+
 /** Combined result of one cancellable archive-tool invocation. */
 package struct ArchiveToolResult
 {
@@ -99,6 +117,29 @@ package struct ArchiveToolResult
 private string archiveConsoleLocaleCache = "";
 /// Whether `archiveConsoleLocale` already probed the available locales.
 private bool archiveConsoleLocaleProbed;
+
+/** Select the UTF-8-capable C locale from one `locale -a` listing.
+ *
+ * Lines are compared after trimming and lower-casing, so only an exact
+ * `C.UTF-8` or `C.utf8` entry matches; a locale whose name merely contains a
+ * similar substring, such as `xx_C.utf8`, is rejected. `C.UTF-8` wins when
+ * both spellings are installed.
+ *
+ * Params:
+ *     localeListing = Complete standard output of `locale -a`.
+ * Returns: The selected locale spelling, or an empty string when the listing
+ *     offers no UTF-8-capable C locale.
+ */
+package string selectConsoleLocale(string localeListing) @safe
+{
+    import std.string : splitLines, strip, toLower;
+
+    foreach (spelling; ["C.UTF-8", "C.utf8"])
+        foreach (rawLine; localeListing.splitLines)
+            if (rawLine.strip.toLower == spelling.toLower)
+                return spelling;
+    return "";
+}
 
 /** Preferred UTF-8-capable console locale for external archive tools.
  *
@@ -126,13 +167,7 @@ package string archiveConsoleLocale()
         import std.process : execute;
         auto listing = execute(["locale", "-a"]);
         if (listing.status == 0)
-        {
-            const normalized = listing.output.toLower;
-            if (normalized.canFind("c.utf-8"))
-                archiveConsoleLocaleCache = "C.UTF-8";
-            else if (normalized.canFind("c.utf8"))
-                archiveConsoleLocaleCache = "C.utf8";
-        }
+            archiveConsoleLocaleCache = selectConsoleLocale(listing.output);
     }
     catch (Exception)
     {
@@ -713,10 +748,13 @@ string archiveDisplayBaseName(string path)
 
 /** Top-level representation of an archive file.
  *
- * The idea is to have a baseclass with the common interface and then have implementations
- * for the different archive types. The baseclass can be used in the rest of the code and
- * the factory method creates an instance of the correct type. When we need to support a new
- * archive type, we just add a new implementation and extend the factory method.
+ * The base class defines the shared archive interface: listing members as
+ * plain names, returning stable `ArchiveEntryDescriptor` identity without
+ * extraction, and extracting single members, named subsets, or the complete
+ * archive through an external tool. Format adapters subclass it; the factory
+ * in `dosierarkivo.factory` selects the implementation from the filename
+ * suffix. Supporting a new archive type means adding one subclass and one
+ * factory entry.
  */
 abstract class FileArchive
 {
@@ -794,31 +832,26 @@ abstract class FileArchive
     protected ArchiveEntryDescriptor[] finalizeDescriptors(
         ArchiveEntryDescriptor[] input)
     {
-        size_t[string] occurrences;
-        foreach (index, ref descriptor; input)
+        size_t[string] pathCounts;
+        foreach (ref descriptor; input)
         {
-            descriptor.index = index;
             bool nameIsDirectory;
             descriptor.relativePath = normalizeArchiveEntryPath(descriptor.name,
                 descriptor.hasSafePath, nameIsDirectory);
             descriptor.isDirectory = descriptor.isDirectory || nameIsDirectory;
-            const auto occurrenceKey = descriptor.hasSafePath
-                ? descriptor.relativePath : descriptor.name;
-            descriptor.occurrence = occurrences.get(occurrenceKey, 0);
-            occurrences[occurrenceKey] = descriptor.occurrence + 1;
-        }
-        size_t[string] pathCounts;
-        foreach (descriptor; input)
-        {
             const auto identityPath = descriptor.hasSafePath
                 ? descriptor.relativePath : descriptor.name;
             pathCounts[identityPath] = pathCounts.get(identityPath, 0) + 1;
         }
-        foreach (ref descriptor; input)
+        size_t[string] occurrences;
+        foreach (index, ref descriptor; input)
         {
+            descriptor.index = index;
             const auto identityPath = descriptor.hasSafePath
                 ? descriptor.relativePath : descriptor.name;
-            descriptor.hasDuplicateName = pathCounts.get(identityPath, 0) > 1;
+            descriptor.occurrence = occurrences.get(identityPath, 0);
+            occurrences[identityPath] = descriptor.occurrence + 1;
+            descriptor.hasDuplicateName = pathCounts[identityPath] > 1;
         }
         return input;
     }
@@ -1055,6 +1088,29 @@ unittest
         assert(result.output.canFind("stdout"), result.output);
         assert(result.output.canFind("stderr"), result.output);
     }
+}
+
+@("selectConsoleLocale matches whole C locale entries only")
+unittest
+{
+    assert(selectConsoleLocale("C\nC.utf8\nde_DE.utf8\n") == "C.utf8");
+    assert(selectConsoleLocale("C\nC.UTF-8\nC.utf8\n") == "C.UTF-8");
+    assert(selectConsoleLocale("POSIX\nen_US.utf8\nzh_CN.utf8\nsc.utf8\n") == "");
+    assert(selectConsoleLocale("") == "");
+}
+
+@("enforceArchiveToolResult maps failures to the documented exceptions")
+unittest
+{
+    import std.exception : assertThrown;
+
+    ArchiveToolResult success;
+    enforceArchiveToolResult(success);
+
+    assertThrown!ArchivePasswordRequiredException(enforceArchiveToolResult(
+        ArchiveToolResult(11, "Enter password")));
+    assertThrown!ArchiveToolException(enforceArchiveToolResult(
+        ArchiveToolResult(2, "boom")));
 }
 
 @("runArchiveTool terminates a cancelled child")

@@ -79,32 +79,22 @@ private ArchiveType archiveTypeForName(string filename) @safe
  */
 FileArchive fileArchive(string filename)
 {
-    if (filename.exists == false)
+    if (!filename.exists)
         return null;
 
-    FileArchive fa;
-    switch (archiveTypeForName(filename))
+    final switch (archiveTypeForName(filename))
     {
     case ArchiveType.zip:
-        fa = new FileArchiveZip(filename);
-        break;
+        return new FileArchiveZip(filename);
     case ArchiveType.tar:
-        fa = new FileArchiveTar(filename);
-        break;
+        return new FileArchiveTar(filename);
     case ArchiveType.rar:
-        fa = new FileArchiveRar(filename);
-        break;
+        return new FileArchiveRar(filename);
     case ArchiveType._7z:
-        fa = new FileArchive7z(filename);
-        break;
+        return new FileArchive7z(filename);
     case ArchiveType.unknown:
-        fa = null;
-        break;
-    default:
-        fa = null;
-        break;
+        return null;
     }
-    return fa;
 }
 
 @("fileArchive() edgecase")
