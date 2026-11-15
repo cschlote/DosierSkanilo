@@ -632,6 +632,8 @@ private void clearJsonDerivedMetadata(NamedBinaryBlob blob)
     blob.archiveSpecs = null;
     blob.archiveIndexKnown = false;
     blob.archiveIndexDeep = false;
+    blob.archiveScanCursor = 0;
+    blob.archiveScanResumed = false;
     blob.archivePassword = "";
     blob.torrentInfo = null;
 }
