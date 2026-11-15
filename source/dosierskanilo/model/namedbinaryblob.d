@@ -64,6 +64,24 @@ class CatalogFormatException : Exception
 	}
 }
 
+/** Raised when cooperative cancellation stops a deep archive scan.
+ *
+ * The blob carries the completed member specs and `archiveScanCursor` so the
+ * caller can persist a resumable partial index instead of discarding work.
+ */
+class ArchiveScanCancelledException : Exception
+{
+	/** Build the exception with a diagnostic message.
+	 *
+	 * Params:
+	 *     message = Human-readable cancellation reason.
+	 */
+	this(string message)
+	{
+		super(message);
+	}
+}
+
 /** Whether a catalog read failure indicates malformed input.
  *
  * Such failures may be recovered by starting with an empty catalog when the
@@ -194,6 +212,8 @@ class NamedBinaryBlob
 
 	/** True when FileSpec names use the JSON-v5 archive virtual path grammar. */
 	bool fileSpecsUseArchiveVirtualGrammar;
+	/** True when the current archive scan continued a partial index. */
+	bool archiveScanResumed;
 
 	/* ------------------------------------------------------------------- */
 	/* Some helper vars not serialized */
@@ -223,6 +243,7 @@ class NamedBinaryBlob
 		ArchiveSpec[] archiveSpecs; /// Contents of an archive
 		bool archiveIndexKnown; /// JSON v5 archive-index state, including empty indexes
 		bool archiveIndexDeep; /// True when member metadata was extracted deeply
+		size_t archiveScanCursor; /// Next entry index for a partial deep scan
 		string archivePassword; /// Optional password used to inspect this archive
 		TorrentInfo torrentInfo; /// Extracted torrent information
 	}
@@ -265,6 +286,8 @@ class NamedBinaryBlob
 		archiveSpecs = null; // Contents of an archive
 		archiveIndexKnown = false;
 		archiveIndexDeep = false;
+		archiveScanCursor = 0;
+		archiveScanResumed = false;
 		fileSpecsUseArchiveVirtualGrammar = false;
 		archivePassword = ""; // Optional archive password
 		torrentInfo = null; // Extracted torrent information
@@ -370,6 +393,8 @@ class NamedBinaryBlob
 		archivePassword = other.archivePassword;
 		archiveIndexKnown = other.archiveIndexKnown;
 		archiveIndexDeep = other.archiveIndexDeep;
+		archiveScanCursor = other.archiveScanCursor;
+		archiveScanResumed = other.archiveScanResumed;
 		fileSpecsUseArchiveVirtualGrammar = other.fileSpecsUseArchiveVirtualGrammar;
 		if (other.archiveSpecs !is null)
 		{
@@ -1555,8 +1580,9 @@ private NamedBinaryBlob[] normalizeV5Catalog(NamedBinaryBlob[] blobs,
 		if (archiveEntries !is null)
 		{
 			blob.archiveIndexKnown = true;
-			blob.archiveIndexDeep = archiveEntriesHaveCompleteChecksums(
-				archiveEntries);
+			if (blob.archiveScanCursor == 0)
+				blob.archiveIndexDeep = archiveEntriesHaveCompleteChecksums(
+					archiveEntries);
 			blob.archiveSpecs = null;
 		}
 		records ~= blob;
@@ -1742,6 +1768,35 @@ void serializeDataClassWrapperFile(string fileName, ref NamedBinaryBlobCatalog w
 	}
 	file.flush();
 	file.sync();
+}
+
+@("archive scan cursor survives JSON serialization")
+unittest
+{
+    import std.conv : to;
+    import std.file : exists, remove, tempDir;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const path = buildPath(tempDir(), "archive-cursor-" ~ randomUUID().toString()
+        ~ ".json");
+    scope (exit)
+        if (exists(path))
+            remove(path);
+    auto blob = new NamedBinaryBlob();
+    blob.fileSize = 42;
+    blob.fileSpecs = [new FileSpec("bundle.7z", "")];
+    blob.archiveIndexKnown = true;
+    blob.archiveIndexDeep = false;
+    blob.archiveScanCursor = 17;
+    auto catalog = NamedBinaryBlobCatalog(DATA_CLASS_VERSION5, [blob]);
+    serializeDataClassWrapperFile(path, catalog);
+    auto loaded = deserializeDataClassJsonWrapperFile(path);
+    assert(loaded.dataArray.length == 1);
+    assert(loaded.dataArray[0].archiveScanCursor == 17,
+        loaded.dataArray[0].archiveScanCursor.to!string);
+    assert(loaded.dataArray[0].archiveIndexKnown);
+    assert(!loaded.dataArray[0].archiveIndexDeep);
 }
 
 @("serializeDataClassWrapperFile writes compact JSON unless pretty is requested")
@@ -2253,7 +2308,12 @@ void updateArchives(NamedBinaryBlob obj,
 	if (memberCache is null)
 		memberCache = sharedMemberContentCache();
 
-	if (obj.archiveSpecs is null || rescan)
+	const bool resumePartial = !rescan && deep && obj.archiveIndexKnown
+		&& !obj.archiveIndexDeep && obj.archiveScanCursor > 0;
+	const bool needsArchiveScan = obj.archiveSpecs is null || rescan
+		|| resumePartial
+		|| (deep && obj.archiveIndexKnown && !obj.archiveIndexDeep);
+	if (needsArchiveScan)
 	{
 		bool archiveFound;
 		import std.algorithm.sorting : sort;
@@ -2323,12 +2383,49 @@ void updateArchives(NamedBinaryBlob obj,
                         obj.archivePassword = password;
                     logFLineVerbose("  with %d entries", archiveEntries.length);
 
+                    const bool resuming = !rescan && deep
+                        && obj.archiveIndexKnown && !obj.archiveIndexDeep
+                        && obj.archiveScanCursor > 0;
+                    const size_t startIndex = resuming
+                        && obj.archiveScanCursor <= archiveEntries.length
+                        ? obj.archiveScanCursor : 0;
+                    obj.archiveScanResumed = startIndex > 0;
+                    if (deep)
+                        logFLineVerbose("  archive scan state: known=%s deep=%s cursor=%d start=%d",
+                            obj.archiveIndexKnown, obj.archiveIndexDeep,
+                            obj.archiveScanCursor, startIndex);
+
                     ArchiveBulkReservation bulkReservation;
                     bool bulkExtracted;
                     scope (exit)
                         if (bulkReservation !is null)
                             bulkReservation.release();
-                    if (deep)
+
+                    ArchiveSpec[] scannedSpecs;
+                    if (startIndex > 0 && obj.archiveSpecs !is null)
+                        foreach (existingSpec; obj.archiveSpecs)
+                            if (existingSpec !is null
+                                && existingSpec.entryIndex < startIndex)
+                                scannedSpecs ~= existingSpec;
+
+                    void cancelAt(size_t nextIndex)
+                    {
+                        const size_t completed = nextIndex > 0 ? nextIndex
+                            : (resuming ? startIndex : 0);
+                        if (completed > 0)
+                        {
+                            obj.archiveScanCursor = completed;
+                            obj.archiveIndexKnown = true;
+                            obj.archiveIndexDeep = false;
+                            obj.archiveSpecs = scannedSpecs;
+                            obj.archiveScanResumed = startIndex > 0;
+                        }
+                        throw new ArchiveScanCancelledException(
+                            "Archive scan was cancelled; "
+                            ~ completed.to!string ~ " entries completed.");
+                    }
+
+                    if (deep && startIndex == 0)
                     {
                         const auto bulkPlan = planArchiveBulkExtraction(
                             archiveEntries, archiveBulkMode, archiveObj.fileType);
@@ -2345,8 +2442,7 @@ void updateArchives(NamedBinaryBlob obj,
                                 else
                                 {
                                     if (gotCtrlC !is null && atomicLoad(*gotCtrlC))
-                                        throw new Exception(
-                                            "Archive scan was cancelled.");
+                                        cancelAt(startIndex);
                                     if (!archiveObj.extractAllTo(
                                             bulkReservation.path, password,
                                             gotCtrlC))
@@ -2366,11 +2462,14 @@ void updateArchives(NamedBinaryBlob obj,
                             {
                                 bulkFailure = oneLineFailure(ex.msg);
                             }
+                            catch (ArchiveScanCancelledException ex)
+                            {
+                                throw ex;
+                            }
                             catch (Exception ex)
                             {
                                 if (gotCtrlC !is null && atomicLoad(*gotCtrlC))
-                                    throw new Exception(
-                                        "Archive scan was cancelled.");
+                                    cancelAt(startIndex);
                                 bulkFailure = oneLineFailure(ex.msg);
                             }
                             if (bulkFailure.length > 0)
@@ -2390,15 +2489,17 @@ void updateArchives(NamedBinaryBlob obj,
                                 bulkPlan.reason);
                     }
 
-                    ArchiveSpec[] scannedSpecs;
                     size_t membersWithoutFingerprint;
                     if (progressCallBack !is null)
-                        progressCallBack.report(0, archiveEntries.length);
+                        progressCallBack.report(startIndex,
+                            archiveEntries.length);
 
                     foreach (idx, descriptor; archiveEntries)
                     {
+                        if (idx < startIndex)
+                            continue;
                         if (gotCtrlC !is null && atomicLoad(*gotCtrlC))
-                            throw new Exception("Archive scan was cancelled.");
+                            cancelAt(idx);
                         const auto arcfile = descriptor.name;
                         logFLineVerbose("  with archive file '%s'", arcfile);
 
@@ -2502,7 +2603,7 @@ void updateArchives(NamedBinaryBlob obj,
                                     }
                                     catch (MemberContentCancelledException failure)
                                     {
-                                        throw failure;
+                                        cancelAt(idx);
                                     }
                                     catch (MemberContentCacheClosedException failure)
                                     {
@@ -2511,7 +2612,7 @@ void updateArchives(NamedBinaryBlob obj,
                                     catch (MemberContentCacheException failure)
                                     {
                                         if (gotCtrlC !is null && atomicLoad(*gotCtrlC))
-                                            throw new Exception("Archive scan was cancelled.");
+                                            cancelAt(idx);
                                         extractionFailure = oneLineFailure(failure.msg);
                                         break;
                                     }
@@ -2522,7 +2623,7 @@ void updateArchives(NamedBinaryBlob obj,
                                          * the entry metadata and let preview fail
                                          * for that member only. */
                                         if (gotCtrlC !is null && atomicLoad(*gotCtrlC))
-                                            throw new Exception("Archive scan was cancelled.");
+                                            cancelAt(idx);
                                         extractionFailure = oneLineFailure(failure.msg);
                                         break;
                                     }
@@ -2563,8 +2664,7 @@ void updateArchives(NamedBinaryBlob obj,
                             calculatesDigests(gotCtrlC, extractedPath,
                                 &md5sum_s, &sha1sum_s, &xxh64sum_s, null);
                             if (gotCtrlC !is null && atomicLoad(*gotCtrlC))
-                                throw new Exception(
-                                    "Archive scan was cancelled.");
+                                cancelAt(idx);
                             if (progressCallBack !is null)
                                 progressCallBack.report(idx, archiveEntries.length);
 
@@ -2612,11 +2712,15 @@ void updateArchives(NamedBinaryBlob obj,
                                     archiveDisplayPath, descriptor.relativePath,
                                     descriptor.occurrence > 0
                                         ? descriptor.occurrence : size_t.max);
-                                updateArchives(nestedBlob, true, deep, gotCtrlC,
-                                    progressCallBack, passwordCallback, depth + 1,
-                                    maxDepth, nestedDisplayPath, memberCache,
-                                    inspectMemberFileType, inspectMemberMediaInfo,
-                                    archiveBulkMode);
+                                try
+                                    updateArchives(nestedBlob, true, deep,
+                                        gotCtrlC, progressCallBack,
+                                        passwordCallback, depth + 1, maxDepth,
+                                        nestedDisplayPath, memberCache,
+                                        inspectMemberFileType,
+                                        inspectMemberMediaInfo, archiveBulkMode);
+                                catch (ArchiveScanCancelledException)
+                                    cancelAt(idx);
                                 nestedEntries = nestedBlob.archiveSpecs;
                                 nestedPassword = nestedBlob.archivePassword;
                             }
@@ -2645,6 +2749,10 @@ void updateArchives(NamedBinaryBlob obj,
                         logFLineVerbose("Archive '%s': stored %d member(s) without deep fingerprints after extraction failures.",
                             archiveDisplayPath, membersWithoutFingerprint);
                     obj.archiveSpecs = scannedSpecs;
+                    obj.archiveScanCursor = 0;
+                    obj.archiveScanResumed = startIndex > 0;
+                    obj.archiveIndexKnown = true;
+                    obj.archiveIndexDeep = deep;
                     archiveFound = true;
 					break;
 				}
@@ -2654,7 +2762,11 @@ void updateArchives(NamedBinaryBlob obj,
 			logFLineVerbose("No existing file for archive scan (stored size %d, %d candidate(s)).",
 				obj.fileSize, obj.fileSpecs.length);
 		if (rescan && !archiveFound)
+		{
 			obj.archiveSpecs = null;
+			obj.archiveScanCursor = 0;
+			obj.archiveScanResumed = false;
+		}
 	}
 }
 
@@ -3162,11 +3274,21 @@ unittest
         if (completed > 0)
             atomicStore(cancelled, true);
     };
-    assertThrown!Exception(updateArchives(blob, true, true, &cancelled,
+    assertThrown!(Exception)(updateArchives(blob, true, true, &cancelled,
         &progress, null, 0, 8, "", cache, false, false,
         ArchiveBulkMode.always));
-    assert(blob.archiveSpecs is null,
-        "a cancelled archive scan must not publish a partial index");
+    assert(blob.archiveScanCursor > 0,
+        "a cancelled scan must remember where to resume");
+    assert(blob.archiveSpecs !is null,
+        "completed members must remain available as a partial index");
+    assert(blob.archiveIndexKnown && !blob.archiveIndexDeep,
+        "a partial index is known but not deeply complete");
+    size_t completed;
+    foreach (entry; blob.archiveSpecs)
+        if (entry !is null && entry.checkSums.hasDigests)
+            ++completed;
+    assert(completed > 0 && completed < 8,
+        "only the members completed before cancellation belong to the partial index");
 }
 
 @("archive progress reports entry counts, not member byte counts")
@@ -3376,6 +3498,7 @@ NamedBinaryBlob mergeDataClassObjects(NamedBinaryBlob[] objs)
 	ArchiveSpec[] mergedArchiveSpecs;
 	bool mergedArchiveIndexKnown;
 	bool mergedArchiveIndexDeep;
+	size_t mergedArchiveScanCursor;
 
 	foreach (obj; objs)
 	{
@@ -3425,6 +3548,8 @@ NamedBinaryBlob mergeDataClassObjects(NamedBinaryBlob[] objs)
 			|| obj.archiveIndexKnown;
 		mergedArchiveIndexDeep = mergedArchiveIndexDeep
 			|| obj.archiveIndexDeep;
+		if (obj.archiveScanCursor > mergedArchiveScanCursor)
+			mergedArchiveScanCursor = obj.archiveScanCursor;
 	}
 
 	auto newobj = (objs[0]).dup;
@@ -3439,6 +3564,8 @@ NamedBinaryBlob mergeDataClassObjects(NamedBinaryBlob[] objs)
 			newobj.archiveSpecs ~= entry is null ? null : entry.dup();
 	newobj.archiveIndexKnown = mergedArchiveIndexKnown;
 	newobj.archiveIndexDeep = mergedArchiveIndexDeep;
+	newobj.archiveScanCursor = mergedArchiveIndexDeep
+		? 0 : mergedArchiveScanCursor;
 
 	foreach (o; objs[1 .. $])
 		newobj.fileSpecs ~= o.fileSpecs;

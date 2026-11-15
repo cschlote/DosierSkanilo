@@ -75,6 +75,10 @@ private class MetadataWorkItem
     bool mediaInfoDone;
     /// Whether the archive job finished and may be persisted.
     bool archivesDone;
+    /// Whether the persisted archive index is a resumable partial index.
+    bool archivesPartial;
+    /// Whether the archive scan continued an existing partial index.
+    bool archivesResumed;
     /// Whether the torrent job finished and may be persisted.
     bool torrentsDone;
     /// Operation ID included in reported progress events.
@@ -239,17 +243,41 @@ private void runMetadataWork(MetadataWorkItem item)
                     completed, total, true, "entries");
             };
         }
-        attempt("archives", {
-            /* Abort the current archive promptly. Its partial index is not
-             * published, and already committed blobs stay committed. */
+        try
+        {
             updateArchives(item.blob, item.options.rescan,
                 item.options.deepArchiveScan, item.cancellationFlag,
                 item.control is null ? null : &archiveProgress,
                 item.options.archivePasswordCallback, 0, 8, "", null,
                 item.options.detectFileTypes, item.options.extractMediaInfo,
                 item.options.archiveBulkMode);
-        });
-        item.archivesDone = !item.cancelled;
+            item.archivesResumed = item.blob.archiveScanResumed;
+            item.archivesDone = true;
+        }
+        catch (ArchiveScanCancelledException)
+        {
+            /* Completed members are a resumable partial index. A cancellation
+             * before the first member leaves the archive pending instead. */
+            item.archivesResumed = item.blob.archiveScanResumed;
+            item.archivesPartial = item.blob.archiveScanCursor > 0;
+            item.archivesDone = item.archivesPartial;
+            item.cancelled = true;
+        }
+        catch (OperationCallbackException ex)
+            throw ex;
+        catch (Exception ex)
+        {
+            if (cancelled())
+            {
+                item.cancelled = true;
+                item.archivesDone = false;
+            }
+            else
+            {
+                item.errors["archives"] = ex.msg;
+                item.archivesDone = true;
+            }
+        }
     }
     if (cancelled())
         return;
@@ -1185,10 +1213,12 @@ private void persistMetadataWork(ref Database db, MetadataWorkItem item,
         item.blob.mediaInfoSig !is null && !item.blob.mediaInfoSig.empty,
         { persistMediaInfo(db, item.blobId, item.blob.mediaInfoSig); });
     finish("archives", item.doArchives && item.archivesDone,
-        item.blob.archiveSpecs !is null,
+        item.archivesPartial || item.blob.archiveSpecs !is null,
         {
             persistArchives(db, item.blobId, item.blob.archiveSpecs,
-                item.options.deepArchiveScan, summary);
+                item.options.deepArchiveScan, summary,
+                item.archivesPartial, item.blob.archiveScanCursor,
+                item.archivesResumed);
             persistArchivePassword(db, item.blobId, item.blob.archivePassword);
         });
     finish("torrents", item.doTorrents && item.torrentsDone,
@@ -1255,12 +1285,24 @@ private NamedBinaryBlob loadBlob(ref Database db, string rootPath, long blobId)
     {
         auto statusRow = archiveStatus.front;
         const auto state = statusRow.peek!string(0);
-        if (state == "completed" || state == "empty")
+        if (state == "completed" || state == "empty" || state == "partial")
         {
             blob.archiveIndexKnown = true;
             const auto extractor = statusRow.peek!(Nullable!string)(1);
-            blob.archiveIndexDeep = !extractor.isNull
-                && extractor.get.endsWith(":deep");
+            if (state == "partial")
+            {
+                blob.archiveIndexDeep = false;
+                const prefix = archiveIndexVersion ~ ":partial:";
+                if (!extractor.isNull && extractor.get.startsWith(prefix))
+                    try
+                        blob.archiveScanCursor =
+                            extractor.get[prefix.length .. $].to!size_t;
+                    catch (Exception)
+                        blob.archiveScanCursor = 0;
+            }
+            else
+                blob.archiveIndexDeep = !extractor.isNull
+                    && extractor.get.endsWith(":deep");
         }
     }
     return blob.fileSpecs.length == 0 ? null : blob;
@@ -1428,10 +1470,15 @@ private void persistMediaInfo(ref Database db, long blobId, MediaInfoSig info)
  *     entries = Extracted archive entries, or null when not an archive.
  *     deepScanned = Whether entry checksums were calculated by a deep scan.
  *     summary = Counters updated for member metadata.
+ *     partial = Mark the index as resumable instead of complete.
+ *     resumeCursor = Next descriptor index for a partial index.
+ *     preserveExisting = Keep previously stored members that are not in
+ *         `entries`; used when a resumed scan only reports new members.
  * Throws: `Exception` when nested archive indexing exceeds the depth limit.
  */
 private void persistArchives(ref Database db, long blobId, ArchiveSpec[] entries,
-    bool deepScanned, ref MetadataSummary summary)
+    bool deepScanned, ref MetadataSummary summary, bool partial = false,
+    size_t resumeCursor = 0, bool preserveExisting = false)
 {
     if (entries is null)
     {
@@ -1471,7 +1518,7 @@ private void persistArchives(ref Database db, long blobId, ArchiveSpec[] entries
     if (containers.length == 0)
         return;
 
-    const bool preserveDeep = !deepScanned
+    const bool preserveDeep = !partial && !deepScanned
         && archiveIndexCurrent(db, blobId, true);
     bool[string] desiredPaths;
     bool[long] persistedMemberFileTypes;
@@ -1637,23 +1684,35 @@ private void persistArchives(ref Database db, long blobId, ArchiveSpec[] entries
     foreach (container; containers)
         writeEntries(container, entries, 0, preserveDeep);
 
-    foreach (container; containers)
-    {
-        const auto descendantPrefix = container.relativePath
-            ~ archivePathSeparator();
-        long[] staleIds;
-        foreach (row; db.execute("SELECT id, relative_path FROM file_refs "
-            ~ "WHERE substr(relative_path, 1, ?) = ?",
-            cast(long) descendantPrefix.length, descendantPrefix))
-            if (row.peek!string(1) !in desiredPaths)
-                staleIds ~= row.peek!long(0);
-        foreach (staleId; staleIds)
-            db.execute("DELETE FROM file_refs WHERE id = ?", staleId);
-    }
+    if (!partial && !preserveExisting)
+        foreach (container; containers)
+        {
+            const auto descendantPrefix = container.relativePath
+                ~ archivePathSeparator();
+            long[] staleIds;
+            foreach (row; db.execute("SELECT id, relative_path FROM file_refs "
+                ~ "WHERE substr(relative_path, 1, ?) = ?",
+                cast(long) descendantPrefix.length, descendantPrefix))
+                if (row.peek!string(1) !in desiredPaths)
+                    staleIds ~= row.peek!long(0);
+            foreach (staleId; staleIds)
+                db.execute("DELETE FROM file_refs WHERE id = ?", staleId);
+        }
 
-    const auto extractorVersion = archiveIndexVersion
-        ~ (deepScanned || preserveDeep ? ":deep" : ":shallow");
-    const auto state = entries.length == 0 ? "empty" : "completed";
+    string extractorVersion;
+    string state;
+    if (partial)
+    {
+        extractorVersion = archiveIndexVersion ~ ":partial:"
+            ~ resumeCursor.to!string;
+        state = "partial";
+    }
+    else
+    {
+        extractorVersion = archiveIndexVersion
+            ~ (deepScanned || preserveDeep ? ":deep" : ":shallow");
+        state = entries.length == 0 ? "empty" : "completed";
+    }
     db.execute("INSERT INTO metadata_status (blob_id, metadata_kind, state, "
         ~ "extractor_version, scanned_at, error_message) VALUES (?, 'archives', "
         ~ "?, ?, ?, NULL) ON CONFLICT(blob_id, metadata_kind) DO UPDATE SET "

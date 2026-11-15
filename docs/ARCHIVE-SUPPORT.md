@@ -70,10 +70,10 @@ extracts one member at a time.
 
 The extracted files are scratch data: staging and cache paths are never stored
 as catalog references. Damaged or non-extractable members remain in the index
-without a deep fingerprint. Cancellation aborts the currently running archive,
-discards its partial index, keeps already committed blobs, and leaves the
-interrupted archive pending for the next run. Bulk extraction stops its
-external archive tool when cancellation is requested.
+without a deep fingerprint. Cancellation aborts the currently running archive
+after the member in flight. Members completed so far are stored as a resumable
+partial index, and the next run continues at the first unprocessed member.
+Bulk extraction stops its external archive tool when cancellation is requested.
 
 ### Bulk Extraction
 
@@ -104,6 +104,15 @@ slack exceed the limit or half of the current free space.
 Duplicate-name members, symlink members, and members that are missing from the
 staged tree are not read from bulk extraction. They use the per-member cache
 fallback, which preserves occurrence selection and the symlink guard.
+
+### Partial and Resumed Member Scans
+
+A cancelled deep scan stores the members it already completed together with a
+`partial` archive state and a resume cursor. The next deep scan lists the
+archive again, skips descriptors before the cursor, and continues with the
+remaining members. For SQLite repositories this state lives in
+`metadata_status`; JSON v5 stores the optional `archiveScanCursor` field.
+Already completed members are not extracted or hashed again.
 
 The preview path does not use bulk staging. It keeps using the member cache,
 so a future GUI prefetch feature can reuse the same cache API without coupling

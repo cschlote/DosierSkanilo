@@ -84,6 +84,9 @@ repository
   pointing to a blob.
 - `metadata_status`: Per-blob extractor state, version, scan time, and last error.
   Schema v4 and later record archive-index state and shallow/deep completion here.
+  A cancelled deep member scan uses state `partial`; its extractor version
+  carries the next descriptor index. Completed members remain ordinary virtual
+  references and are reused when the scan resumes.
 - `archive_passwords`: Optional clear-text password associated with a blob, added
   in schema version 2. Repository files and JSON exports containing passwords
   are sensitive data.
@@ -128,8 +131,9 @@ suffix. The migration retains normal `blobs`, `file_refs`, and physical
 `directories`, moves archive extractor/version/depth state to the existing
 `metadata_status` table, and drops `archive_entries` and `archive_indexes`. Its
 existing `metadata_kind` and `extractor_version` values distinguish archive
-indexer and shallow/deep completion; no archive-specific table or column is
-added. The GUI extraction cache is session data and is never stored in SQLite.
+indexer, shallow/deep completion, and the resume cursor of a partial deep scan;
+no archive-specific table or column is added. The GUI extraction cache is
+session data and is never stored in SQLite.
 
 An archive-member `file_ref` is not a path to an extracted cache file. Its
 availability and locator are resolved through the encoded container chain. The

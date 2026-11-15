@@ -828,6 +828,76 @@ unittest
     assert(threadedGood.checkSums.hasDigests);
 }
 
+@("JSON metadata resumes a partial archive member scan")
+unittest
+{
+    import dosierskanilo.archivebulk : ArchiveBulkMode;
+    import std.algorithm : map;
+    import std.array : array;
+    import std.file : exists, getSize, mkdirRecurse, rmdirRecurse, tempDir,
+        write;
+    import std.path : buildPath;
+    import std.process : execute, executeShell;
+    import std.uuid : randomUUID;
+
+    if (executeShell("command -v zip").status != 0)
+        return;
+    const root = buildPath(tempDir(), "json-archive-member-resume-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    string[] files;
+    foreach (index; 0 .. 8)
+    {
+        const name = "member-" ~ index.to!string ~ ".txt";
+        write(buildPath(root, name), "payload-" ~ index.to!string);
+        files ~= name;
+    }
+    const archivePath = buildPath(root, "bundle.zip");
+    auto created = execute(["zip", "-q", "-j", archivePath]
+        ~ files.map!(name => buildPath(root, name)).array);
+    assert(created.status == 0, created.output);
+
+    NamedBinaryBlob[] blobs = [
+        new NamedBinaryBlob(archivePath, cast(size_t) getSize(archivePath),
+            SysTime(1_234_567))
+    ];
+    MetadataScanOptions options;
+    options.scanArchives = true;
+    options.deepArchiveScan = true;
+    options.threads = 1;
+    options.archiveBulkMode = ArchiveBulkMode.always;
+
+    OperationControl control;
+    control = new OperationControl((OperationProgress event) {
+        if (event.phase == OperationPhase.archives
+            && event.state == OperationState.running
+            && event.subtaskTotalKnown
+            && event.subtaskCompleted >= 3)
+            control.requestCancellation();
+    });
+    auto first = updateJsonMetadata(blobs, options, OperationKind.scan,
+        control, 1);
+    assert(first.cancelled);
+    assert(blobs[0].archiveScanCursor > 0);
+    assert(blobs[0].archiveIndexKnown && !blobs[0].archiveIndexDeep);
+    assert(blobs[0].archiveSpecs !is null);
+    const partialCount = blobs[0].archiveSpecs.length;
+    assert(partialCount > 0 && partialCount < 8,
+        partialCount.to!string);
+
+    auto second = updateJsonMetadata(blobs, options, OperationKind.scan,
+        null, 2);
+    assert(!second.cancelled);
+    assert(blobs[0].archiveScanCursor == 0);
+    assert(blobs[0].archiveIndexKnown && blobs[0].archiveIndexDeep);
+    assert(blobs[0].archiveSpecs !is null);
+    assert(blobs[0].archiveSpecs.length == 8,
+        blobs[0].archiveSpecs.length.to!string);
+}
+
 @("JSON metadata run survives corrupt archive alongside good files")
 unittest
 {
@@ -1122,9 +1192,9 @@ private JsonMetadataWork prepareJsonMetadataWork(NamedBinaryBlob blob,
     item.doMediaInfo = options.extractMediaInfo
         && (blob.mediaInfoSig is null || options.rescan);
     item.doArchives = options.scanArchives
-        && (options.rescan || (blob.archiveSpecs is null
-            && (!blob.archiveIndexKnown
-                || (options.deepArchiveScan && !blob.archiveIndexDeep))));
+        && (options.rescan
+            || (blob.archiveSpecs is null && !blob.archiveIndexKnown)
+            || (options.deepArchiveScan && !blob.archiveIndexDeep));
     item.doTorrents = options.scanTorrents && blob.torrentInfo is null;
     return item;
 }
