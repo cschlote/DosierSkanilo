@@ -34,8 +34,11 @@ user-visible changes are listed in [`CHANGELOG.md`](CHANGELOG.md).
       benchmark pass against this backend.
 - [x] `VERSION`, `CHANGELOG.md`, and package metadata use `26.17.0`;
       `scripts/validate-release.sh v26.17.0` passes.
-- [ ] Verify installation from packaged artifacts after the Flatpak hash
-      follow-up commit.
+- [x] Verify installation from packaged artifacts after the Flatpak hash
+      follow-up commit: the Flatpak build succeeds with the pinned `v26.17.0`
+      source hash and the built app runs (`flatpak-builder --run`), and the
+      Debian `26.17.0-1` package installs, runs, and removes cleanly in a
+      Debian 13 container.
 
 ## P0 — Review remediation for the next release
 
