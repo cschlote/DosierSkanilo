@@ -1097,6 +1097,8 @@ private __gshared uint operationHeartbeatGeneration;
 private __gshared OperationProgress lastOperationEvent;
 /// True when `lastOperationEvent` holds a valid event.
 private __gshared bool haveLastOperationEvent;
+/// Timestamp of the last heartbeat line, used to throttle spinner output.
+private __gshared SysTime lastHeartbeatOutput;
 
 /** Operation control used by the heartbeat to surface cancellation. */
 private __gshared OperationControl activeOperationControl;
@@ -1339,6 +1341,7 @@ void prepareOperationOutput(string label, string detail = "",
         operationHeartbeatGeneration++;
         operationHeartbeatActive = true;
         haveLastOperationEvent = false;
+        lastHeartbeatOutput = SysTime.init;
         generation = operationHeartbeatGeneration;
     }
     startOperationHeartbeat(generation);
@@ -1368,7 +1371,7 @@ private void startOperationHeartbeat(uint generation)
     auto thread = new Thread({
         while (true)
         {
-            Thread.sleep(dur!"seconds"(2));
+            Thread.sleep(dur!"msecs"(200));
             bool active;
             synchronized (operationStateMutex)
                 active = operationHeartbeatActive
@@ -1410,9 +1413,12 @@ private void printOperationHeartbeat(uint generation)
     ensureOperationHeader();
 
     const auto now = Clock.currTime;
+    const bool tty = stdoutIsTerminal();
+    const bool verbose = isVerboseOutputs();
     const bool cancelling = control !is null && control.cancellationRequested;
+    const auto quietThreshold = tty ? dur!"msecs"(500) : dur!"seconds"(3);
     if (!cancelling && lastEventTime != SysTime.init
-        && now - lastEventTime < dur!"seconds"(3))
+        && now - lastEventTime < quietThreshold)
         return;
     if (cancelling)
     {
@@ -1420,9 +1426,18 @@ private void printOperationHeartbeat(uint generation)
         event.message = "Cancellation requested; waiting for current work to stop.";
     }
 
+    const auto outputInterval = tty && !verbose
+        ? dur!"msecs"(200) : dur!"seconds"(2);
+    synchronized (operationStateMutex)
+    {
+        if (lastHeartbeatOutput != SysTime.init
+            && now - lastHeartbeatOutput < outputInterval)
+            return;
+        lastHeartbeatOutput = now;
+    }
+
     const auto elapsed = startedAt == SysTime.init
         ? Duration.zero : now - startedAt;
-    const bool tty = stdoutIsTerminal();
     string line;
     if (!haveEvent)
     {
@@ -1431,20 +1446,49 @@ private void printOperationHeartbeat(uint generation)
     }
     else
     {
-        line = formatOperationProgressLine(event, terminalColumns(),
+        const auto columns = terminalColumns();
+        line = formatOperationProgressLine(event, columns > 3 ? columns - 3 : columns,
             tty && supportsColor(), elapsed, true);
         if (lastEventTime != SysTime.init
             && now - lastEventTime > dur!"seconds"(5))
             line = "waiting  " ~ line;
     }
-    if (tty && !isVerboseOutputs())
+    if (tty && !verbose)
     {
+        line = format("%c  %s", heartbeatSpinner(now, startedAt), line);
         logF("\r\x1b[K%s", line);
         synchronized (operationStateMutex)
             operationProgressLineOpen = true;
     }
     else
         logFLine("%s%s", formatTimestamp(now), line);
+}
+
+/** Return one spinner frame for a stalled operation heartbeat.
+ *
+ * Params:
+ *     now = Current wall-clock time.
+ *     startedAt = Operation start time, or `SysTime.init` when unknown.
+ * Returns: One of `-`, `\`, `|`, or `/`.
+ */
+private char heartbeatSpinner(SysTime now, SysTime startedAt) @safe
+{
+    enum frames = "-\\|/";
+    const auto elapsed = startedAt == SysTime.init
+        ? Duration.zero : now - startedAt;
+    const auto frame = cast(size_t)(elapsed.total!"msecs" / 200)
+        % frames.length;
+    return frames[frame];
+}
+
+@("heartbeat spinner cycles through its frames")
+unittest
+{
+    const auto start = Clock.currTime;
+    assert(heartbeatSpinner(start, start) == '-');
+    assert(heartbeatSpinner(start + dur!"msecs"(200), start) == '\\');
+    assert(heartbeatSpinner(start + dur!"msecs"(400), start) == '|');
+    assert(heartbeatSpinner(start + dur!"msecs"(600), start) == '/');
 }
 
 /** Print the operation header at most once for the current operation.
@@ -1727,6 +1771,7 @@ void clearOperationProgress()
         lineOpen = operationProgressLineOpen;
         operationProgressLineOpen = false;
         lastOperationPhase = "";
+        lastHeartbeatOutput = SysTime.init;
         activeOperationControl = null;
         operationHeartbeatActive = false;
     }
