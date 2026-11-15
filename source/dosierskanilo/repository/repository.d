@@ -3171,6 +3171,105 @@ unittest
         "a finished archive-only run must select no pending archives");
 }
 
+@("archive member scans resume from a persisted partial index")
+unittest
+{
+    import dosierskanilo.archivebulk : ArchiveBulkMode;
+    import dosierskanilo.operations : OperationPhase, OperationProgress,
+        OperationState;
+    import std.algorithm : map;
+    import std.algorithm.searching : canFind;
+    import std.array : array;
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.process : execute;
+    import std.uuid : randomUUID;
+
+    const root = buildPath(tempDir(), "repository-member-resume-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    string[] files;
+    foreach (index; 0 .. 8)
+    {
+        const name = "member-" ~ index.to!string ~ ".txt";
+        write(buildPath(root, name), "payload-" ~ index.to!string);
+        files ~= name;
+    }
+    const archivePath = buildPath(root, "bundle.zip");
+    auto created = execute(["zip", "-q", "-j", archivePath]
+        ~ files.map!(name => buildPath(root, name)).array);
+    assert(created.status == 0, created.output);
+
+    auto repository = Repository.initialize(root);
+    scope (exit)
+        repository.close();
+    repository.scan();
+
+    MetadataScanOptions options;
+    options.scanArchives = true;
+    options.deepArchiveScan = true;
+    options.threads = 1;
+    options.archiveBulkMode = ArchiveBulkMode.always;
+
+    OperationControl control;
+    control = new OperationControl((OperationProgress event) {
+        if (event.phase == OperationPhase.archives
+            && event.state == OperationState.running
+            && event.subtaskTotalKnown
+            && event.subtaskCompleted >= 3)
+            control.requestCancellation();
+    });
+    auto first = repository.updateMetadataControlled(options, control, 1);
+    assert(first.cancelled);
+    assert(first.committed);
+    assert(first.summary.archivesUpdated == 1,
+        first.summary.archivesUpdated.to!string);
+    assert(first.summary.blobsVisited == 1,
+        first.summary.blobsVisited.to!string);
+
+    auto partial = repository.database.execute("SELECT state, "
+        ~ "extractor_version FROM metadata_status WHERE "
+        ~ "metadata_kind = 'archives'");
+    assert(!partial.empty);
+    assert(partial.front.peek!string(0) == "partial",
+        partial.front.peek!string(0));
+    assert(partial.front.peek!string(1).canFind(":partial:"),
+        partial.front.peek!string(1));
+    const partialMembers = repository.database.execute("SELECT count(*) "
+        ~ "FROM file_refs WHERE relative_path LIKE ?", "%!/%")
+        .oneValue!long;
+    assert(partialMembers > 0 && partialMembers < 8,
+        partialMembers.to!string);
+
+    auto second = repository.updateMetadataControlled(options, null, 2);
+    assert(!second.cancelled);
+    assert(second.committed);
+    assert(second.summary.archivesUpdated == 1,
+        second.summary.archivesUpdated.to!string);
+    assert(second.summary.failed == 0,
+        second.summary.lastError);
+    auto completed = repository.database.execute("SELECT state, "
+        ~ "extractor_version FROM metadata_status WHERE "
+        ~ "metadata_kind = 'archives'");
+    assert(!completed.empty);
+    assert(completed.front.peek!string(0) == "completed",
+        completed.front.peek!string(0));
+    assert(completed.front.peek!string(1).endsWith(":deep"),
+        completed.front.peek!string(1));
+    const completedMembers = repository.database.execute("SELECT count(*) "
+        ~ "FROM file_refs WHERE relative_path LIKE ?", "%!/%")
+        .oneValue!long;
+    assert(completedMembers == 8, completedMembers.to!string);
+
+    auto third = repository.updateMetadataControlled(options, null, 3);
+    assert(!third.cancelled);
+    assert(third.summary.archivesUpdated == 0);
+    assert(third.summary.blobsVisited == 0);
+}
+
 @("deep archive scans persist encrypted member metadata on content blobs")
 unittest
 {

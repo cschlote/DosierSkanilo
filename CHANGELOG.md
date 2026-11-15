@@ -18,9 +18,9 @@ They represent the functional evolution and are intentionally summarized.
 
 - Archive-only metadata runs can be resumed: completed deep indexes are skipped
   and non-archive blobs are filtered out in SQL. `--archive-limit N` processes
-  at most N pending archives per run. The first Ctrl-C finishes the currently
-  running archive jobs, commits their complete results, and stops before
-  starting new ones.
+  at most N pending archives per run. The first Ctrl-C stops the current
+  archive after the in-flight member, saves completed members, and leaves the
+  remaining members pending for the next run.
 
 - Deep archive scan progress keeps the `entries` counter in entry units.
   Member digest byte counts are no longer mixed into that counter, so
@@ -44,9 +44,9 @@ They represent the functional evolution and are intentionally summarized.
 - The default archive member cache limit now adapts to free space (one eighth,
   capped at 8 GiB) instead of a fixed 1 GiB.
 - Ctrl-C now interrupts deep archive scans promptly, including bulk
-  extraction. The running archive tool is terminated, the partial archive
-  index is discarded, completed blobs stay committed, and the interrupted
-  archive remains pending for the next run.
+  extraction. The running archive tool is terminated after the member in
+  flight. Completed members are stored as a resumable partial index, and the
+  next deep scan continues at the first unprocessed member.
 
 ## Release 26.16.0 - 2026-11-10
 

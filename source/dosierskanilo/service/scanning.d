@@ -297,7 +297,10 @@ bool runScannerJobs(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCt
                         argsArray.argRescanMediaSig);
                     myTaskPool.put(obj.task_mediasig);
                 }
-                if (argsArray.argScanArchives && obj.archiveSpecs is null)
+                if (argsArray.argScanArchives
+                    && (obj.archiveSpecs is null
+                        || (argsArray.argScanArchives > 1
+                            && !obj.archiveIndexDeep)))
                 {
                     obj.task_archiveScan = task!updateArchives(obj,
                         argsArray.argRescanMediaSig, argsArray.argScanArchives > 1,
@@ -402,7 +405,10 @@ bool runScannerJobs(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCt
                 {
                     updateMediaInfo(obj, argsArray.argRescanMediaSig);
                 }
-                if (argsArray.argScanArchives && obj.archiveSpecs is null)
+                if (argsArray.argScanArchives
+                    && (obj.archiveSpecs is null
+                        || (argsArray.argScanArchives > 1
+                            && !obj.archiveIndexDeep)))
                 {
                     ProgressCallBack cb = ProgressCallBack(&progressCallBack);
 

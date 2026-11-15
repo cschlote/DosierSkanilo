@@ -59,6 +59,8 @@ virtual references can refer to the same payload after duplicate analysis.
   including a known empty index.
 - `archiveIndexDeep` (optional boolean): Whether member content was deeply
   inspected for checksums.
+- `archiveScanCursor` (optional integer): Next archive-entry index for a
+  resumable partial deep scan. Zero or absent means no pending member work.
 - `archivePassword` (optional string): Password associated with the archive
   blob and reused by archive inspection. Version 3 catalogs can contain this
   value, so catalogs carrying passwords should be treated as sensitive files.
@@ -230,7 +232,9 @@ accepting v0-v4; importing a v4 nested `ArchiveSpec` tree converts it to normal
 member blob records and virtual references, carrying forward entry checksums,
 nested archive passwords, and nested member references. The optional
 `archiveIndexKnown` and `archiveIndexDeep` fields retain empty-index and scan-depth
-state when no `ArchiveSpec` list is written. SQLite schema v5 and later store
+state when no `ArchiveSpec` list is written. A partial deep scan may also carry
+`archiveScanCursor`; completed members remain ordinary virtual records and the
+next deep scan continues at that entry index. SQLite schema v5 and later store
 virtual members as normal `file_refs`, keep their physical `directory_id`, and
 move index state to `metadata_status`; the schema contains no archive-entry/
 index tables. Deep checksums are emitted for duplicate-name members only when the

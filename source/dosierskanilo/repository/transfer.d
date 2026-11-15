@@ -45,6 +45,8 @@ private struct ImportedArchiveIndex
     long blobId;
     /// True when the stored index came from a deep scan.
     bool deep;
+    /// Next descriptor index for a resumable partial index.
+    size_t cursor;
 }
 
 /** Import a JSON catalog into an open repository database.
@@ -127,7 +129,7 @@ bool importCatalogJsonControlled(ref Database db, string rootPath,
             blobIds[index] = blobId;
             if (blob.archiveIndexKnown)
                 archiveIndexes ~= ImportedArchiveIndex(blobId,
-                    blob.archiveIndexDeep);
+                    blob.archiveIndexDeep, blob.archiveScanCursor);
             if (control !is null)
             {
                 if (control.cancellationRequested)
@@ -1780,9 +1782,11 @@ private void persistImportedArchiveStatuses(ref Database db,
                 hasEntries = true;
                 break;
             }
-        const auto state = hasEntries ? "completed" : "empty";
-        const auto extractorVersion = archiveIndexVersion
-            ~ (archive.deep ? ":deep" : ":shallow");
+        const auto state = archive.cursor > 0 ? "partial"
+            : hasEntries ? "completed" : "empty";
+        const auto extractorVersion = archive.cursor > 0
+            ? archiveIndexVersion ~ ":partial:" ~ archive.cursor.to!string
+            : archiveIndexVersion ~ (archive.deep ? ":deep" : ":shallow");
         db.execute("INSERT INTO metadata_status (blob_id, metadata_kind, state, "
             ~ "extractor_version, scanned_at, error_message) VALUES (?, 'archives', "
             ~ "?, ?, ?, NULL) ON CONFLICT(blob_id, metadata_kind) DO UPDATE SET "
@@ -2283,11 +2287,23 @@ private void loadArchiveIndexState(ref Database db, long blobId,
         return;
     auto row = result.front;
     const auto state = row.peek!string(0);
-    if (state != "completed" && state != "empty")
+    if (state != "completed" && state != "empty" && state != "partial")
         return;
     blob.archiveIndexKnown = true;
     const auto extractorVersion = row.peek!(Nullable!string)(1);
-    if (!extractorVersion.isNull)
+    if (state == "partial")
+    {
+        blob.archiveIndexDeep = false;
+        const prefix = archiveIndexVersion ~ ":partial:";
+        if (!extractorVersion.isNull
+            && extractorVersion.get.startsWith(prefix))
+            try
+                blob.archiveScanCursor =
+                    extractorVersion.get[prefix.length .. $].to!size_t;
+            catch (Exception)
+                blob.archiveScanCursor = 0;
+    }
+    else if (!extractorVersion.isNull)
         blob.archiveIndexDeep = extractorVersion.get.endsWith(":deep");
 }
 
