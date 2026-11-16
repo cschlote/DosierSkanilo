@@ -7,7 +7,7 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
-## Unreleased
+## Release 26.17.1 - 2026-11-16
 
 - `dosierarkivo` review cleanup without behavior change: one shared exception
   mapper for failed archive-tool runs, a line-exact console-locale selector,
