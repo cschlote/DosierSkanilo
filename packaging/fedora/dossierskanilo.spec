@@ -1,3 +1,5 @@
+%global debug_package %{nil}
+
 Name:           dosierskanilo
 Version:        26.17.1
 Release:        1%{?dist}
@@ -9,7 +11,7 @@ Source0:        %{url}/archive/refs/tags/v%{version}.tar.gz
 BuildRequires:  ldc
 BuildRequires:  dub
 BuildRequires:  gcc
-BuildRequires:  mediainfo-devel
+BuildRequires:  libmediainfo-devel
 BuildRequires:  sqlite-devel
 Requires:       mediainfo
 Requires:       sqlite-libs
