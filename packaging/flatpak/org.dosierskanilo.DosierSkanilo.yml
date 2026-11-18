@@ -57,5 +57,5 @@ modules:
       - install -Dm644 LICENSE.md /app/share/licenses/org.dosierskanilo.DosierSkanilo/LICENSE.md
     sources:
       - type: archive
-        url: https://github.com/cschlote/DosierSkanilo/archive/refs/tags/v26.17.1.tar.gz
-        sha256: 62f192a61d14e3f0c31bb0bfe03b53b00261bb1aaf1ac7b67aed39201d443d95
+        url: https://github.com/cschlote/DosierSkanilo/archive/refs/tags/v26.17.2.tar.gz
+        sha256: SKIP

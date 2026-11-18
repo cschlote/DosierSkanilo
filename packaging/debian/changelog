@@ -1,3 +1,11 @@
+dosierskanilo (26.17.2-1) unstable; urgency=medium
+
+  * Release DosierSkanilo 26.17.2 with the corrected Fedora packaging recipe
+    (current MediaInfo development package name, no debug subpackage
+    generation).
+
+ -- Carsten Schlote <schlote@vahanus.net>  Wed, 18 Nov 2026 00:00:00 +0000
+
 dosierskanilo (26.17.1-1) unstable; urgency=medium
 
   * Release DosierSkanilo 26.17.1 with RAR member names kept intact for heavy
