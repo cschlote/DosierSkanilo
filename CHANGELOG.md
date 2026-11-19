@@ -9,6 +9,10 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- Detail loads for non-archive content skip the archive summary query, and the
+  verbose timing reports the summary duration separately when an archive index
+  exists.
+
 - Archive detail snapshots compute the member count and complete-fingerprint
   count with one grouped query instead of paging through the complete member
   index. Selecting a large archive no longer scales with its member count.
