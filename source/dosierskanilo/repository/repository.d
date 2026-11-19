@@ -45,6 +45,7 @@ import dosierskanilo.repository.transfer : exportCatalogJson,
     countPhysicalFileReferences, listDirectoriesFromDatabase,
     loadRootSummaryFromDatabase, listFilesFromDatabase,
     listFilesPageFromDatabase, listArchiveEntriesFromDatabase,
+    archiveEntrySummaryFromDatabase,
     listTorrentFilesFromDatabase, loadFileReferenceFromDatabase,
     loadArchiveEntryFromDatabase;
 import dosierskanilo.repository.types;
@@ -1303,12 +1304,24 @@ public:
         return listFilesPage(options);
     }
 
-    /** List archive entries for one blob using bounded SQL queries.
+    /** Return the aggregated archive index summary for one container blob.
      *
      * Params:
-     *     options = Container blob selection and page size; `limit` must be
-     *         greater than zero.
-     * Returns: Archive entries matching the query.
+     *     blobId = Content blob identity of the archive container.
+     * Returns: Distinct member count and complete-fingerprint count.
+     * Throws: `RepositoryException` when the repository is not open.
+     */
+    RepositoryArchiveSummary archiveEntrySummary(long blobId)
+    {
+        requireOpen();
+        return archiveEntrySummaryFromDatabase(database, blobId);
+    }
+
+    /** List one bounded page of archive entries.
+     *
+     * Params:
+     *     options = Container blob ID plus page offset and limit.
+     * Returns: Deduplicated archive entries ordered by stored path.
      */
     RepositoryArchiveEntry[] listArchiveEntries(RepositoryArchiveQuery options)
     {
@@ -2680,6 +2693,12 @@ unittest
     assert(passwordPrompts == 1);
     auto deepArchiveEntries = repository.listArchiveEntries(archiveEntriesQuery);
     assert(deepArchiveEntries[0].id == stableArchiveEntryId);
+    const auto summaryBefore = repository.archiveEntrySummary(
+        archiveFiles[0].blobId);
+    assert(summaryBefore.entryCount == deepArchiveEntries.length,
+        "The aggregated summary counts the indexed members.");
+    assert(summaryBefore.completeFingerprints == deepArchiveEntries.length,
+        "Deep-scanned members carry complete fingerprints.");
     assert(deepArchiveEntries[0].contentBlobId > 0,
         "Deep archive checksums preserve a normal member content identity.");
     RepositoryFileQuery payloadQuery;

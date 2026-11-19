@@ -1001,6 +1001,67 @@ RepositoryArchiveEntry[] listArchiveEntriesFromDatabase(ref Database db,
     return result;
 }
 
+/** Compute the aggregated archive index summary for one container blob.
+ *
+ * The summary counts distinct members and complete member fingerprints with a
+ * single grouped query instead of paging through the whole index. Container
+ * prefixes use the same grammar as `listArchiveEntriesFromDatabase`.
+ *
+ * Params:
+ *     db = Open repository database to read.
+ *     blobId = Container blob identity.
+ * Returns: Entry and complete-fingerprint counts; zero without members.
+ */
+RepositoryArchiveSummary archiveEntrySummaryFromDatabase(ref Database db,
+    long blobId)
+{
+    string[] containerPaths;
+    foreach (row; db.execute("SELECT relative_path FROM file_refs WHERE blob_id = ? "
+        ~ "ORDER BY relative_path", blobId))
+        containerPaths ~= row.peek!string(0).idup;
+
+    RepositoryArchiveSummary summary;
+    if (containerPaths.length == 0)
+        return summary;
+
+    db.execute("DROP TABLE IF EXISTS temp.archive_container_prefixes");
+    db.execute("CREATE TEMP TABLE archive_container_prefixes ("
+        ~ "prefix TEXT PRIMARY KEY, upper TEXT NOT NULL)");
+    scope (exit)
+        db.execute("DROP TABLE IF EXISTS temp.archive_container_prefixes");
+    auto insert = db.prepare("INSERT OR IGNORE INTO "
+        ~ "temp.archive_container_prefixes (prefix, upper) VALUES (?, ?)");
+    foreach (containerPath; containerPaths)
+    {
+        const prefix = containerPath ~ archivePathSeparator();
+        insert.inject(prefix, prefix[0 .. $ - 1] ~ "0");
+        insert.reset();
+    }
+
+    auto result = db.execute(
+        "SELECT COUNT(*), COALESCE(SUM(CASE WHEN md5 IS NOT NULL "
+        ~ "AND length(md5) = 16 AND sha1 IS NOT NULL AND length(sha1) = 20 "
+        ~ "AND xxh64 IS NOT NULL AND length(xxh64) = 8 THEN 1 ELSE 0 END), 0) "
+        ~ "FROM (SELECT MIN(f.id) AS id, b.md5 AS md5, b.sha1 AS sha1, "
+        ~ "b.xxh64 AS xxh64, "
+        ~ "substr(f.relative_path, length(p.prefix) + 1) AS member_key "
+        ~ "FROM file_refs f JOIN blobs b ON b.id = f.blob_id "
+        ~ "JOIN temp.archive_container_prefixes p "
+        ~ "ON f.relative_path >= p.prefix AND f.relative_path < p.upper "
+        ~ "WHERE " ~ isVirtualFileReferenceSql("f.relative_path") ~ " "
+        /* Count direct members only; deeper layers belong to nested archives
+         * and match listArchiveEntriesFromDatabase's parent filter. */
+        ~ "AND instr(substr(f.relative_path, length(p.prefix) + 1), '!/') = 0 "
+        ~ "GROUP BY member_key)");
+    if (!result.empty)
+    {
+        auto row = result.front;
+        summary.entryCount = cast(size_t) row.peek!long(0);
+        summary.completeFingerprints = cast(size_t) row.peek!long(1);
+    }
+    return summary;
+}
+
 /** Load one stable archive-index row without knowing its container blob first.
  *
  * Params:

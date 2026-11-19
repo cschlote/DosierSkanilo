@@ -1842,26 +1842,17 @@ private:
     {
         snapshot.archiveSummary.indexKnown = indexKnown;
         snapshot.hasArchive = indexKnown;
-        size_t offset;
-        while (true)
+        /* One grouped query replaces paging through the complete member index;
+         * large archives otherwise dominated the per-selection detail load. */
+        const auto summary = repository.archiveEntrySummary(blobId);
+        if (summary.entryCount > 0)
         {
-            RepositoryArchiveQuery query;
-            query.blobId = blobId;
-            query.offset = offset;
-            query.limit = catalogPageSize;
-            auto entries = repository.listArchiveEntries(query);
-            if (entries.length == 0)
-                break;
             snapshot.archiveSummary.indexKnown = true;
             snapshot.hasArchive = true;
-            snapshot.archiveSummary.entryCount += entries.length;
-            foreach (entry; entries)
-                if (fingerprintFor(entry.size, entry.checkSums).complete)
-                    ++snapshot.archiveSummary.entriesWithCompleteFingerprints;
-            offset += entries.length;
-            if (entries.length < catalogPageSize)
-                break;
         }
+        snapshot.archiveSummary.entryCount = summary.entryCount;
+        snapshot.archiveSummary.entriesWithCompleteFingerprints =
+            summary.completeFingerprints;
         foreach (ref status; snapshot.extractors)
             if (status.extractor == "archives")
                 status.state = !snapshot.archiveSummary.indexKnown

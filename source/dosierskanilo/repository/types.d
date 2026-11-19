@@ -320,6 +320,13 @@ struct RepositoryTorrentFile
     ulong size; /// Declared member size in bytes.
 }
 
+/** Aggregated archive index summary for one container blob. */
+struct RepositoryArchiveSummary
+{
+    size_t entryCount; /// Number of distinct indexed members.
+    size_t completeFingerprints; /// Members with all configured digests.
+}
+
 /** Bounded archive-entry query. */
 struct RepositoryArchiveQuery
 {
