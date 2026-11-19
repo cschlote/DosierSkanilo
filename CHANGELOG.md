@@ -9,6 +9,9 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- A failing archive summary query no longer breaks the detail load, and verbose
+  logs include the underlying SQLite error.
+
 - Detail loads for non-archive content skip the archive summary query, and the
   verbose timing reports the summary duration separately when an archive index
   exists.
