@@ -935,6 +935,43 @@ unittest
     assert(metadataCompleted(db, 1, "file_type"));
 }
 
+@("updateRepositoryMetadata restricts work to one file path")
+unittest
+{
+    import std.file : getSize;
+    import dosierskanilo.testdata : ensureSyntheticTestCatalog;
+
+    auto fixture = ensureSyntheticTestCatalog();
+    const auto rootPath = fixture.catalogRoot;
+    auto db = Database(":memory:");
+    migrate(db, "2026-01-01T00:00:00");
+    const string[] relativePaths = ["media/tone.wav", "alpha/original.txt"];
+    foreach (index, relativePath; relativePaths)
+    {
+        const long id = cast(long) index + 1;
+        db.execute("INSERT INTO blobs (id, file_size) VALUES (?, ?)",
+            id, cast(long) getSize(buildPath(rootPath, relativePath)));
+        db.execute("INSERT INTO file_refs (id, blob_id, directory_id, "
+            ~ "relative_path, time_last_modified, exists_on_disk, last_seen_at) "
+            ~ "VALUES (?, ?, NULL, ?, '2026-01-01T00:00:00', 1, ?)",
+            id, id, relativePath, "2026-01-01T00:00:00");
+    }
+
+    MetadataScanOptions options;
+    options.calculateChecksums = true;
+    options.detectFileTypes = true;
+    options.filePath = "media/tone.wav";
+    auto summary = updateRepositoryMetadata(db, rootPath, options);
+
+    assert(summary.blobsVisited == 1);
+    assert(summary.checksumsUpdated == 1);
+    assert(summary.fileTypesUpdated == 1);
+    assert(db.execute("SELECT file_type FROM blobs WHERE id = 1")
+        .oneValue!string.length > 0);
+    assert(db.execute("SELECT file_type FROM blobs WHERE id = 2")
+        .oneValue!string.length == 0);
+}
+
 @("updateRepositoryMetadataControlled")
 unittest
 {
