@@ -1471,9 +1471,12 @@ private:
             catch (CatalogBackendException failure)
                 throw failure;
             catch (Exception failure)
+            {
+                logLineVerbose("[backend] query failed: ", failure.msg);
                 throw new CatalogBackendException(
                     CatalogBackendErrorCode.backendFailure,
                     "SQLite catalog query failed: " ~ failure.msg);
+            }
         }
     }
 
@@ -1852,18 +1855,27 @@ private:
             auto summaryStarted = MonoTime.currTime;
             /* One grouped query replaces paging through the complete member
              * index; large archives otherwise dominated the per-selection
-             * detail load. */
-            const auto summary = repository.archiveEntrySummary(blobId);
-            logLineVerbose("[details] summary blob=", blobId, " elapsedMs=",
-                cast(long) (MonoTime.currTime - summaryStarted).total!"msecs");
-            if (summary.entryCount > 0)
+             * detail load. The summary is optional: a query failure must not
+             * break the detail preview. */
+            try
             {
-                snapshot.archiveSummary.indexKnown = true;
-                snapshot.hasArchive = true;
+                const auto summary = repository.archiveEntrySummary(blobId);
+                logLineVerbose("[details] summary blob=", blobId, " elapsedMs=",
+                    cast(long) (MonoTime.currTime - summaryStarted).total!"msecs");
+                if (summary.entryCount > 0)
+                {
+                    snapshot.archiveSummary.indexKnown = true;
+                    snapshot.hasArchive = true;
+                }
+                snapshot.archiveSummary.entryCount = summary.entryCount;
+                snapshot.archiveSummary.entriesWithCompleteFingerprints =
+                    summary.completeFingerprints;
             }
-            snapshot.archiveSummary.entryCount = summary.entryCount;
-            snapshot.archiveSummary.entriesWithCompleteFingerprints =
-                summary.completeFingerprints;
+            catch (Exception error)
+            {
+                logLineVerbose("[details] summary failed for blob=", blobId,
+                    ": ", error.msg);
+            }
         }
         foreach (ref status; snapshot.extractors)
             if (status.extractor == "archives")
