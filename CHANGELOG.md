@@ -7,6 +7,12 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
+## Unreleased
+
+- Archive detail snapshots compute the member count and complete-fingerprint
+  count with one grouped query instead of paging through the complete member
+  index. Selecting a large archive no longer scales with its member count.
+
 ## Release 26.17.2 - 2026-11-18
 
 - The Fedora package recipe names the current MediaInfo development package
