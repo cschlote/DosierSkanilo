@@ -1,3 +1,10 @@
+dosierskanilo (26.18.0-1) unstable; urgency=medium
+
+  * Release DosierSkanilo 26.18.0 with metadata rescans limited to one
+    repository file and corrected 7z member listings for solid archives.
+
+ -- Carsten Schlote <schlote@vahanus.net>  Fri, 20 Nov 2026 00:00:00 +0000
+
 dosierskanilo (26.17.2-1) unstable; urgency=medium
 
   * Release DosierSkanilo 26.17.2 with the corrected Fedora packaging recipe

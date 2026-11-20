@@ -5,9 +5,9 @@ SQLite repository. Historical work-package records remain in
 [`docs/SQLITE-IMPLEMENTATION-PLAN.md`](docs/SQLITE-IMPLEMENTATION-PLAN.md);
 user-visible changes are listed in [`CHANGELOG.md`](CHANGELOG.md).
 
-## Current status (2026-11-18)
+## Current status (2026-11-20)
 
-- Version `26.17.2`; storage-neutral `CatalogBackend`, JSON v5, SQLite schema
+- Version `26.18.0`; storage-neutral `CatalogBackend`, JSON v5, SQLite schema
   v6, explicit JSON `CatalogDocument` sessions, shared operation API, member
   cache, recovery writer, and tag-driven release validation are implemented.
 - WP-09, WP-13, WP-14, and the persistence/document-session work are complete.
@@ -30,6 +30,22 @@ user-visible changes are listed in [`CHANGELOG.md`](CHANGELOG.md).
   `0.14.0` with the sibling prefetch and preview stability work.
 - The Fedora package recipe fix is released as `26.17.2`; the paired GUI is
   `0.14.2` with the Arch/Fedora/Flatpak packaging fixes.
+- Single-file metadata rescans and the corrected 7z listing parser are
+  released as `26.18.0`; the paired GUI is `0.15.0` with the tree context
+  action for rescanning one repository file.
+
+## Release 26.18.0 — single-file rescan
+
+- [x] Backend full gate: 280 tests, coverage 89.40 %, CLI integration, and
+      `scripts/lint.sh`.
+- [x] Ddoc build with no undocumented public symbols and
+      `scripts/benchmark-storage.sh ./test/json_file_v2.json 3`.
+- [x] GUI `0.15.0` unit suite (79 tests), release build, Xvfb display suite,
+      and filter benchmark pass against this backend.
+- [x] `VERSION`, `CHANGELOG.md`, and package metadata use `26.18.0`;
+      `scripts/validate-release.sh v26.18.0` passes.
+- [x] Release commit and tag `v26.18.0` are created; the Flatpak source hash
+      follows in an untagged commit on `main`.
 
 ## Release 26.17.2 — Fedora packaging fix
 

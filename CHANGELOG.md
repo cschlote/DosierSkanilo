@@ -7,7 +7,9 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
-## Unreleased
+## Release 26.18.0 - 2026-11-20
+
+Pairs with DosierSkanilo GUI 0.15.0.
 
 - `metadata --only PATH` restricts a metadata run to one repository file, so a
   single file or archive can be rescanned without walking the whole catalog.

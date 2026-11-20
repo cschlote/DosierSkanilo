@@ -1,7 +1,7 @@
 %global debug_package %{nil}
 
 Name:           dosierskanilo
-Version:        26.17.2
+Version:        26.18.0
 Release:        1%{?dist}
 Summary:        Blob-centric media and archive file scanner
 License:        GPL-3.0-only
