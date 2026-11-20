@@ -48,15 +48,20 @@ Guidance for coding agents in this repository. The detailed rules are in
 
 ## Branches and releases
 
-- Work on a short-lived branch from `main` for each problem. Use intent-based
-  kebab-case names such as `feature/...`, `fix/...`, `docs/...`,
+- Work on a short-lived branch from `testing` for each problem. Use
+  intent-based kebab-case names such as `feature/...`, `fix/...`, `docs/...`,
   `chore/...`, or `release/...`.
-- Keep one problem per branch and use one or more thematic commits.
+- Keep one topic per branch and use one or more thematic commits. Do not mix a
+  fix with diagnostic logging, workaround experiments, refactoring, or
+  formatting; drop exploratory commits instead of merging them.
 - Update `CHANGELOG.md` under `## Unreleased` before merging.
-- Merge completed work into `main` with `--no-ff`; do not squash away the
-  thematic commit history. Stay on `main` afterwards.
-- `testing` is a deployment-free mirror of `main`, not an integration branch.
-  Never commit to it; fast-forward it to `main` after each merge.
+- Merge completed work into `testing` with `--no-ff`; do not squash away the
+  thematic commit history. Stay on `testing` afterwards.
+- `testing` collects the integration history. Merge it into `main` only when
+  the user explicitly asks for it, using `--no-ff`. Never update `main`
+  automatically after every feature branch.
+- Before a requested `testing` to `main` merge, the history may be rebased to
+  drop experiments. Never rewrite `main` or release tags.
 - Before a release, explicitly review the checklist and confirm that docs,
   scripts, package metadata, changelog, and tests describe the same state.
 - Release branches move `## Unreleased` to `## Release X.Y.Z`.

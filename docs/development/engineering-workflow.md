@@ -58,8 +58,8 @@ The test layers and their exact commands are documented in
 - Add tests next to the code they verify and confirm from the test output that
   the new test actually ran. See the
   [D language guide](d-language-guide.md#tests).
-- Before merging a feature branch into `main` or preparing a release, run the
-  complete local gate (`DC=ldc2 ./scripts/test.sh` and `./scripts/lint.sh`),
+- Before merging a feature branch into `testing` or preparing a release, run
+  the complete local gate (`DC=ldc2 ./scripts/test.sh` and `./scripts/lint.sh`),
   not only the targeted tests.
 
 ## Changelog, docs, and planning
@@ -89,23 +89,27 @@ The test layers and their exact commands are documented in
 
 ## Branches and merges
 
-- `main` is the working and deployment branch. Create a short-lived branch from
-  `main` for each problem.
+- `testing` is the integration branch. Create a short-lived branch from
+  `testing` for each problem. `main` is the stable branch and only receives
+  `testing` when the user explicitly requests it.
 - Name branches by intent using kebab-case. Examples:
   `feature/archive-search`, `fix/root-rebinding`, `docs/testing-guide`,
   `chore/dependency-metadata`, and `release/1.2.3`. Avoid generic names and
   mixed topics.
-- Solve one problem per branch in one or more thematic commits. Keep unrelated
-  fixes, refactors, and formatting changes out of the branch.
+- Solve one topic per branch in one or more thematic commits. Do not mix a fix
+  with diagnostic logging, workaround experiments, refactoring, or formatting.
+  Exploratory commits stay out of the branch; amend or drop them instead of
+  merging them.
 - Before merging, update `CHANGELOG.md` under `## Unreleased` with the
   user-visible or notable maintenance change.
-- Merge the completed branch into `main` with `--no-ff` so the integration point
-  stays explicit. Do not squash away the thematic commit history.
-- After the merge, stay on `main`. `testing` is a deployment-free mirror of
-  `main`, not an integration branch and never a place for direct commits.
-  Fast-forward it without leaving `main` (`git branch -f testing main`) and push
-  both branches to all mirrors.
-- Push branches to all configured mirrors when publishing the result.
+- Merge the completed branch into `testing` with `--no-ff` so the integration
+  point stays explicit. Do not squash away the thematic commit history. Stay on
+  `testing` afterwards and push it to all configured mirrors.
+- Leave `main` untouched until the user asks to publish the collected work.
+  Then merge `testing` into `main` with `--no-ff`, push both branches to all
+  mirrors, and stay on `main`.
+- Before that requested merge, `testing` may be rebased or cleaned up to drop
+  experiments and temporary diagnostics. Do not rewrite `main` or release tags.
 
 ## Releases
 
@@ -114,12 +118,14 @@ release commit, review that checklist explicitly and confirm that documentation,
 scripts, package metadata, changelog, and tests all describe the same intended
 state. The non-negotiable points are:
 
-- Create a `release/X.Y.Z` branch from `main`, move `## Unreleased` to
-  `## Release X.Y.Z`, update `VERSION` and package metadata, and keep the
-  summary in simple English.
-- Merge the release branch to `main` first, then create the annotated tag
-  `vX.Y.Z` on the `main` merge commit. Do not tag a branch-only commit. Stay on
-  `main` and mirror the result to `testing` without deploying from `testing`.
+- Merge `testing` into `main` with `--no-ff` first when the user requests a
+  release, then create a `release/X.Y.Z` branch from `main`, move
+  `## Unreleased` to `## Release X.Y.Z`, update `VERSION` and package metadata,
+  and keep the summary in simple English.
+- Merge the release branch to `main`, then create the annotated tag `vX.Y.Z` on
+  the `main` merge commit. Do not tag a branch-only commit.
+- After tagging, fast-forward `testing` to `main` so both branches continue from
+  the released state. Push both branches without deploying from `testing`.
 - Source archives embed the tagged commit SHA. Moving or re-creating a tag
   changes the archive hash even when the tree is identical.
 - Update Flatpak `sha256` pins in a follow-up commit on `main` after downloading
