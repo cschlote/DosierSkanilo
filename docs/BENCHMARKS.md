@@ -143,17 +143,23 @@ quadratic path counting clearly: with 50,000 members the first 250-row page took
 `6.5 s`. Replacing the nested count with one path-count pass reduced that to
 `0.24 s`.
 
-Member rows are now ordered once per directory and cached. The row array reserves
-the known direct entry count before appending, which avoids repeated growth and
-copying of the full member array. Physical rows and member rows are merged lazily
-for path and size order, so later pages do not regenerate or sort the member set.
-On the 100,000-member catalog the first 250-row page now takes about `86 ms` and
-allocates about `46 MB`; the second page takes about `6 ms` and allocates about
-`0.05 MB`. Measured with `GC.stats.allocatedInCurrentThread` in the benchmark.
-The first page still builds the full member order, so peak memory remains
-proportional to the number of members in the queried directory. The benchmark
-process used about `680 MB` in total for that catalog, including JSON indexing and
-content snapshots.
+Member rows are now ordered once per directory and cached. Physical rows and
+member rows are merged lazily for path and size order, so later pages do not
+regenerate or sort the member set. On the 100,000-member catalog the first
+250-row page takes about `0.22 s` in path order and allocates about `78 MB`; the
+first size-ordered page adds about `86 ms` for its index, and the second page
+takes about `13 ms` and allocates about `0.05 MB`. Measured on 2026-11-20 on an
+AMD Ryzen 9 5950X with `GC.stats.allocatedInCurrentThread` in the benchmark.
+The earlier `86 ms`/`46 MB` baseline is not reproducible with the current
+benchmark and command on this machine; treat both figures as machine-specific.
+
+The current implementation reserves the member array, computes the escaped
+container path once per container instead of once per member, and builds each
+size-order index only when that order is requested. The first page still builds
+the full member order, so peak memory remains proportional to the number of
+members in the queried directory. The benchmark process retains the parsed
+catalog and member order; total memory remains dominated by the 100,000-entry
+catalog itself.
 
 Reproduce with:
 
@@ -176,17 +182,17 @@ dub run --single scripts/benchmark-json-members.d --build=release -- 100000
 
 The GC-friendly allocation work in WP-11.5 is complete. The measured backend
 baseline remains the archive-member page: the first 250-row page of a
-100,000-member directory takes about `86 ms` and allocates about `46 MB`, while
-the next page takes about `6 ms` and allocates about `0.05 MB`. The first page
-still builds the full member order, so memory stays proportional to the member
-count of the queried directory.
+100,000-member directory takes about `0.22 s` in path order and allocates about
+`78 MB`; the first size-ordered page adds about `86 ms`, and the next page takes
+about `13 ms` and allocates about `0.05 MB`. The first page still builds the full
+member order, so memory stays proportional to the member count of the queried
+directory.
 
 No GC parameter tuning is planned. Disabling or hand-tuning the D collector
 would trade bounded, reproducible behavior for unbounded growth risk without
 addressing these costs. The next performance work stays measurement-driven:
-per-batch GUI rendering, archive-member first pages, detail queries, and
-scan/metadata throughput. Revisit GC tuning only when a profile shows a
-two-digit share of action time in GC, visible pauses above roughly `50 ms`, or
-retained memory that grows across repeated operations. The GUI-side
-measurements and revisit criteria are recorded in
+detail queries and scan/metadata throughput. Revisit GC tuning only when a
+profile shows a two-digit share of action time in GC, visible pauses above
+roughly `50 ms`, or retained memory that grows across repeated operations. The
+GUI-side measurements and revisit criteria are recorded in
 [the GUI performance assessment](https://github.com/cschlote/DosierSkanilo-Gui/blob/main/docs/GUI-REDESIGN.md#performance-and-gc-assessment).

@@ -21,6 +21,9 @@ user-visible changes are listed in [`CHANGELOG.md`](CHANGELOG.md).
   Ctrl-C. Archive-only metadata runs also support `--archive-limit N`.
 - `metadata --only PATH` restricts a metadata or archive rescan to one
   repository file; absolute paths below the repository root are accepted.
+- JSON archive-member first pages reserve the member array, reuse the escaped
+  container path, and build size orders lazily. The 100,000-member benchmark
+  dropped from about 0.92 s/98 MB to about 0.22 s/78 MB.
 - Documentation and Ddoc headers are complete: every documentable public,
   package, and private declaration has Ddoc (verified 2026-11-08).
 - The 2026-11-10 review remediation is complete and released as `26.16.0`.
