@@ -6,6 +6,8 @@
  */
 module dosierskanilo.sqlitecatalogbackend;
 
+import core.time : MonoTime;
+import dosierskanilo.logging : logLineVerbose;
 import std.algorithm.searching : canFind, startsWith;
 import std.algorithm.sorting : sort;
 import std.base64 : Base64;
@@ -1842,17 +1844,27 @@ private:
     {
         snapshot.archiveSummary.indexKnown = indexKnown;
         snapshot.hasArchive = indexKnown;
-        /* One grouped query replaces paging through the complete member index;
-         * large archives otherwise dominated the per-selection detail load. */
-        const auto summary = repository.archiveEntrySummary(blobId);
-        if (summary.entryCount > 0)
+        /* Non-archive content has no member index to summarize. Skipping the
+         * query keeps the per-selection detail load independent of the
+         * catalog size. */
+        if (indexKnown)
         {
-            snapshot.archiveSummary.indexKnown = true;
-            snapshot.hasArchive = true;
+            auto summaryStarted = MonoTime.currTime;
+            /* One grouped query replaces paging through the complete member
+             * index; large archives otherwise dominated the per-selection
+             * detail load. */
+            const auto summary = repository.archiveEntrySummary(blobId);
+            logLineVerbose("[details] summary blob=", blobId, " elapsedMs=",
+                cast(long) (MonoTime.currTime - summaryStarted).total!"msecs");
+            if (summary.entryCount > 0)
+            {
+                snapshot.archiveSummary.indexKnown = true;
+                snapshot.hasArchive = true;
+            }
+            snapshot.archiveSummary.entryCount = summary.entryCount;
+            snapshot.archiveSummary.entriesWithCompleteFingerprints =
+                summary.completeFingerprints;
         }
-        snapshot.archiveSummary.entryCount = summary.entryCount;
-        snapshot.archiveSummary.entriesWithCompleteFingerprints =
-            summary.completeFingerprints;
         foreach (ref status; snapshot.extractors)
             if (status.extractor == "archives")
                 status.state = !snapshot.archiveSummary.indexKnown
