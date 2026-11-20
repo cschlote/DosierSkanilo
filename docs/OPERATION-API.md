@@ -17,7 +17,8 @@ on top of these shared requests.
   explicit filesystem root and catalog path; it accepts scan/metadata options
   but rejects `dropMissing`.
 - **Metadata request:** supported only for an explicit repository root and at
-  least one selected extractor. JSON has no standalone metadata command.
+  least one selected extractor. An optional path filter restricts the request
+  to one catalog file. JSON has no standalone metadata command.
 - **Analysis request:** repository mode requires an explicit repository root
   and accepts analysis options plus optional metadata options; requested
   metadata jobs run before duplicate and missing-file analysis. JSON mode
@@ -56,6 +57,8 @@ Map these flags to typed request fields:
   archive scanning (`deepArchiveScan = true`).
 - `--rescan-media-info` is a modifier, not an extractor by itself; standalone
   metadata requests still require at least one selected extractor.
+- `--only PATH` restricts a repository metadata request to one catalog file.
+  It is rejected for scan, analyze, and JSON commands.
 
 The CLI selects archive scan depth by repeating `--scan-archives`; it does not
 expose a numeric depth value. Frontend adapters must not present an

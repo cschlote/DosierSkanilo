@@ -159,6 +159,57 @@ Run the same stage order locally:
   - `unrar`
   - `7z`
 
+## Scan, Metadata, and Analyze
+
+The three write operations build on each other. Each one answers a different
+question and touches a different layer:
+
+| Command | Question | Input | Result |
+| --- | --- | --- | --- |
+| `scan` | Which files exist where? | Directory tree | File references and blobs with path, size, and modification time |
+| `metadata` | What is inside the cataloged files? | Catalog blobs | Checksums, file types, MediaInfo, archive indexes, torrent details |
+| `analyze` | Is the catalog consistent? | Catalog only | Merged duplicate blobs and optional missing-file cleanup |
+
+`scan` walks the filesystem. It creates or updates a file reference and a blob
+for every regular file. Subdirectories require `--recursive`, hidden entries
+require `--pick-hidden`. Files that disappeared are marked as missing but stay
+in the catalog; only `--drop-missing` removes them. `scan` does not read file
+contents unless metadata extractors are selected, so `scan --recursive --all`
+combines the inventory with a metadata run.
+
+`metadata` never walks the directory tree. It processes the blobs that are
+already cataloged and fills in the selected extractors: `--checksums` (MD5,
+SHA1, XXH64), `--file-types`, `--media-info`, `--scan-archives` (repeat for a
+deep scan), and `--scan-torrents`. Values that already exist are kept unless
+`--rescan-media-info` forces MediaInfo and the archive index again. `--only
+PATH` restricts a run to one repository file, and `--archive-limit N` stops an
+archive-only run after N pending archives. At least one extractor is required.
+
+`analyze` reads only the catalog. It counts references whose file is gone and
+deletes them with `--drop-missing`. It merges blobs that share the same size
+and complete MD5/SHA1/XXH64 checksums; merging is enabled by default. Without
+complete checksums no duplicates are merged. Metadata extractors supplied to
+`analyze` run before the cleanup, so `analyze --all` means "extract everything,
+then merge duplicates".
+
+A typical repository workflow is:
+
+```bash
+./build/bin/dosierskanilo init /data/library
+./build/bin/dosierskanilo scan /data/library --recursive --all
+./build/bin/dosierskanilo analyze /data/library
+```
+
+Rescan one file without touching the rest of the catalog:
+
+```bash
+./build/bin/dosierskanilo metadata /data/library --rescan-media-info \
+  --media-info --only "films/example.mkv"
+```
+
+Direct JSON catalogs support `scan` and `analyze`. They have no standalone
+`metadata` command; metadata extractors run as part of those two operations.
+
 ## CLI Reference
 
 The supported command forms are:
@@ -187,7 +238,8 @@ dosierskanilo duplicates [ROOT] --json CATALOG.json
 
 Common options use kebab-case: `--recursive`, `--checksums`, `--file-types`,
 `--media-info`, `--scan-archives`, `--scan-torrents`, `--all`, `--drop-missing`,
-`--pick-hidden`, `--threads`, `--archive-limit`, `--verbose`, `--pretty`,
+`--pick-hidden`, `--threads`, `--archive-limit`, `--only`, `--rescan-media-info`,
+`--verbose`, `--pretty`,
 `--force` (init/restore), `--output` (export/backup), `--input` (restore), and
 `--format=table|json` for query and status commands. `--all` enables checksums,
 file types, media info, one shallow archive scan, and torrent scanning;
