@@ -171,3 +171,22 @@ dub run --single scripts/benchmark-json-members.d --build=release -- 100000
   including allocation/GC behavior where tooling permits; compare reuse against
   rebuilding the filtered projection/tree.
 - Repeat measurements with the production media-library distribution.
+
+## GC and performance tuning decision
+
+The GC-friendly allocation work in WP-11.5 is complete. The measured backend
+baseline remains the archive-member page: the first 250-row page of a
+100,000-member directory takes about `86 ms` and allocates about `46 MB`, while
+the next page takes about `6 ms` and allocates about `0.05 MB`. The first page
+still builds the full member order, so memory stays proportional to the member
+count of the queried directory.
+
+No GC parameter tuning is planned. Disabling or hand-tuning the D collector
+would trade bounded, reproducible behavior for unbounded growth risk without
+addressing these costs. The next performance work stays measurement-driven:
+per-batch GUI rendering, archive-member first pages, detail queries, and
+scan/metadata throughput. Revisit GC tuning only when a profile shows a
+two-digit share of action time in GC, visible pauses above roughly `50 ms`, or
+retained memory that grows across repeated operations. The GUI-side
+measurements and revisit criteria are recorded in
+[the GUI performance assessment](https://github.com/cschlote/DosierSkanilo-Gui/blob/main/docs/GUI-REDESIGN.md#performance-and-gc-assessment).
