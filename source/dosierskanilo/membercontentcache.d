@@ -6,6 +6,7 @@
  */
 module dosierskanilo.membercontentcache;
 
+import dosierskanilo.logging : logLineVerbose;
 import core.atomic : atomicLoad;
 import core.sync.condition : Condition;
 import core.sync.mutex : Mutex;
@@ -406,13 +407,32 @@ public:
             if (!extracted)
                 throw new MemberContentNotExtractableException(
                     "Archive adapter could not select this member occurrence.");
+            if (!exists(entry.filePath))
+            {
+                logLineVerbose("[member-cache] extraction produced no file: ",
+                    entry.filePath);
+                try
+                {
+                    import std.file : SpanMode, dirEntries;
+                    import std.range : take;
+                    foreach (extractedEntry; dirEntries(entry.directory,
+                            SpanMode.breadth).take(16))
+                        logLineVerbose("[member-cache] extracted: ",
+                            extractedEntry.name);
+                }
+                catch (Exception)
+                {
+                }
+                throw new MemberContentNotExtractableException(
+                    "Archive member materializer produced no file.");
+            }
             /* Archive extraction may preserve symbolic links. Never expose the
              * link target as member content, and never accept a path that
              * resolves outside the session directory. */
             if (isSymlink(entry.filePath))
                 throw new MemberContentNotExtractableException(
                     "Archive member is a symbolic link; refusing to read its target.");
-            if (!exists(entry.filePath) || !isFile(entry.filePath))
+            if (!isFile(entry.filePath))
                 throw new MemberContentNotExtractableException(
                     "Archive member materializer produced no file.");
             const auto actualSize = getSize(entry.filePath);

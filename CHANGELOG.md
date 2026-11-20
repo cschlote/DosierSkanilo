@@ -9,6 +9,10 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- A missing extracted archive member now reports a clear "produced no file"
+  error instead of a misleading file-not-found catalog error, and verbose mode
+  lists the entries the tool actually extracted.
+
 - A failing archive summary query no longer breaks the detail load, and verbose
   logs include the underlying SQLite error.
 
