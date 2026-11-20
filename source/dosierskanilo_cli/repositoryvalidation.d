@@ -44,6 +44,11 @@ bool validateRepositoryOptions(string command, ref ArgsArray options)
         errorLine("--path is available only with export.");
         return false;
     }
+    if (!options.argOnlyPath.empty && command != "metadata")
+    {
+        errorLine("--only is available only with metadata.");
+        return false;
+    }
     if ((!options.argArchiveCacheDir.empty || options.argArchiveCacheMiB != 0)
         && command != "scan" && command != "metadata")
     {

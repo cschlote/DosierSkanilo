@@ -37,6 +37,12 @@ bool validateJsonOptions(string command, ref ArgsArray options)
     if (options.argBaseDir.empty)
         options.argBaseDir = ".";
 
+    if (!options.argOnlyPath.empty)
+    {
+        errorLine("--only is available only with repository metadata.");
+        return false;
+    }
+
     if (command != "scan" && options.argMergeDuplicates)
     {
         errorLine("--merge-duplicates is available only for JSON scan.");

@@ -31,6 +31,7 @@ struct ArgsArray
 	uint argScanArchives; ///< Scan archive contents.
 	bool argScanArchivesOption; ///< Canonical single archive-scan option.
 	uint argArchiveLimit; ///< Maximum pending archive blobs per metadata run.
+	string argOnlyPath; ///< Restrict metadata work to one repository file.
 	bool argScanTorrents; ///< Scan torrent contents.
 	string argArchiveCacheDir; ///< Root directory for archive member extraction.
 	uint argArchiveCacheMiB; ///< Archive member cache size in MiB (0 = default).
