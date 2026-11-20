@@ -1,5 +1,5 @@
 pkgname=dosierskanilo
-pkgver=26.17.2
+pkgver=26.18.0
 pkgrel=1
 pkgdesc='Blob-centric media and archive file scanner'
 arch=('x86_64')
