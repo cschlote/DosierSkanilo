@@ -1,8 +1,9 @@
 # Release Checklist
 
 Use this checklist for a backend + GUI release pair. Both repositories are
-released from `main`; each tag is prefixed with `v`. The `testing` branch is a
-deployment-free mirror of `main`, never a release or integration branch.
+released from `main`; each tag is prefixed with `v`. The `testing` branch
+collects integrated work and is merged into `main` only when explicitly
+requested, either for a release or for publishing the collected state.
 
 ## Preconditions
 
@@ -10,8 +11,8 @@ deployment-free mirror of `main`, never a release or integration branch.
 - [ ] README, AGENTS, workflow/testing docs, TODO, CHANGELOG, and package
       metadata describe the same intended release state.
 - [ ] The documented test commands match the current scripts and CI jobs.
-- [ ] The release branch is merged into `main`, `main` is pushed to every
-      mirror, and `testing` is fast-forwarded to the same commit.
+- [ ] The requested `testing` merge is on `main`, the release branch is merged
+      into `main`, and `main` is pushed to every mirror.
 - [ ] CI on `main` passed, including the GUI Xvfb display job, or the same
       checks were run locally when remote CI is intentionally disabled.
 - [ ] Untracked local review/scratch files are committed or removed.
@@ -76,10 +77,12 @@ deployment-free mirror of `main`, never a release or integration branch.
 ## Publish
 
 - [ ] Commit `Release X.Y.Z` on a `release/X.Y.Z` branch in each repository.
-- [ ] Merge the release branches to `main` with `--no-ff`, push `main`, and
-      fast-forward `testing` without staying on it.
+- [ ] Merge the requested `testing` state and the release branches to `main`
+      with `--no-ff` and push `main`.
 - [ ] Create annotated tags `vX.Y.Z` on the `main` merge commits and push them
       to every mirror.
+- [ ] Fast-forward `testing` to `main` after tagging and push it, so both
+      branches continue from the released state.
 - [ ] Update the Flatpak `sha256` pins from the published tag archives in a
       follow-up commit on `main`.
 - [ ] Confirm the tag-driven release workflow validated metadata and tests and
