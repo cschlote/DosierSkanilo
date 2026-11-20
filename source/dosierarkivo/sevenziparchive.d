@@ -6,12 +6,12 @@
  */
 module dosierarkivo.sevenziparchive;
 
+import std.algorithm.searching : startsWith;
 import std.conv : to;
 import std.file : exists, remove;
 import std.path : absolutePath;
 import std.process : execute, executeShell;
-import std.regex : matchFirst;
-import std.string : empty, format, splitLines, strip;
+import std.string : empty, format, replace, splitLines, strip;
 
 import dosierarkivo.archive;
 version (unittest)
@@ -51,7 +51,7 @@ class FileArchive7z : FileArchive
             ? "-p" ~ password : "-p__dosierskanilo_no_password__";
         string[string] environment;
         environment["LC_ALL"] = "C";
-        auto rc = execute(["7z", "l", passwordOption, "-ba",
+        auto rc = execute(["7z", "l", passwordOption, "-slt",
             absolutePath(this.fileName)], environment);
         if (rc.status != 0 && isArchivePasswordFailure(rc.output))
             throw new ArchivePasswordRequiredException(rc.output);
@@ -59,38 +59,64 @@ class FileArchive7z : FileArchive
             return [];
 
         ArchiveEntryDescriptor[] entries;
-        auto lines = rc.output.splitLines;
-        foreach (line; lines)
+        ArchiveEntryDescriptor current;
+        bool haveEntry;
+        bool hasAttributes;
+        bool isDirectory;
+        void commit()
         {
-            auto m = matchFirst(line,
-                `^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})\s+(\S+)\s+(\d+)\s+(\d*)\s+(.+)$`);
-            if (m.empty)
-                continue;
-
-            auto attrs = m.captures[3];
-            if (attrs.length > 0 && attrs[0] == 'D')
-                continue;
-
-            ArchiveEntryDescriptor descriptor;
-            descriptor.name = m.captures[6];
-            if (descriptor.name.empty)
-                continue;
-            try
-            {
-                descriptor.size = m.captures[4].to!ulong;
-                descriptor.hasSize = true;
-            }
-            catch (Exception)
-            {
-            }
-            descriptor.modifiedAt = m.captures[1] ~ "T" ~ m.captures[2];
-            descriptor.hasModifiedAt = true;
-            entries ~= descriptor;
+            if (haveEntry && hasAttributes && !isDirectory)
+                entries ~= current;
+            current = ArchiveEntryDescriptor.init;
+            haveEntry = false;
+            hasAttributes = false;
+            isDirectory = false;
         }
+        foreach (line; rc.output.splitLines)
+        {
+            const text = line.strip;
+            if (text.length == 0)
+            {
+                commit();
+                continue;
+            }
+            if (text.startsWith("Path = "))
+            {
+                commit();
+                current.name = text[7 .. $];
+                haveEntry = true;
+            }
+            else if (haveEntry && text.startsWith("Size = "))
+            {
+                try
+                {
+                    current.size = text[7 .. $].to!ulong;
+                    current.hasSize = true;
+                }
+                catch (Exception)
+                {
+                }
+            }
+            else if (haveEntry && text.startsWith("Modified = "))
+            {
+                auto value = text[11 .. $];
+                if (value.length > 19)
+                    value = value[0 .. 19];
+                current.modifiedAt = value.replace(" ", "T");
+                current.hasModifiedAt = current.modifiedAt.length > 0;
+            }
+            else if (haveEntry && text.startsWith("Attributes = "))
+            {
+                hasAttributes = true;
+                const attrs = text[13 .. $];
+                isDirectory = attrs.length > 0 && attrs[0] == 'D';
+            }
+        }
+        commit();
         return entries;
     }
 
-    /** List file member names using `7z l -ba`.
+    /** List file member names using `7z l -slt`.
      *
      * Params:
      *     password = Archive password; empty passes a sentinel that suppresses
@@ -285,6 +311,52 @@ unittest
     assert(descriptors[0].hasModifiedAt);
     assert(descriptors[0].modifiedAt.length >= 19,
         descriptors[0].modifiedAt);
+}
+
+@("7z solid listing keeps member names that start with a digit")
+unittest
+{
+    import std.algorithm.searching : endsWith, startsWith;
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.process : Config, execute, executeShell;
+    import std.uuid : randomUUID;
+
+    if (executeShell("command -v 7z").status != 0)
+        return;
+    const root = buildPath(tempDir(), "7z-solid-digit-name-"
+        ~ randomUUID().toString());
+    const source = buildPath(root, "source", "2 german dogs");
+    const output = buildPath(root, "output");
+    mkdirRecurse(source);
+    mkdirRecurse(output);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+    write(buildPath(source, "saliva-1.jpg"), "first");
+    write(buildPath(source, "saliva-2.jpg"), "second payload");
+    const archivePath = buildPath(root, "solid.7z");
+    auto created = execute(["7z", "a", "-bd", "-bso0", "-ms=on", archivePath,
+        "2 german dogs"], null, Config.none, size_t.max,
+        buildPath(root, "source"));
+    assert(created.status == 0, created.output);
+
+    auto archive = new FileArchive7z(archivePath);
+    auto descriptors = archive.getEntryDescriptors();
+    assert(descriptors.length == 2);
+    foreach (descriptor; descriptors)
+    {
+        assert(descriptor.name.startsWith("2 german dogs/"), descriptor.name);
+        assert(descriptor.relativePath.startsWith("2 german dogs/"),
+            descriptor.relativePath);
+        assert(descriptor.hasSize, descriptor.name);
+        assert(descriptor.hasModifiedAt, descriptor.name);
+        const expectedSize = descriptor.name.endsWith("saliva-1.jpg")
+            ? "first".length : "second payload".length;
+        assert(descriptor.size == expectedSize, descriptor.name);
+    }
+    assert(archive.extractEntry("2 german dogs/saliva-1.jpg", output));
+    assert(exists(buildPath(output, "2 german dogs", "saliva-1.jpg")));
 }
 
 @("7z bulk extraction writes all members")

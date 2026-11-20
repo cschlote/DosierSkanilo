@@ -9,6 +9,11 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- 7z member listings parse the structured `-slt` output. The previous
+  positional parser mistook the leading digit of names such as
+  `2 german dogs/saliva-1.jpg` for the packed-size column when a solid archive
+  leaves that column empty, and stored truncated member paths.
+
 - A missing extracted archive member now reports a clear "produced no file"
   error instead of a misleading file-not-found catalog error, and verbose mode
   lists the entries the tool actually extracted.
