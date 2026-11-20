@@ -19,6 +19,7 @@ import std.file : exists;
 import std.path : baseName, buildNormalizedPath, buildPath, dirName, isAbsolute;
 import std.string : empty, endsWith, replace, split;
 import std.typecons : Nullable;
+import core.time : MonoTime;
 
 import dosierskanilo.logging : logLine, logLineVerbose;
 import dosierarkivo.archive : appendArchiveVirtualPath, archiveIndexVersion,
@@ -1391,7 +1392,9 @@ NamedBinaryBlob loadBlobDetailsFromDatabase(ref Database db, string rootPath,
         "SELECT password FROM archive_passwords WHERE blob_id = ?", blobId);
     if (!passwordResult.empty)
         archivePassword = passwordResult.front.peek!string(0);
+    auto specsStarted = MonoTime.currTime;
     auto paths = loadFileSpecs(db, blobId, rootPath, options);
+    const auto specsMs = cast(long) (MonoTime.currTime - specsStarted).total!"msecs";
     if (paths.length == 0 && !options.allowUnreferencedContent)
         return null;
 
@@ -1407,10 +1410,21 @@ NamedBinaryBlob loadBlobDetailsFromDatabase(ref Database db, string rootPath,
 
     if (options.includeDetails)
     {
+        auto mediaStarted = MonoTime.currTime;
         loadMediaInfo(db, blobId, blob);
+        const auto mediaMs = cast(long) (MonoTime.currTime - mediaStarted).total!"msecs";
+        auto archiveStarted = MonoTime.currTime;
         if (options.includeArchiveEntries)
             loadArchiveIndexState(db, blobId, blob);
+        const auto archiveMs =
+            cast(long) (MonoTime.currTime - archiveStarted).total!"msecs";
+        auto torrentStarted = MonoTime.currTime;
         loadTorrentInfo(db, blobId, blob, options.includeTorrentFiles);
+        const auto torrentMs =
+            cast(long) (MonoTime.currTime - torrentStarted).total!"msecs";
+        logLineVerbose("[details] parts specs=", specsMs, " media=", mediaMs,
+            " archive=", archiveMs, " torrent=", torrentMs,
+            " specs=", paths.length);
     }
     return blob;
 }
