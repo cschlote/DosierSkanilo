@@ -9,6 +9,10 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- `metadata --only PATH` restricts a metadata run to one repository file, so a
+  single file or archive can be rescanned without walking the whole catalog.
+  Absolute paths below the repository root are accepted.
+
 - 7z member listings parse the structured `-slt` output. The previous
   positional parser mistook the leading digit of names such as
   `2 german dogs/saliva-1.jpg` for the packed-size column when a solid archive

@@ -1908,6 +1908,21 @@ bool executeRepositoryMetadata(CatalogBackend backend, string repositoryRoot,
 	metadataOptions.deepArchiveScan = options.argScanArchives > 1;
 	metadataOptions.scanTorrents = options.argScanTorrents;
 	metadataOptions.rescan = options.argRescanMediaSig;
+	if (!options.argOnlyPath.empty)
+	{
+		metadataOptions.filePath = options.argOnlyPath;
+		if (isAbsolute(metadataOptions.filePath))
+			metadataOptions.filePath = relativePath(
+				absolutePath(metadataOptions.filePath),
+				absolutePath(repositoryRoot));
+		if (metadataOptions.filePath == "."
+			|| (metadataOptions.filePath.length >= 2
+				&& metadataOptions.filePath[0 .. 2] == ".."))
+		{
+			errorLine("--only must name a file inside the repository.");
+			return false;
+		}
+	}
 	metadataOptions.archiveLimit = options.argArchiveLimit;
 	metadataOptions.archiveBulkMode = archiveBulkModeFromOption(
 		options.argArchiveBulk);

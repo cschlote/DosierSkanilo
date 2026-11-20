@@ -69,6 +69,18 @@ Commands:
     restore    Restore a SQLite repository backup
     recover    List backups/recovery files and optionally restore one
 
+Write operation phases:
+
+    scan      Records filesystem paths and sizes. Missing files are marked
+              but kept; --drop-missing removes them.
+    metadata  Fills checksums, file types, media info, archive and torrent
+              details for cataloged blobs. --only PATH limits it to one file.
+    analyze   Merges blobs with equal size and complete checksums, optionally
+              drops missing references, and runs requested metadata first.
+
+    A typical run is: scan --recursive --all, then analyze. Direct JSON
+    catalogs have no standalone metadata command.
+
 JSON target options:
 
     --json CATALOG.json   Use the JSON catalog backend
@@ -81,6 +93,7 @@ Metadata options (at least one is required for `metadata`):
     archive scan, and torrent scanning. Repeating --scan-archives still
     selects a deep archive scan. --archive-limit N limits an archive-only
     metadata run to N pending archives; completed archives are skipped.
+    --only PATH restricts a metadata run to one repository-relative file.
     --rescan-media-info forces media metadata extraction again
 
 Archive member cache options (scan and metadata):
@@ -292,6 +305,7 @@ ParsedCommandLine parseCommandLine(string[] args)
             "rescan-media-info", "SAM------ Rescan all files for media signature", &argsarray.argRescanMediaSig,
             "scan-archives+", "SAM------ Get the contents of archives (repeat for deep scanning)", &argsarray.argScanArchives,
             "archive-limit", "--M------ Maximum pending archive blobs per metadata run", &argsarray.argArchiveLimit,
+            "only", "--M------ Restrict metadata work to one repository file", &argsarray.argOnlyPath,
             "scan-torrents", "SAM------ Get the contents of torrent files", &argsarray.argScanTorrents,
             "all", "SAM------ Enable checksums, file types, media info, and shallow archive/torrent scans", &argsarray.argAll,
             "archive-cache-dir", "S-M------ Root directory for archive member extraction", &argsarray.argArchiveCacheDir,
@@ -663,6 +677,18 @@ unittest
     auto invalidArchiveLimitMixed = parseCommandLine(["program", "metadata",
         "./test", "--scan-archives", "--checksums", "--archive-limit", "5"]);
     assert(invalidArchiveLimitMixed.status == ParseStatus.error);
+    auto onlyPath = parseCommandLine(["program", "metadata", "./test",
+        "--scan-archives", "--rescan-media-info",
+        "--only", "archives/sample.zip"]);
+    assert(onlyPath.status == ParseStatus.run);
+    assert(onlyPath.options.argOnlyPath == "archives/sample.zip");
+    assert(helpText.canFind("--only"));
+    auto invalidOnlyScan = parseCommandLine(["program", "scan", "./test",
+        "--only", "archives/sample.zip"]);
+    assert(invalidOnlyScan.status == ParseStatus.error);
+    auto invalidOnlyJson = parseCommandLine(["program", "scan", "--json",
+        "./test/json_file_v2.json", "--only", "archives/sample.zip"]);
+    assert(invalidOnlyJson.status == ParseStatus.error);
     auto cachedArchive = parseCommandLine(["program", "scan", "./test",
         "--scan-archives", "--archive-cache-dir", "./cache",
         "--archive-cache-size", "64"]);
