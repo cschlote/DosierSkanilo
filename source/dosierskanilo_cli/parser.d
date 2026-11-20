@@ -69,6 +69,18 @@ Commands:
     restore    Restore a SQLite repository backup
     recover    List backups/recovery files and optionally restore one
 
+Write operation phases:
+
+    scan      Records filesystem paths and sizes. Missing files are marked
+              but kept; --drop-missing removes them.
+    metadata  Fills checksums, file types, media info, archive and torrent
+              details for cataloged blobs. --only PATH limits it to one file.
+    analyze   Merges blobs with equal size and complete checksums, optionally
+              drops missing references, and runs requested metadata first.
+
+    A typical run is: scan --recursive --all, then analyze. Direct JSON
+    catalogs have no standalone metadata command.
+
 JSON target options:
 
     --json CATALOG.json   Use the JSON catalog backend

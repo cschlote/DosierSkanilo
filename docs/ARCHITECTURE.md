@@ -270,6 +270,27 @@ controlled SQLite scan/metadata/analysis and explicit JSON scan/analyze requests
 Synchronous `Repository.scan()`, `updateMetadata()`, and `analyze()` are
 convenience wrappers over the controlled services.
 
+### Write operation phases
+
+The CLI and GUI expose the same three write operations, and each one works on a
+different layer:
+
+- `scan` walks the selected filesystem root and records file references and
+  blobs with path, size, and modification time. References whose file is gone
+  are marked as missing and only removed when `dropMissing` is set. Content jobs
+  run only for extractors that the request selects, so a scan request can
+  include a metadata phase.
+- `metadata` does not scan directories. It runs the selected content jobs for
+  cataloged blobs and skips values that already exist. `rescanMediaInfo` forces
+  MediaInfo and archive indexes again; `filePath` restricts the run to one
+  repository file.
+- `analyze` reads only the catalog. It merges blobs with equal size and complete
+  checksums (enabled by default) and removes missing references only with
+  `dropMissing`. Requested metadata jobs run before the analysis.
+
+Direct JSON has no standalone metadata operation; metadata options on JSON scan
+or analyze run as a phase of that operation.
+
 WP-09.1 and WP-09.1b define frontend-neutral request, progress, cancellation,
 and cooperative pause/resume contracts. Controlled SQLite/JSON executors,
 cross-process target leases, and initial CLI/GTK adapters are implemented. A
@@ -297,6 +318,9 @@ helpers; the SQLite adapter performs the equivalent work relationally.
 4. Merge equal blobs (`mergeDataClassObjects`) by combining file specs.
 5. Remove only records invalidated by a successful merge. Remove missing source
    references only when the request explicitly enables `dropMissing`.
+
+Repository analysis enables duplicate merging by default. JSON analysis always
+merges, while JSON scan merges only with `--merge-duplicates`.
 
 This keeps the model content-oriented while preserving all known file names.
 
