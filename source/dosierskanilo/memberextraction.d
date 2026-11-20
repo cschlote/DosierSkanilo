@@ -97,7 +97,7 @@ MemberContentLease extractArchiveMember(string sourceRoot,
                 if (cancellation !is null && atomicLoad(*cancellation))
                     return false;
                 return archive.extractEntry(selected, destinationDirectory,
-                    step.password);
+                    step.password, cancellation);
             }, cancellation);
         if (previousLease !is null)
             previousLease.release();
