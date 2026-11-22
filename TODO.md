@@ -362,8 +362,12 @@ baseline, and the documentation no longer implies that old formats are readable.
 - [x] Populate archive-member sizes and timestamps during shallow scans for ZIP,
       TAR, and 7z by parsing their listing output. RAR already supplied these
       fields. See [`docs/ARCHIVE-SUPPORT.md`](docs/ARCHIVE-SUPPORT.md).
-- [ ] Harden remaining archive-listing edge cases: RAR duplicate-name metadata,
-      ZIP fallback whitespace, and explicit link-kind descriptors.
+- [x] Harden RAR duplicate-name metadata: `unrar lt` metadata is now keyed per
+      occurrence instead of overwriting earlier entries with the same name.
+- [x] Add an explicit `isSymlink` flag to `ArchiveEntryDescriptor`; TAR and RAR
+      populate it from their verbose listings.
+- [ ] ZIP fallback whitespace handling: verify trailing/leading spaces in member
+      names survive the `unzip -l` fallback parser.
 - [x] Support common compressed tar suffixes (`.tar.gz`, `.tgz`, `.tar.xz`,
       `.txz`, `.tar.zst`, `.tzst`, and related aliases) through the TAR
       adapter.

@@ -337,6 +337,7 @@ struct ArchiveEntryDescriptor
     bool hasSize; /// Whether `size` came from archive metadata.
     bool hasModifiedAt; /// Whether `modifiedAt` came from archive metadata.
     bool isDirectory; /// True for an explicit directory entry.
+    bool isSymlink; /// True for a symbolic-link entry.
     bool hasSafePath; /// False for absolute or traversal paths that cannot be indexed.
     bool hasDuplicateName; /// True when another entry has the same normalized path.
 }
