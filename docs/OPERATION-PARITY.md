@@ -9,7 +9,7 @@ argument/dialog mapping, progress presentation, and source refresh.
 
 | Operation | SQLite repository | JSON catalog | CLI mapping | GTK Tools mapping |
 | --- | --- | --- | --- | --- |
-| Scan | `ScanOperationRequest` with scan and optional metadata options | `ScanOperationRequest` with explicit catalog and filesystem root, optional metadata; rejects `dropMissing` | `scan --json` | Scan dialog; JSON asks for the filesystem root |
+| Scan | `ScanOperationRequest` with scan and optional metadata options | `ScanOperationRequest` with explicit catalog and filesystem root, optional metadata; rejects `dropMissing` | `scan` | Scan dialog; JSON asks for the filesystem root |
 | Metadata | `MetadataOperationRequest`, one or more extractors required | Unsupported as a standalone request | `metadata` | Metadata dialog enabled for repository documents |
 | Analyze | `AnalysisOperationRequest`; optional metadata runs before drop-missing and duplicate merge | `AnalysisOperationRequest`; optional metadata runs before analysis | `analyze` / `analyze --json` | Analyze dialog; JSON offers optional metadata first |
 
@@ -68,6 +68,58 @@ JSON catalog and a SQLite repository and compare:
 Operation requests, cancellation, leases, and committed-state refresh stay
 covered by the WP-09 evidence above; the GUI now consumes the same catalog
 methods for trees, content rows, details, entries, and previews.
+
+## Manual GUI verification checklist
+
+The items below cannot be exercised by the automated backend suites and must
+be confirmed in the GTK self-test or by hand before a release. Record the
+result and date in the verification stamp section.
+
+| Item | Storage mode | Expected behaviour | Status |
+| --- | --- | --- | --- |
+| Save/Discard/Cancel on a modified JSON tab | JSON | Dialog offers all three choices; Cancel keeps the tab open | Not yet verified |
+| Large-JSON open guard (>= 32 MiB) | JSON | "Cancel"/"Open Anyway" dialog appears; Cancel aborts load | Not yet verified |
+| Pause/resume during scan | Both | Operation pauses at a checkpoint, resumes without data loss | Not yet verified |
+| Pause/resume during metadata | Both | Acknowledged pause transition, no partial blob commit | Not yet verified |
+| Pause/resume during analyze | Both | Transaction stays atomic across pause | Not yet verified |
+| Single-file metadata rescan (`--only` / dialog) | SQLite | Only the selected repository file is processed | Not yet verified |
+| Post-operation reload in owning tab | Both | Tab reloads after the operation within 10 s | Not yet verified |
+| Archive deep-scan resume | Both | Completed archives are skipped on the next run | Not yet verified |
+
+## Known gaps and not yet covered
+
+The following parity areas are tracked but not yet verified end to end. Each
+links to the backend plan or the GUI TODO.
+
+- Archive deep-scan resume through the GUI Tools path (backend CLI path is
+  covered by `test-cli.sh`).
+- Metadata single-file rescan through the GUI dialog (backend `--only` path
+  is covered).
+- Operation pause while an archive scan is in progress.
+- Cancellation of an in-progress archive member extraction lease.
+- GUI-side comparison of metadata result counts (checksums, file types,
+  media info) between JSON and SQLite on the synthetic corpus; the backend
+  compares scan and analysis summaries only.
+- Concurrent read queries while a write operation is active (no measurement
+  or test exists yet).
+
+## Verification stamp
+
+Recorded against the backend repository state at the time of verification.
+
+| Field | Value |
+| --- | --- |
+| Backend branch | `testing` |
+| Backend commit | `a37b054` |
+| Backend version | `26.18.0` |
+| Verification date | 2026-11-22 |
+| Backend unit tests | 280 (reported) |
+| GUI unit tests | 80 (reported) |
+| GUI coverage | 36.66 % (reported) |
+| Manual GUI checklist | Not yet executed |
+
+Update this stamp whenever the parity evidence is re-verified. The manual
+checklist above must be completed before the next release tag is created.
 
 ## Verification evidence
 

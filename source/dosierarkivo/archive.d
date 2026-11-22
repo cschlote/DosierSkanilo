@@ -1057,6 +1057,55 @@ unittest
     assertThrown!Exception(parseArchiveVirtualPath("archive.zip!/../escape.txt"));
 }
 
+@("parseArchiveVirtualPath never crashes on arbitrary input")
+unittest
+{
+    import std.exception : assertThrown;
+    import std.random : Mt19937, uniform;
+    import std.string : representation;
+
+    // Deterministic corpus: empty, edge cases, and seeded random bytes.
+    string[] corpus;
+    corpus ~= "";
+    corpus ~= "!";
+    corpus ~= "/";
+    corpus ~= "!!";
+    corpus ~= "a!/b";
+    corpus ~= "a!~1/b";
+    corpus ~= "a!!/b";
+    corpus ~= "../escape";
+    corpus ~= "a\0b";
+    corpus ~= "a\\b";
+    corpus ~= "container.zip!/member.txt";
+    corpus ~= "container.zip!/member.txt!~0";
+    corpus ~= "container.zip!/member.txt!~999";
+
+    auto rng = Mt19937(0xDEADBEEF);
+    foreach (_; 0 .. 2000)
+    {
+        immutable len = uniform(0, 64, rng);
+        char[] buf = new char[len];
+        foreach (ref c; buf)
+            c = cast(char) uniform(0, 128, rng);
+        corpus ~= buf.idup;
+    }
+
+    foreach (input; corpus)
+    {
+        try
+        {
+            auto parsed = parseArchiveVirtualPath(input);
+            // If parsing succeeds, every entry path must be safe/normalized.
+            foreach (entry; parsed.entries)
+                assert(entry.relativePath.length > 0);
+        }
+        catch (Exception)
+        {
+            // Expected for malformed or unsafe input; must not crash.
+        }
+    }
+}
+
 @("archive display names decode canonical escape sequences")
 unittest
 {

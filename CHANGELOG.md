@@ -7,6 +7,23 @@ Older entries below `26.0.0` were backfilled from source history, tests,
 and available data fixtures (`test/json_file_v0.json`, `v1`, `v2`).
 They represent the functional evolution and are intentionally summarized.
 
+## Unreleased
+
+## Release 26.19.0 - 2026-11-22
+
+- Narrowed the public `dosierskanilo` package facade: `repository` and the
+  `service.analyze`, `service.scanning`, and `service.storageio` modules are no
+  longer re-exported. Consumers import them explicitly; `CatalogBackend` and
+  `CatalogBackendFactory` remain the recommended storage-neutral entry points.
+- Added a coverage gate to `scripts/test.sh` (default minimum 85.00%).
+- Added crash-safety fuzz-style tests for archive virtual paths and the
+  bencode torrent parser.
+- Added a legacy JSON round-trip test (v0/v1/v2) and a schema-version smoke
+  test for fresh SQLite databases.
+- Completed `docs/OPERATION-PARITY.md` with a manual GUI verification
+  checklist, a known-gaps list, and a verification stamp.
+- Added an independent backend code review report under `docs/reviews/`.
+
 ## Release 26.18.0 - 2026-11-20
 
 Pairs with DosierSkanilo GUI 0.15.0.

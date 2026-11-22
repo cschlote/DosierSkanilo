@@ -1621,6 +1621,36 @@ unittest
         "Opening an initialized repository must not write to the database.");
 }
 
+@("repository schema reaches current version on a fresh database")
+unittest
+{
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "repository-schema-" ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+    {
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+
+    auto repository = Repository.initialize(root);
+    scope (exit)
+        repository.close();
+    assert(repository.info.schemaVersion == currentRepositorySchemaVersion,
+        "Fresh repository must reach the current schema version.");
+    assert(currentRepositorySchemaVersion == 6,
+        "Update this test when the schema version changes.");
+
+    // Reopen must keep the schema version stable and must not rewrite the database.
+    auto reopened = Repository.open(root);
+    scope (exit)
+        reopened.close();
+    assert(reopened.info.schemaVersion == currentRepositorySchemaVersion);
+}
+
 @("repository force reinitialization backs up and clears the catalog")
 unittest
 {

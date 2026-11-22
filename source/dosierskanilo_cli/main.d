@@ -44,6 +44,7 @@ import std.utf;
 
 import dosierskanilo;
 import dosierskanilo.archivebulk : archiveBulkModeFromOption;
+import dosierskanilo.repository;
 import dosierarkivo;
 
 import dosierskanilo_cli.parser;

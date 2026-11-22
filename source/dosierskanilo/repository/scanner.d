@@ -416,7 +416,7 @@ unittest
 @("scans escape directory paths like file references")
 unittest
 {
-    import dosierskanilo : Repository;
+    import dosierskanilo.repository : Repository;
     import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
     import std.path : buildPath;
     import std.uuid : randomUUID;
@@ -469,7 +469,7 @@ unittest
 @("non-recursive scans leave nested references untouched")
 unittest
 {
-    import dosierskanilo : Repository;
+    import dosierskanilo.repository : Repository;
     import std.file : exists, mkdirRecurse, remove, rmdirRecurse, tempDir, write;
     import std.path : buildPath;
     import std.uuid : randomUUID;
@@ -921,7 +921,7 @@ unittest
 @("repository scans exclude their own metadata directory")
 unittest
 {
-    import dosierskanilo : Repository;
+    import dosierskanilo.repository : Repository;
     import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
     import std.path : buildPath;
     import std.uuid : randomUUID;

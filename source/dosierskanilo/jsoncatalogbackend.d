@@ -173,9 +173,11 @@ private struct ArchiveMemberRow
 }
 
 /**
- * Cached archive-member rows for one directory plus precomputed sort orders.
+ * Cached archive-member rows for one directory plus lazily built sort orders.
  *
- * The index arrays contain positions into `rows`.
+ * The index arrays contain positions into `rows` and are built on the first
+ * matching size-order request, so path-order queries do not pay for the extra
+ * sorts.
  */
 private struct ArchiveMemberRows
 {
@@ -185,6 +187,46 @@ private struct ArchiveMemberRows
     size_t[] sizeAscending;
     /// Positions into `rows` ordered by descending size, then path.
     size_t[] sizeDescending;
+    /// Whether `sizeAscending` has been built.
+    bool sizeAscendingReady;
+    /// Whether `sizeDescending` has been built.
+    bool sizeDescendingReady;
+
+    /** Build the ascending size order on first use. */
+    void ensureSizeAscending()
+    {
+        if (sizeAscendingReady)
+            return;
+        sizeAscending.length = rows.length;
+        foreach (index; 0 .. rows.length)
+            sizeAscending[index] = index;
+        sizeAscending.sort!((left, right) {
+            const leftFile = rows[left].file;
+            const rightFile = rows[right].file;
+            return leftFile.size < rightFile.size
+                || (leftFile.size == rightFile.size
+                    && leftFile.relativePath < rightFile.relativePath);
+        });
+        sizeAscendingReady = true;
+    }
+
+    /** Build the descending size order on first use. */
+    void ensureSizeDescending()
+    {
+        if (sizeDescendingReady)
+            return;
+        sizeDescending.length = rows.length;
+        foreach (index; 0 .. rows.length)
+            sizeDescending[index] = index;
+        sizeDescending.sort!((left, right) {
+            const leftFile = rows[left].file;
+            const rightFile = rows[right].file;
+            return leftFile.size > rightFile.size
+                || (leftFile.size == rightFile.size
+                    && leftFile.relativePath < rightFile.relativePath);
+        });
+        sizeDescendingReady = true;
+    }
 }
 
 /** Deep-copy a JSON catalog so an operation can be applied transactionally.
@@ -3510,27 +3552,6 @@ private:
             }
         rows.rows.sort!((left, right) =>
             left.file.relativePath < right.file.relativePath);
-        rows.sizeAscending.length = rows.rows.length;
-        rows.sizeDescending.length = rows.rows.length;
-        foreach (index; 0 .. rows.rows.length)
-        {
-            rows.sizeAscending[index] = index;
-            rows.sizeDescending[index] = index;
-        }
-        rows.sizeAscending.sort!((left, right) {
-            const leftFile = rows.rows[left].file;
-            const rightFile = rows.rows[right].file;
-            return leftFile.size < rightFile.size
-                || (leftFile.size == rightFile.size
-                    && leftFile.relativePath < rightFile.relativePath);
-        });
-        rows.sizeDescending.sort!((left, right) {
-            const leftFile = rows.rows[left].file;
-            const rightFile = rows.rows[right].file;
-            return leftFile.size > rightFile.size
-                || (leftFile.size == rightFile.size
-                    && leftFile.relativePath < rightFile.relativePath);
-        });
         archiveMemberRowsByDirectory[key] = rows;
         return key in archiveMemberRowsByDirectory;
     }
@@ -3592,7 +3613,7 @@ private:
             {
                 const physicalIndex = fileOrderIndex(query.sortOrder,
                     physicalPosition);
-                const memberIndex = memberOrderIndex(*rows, query.sortOrder,
+                const memberIndex = memberOrderIndex(rows, query.sortOrder,
                     memberPosition);
                 takePhysical = !fileBefore(rows.rows[memberIndex].file,
                     fileRows[physicalIndex], query.sortOrder);
@@ -3609,7 +3630,7 @@ private:
             }
             else
             {
-                auto index = memberOrderIndex(*rows, query.sortOrder,
+                auto index = memberOrderIndex(rows, query.sortOrder,
                     memberPosition++);
                 auto row = rows.rows[index];
                 if (!matches(row.file, query.filter))
@@ -3629,7 +3650,7 @@ private:
      *     position = Logical position in that order.
      * Returns: Index into `rows.rows`.
      */
-    static size_t memberOrderIndex(in ArchiveMemberRows rows,
+    static size_t memberOrderIndex(ArchiveMemberRows* rows,
         CatalogSortOrder sortOrder, size_t position)
     {
         final switch (sortOrder)
@@ -3639,8 +3660,10 @@ private:
         case CatalogSortOrder.pathDescending:
             return rows.rows.length - 1 - position;
         case CatalogSortOrder.sizeAscending:
+            rows.ensureSizeAscending();
             return rows.sizeAscending[position];
         case CatalogSortOrder.sizeDescending:
+            rows.ensureSizeDescending();
             return rows.sizeDescending[position];
         }
     }
@@ -3858,6 +3881,11 @@ private:
         auto entries = contentToken in archiveEntriesByToken;
         if (entries is null)
             return result;
+        result.reserve(entries.length);
+        const auto displayContainerPath = container.locator.kind
+            == ContentLocator.Kind.filesystem
+            ? escapeArchiveVirtualPath(container.relativePath)
+            : container.relativePath;
         size_t[string] occurrenceCounts;
         foreach (entry; *entries)
             occurrenceCounts[entry.relativePath] = occurrenceCounts.get(entry.relativePath, 0) + 1;
@@ -3873,10 +3901,6 @@ private:
             member.directoryId = container.directoryId;
             member.locator = ContentLocator.entry(container.referenceId, entry.id);
             member.name = baseName(entry.relativePath);
-            const auto displayContainerPath = container.locator.kind
-                == ContentLocator.Kind.filesystem
-                ? escapeArchiveVirtualPath(container.relativePath)
-                : container.relativePath;
             const samePathCount = occurrenceCounts.get(entry.relativePath, 1);
             member.relativePath = appendArchiveVirtualPath(displayContainerPath,
                 entry.relativePath, samePathCount > 1 ? entry.occurrence
