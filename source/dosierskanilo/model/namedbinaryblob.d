@@ -1991,6 +1991,54 @@ unittest
 	assertThrown!CatalogFormatException(deserializeDataClassJsonFile("./test/json_file_v1_wrongversion.json"), "No bumm?");
 }
 
+@("legacy JSON round-trip preserves catalog data")
+unittest
+{
+	import std.conv : to;
+	import std.file : exists, mkdirRecurse, readText, remove, rmdirRecurse, tempDir;
+	import std.path : buildPath;
+	import std.uuid : randomUUID;
+
+	// Archive and torrent fixtures are excluded here: they use legacy nested
+	// member storage (v4) that is flattened into normal blobs on save (v5),
+	// so their record count changes across a round trip. They are covered by
+	// the repository import/export tests instead.
+	foreach (fixture; [
+		"./test/json_file_v0.json",
+		"./test/json_file_v1.json",
+		"./test/json_file_v2.json"
+	])
+	{
+		auto loaded = deserializeDataClassJsonFile(fixture);
+		assert(loaded.length > 0, fixture);
+
+		auto dir = buildPath(tempDir(), "dosierskanilo-roundtrip-" ~ randomUUID().toString());
+		mkdirRecurse(dir);
+		auto outPath = buildPath(dir, "roundtrip.json");
+		scope (exit)
+		{
+			if (exists(outPath))
+				remove(outPath);
+			if (exists(dir))
+				rmdirRecurse(dir);
+		}
+
+		auto wrapper = NamedBinaryBlobCatalog(DATA_CLASS_VERSION5, loaded);
+		serializeDataClassWrapperFile(outPath, wrapper);
+
+		auto reloaded = deserializeDataClassJsonFile(outPath);
+		assert(reloaded.length == loaded.length, fixture);
+
+		auto s1 = sortDataClassArrayByFileName(loaded);
+		auto s2 = sortDataClassArrayByFileName(reloaded);
+		foreach (index; 0 .. s1.length)
+		{
+			assert(s1[index].toString == s2[index].toString,
+				fixture ~ ": record " ~ index.to!string ~ " changed after round-trip");
+		}
+	}
+}
+
 /** Serialize an array of NamedBinaryBlob classes
  *
  * Store the array data in a JSON file.
