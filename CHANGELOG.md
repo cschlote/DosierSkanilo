@@ -9,15 +9,20 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
-- JSON archive-member pages compute the escaped container path once per
-  container and build each size-sort index only when that order is requested.
-  On a synthetic 100,000-member directory the first 250-row page drops from
-  about 0.92 s to 0.22 s and from about 98 MB to 78 MB allocated; a later
-  size-order request adds about 86 ms.
-- Library consumers must now import `dosierskanilo.repository` and the
-  `dosierskanilo.service.*` modules directly; they are no longer re-exported
-  through the top-level `dosierskanilo` package facade. `CatalogBackend` and
+## Release 26.19.0 - 2026-11-22
+
+- Narrowed the public `dosierskanilo` package facade: `repository` and the
+  `service.analyze`, `service.scanning`, and `service.storageio` modules are no
+  longer re-exported. Consumers import them explicitly; `CatalogBackend` and
   `CatalogBackendFactory` remain the recommended storage-neutral entry points.
+- Added a coverage gate to `scripts/test.sh` (default minimum 85.00%).
+- Added crash-safety fuzz-style tests for archive virtual paths and the
+  bencode torrent parser.
+- Added a legacy JSON round-trip test (v0/v1/v2) and a schema-version smoke
+  test for fresh SQLite databases.
+- Completed `docs/OPERATION-PARITY.md` with a manual GUI verification
+  checklist, a known-gaps list, and a verification stamp.
+- Added an independent backend code review report under `docs/reviews/`.
 
 ## Release 26.18.0 - 2026-11-20
 
