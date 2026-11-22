@@ -103,6 +103,21 @@ print_coverage() {
     local total_percent
     total_percent=$(awk -v c="${total_covered}" -v e="${total_executable}" 'BEGIN { if (e == 0) printf "100.00"; else printf "%.2f", (100.0 * c / e) }')
     printf "Total coverage: %s%%\n" "${total_percent}"
+    TOTAL_COVERAGE="${total_percent}"
 }
 
 print_coverage
+
+# Coverage gate: fail the test run when the total coverage drops below the
+# configured minimum. The threshold is intentionally conservative so that
+# small refactors do not trip it, while real regressions are caught.
+COVERAGE_THRESHOLD="${COVERAGE_THRESHOLD:-85.00}"
+if awk -v actual="${TOTAL_COVERAGE}" -v threshold="${COVERAGE_THRESHOLD}" \
+    'BEGIN { exit (actual + 0 >= threshold + 0) ? 0 : 1 }'; then
+    printf 'Coverage gate passed: %s%% >= %s%%\n' \
+        "${TOTAL_COVERAGE}" "${COVERAGE_THRESHOLD}"
+else
+    printf 'Coverage gate FAILED: %s%% < %s%%\n' \
+        "${TOTAL_COVERAGE}" "${COVERAGE_THRESHOLD}" >&2
+    exit 1
+fi
