@@ -91,6 +91,7 @@ class FileArchiveRar : FileArchive
             bool hasSize;
             bool hasModifiedAt;
             bool isDirectory;
+            bool isSymlink;
         }
 
         auto passwordOption = unrarPasswordOption(password);
@@ -111,13 +112,16 @@ class FileArchiveRar : FileArchive
                 ? rc.output : format("unrar lt failed with exit code %d",
                     rc.status));
 
-        Metadata[string] metadata;
+        /* Duplicate member names are legal in RAR archives. Keying the
+         * metadata by name alone would overwrite the first entry's values with
+         * the second one's, so keep one metadata record per occurrence. */
+        Metadata[][string] metadata;
         Metadata current;
         string currentName;
         void commitCurrent()
         {
             if (currentName.length > 0)
-                metadata[currentName] = current;
+                metadata[currentName] ~= current;
             current = Metadata.init;
             currentName = "";
         }
@@ -130,7 +134,12 @@ class FileArchiveRar : FileArchive
                 currentName = text[6 .. $].strip;
             }
             else if (currentName.length > 0 && text.startsWith("Type: "))
-                current.isDirectory = text[6 .. $].strip == "Directory";
+            {
+                const kind = text[6 .. $].strip;
+                current.isDirectory = kind == "Directory";
+                current.isSymlink = kind == "Symbolic link"
+                    || kind == "Symlink";
+            }
             else if (currentName.length > 0 && text.startsWith("Size: "))
             {
                 try
@@ -154,20 +163,31 @@ class FileArchiveRar : FileArchive
         }
         commitCurrent();
 
+        /* Consume metadata records in listing order so duplicate names receive
+         * their own size/timestamp instead of sharing one overwritten record. */
+        size_t[string] metadataCursor;
         foreach (ref entry; entries)
         {
-            if (auto meta = entry.name in metadata)
+            if (auto records = entry.name in metadata)
             {
-                entry.isDirectory = meta.isDirectory;
-                if (meta.hasSize)
+                const index = (entry.name in metadataCursor)
+                    ? metadataCursor[entry.name] : 0;
+                if (index < records.length)
                 {
-                    entry.size = meta.size;
-                    entry.hasSize = true;
-                }
-                if (meta.hasModifiedAt)
-                {
-                    entry.modifiedAt = meta.modifiedAt;
-                    entry.hasModifiedAt = true;
+                    auto meta = (*records)[index];
+                    entry.isDirectory = meta.isDirectory;
+                    entry.isSymlink = meta.isSymlink;
+                    if (meta.hasSize)
+                    {
+                        entry.size = meta.size;
+                        entry.hasSize = true;
+                    }
+                    if (meta.hasModifiedAt)
+                    {
+                        entry.modifiedAt = meta.modifiedAt;
+                        entry.hasModifiedAt = true;
+                    }
+                    metadataCursor[entry.name] = index + 1;
                 }
             }
         }
