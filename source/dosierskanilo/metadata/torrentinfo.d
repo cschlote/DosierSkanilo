@@ -783,3 +783,37 @@ unittest
     deep ~= "e";
     expectFailure("deep-nesting", deep);
 }
+
+@("getTorrentInfo never crashes on arbitrary input")
+unittest
+{
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.random : Mt19937, uniform;
+    import std.uuid : randomUUID;
+
+    const auto root = buildPath(tempDir(), "dosierskanilo-torrent-fuzz-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+
+    auto rng = Mt19937(0xCAFEBABE);
+    foreach (iteration; 0 .. 500)
+    {
+        immutable len = uniform(0, 256, rng);
+        ubyte[] buf = new ubyte[len];
+        foreach (ref b; buf)
+            b = cast(ubyte) uniform(0, 256, rng);
+        const path = buildPath(root, "fuzz-" ~ iteration.to!string ~ ".torrent");
+        write(path, buf);
+
+        try
+            getTorrentInfo(path);
+        catch (Exception)
+        {
+            // Malformed input must surface as an exception, never a crash.
+        }
+    }
+}
