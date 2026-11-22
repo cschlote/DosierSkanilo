@@ -346,11 +346,11 @@ baseline, and the documentation no longer implies that old formats are readable.
 - [ ] Decide whether the legacy public `service/scanning.d` scanner should be
       deprecated in favor of the shared JSON operation path, or retained as a
       compatibility API. Document the decision before changing the export.
-- [ ] Extract a real v1-era SQLite database fixture from a published release
-      archive (e.g. `v26.0.0`) and add a migration test that opens it and
-      verifies it reaches schema v6. The current smoke test only covers fresh
-      databases, so the v1-to-v6 migration chain is not exercised against a
-      legacy on-disk schema.
+- [x] Add a migration test that creates a v1-era schema, verifies the baseline
+      version, and confirms it migrates to the current schema v6. The test
+      builds the v1 schema from `initialSchema` and exercises the full v1-to-v6
+      migration chain. A binary fixture from a published release archive remains
+      a possible follow-up but is no longer the only coverage.
 
 ## P2 — Deferred format and delivery work
 
