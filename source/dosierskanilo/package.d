@@ -25,11 +25,16 @@ public import dosierskanilo.operationrunner;
 public import dosierskanilo.operations;
 public import dosierskanilo.options;
 public import dosierskanilo.progress;
-public import dosierskanilo.repository;
-public import dosierskanilo.service.analyze;
-public import dosierskanilo.service.scanning;
-public import dosierskanilo.service.storageio;
 public import dosierskanilo.sqlitecatalogbackend;
+
+// The following modules are no longer re-exported through the public facade.
+// Consumers that need them must import them explicitly:
+//   import dosierskanilo.repository;
+//   import dosierskanilo.service.analyze;
+//   import dosierskanilo.service.scanning;
+//   import dosierskanilo.service.storageio;
+// Prefer `CatalogBackend` and `CatalogBackendFactory` for storage-neutral access.
+// See docs/ARCHITECTURE.md section 1.1 and CHANGELOG.md.
 
 /** Legacy alias kept for source compatibility.
  *

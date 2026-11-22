@@ -14,6 +14,10 @@ They represent the functional evolution and are intentionally summarized.
   On a synthetic 100,000-member directory the first 250-row page drops from
   about 0.92 s to 0.22 s and from about 98 MB to 78 MB allocated; a later
   size-order request adds about 86 ms.
+- Library consumers must now import `dosierskanilo.repository` and the
+  `dosierskanilo.service.*` modules directly; they are no longer re-exported
+  through the top-level `dosierskanilo` package facade. `CatalogBackend` and
+  `CatalogBackendFactory` remain the recommended storage-neutral entry points.
 
 ## Release 26.18.0 - 2026-11-20
 
