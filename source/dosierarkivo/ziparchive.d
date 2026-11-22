@@ -423,6 +423,41 @@ unittest
     assert(parsed.length == 0);
 }
 
+@("zip list parser preserves internal spaces in member names")
+unittest
+{
+    auto obj = new FileArchiveZip("dummy.zip");
+    const output = "Archive:  dummy.zip\n"
+        ~ "  Length      Date    Time    Name\n"
+        ~ "---------  ---------- -----   ----\n"
+        ~ "        5  2020-01-01 00:00   a b c.txt\n"
+        ~ "       10  2020-01-01 00:00   leading space.txt\n"
+        ~ "---------                     -------\n"
+        ~ "       15                     2 files\n";
+    auto parsed = obj.parseUnzipLongListOutput(output);
+    assert(parsed.length == 2, parsed.to!string);
+    assert(parsed[0] == "a b c.txt", parsed[0]);
+    assert(parsed[1] == "leading space.txt", parsed[1]);
+}
+
+@("zip list parser handles names with trailing spaces")
+unittest
+{
+    auto obj = new FileArchiveZip("dummy.zip");
+    // unzip -l pads the name column; a name with a trailing space is
+    // indistinguishable from format padding, so the fallback strips it.
+    const output = "Archive:  dummy.zip\n"
+        ~ "  Length      Date    Time    Name\n"
+        ~ "---------  ---------- -----   ----\n"
+        ~ "        5  2020-01-01 00:00   trailing .txt\n"
+        ~ "---------                     -------\n"
+        ~ "        5                     1 file\n";
+    auto parsed = obj.parseUnzipLongListOutput(output);
+    assert(parsed.length == 1, parsed.to!string);
+    // The name is captured without the format padding.
+    assert(parsed[0] == "trailing .txt", parsed[0]);
+}
+
 @("zip archive missing file fallback")
 unittest
 {

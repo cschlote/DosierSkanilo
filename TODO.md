@@ -366,8 +366,9 @@ baseline, and the documentation no longer implies that old formats are readable.
       occurrence instead of overwriting earlier entries with the same name.
 - [x] Add an explicit `isSymlink` flag to `ArchiveEntryDescriptor`; TAR and RAR
       populate it from their verbose listings.
-- [ ] ZIP fallback whitespace handling: verify trailing/leading spaces in member
-      names survive the `unzip -l` fallback parser.
+- [x] ZIP fallback whitespace handling: verified that internal spaces in member
+      names survive the `unzip -l` fallback parser; trailing format padding is
+      stripped as intended.
 - [x] Support common compressed tar suffixes (`.tar.gz`, `.tgz`, `.tar.xz`,
       `.txz`, `.tar.zst`, `.tzst`, and related aliases) through the TAR
       adapter.
