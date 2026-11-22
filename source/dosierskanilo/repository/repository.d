@@ -34,7 +34,7 @@ import dosierskanilo.repository.filesystem : isUnsupportedRepositoryFilesystemTy
 import dosierskanilo.repository.analysis : analyzeRepositoryControlled;
 import dosierskanilo.repository.analysis : queryDuplicateGroups;
 import dosierskanilo.repository.metadata : updateRepositoryMetadataControlled;
-import dosierskanilo.repository.schema : migrate;
+import dosierskanilo.repository.schema : initialSchema, migrate;
 import dosierskanilo.repository.scanner : scanRepositoryControlled;
 import dosierskanilo.repository.transfer : exportCatalogJson,
     exportCatalogJsonControlled, importCatalogJson, importCatalogJsonControlled,
@@ -1651,6 +1651,55 @@ unittest
     assert(reopened.info.schemaVersion == currentRepositorySchemaVersion);
 }
 
+@("repository schema migrates a v1 database to the current version")
+unittest
+{
+    import dosierskanilo.repository.schema : initialSchema;
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir;
+    import std.path : buildPath;
+    import std.uuid : randomUUID;
+
+    const root = buildPath(tempDir(), "repository-v1-migration-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+        if (exists(root))
+            rmdirRecurse(root);
+
+    const dbPath = buildPath(root, "catalog.sqlite3");
+    auto db = Database(dbPath);
+
+    Repository.configure(db, RepositoryOptions());
+    db.run(initialSchema);
+    db.execute("INSERT INTO schema_migrations (version, applied_at) "
+        ~ "VALUES (1, ?)", Repository.currentTimestamp());
+    db.execute("INSERT INTO repository (id, root_path, schema_version, created_at, updated_at) "
+        ~ "VALUES (1, ?, 1, ?, ?)", root, Repository.currentTimestamp(),
+        Repository.currentTimestamp());
+
+    // Verify the v1 baseline.
+    {
+        auto result = db.execute(
+            "SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1");
+        assert(!result.empty);
+        assert(cast(ulong) result.front.peek!long(0) == 1,
+            "Baseline must be schema version 1");
+    }
+
+    // Migrate to the current version.
+    migrate(db, Repository.currentTimestamp());
+
+    {
+        auto result = db.execute(
+            "SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1");
+        assert(!result.empty);
+        assert(cast(ulong) result.front.peek!long(0)
+            == currentRepositorySchemaVersion,
+            "v1 database must reach the current schema version");
+    }
+
+    db.close();
+}
 @("repository force reinitialization backs up and clears the catalog")
 unittest
 {

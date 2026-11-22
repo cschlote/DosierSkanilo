@@ -21,7 +21,7 @@ import dosierskanilo.repository.errors;
 import dosierskanilo.repository.types;
 
 /** SQL that creates the baseline repository tables for a fresh database. */
-private enum initialSchema = q"SQL
+package enum initialSchema = q"SQL
 CREATE TABLE IF NOT EXISTS repository (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     root_path TEXT NOT NULL,
