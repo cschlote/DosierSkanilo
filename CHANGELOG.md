@@ -9,6 +9,18 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- Fixed RAR archives with duplicate member names: each member now keeps its own
+  size and modification time instead of the last duplicate overwriting the
+  earlier values.
+- Added `isSymlink` to `ArchiveEntryDescriptor`. TAR and RAR listings set it for
+  symbolic-link members. This is an additive library API change.
+- Internal: the large backend modules are split into focused modules (the
+  `Repository` class, the JSON catalog backend, the catalog contract, the blob
+  model, and the repository transfer). Public class and function names and the
+  documented import paths are unchanged.
+- Tests: added a schema migration test from the v1 layout to the current
+  version, ZIP fallback whitespace tests, and an archive path parser crash test.
+
 ## Release 26.19.0 - 2026-11-22
 
 - Narrowed the public `dosierskanilo` package facade: `repository` and the
