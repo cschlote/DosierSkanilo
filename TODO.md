@@ -5,13 +5,13 @@ SQLite repository. Historical work-package records remain in
 [`docs/SQLITE-IMPLEMENTATION-PLAN.md`](docs/SQLITE-IMPLEMENTATION-PLAN.md);
 user-visible changes are listed in [`CHANGELOG.md`](CHANGELOG.md).
 
-## Current status (2026-11-22)
+## Current status (2026-11-23)
 
-- Version `26.19.0`; storage-neutral `CatalogBackend`, JSON v5, SQLite schema
+- Version `26.20.0`; storage-neutral `CatalogBackend`, JSON v5, SQLite schema
   v6, explicit JSON `CatalogDocument` sessions, shared operation API, member
   cache, recovery writer, and tag-driven release validation are implemented.
 - WP-09, WP-13, WP-14, and the persistence/document-session work are complete.
-- Backend verification: 284 tests, coverage about 89.5 %, CLI checks,
+- Backend verification: 287 tests, coverage about 90.5 %, CLI checks,
   `scripts/lint.sh`, and the Ddoc build pass locally; `testing` collects
   integration work and `main` follows on request without deployments.
 - The read-only `status` command reports aggregate SQLite and JSON catalog

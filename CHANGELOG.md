@@ -9,6 +9,8 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+## Release 26.20.0 - 2026-11-23
+
 - Fixed RAR archives with duplicate member names: each member now keeps its own
   size and modification time instead of the last duplicate overwriting the
   earlier values.
