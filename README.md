@@ -390,7 +390,8 @@ DosierSkanilo is licensed under [GPL-3.0-only](LICENSE.md).
 - `source/dosierskanilo_cli/repositoryvalidation.d` and
   `source/dosierskanilo_cli/jsonvalidation.d`: storage-mode validation
 - `source/dosierskanilo_cli/logging.d`: logging wrapper
-- `source/dosierskanilo/service/scanning.d`: legacy JSON scanner/job entrypoints
+- `source/dosierskanilo/service/scanning.d`: deprecated legacy JSON scanner
+  entrypoints; removed in 27.0.0 (use the shared scan operation)
 - `source/dosierskanilo/service/jsonoperations.d`: controlled JSON scan/analysis
   execution used by the shared operation runner
 - `source/dosierskanilo/service/analyze.d`: duplicate/missing-file analysis

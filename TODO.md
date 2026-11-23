@@ -336,16 +336,17 @@ baseline, and the documentation no longer implies that old formats are readable.
 
 ## P1 — Catalog correctness and documentation follow-ups
 
-- [ ] Decide the fate of the unused `verbose` parameter on
-      `deserializeDataClassJsonFile`: keep it as a documented compatibility
-      no-op until the next major release, or remove it with a deprecation note.
+- [x] Remove the unused `verbose` parameter from `deserializeDataClassJsonFile`.
+      The deprecated two-argument overload stays until 27.0.0 and forwards to the
+      one-argument function.
 - [x] Document every documentable public, package, and private declaration,
       including fields, enum members, aliases, manifest constants, constructors,
       and functions with parameter/return contracts. All maintained modules keep
       `Authors`/`Copyright`/`License` headers.
-- [ ] Decide whether the legacy public `service/scanning.d` scanner should be
-      deprecated in favor of the shared JSON operation path, or retained as a
-      compatibility API. Document the decision before changing the export.
+- [x] Deprecate the legacy public `service/scanning.d` scanner (`scanDirTree`,
+      `canonicalizeFileSpecs`, `runScannerJobs`) in favor of the shared JSON
+      operation path. The functions remain until 27.0.0, when the module is
+      removed.
 - [x] Add a migration test that creates a v1-era schema, verifies the baseline
       version, and confirms it migrates to the current schema v6. The test
       builds the v1 schema from `initialSchema` and exercises the full v1-to-v6
