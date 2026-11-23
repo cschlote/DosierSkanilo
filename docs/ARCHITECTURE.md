@@ -38,8 +38,11 @@ refer to that payload. `CheckSums`, `MediaInfoSig`, `ArchiveSpec`, and
   backend instance exposes `close()` as lifecycle cleanup, while
   `CatalogBackendFactory` stays the creation boundary for target selection.
 - `Repository` in `repository/repository.d` remains the concrete SQLite
-  compatibility API. It owns lifecycle, relational queries, scan/metadata/
-  analysis wrappers, and JSON transfer. `d2sqlite3` remains internal.
+  compatibility API. Its members are grouped into mixin templates in
+  `repository/lifecycle.d`, `jsontransfer.d`, `queries.d`, `passwords.d`, and
+  `operations.d`, so the public class API stays unchanged. Mixins are used
+  instead of free functions because they keep virtual and override semantics on
+  the class. `d2sqlite3` remains internal.
 - JSON persistence is implemented by the wrapper serializer in
   `model/catalogjson.d` and JSON services in `service/`. The blob type and
   catalog wrapper live in `model/namedbinaryblob.d`, which re-exports the

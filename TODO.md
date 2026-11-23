@@ -357,10 +357,12 @@ baseline, and the documentation no longer implies that old formats are readable.
 - [ ] Continue the module split from the 2026-11-22 review (F-02). The blob
       model is split into `model/catalogjson.d`, `model/blobupdates.d`,
       `model/blobarchives.d`, and `model/blobmerge.d` behind the unchanged
-      `namedbinaryblob` facade. Still open: `repository/repository.d`
-      (~3.4k lines), `repository/transfer.d` (~2.8k), `catalogbackend.d`
-      (~2.9k), and `jsoncatalogbackend.d`. Split each one per topic, keep lint
-      findings unchanged, and keep one module per branch.
+      `namedbinaryblob` facade. `repository/repository.d` is split into mixin
+      templates (`lifecycle`, `jsontransfer`, `queries`, `passwords`,
+      `operations`) and keeps the class API unchanged. Still open:
+      `repository/transfer.d` (~2.8k lines), `catalogbackend.d` (~2.9k), and
+      `jsoncatalogbackend.d`. Split each one per topic, keep lint findings
+      unchanged, and keep one module per branch.
 - [ ] Design a later JSON catalog version that can round-trip complete torrent
       file lists and the remaining `TorrentInfo` fields. Do not extend v5
       silently; existing readers must keep their guarantees.

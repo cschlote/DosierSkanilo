@@ -385,6 +385,16 @@ DosierSkanilo is licensed under [GPL-3.0-only](LICENSE.md).
   replacement/read coordination
 - `source/dosierskanilo/repository/*`: SQLite repository, schema and JSON
   transfer API
+- `source/dosierskanilo/repository/repository.d`: `Repository` class and its
+  state; members are mixed in from the modules below
+- `source/dosierskanilo/repository/lifecycle.d`: create, open, restore, backup,
+  status, and close
+- `source/dosierskanilo/repository/jsontransfer.d`: JSON import and export
+- `source/dosierskanilo/repository/queries.d`: bounded catalog, file, archive,
+  and torrent reads
+- `source/dosierskanilo/repository/passwords.d`: archive password storage
+- `source/dosierskanilo/repository/operations.d`: scan, metadata, and analysis
+  wrappers
 - `source/dosierskanilo/repository/scanner.d`: incremental filesystem scan
 - `source/dosierskanilo/repository/metadata.d`: blob-wise checksum and file
   type, media, archive and torrent jobs
