@@ -388,8 +388,15 @@ DosierSkanilo is licensed under [GPL-3.0-only](LICENSE.md).
 - `source/dosierskanilo/repository/scanner.d`: incremental filesystem scan
 - `source/dosierskanilo/repository/metadata.d`: blob-wise checksum and file
   type, media, archive and torrent jobs
-- `source/dosierskanilo/model/namedbinaryblob.d`: core blob model,
-  serialization, migrations, update jobs, merge/cleanup
+- `source/dosierskanilo/model/namedbinaryblob.d`: core blob model and
+  catalog types; re-exports the modules below for source compatibility
+- `source/dosierskanilo/model/catalogjson.d`: JSON serialization, migration to
+  v5, and streaming writer
+- `source/dosierskanilo/model/blobupdates.d`: digest, file type, MediaInfo, and
+  torrent update jobs
+- `source/dosierskanilo/model/blobarchives.d`: archive member indexing, shallow
+  and deep scans, and password requests
+- `source/dosierskanilo/model/blobmerge.d`: duplicate merge and cleanup
 - `source/dosierskanilo/metadata/digests.d`: digest calculation
 - `source/dosierskanilo/metadata/mediainfosig.d`: MediaInfo mapping
 - `source/dosierskanilo/metadata/fileutilsig.d`: file type extraction via `file`

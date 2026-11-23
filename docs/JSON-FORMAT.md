@@ -288,7 +288,7 @@ During output migration:
    are cleared before serialization.
 
 The relevant implementation is in
-`source/dosierskanilo/model/namedbinaryblob.d`, especially
+`source/dosierskanilo/model/catalogjson.d`, especially
 `fixupDataClassArrayIn()`, `fixupDataClassArrayOutV5()` and the wrapper
 serialization functions.
 
