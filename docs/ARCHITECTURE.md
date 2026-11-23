@@ -256,7 +256,8 @@ classDiagram
 
 ## 3. Job Execution Model
 
-`runScannerJobs()` in `source/dosierskanilo/service/scanning.d` supports:
+`runScannerJobs()` in `source/dosierskanilo/service/scanning.d` (deprecated,
+removed in 27.0.0) supports:
 
 - Single-thread mode
 - Multi-thread mode via `std.parallelism.TaskPool`

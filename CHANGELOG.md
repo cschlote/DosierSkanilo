@@ -9,6 +9,13 @@ They represent the functional evolution and are intentionally summarized.
 
 ## Unreleased
 
+- Deprecated the legacy public `service/scanning.d` functions (`scanDirTree`,
+  `canonicalizeFileSpecs`, `runScannerJobs`). Use the shared scan operation
+  (`runOperation` with `ScanOperationRequest`). They are removed in 27.0.0.
+- Removed the unused `verbose` parameter from `deserializeDataClassJsonFile`.
+  The one-argument form is the new API. The two-argument overload is deprecated
+  and will be removed in 27.0.0.
+
 ## Release 26.20.0 - 2026-11-23
 
 - Fixed RAR archives with duplicate member names: each member now keeps its own
