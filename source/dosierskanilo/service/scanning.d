@@ -50,6 +50,7 @@ import dosierskanilo.progress;
  * Returns:
  *   `true` if the walk completed.
  */
+deprecated("Legacy scanner: use runOperation with ScanOperationRequest; removed in 27.0.0")
 bool scanDirTree(string scanPath, bool pickHidden = false, ref NamedBinaryBlob[] dynObjectArray, ref shared(
         bool) gotCtrlC, ref ArgsArray argsArray)
 {
@@ -208,6 +209,7 @@ bool scanDirTree(string scanPath, bool pickHidden = false, ref NamedBinaryBlob[]
  * Returns:
  *   specs in canonical form for the configured grammar.
  */
+deprecated("Legacy scanner: use runOperation with ScanOperationRequest; removed in 27.0.0")
 FileSpec[] canonicalizeFileSpecs(bool usesArchiveVirtualGrammar, FileSpec[] specs)
 {
     import std.algorithm.searching : canFind;
@@ -247,6 +249,7 @@ FileSpec[] canonicalizeFileSpecs(bool usesArchiveVirtualGrammar, FileSpec[] spec
  * Returns:
  *   `true` when all configured jobs finished.
  */
+deprecated("Legacy scanner: use runOperation with ScanOperationRequest; removed in 27.0.0")
 bool runScannerJobs(ref NamedBinaryBlob[] dynObjectArray, ref shared(bool) gotCtrlC, ref ArgsArray argsArray)
 {
     bool rc = true;

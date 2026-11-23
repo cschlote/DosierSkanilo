@@ -373,15 +373,13 @@ unittest
  *
  * Params:
  *   fileName = the name of JSON file to read.
- *   verbose = retained for source compatibility; logging is controlled by
- *     `dosierskanilo.logging`.
  * Returns:
  *   array of deserialized NamedBinaryBlob objects, or an empty array when the
  *   file is missing.
  * Throws:
  *   `CatalogFormatException` for unsupported versions or malformed catalog data.
  */
-NamedBinaryBlob[] deserializeDataClassJsonFile(string fileName, bool verbose = false)
+NamedBinaryBlob[] deserializeDataClassJsonFile(string fileName)
 {
 	import std.file : exists, readText;
 
@@ -394,6 +392,23 @@ NamedBinaryBlob[] deserializeDataClassJsonFile(string fileName, bool verbose = f
 	const string serializedData = readText(fileName);
 
 	return deserializeDataClassJsonString(serializedData);
+}
+
+/** Deserialize a JSON file with the removed `verbose` flag.
+ *
+ * The flag has had no effect since logging moved to `dosierskanilo.logging`.
+ * Use `deserializeDataClassJsonFile(fileName)`. This overload is kept only for
+ * source compatibility and will be removed in Major 27.
+ *
+ * Params:
+ *   fileName = the name of JSON file to read.
+ *   verbose = ignored.
+ * Returns: The same result as `deserializeDataClassJsonFile(fileName)`.
+ */
+deprecated("Use deserializeDataClassJsonFile(fileName); removed in 27.0.0")
+NamedBinaryBlob[] deserializeDataClassJsonFile(string fileName, bool verbose)
+{
+	return deserializeDataClassJsonFile(fileName);
 }
 
 /** Convert a file name to the canonical JSON-v5 path grammar.
