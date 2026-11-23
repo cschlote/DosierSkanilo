@@ -354,19 +354,14 @@ baseline, and the documentation no longer implies that old formats are readable.
 
 ## P2 — Deferred format and delivery work
 
-- [ ] Continue the module split from the 2026-11-22 review (F-02). The blob
-      model is split into `model/catalogjson.d`, `model/blobupdates.d`,
-      `model/blobarchives.d`, and `model/blobmerge.d` behind the unchanged
-      `namedbinaryblob` facade. `repository/repository.d` is split into mixin
-      templates (`lifecycle`, `jsontransfer`, `queries`, `passwords`,
-      `operations`) and keeps the class API unchanged. `repository/transfer.d`
-      is split into import/export (`transfer.d`), blob loading
-      (`catalogreads.d`), and reference queries (`referencequeries.d`).
-      `catalogbackend.d` is split into value types (`catalogtypes.d`),
-      interfaces (`catalogbackend.d`, with a public re-export of the types), and
-      contract tests (`catalogcontracttests.d`). Still open:
-      `jsoncatalogbackend.d` (~2.9k lines). Split it per topic, keep lint
-      findings unchanged, and keep one module per branch.
+- [x] Module split from the 2026-11-22 review (F-02). Completed for the blob
+      model (`catalogjson`, `blobupdates`, `blobarchives`, `blobmerge`), the
+      `Repository` class (mixin templates), the repository transfer
+      (`transfer`, `catalogreads`, `referencequeries`), the catalog contract
+      (`catalogtypes`, `catalogbackend`, `catalogcontracttests`), and
+      `JsonCatalogBackend` (mixins `jsonsession`, `jsontree`, `jsoncontent`,
+      `jsonindex`, plus `jsoncatalogdocument` and `jsoncatalogbackendtests`).
+      Every split kept the public API; lint findings stayed the same or fell.
 - [ ] Design a later JSON catalog version that can round-trip complete torrent
       file lists and the remaining `TorrentInfo` fields. Do not extend v5
       silently; existing readers must keep their guarantees.
