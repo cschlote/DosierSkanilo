@@ -9,6 +9,7 @@
  */
 module dosierskanilo.repository.lifecycle;
 
+import dosierskanilo.repository.transfer : currentTimestamp;
 import d2sqlite3;
 import std.datetime.systime : Clock;
 import std.conv : to;

@@ -9,6 +9,7 @@
  */
 module dosierskanilo.repository.passwords;
 
+import dosierskanilo.repository.transfer : currentTimestamp;
 import d2sqlite3;
 import std.conv : to;
 import std.file : exists, mkdirRecurse, remove;
