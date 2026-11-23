@@ -373,6 +373,18 @@ DosierSkanilo is licensed under [GPL-3.0-only](LICENSE.md).
   and capability descriptors of the catalog contract
 - `source/dosierskanilo/catalogcontracttests.d`: contract unittests and the
   in-memory fake backend
+- `source/dosierskanilo/jsoncatalogbackend.d`: `JsonCatalogBackend` class
+  (state and constructor), its factory, and shared JSON index types; the
+  members are mixed in from the modules below
+- `source/dosierskanilo/jsonsession.d`: session, target, operation, and import
+  members
+- `source/dosierskanilo/jsontree.d`: directory and file query members
+- `source/dosierskanilo/jsoncontent.d`: content, archive, torrent, export, and
+  member-content members
+- `source/dosierskanilo/jsonindex.d`: index construction members
+- `source/dosierskanilo/jsoncatalogdocument.d`: explicit save/discard session
+  for one JSON catalog document
+- `source/dosierskanilo/jsoncatalogbackendtests.d`: JSON adapter unittests
 - `source/dosierskanilo_cli/main.d`: main workflow, scanner orchestration, analysis
 - `source/dosierskanilo_cli/parser.d`: CLI parsing and progress rendering
 - `source/dosierskanilo_cli/repositoryvalidation.d` and
