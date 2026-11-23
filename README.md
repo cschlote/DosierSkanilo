@@ -367,6 +367,24 @@ DosierSkanilo is licensed under [GPL-3.0-only](LICENSE.md).
 
 ## Source Map
 
+- `source/dosierskanilo/catalogbackend.d`: `CatalogBackend`, `CatalogDocument`,
+  and `CatalogBackendFactory` interfaces; re-exports the value types
+- `source/dosierskanilo/catalogtypes.d`: identities, locators, queries, pages,
+  and capability descriptors of the catalog contract
+- `source/dosierskanilo/catalogcontracttests.d`: contract unittests and the
+  in-memory fake backend
+- `source/dosierskanilo/jsoncatalogbackend.d`: `JsonCatalogBackend` class
+  (state and constructor), its factory, and shared JSON index types; the
+  members are mixed in from the modules below
+- `source/dosierskanilo/jsonsession.d`: session, target, operation, and import
+  members
+- `source/dosierskanilo/jsontree.d`: directory and file query members
+- `source/dosierskanilo/jsoncontent.d`: content, archive, torrent, export, and
+  member-content members
+- `source/dosierskanilo/jsonindex.d`: index construction members
+- `source/dosierskanilo/jsoncatalogdocument.d`: explicit save/discard session
+  for one JSON catalog document
+- `source/dosierskanilo/jsoncatalogbackendtests.d`: JSON adapter unittests
 - `source/dosierskanilo_cli/main.d`: main workflow, scanner orchestration, analysis
 - `source/dosierskanilo_cli/parser.d`: CLI parsing and progress rendering
 - `source/dosierskanilo_cli/repositoryvalidation.d` and
@@ -385,11 +403,34 @@ DosierSkanilo is licensed under [GPL-3.0-only](LICENSE.md).
   replacement/read coordination
 - `source/dosierskanilo/repository/*`: SQLite repository, schema and JSON
   transfer API
+- `source/dosierskanilo/repository/repository.d`: `Repository` class and its
+  state; members are mixed in from the modules below
+- `source/dosierskanilo/repository/lifecycle.d`: create, open, restore, backup,
+  status, and close
+- `source/dosierskanilo/repository/jsontransfer.d`: JSON import and export
+  methods of the class
+- `source/dosierskanilo/repository/transfer.d`: canonical JSON-v5 import and
+  export implementation
+- `source/dosierskanilo/repository/catalogreads.d`: blob, fingerprint, and
+  catalog-page loading in bounded batches
+- `source/dosierskanilo/repository/referencequeries.d`: directory, file,
+  archive-entry, and torrent reads
+- `source/dosierskanilo/repository/queries.d`: query methods of the class
+- `source/dosierskanilo/repository/passwords.d`: archive password storage
+- `source/dosierskanilo/repository/operations.d`: scan, metadata, and analysis
+  wrappers
 - `source/dosierskanilo/repository/scanner.d`: incremental filesystem scan
 - `source/dosierskanilo/repository/metadata.d`: blob-wise checksum and file
   type, media, archive and torrent jobs
-- `source/dosierskanilo/model/namedbinaryblob.d`: core blob model,
-  serialization, migrations, update jobs, merge/cleanup
+- `source/dosierskanilo/model/namedbinaryblob.d`: core blob model and
+  catalog types; re-exports the modules below for source compatibility
+- `source/dosierskanilo/model/catalogjson.d`: JSON serialization, migration to
+  v5, and streaming writer
+- `source/dosierskanilo/model/blobupdates.d`: digest, file type, MediaInfo, and
+  torrent update jobs
+- `source/dosierskanilo/model/blobarchives.d`: archive member indexing, shallow
+  and deep scans, and password requests
+- `source/dosierskanilo/model/blobmerge.d`: duplicate merge and cleanup
 - `source/dosierskanilo/metadata/digests.d`: digest calculation
 - `source/dosierskanilo/metadata/mediainfosig.d`: MediaInfo mapping
 - `source/dosierskanilo/metadata/fileutilsig.d`: file type extraction via `file`

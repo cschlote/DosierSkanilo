@@ -346,14 +346,22 @@ baseline, and the documentation no longer implies that old formats are readable.
 - [ ] Decide whether the legacy public `service/scanning.d` scanner should be
       deprecated in favor of the shared JSON operation path, or retained as a
       compatibility API. Document the decision before changing the export.
-- [ ] Extract a real v1-era SQLite database fixture from a published release
-      archive (e.g. `v26.0.0`) and add a migration test that opens it and
-      verifies it reaches schema v6. The current smoke test only covers fresh
-      databases, so the v1-to-v6 migration chain is not exercised against a
-      legacy on-disk schema.
+- [x] Add a migration test that creates a v1-era schema, verifies the baseline
+      version, and confirms it migrates to the current schema v6. The test
+      builds the v1 schema from `initialSchema` and exercises the full v1-to-v6
+      migration chain. A binary fixture from a published release archive remains
+      a possible follow-up but is no longer the only coverage.
 
 ## P2 — Deferred format and delivery work
 
+- [x] Module split from the 2026-11-22 review (F-02). Completed for the blob
+      model (`catalogjson`, `blobupdates`, `blobarchives`, `blobmerge`), the
+      `Repository` class (mixin templates), the repository transfer
+      (`transfer`, `catalogreads`, `referencequeries`), the catalog contract
+      (`catalogtypes`, `catalogbackend`, `catalogcontracttests`), and
+      `JsonCatalogBackend` (mixins `jsonsession`, `jsontree`, `jsoncontent`,
+      `jsonindex`, plus `jsoncatalogdocument` and `jsoncatalogbackendtests`).
+      Every split kept the public API; lint findings stayed the same or fell.
 - [ ] Design a later JSON catalog version that can round-trip complete torrent
       file lists and the remaining `TorrentInfo` fields. Do not extend v5
       silently; existing readers must keep their guarantees.
@@ -362,8 +370,13 @@ baseline, and the documentation no longer implies that old formats are readable.
 - [x] Populate archive-member sizes and timestamps during shallow scans for ZIP,
       TAR, and 7z by parsing their listing output. RAR already supplied these
       fields. See [`docs/ARCHIVE-SUPPORT.md`](docs/ARCHIVE-SUPPORT.md).
-- [ ] Harden remaining archive-listing edge cases: RAR duplicate-name metadata,
-      ZIP fallback whitespace, and explicit link-kind descriptors.
+- [x] Harden RAR duplicate-name metadata: `unrar lt` metadata is now keyed per
+      occurrence instead of overwriting earlier entries with the same name.
+- [x] Add an explicit `isSymlink` flag to `ArchiveEntryDescriptor`; TAR and RAR
+      populate it from their verbose listings.
+- [x] ZIP fallback whitespace handling: verified that internal spaces in member
+      names survive the `unzip -l` fallback parser; trailing format padding is
+      stripped as intended.
 - [x] Support common compressed tar suffixes (`.tar.gz`, `.tgz`, `.tar.xz`,
       `.txz`, `.tar.zst`, `.tzst`, and related aliases) through the TAR
       adapter.

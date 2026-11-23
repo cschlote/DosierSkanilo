@@ -59,6 +59,7 @@ class FileArchiveTar : FileArchive
         string modifiedAt; /// ISO-like timestamp.
         bool hasSize; /// Whether `size` is meaningful.
         bool hasModifiedAt; /// Whether `modifiedAt` is meaningful.
+        bool isSymlink; /// Whether the entry is a symbolic link.
     }
 
     /** Parse size and timestamp columns from `tar -tvf` output.
@@ -80,19 +81,21 @@ class FileArchiveTar : FileArchive
             if (line.strip.empty)
                 continue;
             auto match = matchFirst(line, fullTime
-                ? `^\S+\s+\S+\s+(\d+)\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})(?:\.[0-9]+)?(?:\s+[+-]\d{4})?\s+`
-                : `^\S+\s+\S+\s+(\d+)\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\s+`);
+                ? `^(\S+)\s+\S+\s+(\d+)\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})(?:\.[0-9]+)?(?:\s+[+-]\d{4})?\s+`
+                : `^(\S+)\s+\S+\s+(\d+)\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\s+`);
             if (match.empty)
                 continue;
             TarMetadata metadata;
+            metadata.isSymlink = match.captures[1].length > 0
+                && match.captures[1][0] == 'l';
             try
-                metadata.size = match.captures[1].to!ulong;
+                metadata.size = match.captures[2].to!ulong;
             catch (Exception)
                 continue;
             metadata.hasSize = true;
-            metadata.modifiedAt = match.captures[2] ~ "T"
-                ~ match.captures[3];
-            if (match.captures[3].length == 5)
+            metadata.modifiedAt = match.captures[3] ~ "T"
+                ~ match.captures[4];
+            if (match.captures[4].length == 5)
                 metadata.modifiedAt ~= ":00";
             metadata.hasModifiedAt = true;
             entries ~= metadata;
@@ -145,6 +148,7 @@ class FileArchiveTar : FileArchive
                         descriptor.modifiedAt = metadata[index].modifiedAt;
                         descriptor.hasModifiedAt = true;
                     }
+                    descriptor.isSymlink = metadata[index].isSymlink;
                     result ~= descriptor;
                 }
                 return finalizeDescriptors(result);
