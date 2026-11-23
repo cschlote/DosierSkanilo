@@ -361,10 +361,12 @@ baseline, and the documentation no longer implies that old formats are readable.
       templates (`lifecycle`, `jsontransfer`, `queries`, `passwords`,
       `operations`) and keeps the class API unchanged. `repository/transfer.d`
       is split into import/export (`transfer.d`), blob loading
-      (`catalogreads.d`), and reference queries (`referencequeries.d`). Still
-      open: `catalogbackend.d` (~2.9k lines) and `jsoncatalogbackend.d`. Split
-      each one per topic, keep lint findings unchanged, and keep one module per
-      branch.
+      (`catalogreads.d`), and reference queries (`referencequeries.d`).
+      `catalogbackend.d` is split into value types (`catalogtypes.d`),
+      interfaces (`catalogbackend.d`, with a public re-export of the types), and
+      contract tests (`catalogcontracttests.d`). Still open:
+      `jsoncatalogbackend.d` (~2.9k lines). Split it per topic, keep lint
+      findings unchanged, and keep one module per branch.
 - [ ] Design a later JSON catalog version that can round-trip complete torrent
       file lists and the remaining `TorrentInfo` fields. Do not extend v5
       silently; existing readers must keep their guarantees.

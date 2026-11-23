@@ -367,6 +367,12 @@ DosierSkanilo is licensed under [GPL-3.0-only](LICENSE.md).
 
 ## Source Map
 
+- `source/dosierskanilo/catalogbackend.d`: `CatalogBackend`, `CatalogDocument`,
+  and `CatalogBackendFactory` interfaces; re-exports the value types
+- `source/dosierskanilo/catalogtypes.d`: identities, locators, queries, pages,
+  and capability descriptors of the catalog contract
+- `source/dosierskanilo/catalogcontracttests.d`: contract unittests and the
+  in-memory fake backend
 - `source/dosierskanilo_cli/main.d`: main workflow, scanner orchestration, analysis
 - `source/dosierskanilo_cli/parser.d`: CLI parsing and progress rendering
 - `source/dosierskanilo_cli/repositoryvalidation.d` and
