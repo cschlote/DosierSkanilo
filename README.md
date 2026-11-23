@@ -390,8 +390,14 @@ DosierSkanilo is licensed under [GPL-3.0-only](LICENSE.md).
 - `source/dosierskanilo/repository/lifecycle.d`: create, open, restore, backup,
   status, and close
 - `source/dosierskanilo/repository/jsontransfer.d`: JSON import and export
-- `source/dosierskanilo/repository/queries.d`: bounded catalog, file, archive,
-  and torrent reads
+  methods of the class
+- `source/dosierskanilo/repository/transfer.d`: canonical JSON-v5 import and
+  export implementation
+- `source/dosierskanilo/repository/catalogreads.d`: blob, fingerprint, and
+  catalog-page loading in bounded batches
+- `source/dosierskanilo/repository/referencequeries.d`: directory, file,
+  archive-entry, and torrent reads
+- `source/dosierskanilo/repository/queries.d`: query methods of the class
 - `source/dosierskanilo/repository/passwords.d`: archive password storage
 - `source/dosierskanilo/repository/operations.d`: scan, metadata, and analysis
   wrappers
