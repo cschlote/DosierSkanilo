@@ -19,15 +19,13 @@ import std.stdio : File;
 import dosierskanilo.model.namedbinaryblob : NamedBinaryBlob;
 import dosierskanilo.repository.errors;
 import dosierskanilo.repository.analysis : queryDuplicateGroups;
-import dosierskanilo.repository.transfer : loadCatalogPageFromDatabase,
-    loadCatalogQueryPageFromDatabase, loadCatalogQueryPageWithIdsFromDatabase,
-    loadBlobDetailsFromDatabase, loadBlobFingerprintFromDatabase,
-    countCatalogQueryFromDatabase, countPhysicalFileReferences,
-    listDirectoriesFromDatabase, loadRootSummaryFromDatabase,
-    listFilesFromDatabase, listFilesPageFromDatabase,
-    listArchiveEntriesFromDatabase, archiveEntrySummaryFromDatabase,
-    listTorrentFilesFromDatabase, loadFileReferenceFromDatabase,
-    loadArchiveEntryFromDatabase;
+import dosierskanilo.repository.catalogreads : countCatalogQueryFromDatabase,
+    loadBlobDetailsFromDatabase, loadBlobFingerprintFromDatabase, loadCatalogPageFromDatabase,
+    loadCatalogQueryPageFromDatabase, loadCatalogQueryPageWithIdsFromDatabase;
+import dosierskanilo.repository.referencequeries : archiveEntrySummaryFromDatabase,
+    countPhysicalFileReferences, listArchiveEntriesFromDatabase, listDirectoriesFromDatabase,
+    listFilesFromDatabase, listFilesPageFromDatabase, listTorrentFilesFromDatabase,
+    loadArchiveEntryFromDatabase, loadFileReferenceFromDatabase, loadRootSummaryFromDatabase;
 import dosierskanilo.repository.types;
 import dosierskanilo.repository.repository : Repository;
 
@@ -511,7 +509,6 @@ unittest
     assertThrown!RepositoryException(repository.loadCatalogQueryPageWithIds(query));
     assertThrown!RepositoryException(repository.loadCatalogQueryCursorPage(query));
 
-    import dosierskanilo.repository.transfer : loadCatalogQueryPageWithIdsFromDatabase;
     assertThrown!RepositoryException(loadCatalogQueryPageWithIdsFromDatabase(
         repository.database, repository.repositoryPaths.rootPath, query,
         JsonExportOptions()));

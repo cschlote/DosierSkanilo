@@ -20,8 +20,8 @@ import dosierskanilo.model.namedbinaryblob : NamedBinaryBlob;
 import dosierskanilo.operations : OperationControl;
 import dosierskanilo.operationlease : TargetWriteLease;
 import dosierskanilo.repository.errors;
-import dosierskanilo.repository.transfer : exportCatalogJsonControlled,
-    importCatalogJsonControlled, loadCatalogFromDatabase;
+import dosierskanilo.repository.transfer : exportCatalogJsonControlled, importCatalogJsonControlled;
+import dosierskanilo.repository.catalogreads : loadCatalogFromDatabase;
 import dosierskanilo.repository.types;
 import dosierskanilo.repository.repository : Repository;
 
