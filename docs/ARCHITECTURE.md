@@ -41,7 +41,9 @@ refer to that payload. `CheckSums`, `MediaInfoSig`, `ArchiveSpec`, and
   compatibility API. It owns lifecycle, relational queries, scan/metadata/
   analysis wrappers, and JSON transfer. `d2sqlite3` remains internal.
 - JSON persistence is implemented by the wrapper serializer in
-  `model/namedbinaryblob.d` and JSON services in `service/`.
+  `model/catalogjson.d` and JSON services in `service/`. The blob type and
+  catalog wrapper live in `model/namedbinaryblob.d`, which re-exports the
+  model modules for source compatibility.
   `runOperation()` selects the JSON or repository executor from an explicit
   `OperationTarget`; it remains the operation facade rather than the query/read
   backend itself.
