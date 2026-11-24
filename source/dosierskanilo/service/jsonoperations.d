@@ -1154,7 +1154,7 @@ private void runJsonMetadataWork(JsonMetadataWork* item)
             };
         }
         attemptJsonMetadataWork(item, "archives", {
-            updateArchives(item.blob, item.options.rescan,
+            updateArchives(item.blob, item.options.archiveRescan(),
                 item.options.deepArchiveScan, item.cancellationFlag,
                 item.control is null ? null : &progress,
                 item.options.archivePasswordCallback,
@@ -1195,7 +1195,7 @@ private JsonMetadataWork prepareJsonMetadataWork(NamedBinaryBlob blob,
     item.doMediaInfo = options.extractMediaInfo
         && (blob.mediaInfoSig is null || options.rescan);
     item.doArchives = options.scanArchives
-        && (options.rescan
+        && (options.archiveRescan()
             || (blob.archiveSpecs is null && !blob.archiveIndexKnown)
             || (options.deepArchiveScan && !blob.archiveIndexDeep));
     item.doTorrents = options.scanTorrents && blob.torrentInfo is null;

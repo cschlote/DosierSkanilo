@@ -112,7 +112,7 @@ bool validateRepositoryOptions(string command, ref ArgsArray options)
             || options.argPickHidden || options.argDoChecksums
             || options.argDoFileTypes || options.argDoMediaSig
             || options.argScanArchives || options.argScanTorrents
-            || options.argRescanMediaSig || options.argNumberOfThreads != 1
+            || options.argRescanMediaSig || options.argRescanArchives || options.argNumberOfThreads != 1
             || options.argPrettyJSON || !options.argQueryText.empty
             || options.argQueryLimit != 50 || options.argQueryOffset != 0
             || options.argQueryVideo || options.argQueryAudio

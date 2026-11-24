@@ -523,6 +523,15 @@ analysis_output=$("${BIN}" analyze "${sqlite_root}")
 [[ "${analysis_output}" == *"Catalog analysis:"* ]]
 metadata_output=$("${BIN}" metadata "${sqlite_root}" --file-types)
 [[ "${metadata_output}" == *"Metadata update:"* ]]
+if "${BIN}" metadata "${sqlite_root}" --rescan-archives \
+    >/dev/null 2>"${TMP_DIR}/rescan-archives.err"; then
+    printf '%s\n' "--rescan-archives without an archive scan was accepted." >&2
+    exit 1
+fi
+grep -q "requires --scan-archives or --all" "${TMP_DIR}/rescan-archives.err"
+rescan_archives_output=$("${BIN}" metadata "${sqlite_root}" --scan-archives \
+    --rescan-archives)
+[[ "${rescan_archives_output}" == *"Metadata update:"* ]]
 duplicates_output=$("${BIN}" duplicates "${sqlite_root}")
 [[ "${duplicates_output}" == *"Found "*" duplicate groups."* ]]
 "${BIN}" import "${sqlite_root}" "${ROOT_DIR}/test/json_file_v2.json" --replace

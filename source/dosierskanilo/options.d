@@ -28,6 +28,7 @@ struct ArgsArray
 	bool argDoChecksums; ///< Calculate checksums for files.
 	bool argDoMediaSig; ///< Calculate media signatures.
 	bool argRescanMediaSig; ///< Force media-signature rescans.
+	bool argRescanArchives; ///< Force archive index rescans only.
 	uint argScanArchives; ///< Scan archive contents.
 	bool argScanArchivesOption; ///< Canonical single archive-scan option.
 	uint argArchiveLimit; ///< Maximum pending archive blobs per metadata run.

@@ -315,6 +315,8 @@ private string[] metadataSettings(ArgsArray options)
 		labels ~= "media info";
 	if (options.argRescanMediaSig)
 		labels ~= "media rescan";
+	if (options.argRescanArchives)
+		labels ~= "archive rescan";
 	if (options.argScanArchives == 1)
 		labels ~= "archives shallow";
 	else if (options.argScanArchives > 1)
@@ -1909,6 +1911,7 @@ bool executeRepositoryMetadata(CatalogBackend backend, string repositoryRoot,
 	metadataOptions.deepArchiveScan = options.argScanArchives > 1;
 	metadataOptions.scanTorrents = options.argScanTorrents;
 	metadataOptions.rescan = options.argRescanMediaSig;
+	metadataOptions.rescanArchives = options.argRescanArchives;
 	if (!options.argOnlyPath.empty)
 	{
 		metadataOptions.filePath = options.argOnlyPath;
@@ -2077,6 +2080,7 @@ MetadataScanOptions metadataOptionsFromCli(ArgsArray options)
 	metadata.deepArchiveScan = options.argScanArchives > 1;
 	metadata.scanTorrents = options.argScanTorrents;
 	metadata.rescan = options.argRescanMediaSig;
+	metadata.rescanArchives = options.argRescanArchives;
 	metadata.archiveBulkMode = archiveBulkModeFromOption(options.argArchiveBulk);
 	if (options.argArchiveChunkMiB > 0)
 		metadata.archiveChunkBytes =
