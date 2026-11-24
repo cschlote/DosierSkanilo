@@ -181,8 +181,10 @@ combines the inventory with a metadata run.
 already cataloged and fills in the selected extractors: `--checksums` (MD5,
 SHA1, XXH64), `--file-types`, `--media-info`, `--scan-archives` (repeat for a
 deep scan), and `--scan-torrents`. Values that already exist are kept unless
-`--rescan-media-info` forces MediaInfo and the archive index again. `--only
-PATH` restricts a run to one repository file, and `--archive-limit N` stops an
+`--rescan-media-info` forces MediaInfo and the archive index again. Use
+`--rescan-archives` to rebuild only the archive indexes and leave MediaInfo and
+other values alone; it requires `--scan-archives` or `--all`. `--only PATH`
+restricts a run to one repository file, and `--archive-limit N` stops an
 archive-only run after N pending archives. At least one extractor is required.
 
 `analyze` reads only the catalog. It counts references whose file is gone and
@@ -239,6 +241,7 @@ dosierskanilo duplicates [ROOT] --json CATALOG.json
 Common options use kebab-case: `--recursive`, `--checksums`, `--file-types`,
 `--media-info`, `--scan-archives`, `--scan-torrents`, `--all`, `--drop-missing`,
 `--pick-hidden`, `--threads`, `--archive-limit`, `--only`, `--rescan-media-info`,
+`--rescan-archives`,
 `--verbose`, `--pretty`,
 `--force` (init/restore), `--output` (export/backup), `--input` (restore), and
 `--format=table|json` for query and status commands. `--all` enables checksums,

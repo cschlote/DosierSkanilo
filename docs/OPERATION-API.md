@@ -57,6 +57,10 @@ Map these flags to typed request fields:
   archive scanning (`deepArchiveScan = true`).
 - `--rescan-media-info` is a modifier, not an extractor by itself; standalone
   metadata requests still require at least one selected extractor.
+- `--rescan-archives` maps to `MetadataScanOptions.rescanArchives`. It forces
+  archive index rebuilds only. It does not set `rescan`, so MediaInfo and
+  torrent metadata keep their existing values. It also requires an archive scan
+  (`--scan-archives` or `--all`).
 - `--only PATH` restricts a repository metadata request to one catalog file.
   It is rejected for scan, analyze, and JSON commands.
 
