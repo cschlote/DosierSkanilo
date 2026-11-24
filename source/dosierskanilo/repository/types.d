@@ -173,6 +173,17 @@ struct MetadataScanOptions
     bool scanTorrents;
     /// Force refresh of metadata that is already present.
     bool rescan;
+    /// Force archive index refresh only; other metadata keeps existing values.
+    bool rescanArchives;
+    /** Whether archive indexes are built again, even when already present.
+     *
+     * Returns: `true` for a full rescan or an archive-only rescan.
+     */
+    bool archiveRescan() const pure nothrow @safe
+    {
+        return rescan || rescanArchives;
+    }
+
     /// Optional frontend callback used when an archive requires a password.
     ArchivePasswordCallback archivePasswordCallback;
     /// Optional repository-relative path restricting metadata work to one blob.

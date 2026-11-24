@@ -245,7 +245,7 @@ private void runMetadataWork(MetadataWorkItem item)
         }
         try
         {
-            updateArchives(item.blob, item.options.rescan,
+            updateArchives(item.blob, item.options.archiveRescan(),
                 item.options.deepArchiveScan, item.cancellationFlag,
                 item.control is null ? null : &archiveProgress,
                 item.options.archivePasswordCallback, 0, 8, "", null,
@@ -553,14 +553,14 @@ MetadataSummary updateRepositoryMetadata(ref Database db, string rootPath,
             }
         }
 
-        if (options.scanArchives && (options.rescan
+        if (options.scanArchives && (options.archiveRescan()
             || !metadataCompleted(db, blobId, "archives")
             || !archiveIndexCurrent(db, blobId, options.deepArchiveScan)))
         {
             setMetadataStatus(db, blobId, "archives", "pending", "");
             try
             {
-                updateArchives(blob, options.rescan, options.deepArchiveScan,
+                updateArchives(blob, options.archiveRescan(), options.deepArchiveScan,
                     null, null, options.archivePasswordCallback, 0, 8, "", null,
                     options.detectFileTypes, options.extractMediaInfo,
                     options.archiveBulkMode, options.archiveChunkBytes);
@@ -644,7 +644,7 @@ MetadataExecutionResult updateRepositoryMetadataControlled(ref Database db,
         && !options.extractMediaInfo && !options.scanTorrents;
     auto blobIds = archivesOnly
         ? metadataArchiveBlobIds(db, options.filePath,
-            options.deepArchiveScan, options.rescan, options.archiveLimit)
+            options.deepArchiveScan, options.archiveRescan(), options.archiveLimit)
         : metadataBlobIds(db, options.filePath);
     auto batchSize = options.threads > 0 ? options.threads * 4 : 1;
     if (batchSize == 0)
@@ -689,7 +689,7 @@ MetadataExecutionResult updateRepositoryMetadataControlled(ref Database db,
             item.doMediaInfo = options.extractMediaInfo
                 && (options.rescan || !metadataCompleted(db, blobId, "media_info"));
             item.doArchives = options.scanArchives
-                && (options.rescan || !metadataCompleted(db, blobId, "archives")
+                && (options.archiveRescan() || !metadataCompleted(db, blobId, "archives")
                     || !archiveIndexCurrent(db, blobId,
                         options.deepArchiveScan));
             item.doTorrents = options.scanTorrents
@@ -1144,7 +1144,7 @@ private void processMetadataBatch(ref Database db, string rootPath,
         item.doMediaInfo = options.extractMediaInfo
             && (options.rescan || !metadataCompleted(db, blobId, "media_info"));
         item.doArchives = options.scanArchives
-            && (options.rescan || !metadataCompleted(db, blobId, "archives")
+            && (options.archiveRescan() || !metadataCompleted(db, blobId, "archives")
                 || !archiveIndexCurrent(db, blobId,
                     options.deepArchiveScan));
         item.doTorrents = options.scanTorrents

@@ -861,6 +861,56 @@ unittest
     assert(entries[0].name == "inside.txt");
 }
 
+@("archive-only rescan rebuilds current archive indexes")
+unittest
+{
+    import std.file : exists, mkdirRecurse, rmdirRecurse, tempDir, write;
+    import std.path : buildPath;
+    import std.process : execute;
+    import std.uuid : randomUUID;
+
+    auto root = buildPath(tempDir(), "repository-archive-rescan-"
+        ~ randomUUID().toString());
+    mkdirRecurse(root);
+    scope (exit)
+    {
+        if (exists(root))
+            rmdirRecurse(root);
+    }
+    auto payload = buildPath(root, "payload.txt");
+    auto archive = buildPath(root, "bundle.zip");
+    write(payload, "payload");
+    assert(execute(["zip", "-q", "-j", archive, payload]).status == 0);
+
+    auto repository = Repository.initialize(root);
+    scope (exit)
+        repository.close();
+    repository.scan();
+
+    MetadataScanOptions options;
+    options.scanArchives = true;
+    options.deepArchiveScan = false;
+    const auto first = repository.updateMetadata(options);
+    assert(first.archivesUpdated == 1);
+
+    const auto unchanged = repository.updateMetadata(options);
+    assert(unchanged.archivesUpdated == 0,
+        "a current archive index must not be generated again");
+
+    MetadataScanOptions archivesOnly;
+    archivesOnly.scanArchives = true;
+    archivesOnly.deepArchiveScan = false;
+    archivesOnly.rescanArchives = true;
+    assert(archivesOnly.archiveRescan);
+    assert(!archivesOnly.rescan);
+    const auto rebuilt = repository.updateMetadata(archivesOnly);
+    assert(rebuilt.archivesUpdated == 1,
+        "an archive-only rescan must rebuild the current index");
+    assert(rebuilt.mediaInfoUpdated == 0);
+    assert(rebuilt.checksumsUpdated == 0);
+    assert(rebuilt.failed == 0);
+}
+
 @("archive-only metadata cancellation finishes the current archive and resumes")
 unittest
 {

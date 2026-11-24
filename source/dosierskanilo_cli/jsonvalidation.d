@@ -138,7 +138,7 @@ bool validateJsonOptions(string command, ref ArgsArray options)
             || options.argRecursive || options.argPickHidden
             || options.argDoChecksums || options.argDoFileTypes
             || options.argDoMediaSig || options.argScanArchives
-            || options.argScanTorrents || options.argRescanMediaSig
+            || options.argScanTorrents || options.argRescanMediaSig || options.argRescanArchives
             || options.argDuplicateLimit != 100
             || options.argArchiveLimit != 0
             || !options.argExportPath.empty
@@ -160,7 +160,7 @@ bool validateJsonOptions(string command, ref ArgsArray options)
             || options.argRecursive || options.argPickHidden
             || options.argDoChecksums || options.argDoFileTypes
             || options.argDoMediaSig || options.argScanArchives
-            || options.argScanTorrents || options.argRescanMediaSig
+            || options.argScanTorrents || options.argRescanMediaSig || options.argRescanArchives
             || !options.argQueryText.empty || options.argQueryLimit != 50
             || options.argQueryOffset != 0 || options.argQueryVideo
             || options.argQueryAudio || options.argQueryImage
@@ -190,7 +190,7 @@ bool validateJsonOptions(string command, ref ArgsArray options)
             || options.argPickHidden || options.argDoChecksums
             || options.argDoFileTypes || options.argDoMediaSig
             || options.argScanArchives || options.argScanTorrents
-            || options.argRescanMediaSig || options.argPrettyJSON
+            || options.argRescanMediaSig || options.argRescanArchives || options.argPrettyJSON
             || options.argNumberOfThreads != 1
             || options.argReplaceCatalog || !options.argRestoreFrom.empty
             || !options.argRestoreInput.empty || options.argForce

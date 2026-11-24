@@ -95,6 +95,7 @@ Metadata options (at least one is required for `metadata`):
     metadata run to N pending archives; completed archives are skipped.
     --only PATH restricts a metadata run to one repository-relative file.
     --rescan-media-info forces media metadata extraction again
+    --rescan-archives rebuilds archive indexes only; it needs --scan-archives or --all
 
 Archive member cache options (scan and metadata):
 
@@ -303,6 +304,7 @@ ParsedCommandLine parseCommandLine(string[] args)
             "file-types", "SAM------ Query file type with 'file' utility", &argsarray.argDoFileTypes,
             "media-info", "SAM------ Calculate the media signature", &argsarray.argDoMediaSig,
             "rescan-media-info", "SAM------ Rescan all files for media signature", &argsarray.argRescanMediaSig,
+            "rescan-archives", "SAM------ Rebuild archive indexes without other metadata", &argsarray.argRescanArchives,
             "scan-archives+", "SAM------ Get the contents of archives (repeat for deep scanning)", &argsarray.argScanArchives,
             "archive-limit", "--M------ Maximum pending archive blobs per metadata run", &argsarray.argArchiveLimit,
             "only", "--M------ Restrict metadata work to one repository file", &argsarray.argOnlyPath,
@@ -482,6 +484,13 @@ ParsedCommandLine parseCommandLine(string[] args)
         return ParsedCommandLine(ParseStatus.error, CliCommand.noCommand, argsarray);
     }
 
+    if (argsarray.argRescanArchives && argsarray.argScanArchives == 0
+        && !argsarray.argAll)
+    {
+        errorLine("--rescan-archives requires --scan-archives or --all.");
+        return ParsedCommandLine(ParseStatus.error, CliCommand.noCommand, argsarray);
+    }
+
     if (jsonMode)
     {
         if (!validateJsonOptions(command, argsarray))
@@ -515,7 +524,7 @@ private bool validateRecoveryOptions(ArgsArray options)
         || options.argShowStatus || options.argList || options.argDuplicates
         || options.argForce || options.argRecursive || options.argPickHidden
         || options.argDoChecksums || options.argDoFileTypes
-        || options.argDoMediaSig || options.argRescanMediaSig
+        || options.argDoMediaSig || options.argRescanMediaSig || options.argRescanArchives
         || options.argScanArchives != 0 || options.argScanTorrents
         || !options.argArchiveCacheDir.empty || options.argArchiveCacheMiB != 0
         || options.argArchiveBulk != "auto"
@@ -689,6 +698,18 @@ unittest
     auto invalidOnlyJson = parseCommandLine(["program", "scan", "--json",
         "./test/json_file_v2.json", "--only", "archives/sample.zip"]);
     assert(invalidOnlyJson.status == ParseStatus.error);
+    const auto rescanArchives = parseCommandLine(["program", "metadata", "./test",
+        "--scan-archives", "--rescan-archives"]);
+    assert(rescanArchives.status == ParseStatus.run);
+    assert(rescanArchives.options.argRescanArchives);
+    assert(!rescanArchives.options.argRescanMediaSig);
+    const auto rescanArchivesJson = parseCommandLine(["program", "scan", "--json",
+        "./test/json_file_v2.json", "--all", "--rescan-archives"]);
+    assert(rescanArchivesJson.status == ParseStatus.run);
+    const auto invalidRescanArchives = parseCommandLine(["program", "metadata", "./test",
+        "--rescan-archives"]);
+    assert(invalidRescanArchives.status == ParseStatus.error);
+    assert(helpText.canFind("--rescan-archives"));
     auto cachedArchive = parseCommandLine(["program", "scan", "./test",
         "--scan-archives", "--archive-cache-dir", "./cache",
         "--archive-cache-size", "64"]);
